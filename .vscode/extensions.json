@@ -1,0 +1,25 @@
+{
+  "recommendations": [
+    // ── Rust (game/rust/) ───────────────────────────────────────────────────
+    "rust-lang.rust-analyzer",      // Rust language server: completions, inlay hints, go-to-def
+    "vadimcn.vscode-lldb",          // CodeLLDB: native debugger for Rust binaries and tests
+
+    // ── Godot (godot-project/) ──────────────────────────────────────────────
+    "geequlim.godot-tools",         // GDScript LSP, scene previewer, debugger bridge to Godot 4
+
+    // ── Angular / TypeScript (frontend/) ────────────────────────────────────
+    "angular.ng-template",          // Angular Language Service: template type-checking, completions
+    "dbaeumer.vscode-eslint",       // ESLint inline errors
+    "esbenp.prettier-vscode",       // Prettier formatter
+
+    // ── Java / Spring Boot (backend/) ───────────────────────────────────────
+    "vscjava.vscode-java-pack",     // Java Extension Pack (Language Support, Debugger, Test Runner, Maven, Dependency Viewer)
+    "vmware.vscode-spring-boot",    // Spring Boot Tools: live bean graph, request mappings, properties autocomplete
+    "vscjava.vscode-spring-boot-dashboard", // Spring Boot Dashboard: run/stop/restart from sidebar
+
+    // ── General ─────────────────────────────────────────────────────────────
+    "eamodio.gitlens",              // Git blame, history, PR annotations inline
+    "EditorConfig.EditorConfig",    // Respect .editorconfig from Godot project
+    "streetsidesoftware.code-spell-checker" // Spell-check in comments and strings
+  ]
+}

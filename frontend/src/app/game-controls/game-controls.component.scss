@@ -1,0 +1,94 @@
+.controls-panel {
+  display: flex;
+  align-items: flex-end;
+  gap: 2rem;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(to top, rgba(10, 8, 20, 0.92), transparent);
+  user-select: none;
+}
+
+.dpad-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dpad-row {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.action-cluster {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  max-width: 240px;
+}
+
+.ctrl-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: rgba(40, 30, 60, 0.85);
+  border: 1px solid rgba(150, 120, 200, 0.4);
+  border-radius: 8px;
+  color: #d4c5f0;
+  cursor: pointer;
+  transition: all 0.08s ease;
+  -webkit-tap-highlight-color: transparent;
+
+  &:hover {
+    background: rgba(60, 45, 90, 0.9);
+    border-color: rgba(180, 150, 230, 0.7);
+  }
+
+  &.pressed {
+    background: rgba(100, 70, 160, 0.95);
+    border-color: #b89ede;
+    box-shadow: 0 0 12px rgba(140, 100, 220, 0.6);
+    transform: scale(0.95);
+    color: #fff;
+  }
+}
+
+.dpad-btn {
+  width: 52px;
+  height: 52px;
+  font-size: 1.4rem;
+}
+
+.jump-btn {
+  width: 110px;
+  height: 44px;
+  font-size: 1.1rem;
+}
+
+.action-btn {
+  width: 56px;
+  height: 56px;
+  font-size: 1.3rem;
+}
+
+.btn-icon {
+  line-height: 1;
+}
+
+.btn-label {
+  font-size: 0.55rem;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.btn-key {
+  font-size: 0.5rem;
+  opacity: 0.55;
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 4px;
+  border-radius: 3px;
+}

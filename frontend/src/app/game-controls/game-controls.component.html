@@ -1,0 +1,66 @@
+<div class="controls-panel">
+  <div class="dpad-cluster">
+    <div class="dpad-row dpad-top">
+      <button
+        *ngFor="let btn of movementButtons.slice(0,1)"
+        class="ctrl-btn dpad-btn"
+        [class.pressed]="btn.pressed"
+        [attr.title]="btn.label + ' [' + btn.key.toUpperCase() + ']'"
+        (mousedown)="onButtonDown(btn)"
+        (mouseup)="onButtonUp(btn)"
+        (mouseleave)="onButtonUp(btn)"
+        (touchstart)="onButtonDown(btn)"
+        (touchend)="onButtonUp(btn)">
+        <span class="btn-icon">{{ btn.icon }}</span>
+        <span class="btn-key">{{ btn.key.toUpperCase() }}</span>
+      </button>
+    </div>
+    <div class="dpad-row dpad-middle">
+      <button
+        *ngFor="let btn of movementButtons.slice(1,4)"
+        class="ctrl-btn dpad-btn"
+        [class.pressed]="btn.pressed"
+        [attr.title]="btn.label + ' [' + btn.key.toUpperCase() + ']'"
+        (mousedown)="onButtonDown(btn)"
+        (mouseup)="onButtonUp(btn)"
+        (mouseleave)="onButtonUp(btn)"
+        (touchstart)="onButtonDown(btn)"
+        (touchend)="onButtonUp(btn)">
+        <span class="btn-icon">{{ btn.icon }}</span>
+        <span class="btn-key">{{ btn.key.toUpperCase() }}</span>
+      </button>
+    </div>
+    <div class="dpad-row dpad-bottom">
+      <button
+        *ngFor="let btn of movementButtons.slice(4)"
+        class="ctrl-btn jump-btn"
+        [class.pressed]="btn.pressed"
+        [attr.title]="btn.label + ' [Space]'"
+        (mousedown)="onButtonDown(btn)"
+        (mouseup)="onButtonUp(btn)"
+        (mouseleave)="onButtonUp(btn)"
+        (touchstart)="onButtonDown(btn)"
+        (touchend)="onButtonUp(btn)">
+        <span class="btn-icon">{{ btn.icon }}</span>
+        <span class="btn-key">SPACE</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="action-cluster">
+    <button
+      *ngFor="let btn of actionButtons"
+      class="ctrl-btn action-btn"
+      [class.pressed]="btn.pressed"
+      [attr.title]="btn.label + ' [' + btn.key.toUpperCase() + ']'"
+      (mousedown)="onButtonDown(btn)"
+      (mouseup)="onButtonUp(btn)"
+      (mouseleave)="onButtonUp(btn)"
+      (touchstart)="onButtonDown(btn)"
+      (touchend)="onButtonUp(btn)">
+      <span class="btn-icon">{{ btn.icon }}</span>
+      <span class="btn-label">{{ btn.label }}</span>
+      <span class="btn-key">{{ btn.key.toUpperCase() }}</span>
+    </button>
+  </div>
+</div>

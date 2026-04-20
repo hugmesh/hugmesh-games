@@ -1,0 +1,129 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+
+    // ── Spring Boot API ───────────────────────────────────────────────────
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "API: Spring Boot (Debug)",
+      "mainClass": "com.threewizards.ThreeWizardsApplication",
+      "projectName": "three-wizards-api",
+      "cwd": "${workspaceFolder}/backend",
+      "args": "",
+      "vmArgs": "-Dspring.profiles.active=dev",
+      "console": "integratedTerminal",
+      "shortenCommandLine": "jarmanifest"
+    },
+    {
+      "type": "java",
+      "request": "attach",
+      "name": "API: Attach to mvnw (5005)",
+      "hostName": "localhost",
+      "port": 5005,
+      "projectName": "three-wizards-api"
+    },
+
+    // ── Angular Frontend ──────────────────────────────────────────────────
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Frontend: Chrome (requires npm start)",
+      "url": "http://localhost:4200",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "sourceMapPathOverrides": {
+        "webpack:/*": "${webRoot}/*",
+        "/./*": "${webRoot}/*",
+        "/src/*": "${webRoot}/*",
+        "/*": "*",
+        "/./~/*": "${workspaceFolder}/frontend/node_modules/*"
+      }
+    },
+    {
+      "type": "firefox",
+      "request": "launch",
+      "name": "Frontend: Firefox (requires npm start)",
+      "url": "http://localhost:4200",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "pathMappings": [
+        {
+          "url": "webpack:///",
+          "path": "${workspaceFolder}/frontend/"
+        }
+      ]
+    },
+
+    // ── Rust GDExtension ─────────────────────────────────────────────────
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Rust: Debug Tests",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--manifest-path",
+          "${workspaceFolder}/game/rust/Cargo.toml"
+        ],
+        "filter": {
+          "name": "three_wizards",
+          "kind": "lib"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}/game/rust",
+      "sourceMap": {
+        "/rustc/*": "${env:HOME}/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust"
+      }
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Rust: Build & Run (native binary)",
+      "cargo": {
+        "args": [
+          "build",
+          "--manifest-path",
+          "${workspaceFolder}/game/rust/Cargo.toml"
+        ]
+      },
+      "program": "${workspaceFolder}/game/rust/target/debug/three_wizards",
+      "args": [],
+      "cwd": "${workspaceFolder}/game/rust"
+    },
+
+    // ── Godot ────────────────────────────────────────────────────────────
+    {
+      "type": "godot",
+      "request": "launch",
+      "name": "Godot: Launch Editor",
+      "project": "${workspaceFolder}/godot-project",
+      "port": 6007,
+      "address": "127.0.0.1",
+      "launch_game_instance": false,
+      "launch_scene": false
+    },
+    {
+      "type": "godot",
+      "request": "launch",
+      "name": "Godot: Play Cave Scene",
+      "project": "${workspaceFolder}/godot-project",
+      "port": 6007,
+      "address": "127.0.0.1",
+      "launch_game_instance": true,
+      "launch_scene": false,
+      "scene": "${workspaceFolder}/godot-project/scenes/cave.tscn"
+    }
+  ],
+
+  "compounds": [
+    {
+      "name": "Full Stack: API + Frontend",
+      "configurations": [
+        "API: Spring Boot (Debug)",
+        "Frontend: Chrome (requires npm start)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

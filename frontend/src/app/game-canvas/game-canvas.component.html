@@ -1,0 +1,15 @@
+<div class="canvas-wrapper">
+  <iframe
+    #gameFrame
+    class="game-frame"
+    src="assets/game/index.html"
+    title="Three Wizards In A Trenchcoat"
+    allow="fullscreen; pointer-lock"
+    sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups allow-forms allow-downloads"
+    (load)="onFrameLoad()"
+  ></iframe>
+  <div class="loading-overlay" *ngIf="!gameLoaded">
+    <div class="loading-spinner"></div>
+    <span>Loading cave...</span>
+  </div>
+</div>
