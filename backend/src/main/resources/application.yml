@@ -1,0 +1,13 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: three-wizards-api
+  webflux:
+    base-path: /
+
+logging:
+  level:
+    com.threewizards: DEBUG
+    org.springframework.web: INFO

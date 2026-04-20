@@ -1,0 +1,26 @@
+.game-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #0a0a0f;
+}
+
+.canvas-region {
+  flex: 1;
+  min-height: 0;
+}
+
+.overlay-region {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+
+  > * {
+    pointer-events: auto;
+  }
+}

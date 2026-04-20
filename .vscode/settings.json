@@ -1,0 +1,60 @@
+{
+  // ── Java / Spring Boot ────────────────────────────────────────────────────
+  "java.project.sourcePaths": [
+    "backend/src/main/java",
+    "backend/src/test/java"
+  ],
+  "java.project.referencedLibraries": [],
+  "spring-boot.ls.java.home": "",
+
+  // ── Rust ─────────────────────────────────────────────────────────────────
+  "rust-analyzer.linkedProjects": [
+    "game/rust/Cargo.toml"
+  ],
+  "rust-analyzer.checkOnSave.command": "clippy",
+
+  // ── Godot ─────────────────────────────────────────────────────────────────
+  "godot_tools.editor_path": "godot",
+  "godot_tools.gdscript_lsp_server_port": 6005,
+  "[gdscript]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": false
+  },
+  "files.associations": {
+    "*.gdextension": "ini",
+    "*.tscn": "ini",
+    "*.tres": "ini",
+    "*.gd": "gdscript"
+  },
+
+  // ── Angular / TypeScript ──────────────────────────────────────────────────
+  "typescript.tsdk": "frontend/node_modules/typescript/lib",
+  "angular.enable-strict-mode-prompt": false,
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[scss]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+
+  // ── General ───────────────────────────────────────────────────────────────
+  "editor.formatOnSave": true,
+  "editor.rulers": [100],
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/target": true,
+    "game/rust/target": true,
+    "**/.godot": true,
+    "**/dist": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/target": true,
+    "game/rust/target": true,
+    "**/.godot": true,
+    "**/dist": true
+  }
+}

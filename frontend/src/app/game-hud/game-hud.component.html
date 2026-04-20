@@ -1,0 +1,28 @@
+<div class="hud">
+  <div class="hud-top-left" *ngIf="state$ | async as state">
+    <div class="stat-bar health-bar">
+      <span class="stat-label">HP</span>
+      <div class="bar-track">
+        <div class="bar-fill" [style.width.%]="state.player.health"></div>
+      </div>
+      <span class="stat-value">{{ state.player.health }}</span>
+    </div>
+    <div class="stat-bar mana-bar">
+      <span class="stat-label">MP</span>
+      <div class="bar-track">
+        <div class="bar-fill" [style.width.%]="state.player.mana"></div>
+      </div>
+      <span class="stat-value">{{ state.player.mana }}</span>
+    </div>
+    <div class="position-display">
+      <span class="pos-label">POS</span>
+      <span class="pos-value">{{ positionStr(state) }}</span>
+    </div>
+  </div>
+
+  <div class="api-badge" [class.connected]="connected$ | async" [class.disconnected]="!(connected$ | async)">
+    <span class="api-dot"></span>
+    <span class="api-label">{{ (connected$ | async) ? 'API' : 'API offline' }}</span>
+  </div>
+
+</div>
