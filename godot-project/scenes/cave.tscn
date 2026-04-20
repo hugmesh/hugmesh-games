@@ -50,11 +50,11 @@ height = 0.06
 background_mode = 1
 background_color = Color(0.01, 0.01, 0.03, 1)
 ambient_light_source = 2
-ambient_light_color = Color(0.08, 0.06, 0.18, 1)
-ambient_light_energy = 0.5
+ambient_light_color = Color(0.55, 0.65, 0.85, 1)
+ambient_light_energy = 1.8
 fog_enabled = true
-fog_light_color = Color(0.05, 0.04, 0.1, 1)
-fog_density = 0.004
+fog_light_color = Color(0.3, 0.4, 0.6, 1)
+fog_density = 0.003
 
 [sub_resource type="StandardMaterial3D" id="mat_fairy_green"]
 flags_unshaded = true
@@ -241,8 +241,8 @@ omni_range = 20.0
 [node name="AmbientLight" type="DirectionalLight3D" parent="."]
 position = Vector3(0, 15, 0)
 rotation = Vector3(-1.5708, 0, 0)
-light_color = Color(0.1, 0.08, 0.15, 1)
-light_energy = 0.6
+light_color = Color(0.55, 0.65, 0.85, 1)
+light_energy = 1.2
 shadow_enabled = false
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
@@ -312,6 +312,36 @@ randomness = 0.5
 draw_pass_1 = SubResource("mesh_fairy_blue")
 process_material = SubResource("proc_fairy_blue")
 
+[node name="FillLight1" type="OmniLight3D" parent="."]
+position = Vector3(0, 18, 0)
+light_color = Color(0.5, 0.65, 0.95, 1)
+light_energy = 2.5
+omni_range = 45.0
+
+[node name="FillLight2" type="OmniLight3D" parent="."]
+position = Vector3(-20, 18, -30)
+light_color = Color(0.45, 0.6, 0.9, 1)
+light_energy = 2.0
+omni_range = 40.0
+
+[node name="FillLight3" type="OmniLight3D" parent="."]
+position = Vector3(20, 18, 30)
+light_color = Color(0.5, 0.65, 0.9, 1)
+light_energy = 2.0
+omni_range = 40.0
+
+[node name="FillLight4" type="OmniLight3D" parent="."]
+position = Vector3(0, 18, 52)
+light_color = Color(0.4, 0.55, 0.85, 1)
+light_energy = 2.0
+omni_range = 38.0
+
+[node name="FillLight5" type="OmniLight3D" parent="."]
+position = Vector3(0, 18, -52)
+light_color = Color(0.4, 0.55, 0.85, 1)
+light_energy = 2.0
+omni_range = 38.0
+
 [node name="Fairy3" type="Node3D" parent="."]
 position = Vector3(-5, 7, 42)
 script = ExtResource("4_fairy")
@@ -322,6 +352,159 @@ light_energy = 1.5
 omni_range = 6.0
 
 [node name="Sparks" type="GPUParticles3D" parent="Fairy3"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_purple")
+process_material = SubResource("proc_fairy_purple")
+
+[node name="Fairy4" type="Node3D" parent="."]
+position = Vector3(10, 8, -30)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy4"]
+light_color = Color(0.3, 1.0, 0.5, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy4"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_green")
+process_material = SubResource("proc_fairy_green")
+
+[node name="Fairy5" type="Node3D" parent="."]
+position = Vector3(-22, 5, -25)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy5"]
+light_color = Color(0.2, 0.6, 1.0, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy5"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_blue")
+process_material = SubResource("proc_fairy_blue")
+
+[node name="Fairy6" type="Node3D" parent="."]
+position = Vector3(26, 6, -8)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy6"]
+light_color = Color(0.8, 0.3, 1.0, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy6"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_purple")
+process_material = SubResource("proc_fairy_purple")
+
+[node name="Fairy7" type="Node3D" parent="."]
+position = Vector3(-30, 7, 18)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy7"]
+light_color = Color(0.3, 1.0, 0.5, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy7"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_green")
+process_material = SubResource("proc_fairy_green")
+
+[node name="Fairy8" type="Node3D" parent="."]
+position = Vector3(28, 5, 38)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy8"]
+light_color = Color(0.2, 0.6, 1.0, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy8"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_blue")
+process_material = SubResource("proc_fairy_blue")
+
+[node name="Fairy9" type="Node3D" parent="."]
+position = Vector3(5, 9, 52)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy9"]
+light_color = Color(0.8, 0.3, 1.0, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy9"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_purple")
+process_material = SubResource("proc_fairy_purple")
+
+[node name="Fairy10" type="Node3D" parent="."]
+position = Vector3(-26, 6, 48)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy10"]
+light_color = Color(0.3, 1.0, 0.5, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy10"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_green")
+process_material = SubResource("proc_fairy_green")
+
+[node name="Fairy11" type="Node3D" parent="."]
+position = Vector3(18, 7, -50)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy11"]
+light_color = Color(0.2, 0.6, 1.0, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy11"]
+amount = 24
+lifetime = 1.8
+one_shot = false
+randomness = 0.5
+draw_pass_1 = SubResource("mesh_fairy_blue")
+process_material = SubResource("proc_fairy_blue")
+
+[node name="Fairy12" type="Node3D" parent="."]
+position = Vector3(-12, 6, 5)
+script = ExtResource("4_fairy")
+
+[node name="FairyLight" type="OmniLight3D" parent="Fairy12"]
+light_color = Color(0.8, 0.3, 1.0, 1)
+light_energy = 1.5
+omni_range = 6.0
+
+[node name="Sparks" type="GPUParticles3D" parent="Fairy12"]
 amount = 24
 lifetime = 1.8
 one_shot = false
