@@ -4,10 +4,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
@@ -17,6 +14,9 @@ import java.util.Map;
 public class AssetController {
 
     private static final Map<String, MediaType> MEDIA_TYPES = Map.ofEntries(
+            Map.entry("html", MediaType.TEXT_HTML),
+            Map.entry("js",   MediaType.valueOf("application/javascript")),
+            Map.entry("css",  MediaType.valueOf("text/css")),
             Map.entry("png",  MediaType.IMAGE_PNG),
             Map.entry("jpg",  MediaType.IMAGE_JPEG),
             Map.entry("jpeg", MediaType.IMAGE_JPEG),
@@ -31,16 +31,34 @@ public class AssetController {
 
     @GetMapping("/{filename:.+}")
     public Mono<ResponseEntity<Resource>> getAsset(@PathVariable String filename) {
+        return serveFile("assets/" + filename, false);
+    }
+
+    @GetMapping("/games/{slug}/{filename:.+}")
+    public Mono<ResponseEntity<Resource>> getGameAsset(
+            @PathVariable String slug,
+            @PathVariable String filename) {
+        return serveFile("assets/games/" + slug + "/" + filename, true);
+    }
+
+    private Mono<ResponseEntity<Resource>> serveFile(String path, boolean addIsolationHeaders) {
         return Mono.fromCallable(() -> {
-            ClassPathResource resource = new ClassPathResource("assets/" + filename);
+            ClassPathResource resource = new ClassPathResource(path);
             if (!resource.exists()) {
                 return ResponseEntity.<Resource>notFound().build();
             }
+            String filename = path.substring(path.lastIndexOf('/') + 1);
             String ext = filename.contains(".")
                     ? filename.substring(filename.lastIndexOf('.') + 1).toLowerCase()
                     : "";
             MediaType mediaType = MEDIA_TYPES.getOrDefault(ext, MediaType.APPLICATION_OCTET_STREAM);
-            return ResponseEntity.ok().contentType(mediaType).<Resource>body(resource);
+            var builder = ResponseEntity.ok().contentType(mediaType);
+            if (addIsolationHeaders) {
+                builder = builder
+                        .header("Cross-Origin-Opener-Policy", "same-origin")
+                        .header("Cross-Origin-Embedder-Policy", "require-corp");
+            }
+            return builder.<Resource>body(resource);
         });
     }
 }

@@ -28,13 +28,15 @@ func _fetch_game_config() -> void:
 	var params = new URLSearchParams(window.location.search);
 	var gameId = params.get('game_id') || '1';
 	var base = (window.location.host === 'localhost:4200') ? 'http://localhost:8080' : '';
-	fetch(base + '/api/games/' + gameId)
+	window._twSceneReady = false;
+	fetch(base + '/api/games/' + gameId + '/scene')
 		.then(function(r) { return r.json(); })
-		.then(function(g) {
-			window._twGameConfig = g;
-			console.log('[GameBridge] loaded config for:', g.name);
+		.then(function(scene) {
+			window._twSceneConfig = scene;
+			window._twSceneReady = true;
+			console.log('[GameBridge] scene loaded:', scene.name, '—', (scene.elements || []).length, 'elements');
 		})
-		.catch(function(e) { console.warn('[GameBridge] config fetch failed', e); });
+		.catch(function(e) { console.warn('[GameBridge] scene fetch failed', e); });
 })();
 """)
 

@@ -4,6 +4,8 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 import { GameStateService } from '../services/game-state.service';
 import { GameState } from '../models/game-state.model';
+import { GameListing } from '../models/game-listing.model';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-game-canvas',
@@ -13,7 +15,7 @@ import { GameState } from '../models/game-state.model';
   styleUrl: './game-canvas.component.scss',
 })
 export class GameCanvasComponent implements OnChanges, OnDestroy {
-  @Input() gameId: number = 1;
+  @Input() game!: GameListing;
   @ViewChild('gameFrame') gameFrame!: ElementRef<HTMLIFrameElement>;
 
   gameLoaded = false;
@@ -24,9 +26,10 @@ export class GameCanvasComponent implements OnChanges, OnDestroy {
   constructor(private gameState: GameStateService, private sanitizer: DomSanitizer) {}
 
   ngOnChanges(): void {
+    if (!this.game) return;
     this.gameLoaded = false;
     this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(
-      `assets/game/index.html?game_id=${this.gameId}`
+      `${environment.apiBase}/api/assets/games/${this.game.slug}/index.html?game_id=${this.game.id}`
     );
     if (!this._sub) {
       this._sub = this.gameState.state$.subscribe(s => this._postState(s));

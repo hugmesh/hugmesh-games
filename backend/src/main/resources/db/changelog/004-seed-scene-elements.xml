@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="004" author="three-wizards">
+        <sql>
+INSERT INTO scene_elements (game_id, element_type, name, position_x, position_y, position_z, rotation_x, rotation_y, rotation_z, properties, sort_order) VALUES
+(1,'world_env','WorldEnvironment',0,0,0,0,0,0,'{"ambientColorR":0.55,"ambientColorG":0.65,"ambientColorB":0.85,"ambientEnergy":1.8,"fogDensity":0.003,"fogR":0.3,"fogG":0.4,"fogB":0.6}',1),
+(1,'ambient_light','AmbientLight',0,15,0,-1.5708,0,0,'{"colorR":0.55,"colorG":0.65,"colorB":0.85,"energy":1.2}',2),
+(1,'torch','TorchLight1',-15,3,-20,0,0,0,'{"colorR":1.0,"colorG":0.5,"colorB":0.1,"energy":3.0,"range":18.0}',10),
+(1,'torch','TorchLight2',20,3,10,0,0,0,'{"colorR":1.0,"colorG":0.4,"colorB":0.05,"energy":2.5,"range":15.0}',11),
+(1,'torch','TorchLight3',0,3,40,0,0,0,'{"colorR":0.9,"colorG":0.5,"colorB":0.15,"energy":3.5,"range":20.0}',12),
+(1,'torch','TorchLight4',0,3,-40,0,0,0,'{"colorR":1.0,"colorG":0.45,"colorB":0.08,"energy":3.0,"range":18.0}',13),
+(1,'torch','TorchLight5',-28,3,0,0,0,0,'{"colorR":1.0,"colorG":0.5,"colorB":0.1,"energy":2.8,"range":16.0}',14),
+(1,'torch','TorchLight6',28,3,5,0,0,0,'{"colorR":1.0,"colorG":0.42,"colorB":0.06,"energy":3.0,"range":16.0}',15),
+(1,'torch','TorchLight7',0,3,25,0,0,0,'{"colorR":1.0,"colorG":0.48,"colorB":0.1,"energy":3.2,"range":20.0}',16),
+(1,'torch','TorchLight8',-15,3,-45,0,0,0,'{"colorR":1.0,"colorG":0.44,"colorB":0.07,"energy":2.5,"range":15.0}',17),
+(1,'fill_light','FillLight1',0,18,0,0,0,0,'{"colorR":0.5,"colorG":0.65,"colorB":0.95,"energy":2.5,"range":45.0}',20),
+(1,'fill_light','FillLight2',-20,18,-30,0,0,0,'{"colorR":0.45,"colorG":0.6,"colorB":0.9,"energy":2.0,"range":40.0}',21),
+(1,'fill_light','FillLight3',20,18,30,0,0,0,'{"colorR":0.5,"colorG":0.65,"colorB":0.9,"energy":2.0,"range":40.0}',22),
+(1,'fill_light','FillLight4',0,18,52,0,0,0,'{"colorR":0.4,"colorG":0.55,"colorB":0.85,"energy":2.0,"range":38.0}',23),
+(1,'fill_light','FillLight5',0,18,-52,0,0,0,'{"colorR":0.4,"colorG":0.55,"colorB":0.85,"energy":2.0,"range":38.0}',24),
+(1,'fairy','Fairy1',-8,6,-10,0,0,0,'{"color":"green"}',30),
+(1,'fairy','Fairy2',15,5,22,0,0,0,'{"color":"blue"}',31),
+(1,'fairy','Fairy3',-5,7,42,0,0,0,'{"color":"purple"}',32),
+(1,'fairy','Fairy4',10,8,-30,0,0,0,'{"color":"green"}',33),
+(1,'fairy','Fairy5',-22,5,-25,0,0,0,'{"color":"blue"}',34),
+(1,'fairy','Fairy6',26,6,-8,0,0,0,'{"color":"purple"}',35),
+(1,'fairy','Fairy7',-30,7,18,0,0,0,'{"color":"green"}',36),
+(1,'fairy','Fairy8',28,5,38,0,0,0,'{"color":"blue"}',37),
+(1,'fairy','Fairy9',5,9,52,0,0,0,'{"color":"purple"}',38),
+(1,'fairy','Fairy10',-26,6,48,0,0,0,'{"color":"green"}',39),
+(1,'fairy','Fairy11',18,7,-50,0,0,0,'{"color":"blue"}',40),
+(1,'fairy','Fairy12',-12,6,5,0,0,0,'{"color":"purple"}',41);
+        </sql>
+    </changeSet>
+</databaseChangeLog>

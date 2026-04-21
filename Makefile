@@ -20,7 +20,7 @@ BACKEND_DIR   = backend
 
 RUST_TARGET_NATIVE  = target/release/libthree_wizards.so
 RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/three_wizards.wasm
-GODOT_EXPORT_DIR    = $(FRONTEND_DIR)/src/assets/game
+GODOT_EXPORT_DIR    = $(BACKEND_DIR)/src/main/resources/assets/games/cave
 BACKEND_JAR         = $(BACKEND_DIR)/target/three-wizards-api-0.1.0-SNAPSHOT.jar
 FRONTEND_DIST       = $(FRONTEND_DIR)/dist/three-wizards-frontend
 

@@ -6,4 +6,6 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
     <include file="db/changelog/001-initial-schema.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/002-seed-data.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/003-scene-elements.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/004-seed-scene-elements.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

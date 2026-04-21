@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="003" author="three-wizards">
+        <createTable tableName="scene_elements">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="game_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_scene_elem_game"
+                             references="games(id)"/>
+            </column>
+            <column name="element_type" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="position_x" type="FLOAT" defaultValueNumeric="0"/>
+            <column name="position_y" type="FLOAT" defaultValueNumeric="0"/>
+            <column name="position_z" type="FLOAT" defaultValueNumeric="0"/>
+            <column name="rotation_x" type="FLOAT" defaultValueNumeric="0"/>
+            <column name="rotation_y" type="FLOAT" defaultValueNumeric="0"/>
+            <column name="rotation_z" type="FLOAT" defaultValueNumeric="0"/>
+            <column name="properties" type="TEXT"/>
+            <column name="sort_order" type="INT" defaultValueNumeric="0"/>
+        </createTable>
+        <createIndex tableName="scene_elements" indexName="idx_scene_elements_game_id">
+            <column name="game_id"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
