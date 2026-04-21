@@ -17,9 +17,26 @@ const KEY_ACTIONS := {
 
 func _ready() -> void:
 	if OS.has_feature("web"):
+		_fetch_game_config()
 		_connect_sse_web()
 	else:
 		push_warning("GameBridge: SSE not available outside web export")
+
+func _fetch_game_config() -> void:
+	JavaScriptBridge.eval("""
+(function() {
+	var params = new URLSearchParams(window.location.search);
+	var gameId = params.get('game_id') || '1';
+	var base = (window.location.host === 'localhost:4200') ? 'http://localhost:8080' : '';
+	fetch(base + '/api/games/' + gameId)
+		.then(function(r) { return r.json(); })
+		.then(function(g) {
+			window._twGameConfig = g;
+			console.log('[GameBridge] loaded config for:', g.name);
+		})
+		.catch(function(e) { console.warn('[GameBridge] config fetch failed', e); });
+})();
+""")
 
 func _connect_sse_web() -> void:
 	# In dev the game iframe is served from localhost:4200 (Angular dev server)

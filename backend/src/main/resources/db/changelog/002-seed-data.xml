@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="002" author="three-wizards">
+        <insert tableName="games">
+            <column name="name" value="The Enchanted Cave"/>
+            <column name="description" value="Explore a mystical underground cavern filled with floating fairies and ancient magic. Navigate the stone corridors as a robed wizard."/>
+            <column name="slug" value="cave"/>
+            <column name="thumbnail_url" valueComputed="NULL"/>
+            <column name="scene_config" value='{"scene":"cave","ambientColor":[0.55,0.65,0.85],"ambientEnergy":1.8,"fogDensity":0.003,"fairies":[{"x":-8,"y":6,"z":-10,"color":"green"},{"x":15,"y":5,"z":22,"color":"blue"},{"x":-5,"y":7,"z":42,"color":"purple"}]}'/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>

@@ -1,7 +1,8 @@
-<div class="game-shell">
-  <app-game-canvas class="canvas-region"></app-game-canvas>
-  <div class="overlay-region">
-    <app-game-hud></app-game-hud>
-    <app-game-controls></app-game-controls>
-  </div>
-</div>
+<nav class="top-nav">
+  <a class="nav-brand" routerLink="/">⚗️ Three Wizards</a>
+  <ul class="nav-links">
+    <li><a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}">Home</a></li>
+    <li><a routerLink="/about" routerLinkActive="active">About</a></li>
+  </ul>
+</nav>
+<router-outlet></router-outlet>

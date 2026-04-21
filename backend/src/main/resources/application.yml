@@ -6,6 +6,20 @@ spring:
     name: three-wizards-api
   webflux:
     base-path: /
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:threewizards}
+    username: ${DB_USER:threewizards}
+    password: ${DB_PASS:threewizards}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
 
 logging:
   level:
