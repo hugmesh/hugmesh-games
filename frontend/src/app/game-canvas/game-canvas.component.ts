@@ -1,5 +1,6 @@
 import { Component, Input, OnChanges, OnDestroy, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 import { GameStateService } from '../services/game-state.service';
 import { GameState } from '../models/game-state.model';
@@ -16,15 +17,17 @@ export class GameCanvasComponent implements OnChanges, OnDestroy {
   @ViewChild('gameFrame') gameFrame!: ElementRef<HTMLIFrameElement>;
 
   gameLoaded = false;
-  frameSrc = 'assets/game/index.html?game_id=1';
+  frameSrc: SafeResourceUrl = '';
 
   private _sub: Subscription | null = null;
 
-  constructor(private gameState: GameStateService) {}
+  constructor(private gameState: GameStateService, private sanitizer: DomSanitizer) {}
 
   ngOnChanges(): void {
     this.gameLoaded = false;
-    this.frameSrc = `assets/game/index.html?game_id=${this.gameId}`;
+    this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(
+      `assets/game/index.html?game_id=${this.gameId}`
+    );
     if (!this._sub) {
       this._sub = this.gameState.state$.subscribe(s => this._postState(s));
     }
