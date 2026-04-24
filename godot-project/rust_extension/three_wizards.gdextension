@@ -10,6 +10,3 @@ windows.debug.x86_64 = "res://rust_extension/bin/three_wizards.dll"
 windows.release.x86_64 = "res://rust_extension/bin/three_wizards.dll"
 macos.debug = "res://rust_extension/bin/libthree_wizards.dylib"
 macos.release = "res://rust_extension/bin/libthree_wizards.dylib"
-# web WASM entries omitted — requires emscripten: `rustup target add wasm32-unknown-emscripten`
-# web.debug.wasm32 = "res://rust_extension/bin/three_wizards.wasm"
-# web.release.wasm32 = "res://rust_extension/bin/three_wizards.wasm"

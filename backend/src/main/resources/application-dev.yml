@@ -1,0 +1,7 @@
+# Dev profile: /v3/api-docs is public so ng-openapi-gen can fetch it without auth.
+# Activate locally with: SPRING_PROFILES_ACTIVE=dev (or -Dspring.profiles.active=dev)
+
+logging:
+  level:
+    com.threewizards: DEBUG
+    org.springframework.security: DEBUG

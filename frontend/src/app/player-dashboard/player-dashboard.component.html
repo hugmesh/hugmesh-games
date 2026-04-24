@@ -1,0 +1,171 @@
+<div class="dashboard">
+
+  <header class="dash-header">
+    <div>
+      <h1 class="dash-title">Player Dashboard</h1>
+      <span class="dash-subtitle">Live stats — game not loaded</span>
+    </div>
+    <button class="btn" (click)="load()">&#8635; Refresh</button>
+  </header>
+
+  @if (errorMessage) {
+    <p class="error-banner">{{ errorMessage }}</p>
+  }
+
+  <!-- Hero: character + time -->
+  @if (character) {
+    <section class="hero-row">
+      <div class="hero-card character-card">
+        <h2 class="card-heading">{{ character.name }}</h2>
+        <div class="char-stats">
+          <div class="stat"><span class="label">Level</span><span class="value">{{ character.level }}</span></div>
+          <div class="stat"><span class="label">XP</span><span class="value">{{ character.xp }} / {{ character.xpToNext }}</span></div>
+          <div class="stat"><span class="label">HP</span><span class="value">{{ character.currentHp }} / {{ character.maxHp }}</span></div>
+          <div class="stat"><span class="label">MP</span><span class="value">{{ character.currentMp }} / {{ character.maxMp }}</span></div>
+          <div class="stat"><span class="label">ATK</span><span class="value">{{ character.attack }}</span></div>
+          <div class="stat"><span class="label">DEF</span><span class="value">{{ character.defense }}</span></div>
+          <div class="stat"><span class="label">SPD</span><span class="value">{{ character.speed }}</span></div>
+          <div class="stat"><span class="label">MAG</span><span class="value">{{ character.magicPower }}</span></div>
+        </div>
+        <div class="live-indicator">
+          @if (liveCharacter) {
+            <span class="pulse"></span> live from SSE
+          } @else {
+            snapshot only — SSE not connected
+          }
+        </div>
+      </div>
+
+      <div class="hero-card time-card">
+        <h2 class="card-heading">Game clock</h2>
+        <div class="time-display">{{ formatTime(gameTime) }}</div>
+        @if (dashboard) {
+          <div class="play-totals">
+            <div><span class="label">Total playtime</span><span class="value">{{ dashboard.totalPlayMinutes }} min</span></div>
+            <div><span class="label">Total sessions</span><span class="value">{{ dashboard.totalSessions }}</span></div>
+          </div>
+        }
+      </div>
+    </section>
+  }
+
+  <!-- Games with lock state -->
+  @if (dashboard) {
+    <section class="dash-section">
+      <h2 class="section-title">Games & levels</h2>
+      <p class="section-sub">Complete quests in one level to unlock the next.</p>
+
+      @for (game of dashboard.games; track game.id) {
+        <div class="umbrella-game">
+          <h3 class="umbrella-name">{{ game.name }}</h3>
+          <p class="umbrella-desc">{{ game.description }}</p>
+          <div class="game-grid">
+            @for (g of game.levels; track g.id) {
+              <div class="game-card" [class.locked]="!g.unlocked">
+                <div class="card-badge">
+                  @if (g.unlocked) {
+                    <span class="chip chip--unlocked">Unlocked</span>
+                  } @else {
+                    <span class="chip chip--locked">🔒 Locked</span>
+                  }
+                </div>
+                <h4 class="game-name">{{ g.name }}</h4>
+                <p class="game-desc">{{ g.description }}</p>
+                <div class="progress">
+                  <div class="progress-bar">
+                    <div class="progress-fill" [style.width.%]="g.totalQuests ? (g.completedQuests * 100 / g.totalQuests) : 0"></div>
+                  </div>
+                  <span class="progress-text">{{ g.completedQuests }} / {{ g.totalQuests }} quests complete</span>
+                </div>
+                @if (!g.unlocked) {
+                  <p class="game-requires">Requires {{ g.requiredQuestIds.length }} quest(s) from earlier levels.</p>
+                } @else {
+                  <a class="game-play" routerLink="/">&#9654; Play from home</a>
+                }
+              </div>
+            } @empty {
+              <p class="empty-state">No levels in this game yet.</p>
+            }
+          </div>
+        </div>
+      } @empty {
+        <p class="empty-state">No games available.</p>
+      }
+    </section>
+
+    <!-- Quests -->
+    <section class="dash-section">
+      <h2 class="section-title">My quests</h2>
+      <div class="quest-list">
+        @for (q of dashboard.quests; track q.id) {
+          <div class="quest-row" [class.done]="questCompleted(q)">
+            <div class="quest-info">
+              <span class="quest-name">{{ q.name }}</span>
+              <span class="quest-desc">{{ q.description }}</span>
+              <span class="quest-reward">Reward: {{ q.rewardXp }} XP, {{ q.rewardGold }} gold</span>
+            </div>
+            <div class="quest-actions">
+              <span class="status-pill" [attr.data-status]="q.status || 'available'">
+                {{ q.status || 'available' }}
+              </span>
+              @if (!questCompleted(q)) {
+                <button class="btn btn-sm btn-accent" (click)="completeQuest(q.id)">Mark complete</button>
+              }
+            </div>
+          </div>
+        } @empty {
+          <p class="empty-state">No quests started yet.</p>
+        }
+      </div>
+    </section>
+  }
+
+  <!-- Session history -->
+  <section class="dash-section">
+    <h2 class="section-title">Session history</h2>
+    <p class="section-sub">Your last 50 sessions, and who else was online during them.</p>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Connected</th>
+            <th>Disconnected</th>
+            <th>Duration</th>
+            <th>Controller</th>
+            <th>With other players</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (h of (history$ | async); track h.id) {
+            <tr>
+              <td class="td-mono">{{ h.connectedAt }}</td>
+              <td class="td-mono">{{ h.disconnectedAt || '— (active)' }}</td>
+              <td>{{ h.durationMinutes }} min</td>
+              <td>
+                <span class="badge" [class.badge--yes]="h.isController" [class.badge--no]="!h.isController">
+                  {{ h.isController ? 'Yes' : 'No' }}
+                </span>
+              </td>
+              <td>
+                @if (h.coPlayers.length === 0) {
+                  <span class="muted">Alone</span>
+                } @else {
+                  @for (cp of h.coPlayers; track cp.casdoorId; let last = $last) {
+                    <span class="co-player">{{ cp.characterName || cp.casdoorId }}</span>@if (!last) {,}
+                  }
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr><td colspan="5" class="td-empty">No sessions yet.</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="dash-nav-back">
+    <a routerLink="/">← Back to game</a>
+  </p>
+
+</div>

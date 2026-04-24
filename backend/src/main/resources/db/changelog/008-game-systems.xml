@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Add Casdoor ID to player_characters for OAuth2 identity linkage -->
+    <changeSet id="008-1" author="nin">
+        <addColumn tableName="player_characters">
+            <column name="casdoor_id" type="VARCHAR(100)"/>
+        </addColumn>
+        <addUniqueConstraint tableName="player_characters" columnNames="casdoor_id" constraintName="uq_player_casdoor_id"/>
+    </changeSet>
+
+    <!-- Player sessions: track up to 3 concurrent users -->
+    <changeSet id="008-2" author="nin">
+        <createTable tableName="player_sessions">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="session_token" type="VARCHAR(128)" defaultValueComputed="gen_random_uuid()::text">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="casdoor_id" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="character_id" type="BIGINT">
+                <constraints foreignKeyName="fk_session_character"
+                             referencedTableName="player_characters" referencedColumnNames="id"/>
+            </column>
+            <column name="is_controller" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="connected_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_ping" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Player positions: persist last known position across sessions -->
+    <changeSet id="008-3" author="nin">
+        <createTable tableName="player_positions">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="character_id" type="BIGINT">
+                <constraints nullable="false" unique="true"
+                             foreignKeyName="fk_position_character"
+                             referencedTableName="player_characters" referencedColumnNames="id"/>
+            </column>
+            <column name="scene_id" type="BIGINT">
+                <constraints foreignKeyName="fk_position_scene"
+                             referencedTableName="games" referencedColumnNames="id"/>
+            </column>
+            <column name="pos_x" type="DOUBLE PRECISION" defaultValueNumeric="0.0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="pos_y" type="DOUBLE PRECISION" defaultValueNumeric="1.0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="pos_z" type="DOUBLE PRECISION" defaultValueNumeric="0.0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="rotation_y" type="DOUBLE PRECISION" defaultValueNumeric="0.0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Game time state: single shared in-game clock -->
+    <changeSet id="008-4" author="nin">
+        <createTable tableName="game_time_state">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="day_number" type="INT" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="hour" type="INT" defaultValueNumeric="6">
+                <constraints nullable="false"/>
+            </column>
+            <column name="minute" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="real_started_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_persisted_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Skills: learnable abilities and spells -->
+    <changeSet id="008-5" author="nin">
+        <createTable tableName="skills">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="skill_type" type="VARCHAR(50)" defaultValue="spell">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="TEXT"/>
+            <column name="mana_cost" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="effect_json" type="TEXT"/>
+            <column name="icon_url" type="VARCHAR(255)"/>
+        </createTable>
+
+        <createTable tableName="character_skills">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="character_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_char_skill_char"
+                             referencedTableName="player_characters" referencedColumnNames="id"/>
+            </column>
+            <column name="skill_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_char_skill_skill"
+                             referencedTableName="skills" referencedColumnNames="id"/>
+            </column>
+            <column name="learned_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="character_skills" columnNames="character_id,skill_id"
+                             constraintName="uq_char_skill"/>
+
+        <createTable tableName="character_skill_slots">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="character_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_slot_char"
+                             referencedTableName="player_characters" referencedColumnNames="id"/>
+            </column>
+            <column name="slot_number" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="skill_id" type="BIGINT">
+                <constraints foreignKeyName="fk_slot_skill"
+                             referencedTableName="skills" referencedColumnNames="id"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="character_skill_slots" columnNames="character_id,slot_number"
+                             constraintName="uq_char_slot"/>
+    </changeSet>
+
+    <!-- Items and equipment -->
+    <changeSet id="008-6" author="nin">
+        <createTable tableName="items">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="item_type" type="VARCHAR(50)" defaultValue="consumable">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="TEXT"/>
+            <column name="effect_json" type="TEXT"/>
+            <column name="icon_url" type="VARCHAR(255)"/>
+        </createTable>
+
+        <createTable tableName="character_items">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="character_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_char_item_char"
+                             referencedTableName="player_characters" referencedColumnNames="id"/>
+            </column>
+            <column name="item_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_char_item_item"
+                             referencedTableName="items" referencedColumnNames="id"/>
+            </column>
+            <column name="quantity" type="INT" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createTable tableName="character_equipment">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="character_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_equip_char"
+                             referencedTableName="player_characters" referencedColumnNames="id"/>
+            </column>
+            <column name="slot" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="item_id" type="BIGINT">
+                <constraints foreignKeyName="fk_equip_item"
+                             referencedTableName="items" referencedColumnNames="id"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="character_equipment" columnNames="character_id,slot"
+                             constraintName="uq_char_equip_slot"/>
+    </changeSet>
+
+    <!-- Quests -->
+    <changeSet id="008-7" author="nin">
+        <createTable tableName="quests">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="TEXT"/>
+            <column name="reward_xp" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reward_gold" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createTable tableName="quest_objectives">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="quest_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_obj_quest"
+                             referencedTableName="quests" referencedColumnNames="id"/>
+            </column>
+            <column name="description" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="required_count" type="INT" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createTable tableName="character_quests">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="character_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_cq_char"
+                             referencedTableName="player_characters" referencedColumnNames="id"/>
+            </column>
+            <column name="quest_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_cq_quest"
+                             referencedTableName="quests" referencedColumnNames="id"/>
+            </column>
+            <column name="status" type="VARCHAR(20)" defaultValue="active">
+                <constraints nullable="false"/>
+            </column>
+            <column name="started_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="completed_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </createTable>
+        <addUniqueConstraint tableName="character_quests" columnNames="character_id,quest_id"
+                             constraintName="uq_char_quest"/>
+    </changeSet>
+
+    <!-- NOTIFY trigger: broadcast game_events on player_positions insert/update -->
+    <changeSet id="008-8" author="nin">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION notify_game_event()
+            RETURNS TRIGGER AS $$
+            DECLARE payload TEXT;
+            BEGIN
+                payload := json_build_object(
+                    'type', TG_TABLE_NAME,
+                    'op',   TG_OP,
+                    'id',   NEW.id
+                )::text;
+                PERFORM pg_notify('game_events', payload);
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+
+            CREATE TRIGGER trg_position_notify
+                AFTER INSERT OR UPDATE ON player_positions
+                FOR EACH ROW EXECUTE FUNCTION notify_game_event();
+        </sql>
+        <rollback>
+            DROP TRIGGER IF EXISTS trg_position_notify ON player_positions;
+            DROP FUNCTION IF EXISTS notify_game_event();
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

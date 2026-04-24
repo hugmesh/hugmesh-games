@@ -1,12 +1,15 @@
 extends CharacterBody3D
 
-const SPEED        := 5.0
+const SPEED         := 5.0
 const JUMP_VELOCITY := 4.5
-const GRAVITY      := 9.8
+const GRAVITY       := 9.8
+const DROP_HEIGHT   := 14.0
 
 var _game_bridge: Node = null
-var _sse_dir    := Vector3.ZERO
+var _sse_dir      := Vector3.ZERO
 var _pending_jump := false
+var _drop_started := false
+var _intro_active := false
 
 func _ready() -> void:
 	_game_bridge = get_node_or_null("/root/Cave/GameBridge")
@@ -15,19 +18,36 @@ func _ready() -> void:
 	else:
 		push_warning("PlayerController: GameBridge not found at /root/Cave/GameBridge")
 
+func start_drop() -> void:
+	position.y += DROP_HEIGHT
+	velocity = Vector3.ZERO
+	_drop_started = true
+	_intro_active = true
+
 func _physics_process(delta: float) -> void:
+	if not _drop_started:
+		return
+
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
+	else:
+		if _intro_active:
+			_intro_active = false
 
 	if _pending_jump and is_on_floor():
 		velocity.y = JUMP_VELOCITY
 		_pending_jump = false
 
-	# Transform local-space direction into world space so forward always
-	# matches whichever way the camera (and therefore the player body) is facing.
-	var world_move := transform.basis * Vector3(_sse_dir.x, 0.0, _sse_dir.z) * SPEED
-	velocity.x = world_move.x
-	velocity.z = world_move.z
+	if not _intro_active:
+		# Transform local-space direction into world space so forward always
+		# matches whichever way the camera (and therefore the player body) is facing.
+		var world_move := transform.basis * Vector3(_sse_dir.x, 0.0, _sse_dir.z) * SPEED
+		velocity.x = world_move.x
+		velocity.z = world_move.z
+	else:
+		velocity.x = 0.0
+		velocity.z = 0.0
+
 	move_and_slide()
 
 func _on_state_updated(state: Dictionary) -> void:

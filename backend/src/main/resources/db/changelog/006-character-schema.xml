@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Add scene routing and ordering to games table -->
+    <changeSet id="006-games-columns" author="three-wizards">
+        <addColumn tableName="games">
+            <column name="scene_type" type="VARCHAR(50)" defaultValue="cave">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="games">
+            <column name="sort_order" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <!-- JRPG character stats table -->
+    <changeSet id="006-player-characters" author="three-wizards">
+        <createTable tableName="player_characters">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="level" type="INT" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="xp" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="xp_to_next" type="INT" defaultValueNumeric="100">
+                <constraints nullable="false"/>
+            </column>
+            <column name="max_hp" type="INT" defaultValueNumeric="100">
+                <constraints nullable="false"/>
+            </column>
+            <column name="current_hp" type="INT" defaultValueNumeric="100">
+                <constraints nullable="false"/>
+            </column>
+            <column name="max_mp" type="INT" defaultValueNumeric="50">
+                <constraints nullable="false"/>
+            </column>
+            <column name="current_mp" type="INT" defaultValueNumeric="50">
+                <constraints nullable="false"/>
+            </column>
+            <column name="attack" type="INT" defaultValueNumeric="10">
+                <constraints nullable="false"/>
+            </column>
+            <column name="defense" type="INT" defaultValueNumeric="5">
+                <constraints nullable="false"/>
+            </column>
+            <column name="speed" type="INT" defaultValueNumeric="8">
+                <constraints nullable="false"/>
+            </column>
+            <column name="magic_power" type="INT" defaultValueNumeric="12">
+                <constraints nullable="false"/>
+            </column>
+            <column name="current_scene_id" type="BIGINT"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

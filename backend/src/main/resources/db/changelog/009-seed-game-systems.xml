@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Initial game time: dawn of day 1 -->
+    <changeSet id="009-1" author="nin">
+        <insert tableName="game_time_state">
+            <column name="day_number" valueNumeric="1"/>
+            <column name="hour" valueNumeric="6"/>
+            <column name="minute" valueNumeric="0"/>
+            <column name="real_started_at" valueComputed="NOW()"/>
+            <column name="last_persisted_at" valueComputed="NOW()"/>
+        </insert>
+    </changeSet>
+
+    <!-- Starter position for character 1 -->
+    <changeSet id="009-2" author="nin">
+        <insert tableName="player_positions">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="scene_id" valueNumeric="1"/>
+            <column name="pos_x" valueNumeric="0.0"/>
+            <column name="pos_y" valueNumeric="1.0"/>
+            <column name="pos_z" valueNumeric="0.0"/>
+            <column name="rotation_y" valueNumeric="0.0"/>
+            <column name="updated_at" valueComputed="NOW()"/>
+        </insert>
+    </changeSet>
+
+    <!-- Seed skills -->
+    <changeSet id="009-3" author="nin">
+        <insert tableName="skills">
+            <column name="name" value="Fireball"/>
+            <column name="skill_type" value="spell"/>
+            <column name="description" value="Hurls a blazing fireball at the enemy."/>
+            <column name="mana_cost" valueNumeric="10"/>
+            <column name="effect_json" value='{"damage":25,"element":"fire"}'/>
+        </insert>
+        <insert tableName="skills">
+            <column name="name" value="Ice Shard"/>
+            <column name="skill_type" value="spell"/>
+            <column name="description" value="Launches a razor-sharp shard of ice."/>
+            <column name="mana_cost" valueNumeric="8"/>
+            <column name="effect_json" value='{"damage":20,"element":"ice","slow":true}'/>
+        </insert>
+        <insert tableName="skills">
+            <column name="name" value="Thunder Strike"/>
+            <column name="skill_type" value="spell"/>
+            <column name="description" value="Calls lightning from above."/>
+            <column name="mana_cost" valueNumeric="15"/>
+            <column name="effect_json" value='{"damage":35,"element":"lightning"}'/>
+        </insert>
+        <insert tableName="skills">
+            <column name="name" value="Heal"/>
+            <column name="skill_type" value="restoration"/>
+            <column name="description" value="Restores HP with restorative magic."/>
+            <column name="mana_cost" valueNumeric="12"/>
+            <column name="effect_json" value='{"heal":40}'/>
+        </insert>
+        <insert tableName="skills">
+            <column name="name" value="Shadow Step"/>
+            <column name="skill_type" value="movement"/>
+            <column name="description" value="Teleport a short distance through shadows."/>
+            <column name="mana_cost" valueNumeric="5"/>
+            <column name="effect_json" value='{"range":5}'/>
+        </insert>
+    </changeSet>
+
+    <!-- Assign starter skills to character 1: slots 1-3 with Fireball, Ice Shard, Heal -->
+    <changeSet id="009-4" author="nin">
+        <insert tableName="character_skills">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="skill_id" valueNumeric="1"/>
+        </insert>
+        <insert tableName="character_skills">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="skill_id" valueNumeric="2"/>
+        </insert>
+        <insert tableName="character_skills">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="skill_id" valueNumeric="4"/>
+        </insert>
+        <insert tableName="character_skill_slots">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="slot_number" valueNumeric="1"/>
+            <column name="skill_id" valueNumeric="1"/>
+        </insert>
+        <insert tableName="character_skill_slots">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="slot_number" valueNumeric="2"/>
+            <column name="skill_id" valueNumeric="2"/>
+        </insert>
+        <insert tableName="character_skill_slots">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="slot_number" valueNumeric="3"/>
+            <column name="skill_id" valueNumeric="4"/>
+        </insert>
+    </changeSet>
+
+    <!-- Seed items -->
+    <changeSet id="009-5" author="nin">
+        <insert tableName="items">
+            <column name="name" value="Health Potion"/>
+            <column name="item_type" value="consumable"/>
+            <column name="description" value="Restores 50 HP."/>
+            <column name="effect_json" value='{"heal":50}'/>
+        </insert>
+        <insert tableName="items">
+            <column name="name" value="Mana Potion"/>
+            <column name="item_type" value="consumable"/>
+            <column name="description" value="Restores 30 MP."/>
+            <column name="effect_json" value='{"mana":30}'/>
+        </insert>
+        <insert tableName="items">
+            <column name="name" value="Wizard Robe"/>
+            <column name="item_type" value="armor"/>
+            <column name="description" value="A robe that enhances magical power."/>
+            <column name="effect_json" value='{"magicPower":5,"defense":2}'/>
+        </insert>
+        <insert tableName="items">
+            <column name="name" value="Crystal Staff"/>
+            <column name="item_type" value="weapon"/>
+            <column name="description" value="Channels mana into devastating spells."/>
+            <column name="effect_json" value='{"attack":8,"magicPower":10}'/>
+        </insert>
+    </changeSet>
+
+    <!-- Give character 1 starter items and equipment -->
+    <changeSet id="009-6" author="nin">
+        <insert tableName="character_items">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="item_id" valueNumeric="1"/>
+            <column name="quantity" valueNumeric="3"/>
+        </insert>
+        <insert tableName="character_items">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="item_id" valueNumeric="2"/>
+            <column name="quantity" valueNumeric="2"/>
+        </insert>
+        <insert tableName="character_equipment">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="slot" value="body"/>
+            <column name="item_id" valueNumeric="3"/>
+        </insert>
+        <insert tableName="character_equipment">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="slot" value="weapon"/>
+            <column name="item_id" valueNumeric="4"/>
+        </insert>
+    </changeSet>
+
+    <!-- Seed quests -->
+    <changeSet id="009-7" author="nin">
+        <insert tableName="quests">
+            <column name="name" value="Into the Cave"/>
+            <column name="description" value="Explore the mysterious cave and discover what lurks within."/>
+            <column name="reward_xp" valueNumeric="150"/>
+            <column name="reward_gold" valueNumeric="50"/>
+        </insert>
+        <insert tableName="quests">
+            <column name="name" value="The Cottage Secret"/>
+            <column name="description" value="Visit the lone cottage in the open field and uncover its mystery."/>
+            <column name="reward_xp" valueNumeric="100"/>
+            <column name="reward_gold" valueNumeric="30"/>
+        </insert>
+        <insert tableName="quest_objectives">
+            <column name="quest_id" valueNumeric="1"/>
+            <column name="description" value="Reach the deepest part of the cave"/>
+            <column name="required_count" valueNumeric="1"/>
+        </insert>
+        <insert tableName="quest_objectives">
+            <column name="quest_id" valueNumeric="2"/>
+            <column name="description" value="Approach the cottage"/>
+            <column name="required_count" valueNumeric="1"/>
+        </insert>
+        <insert tableName="character_quests">
+            <column name="character_id" valueNumeric="1"/>
+            <column name="quest_id" valueNumeric="1"/>
+            <column name="status" value="active"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

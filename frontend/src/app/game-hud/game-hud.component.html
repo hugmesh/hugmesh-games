@@ -1,28 +1,59 @@
 <div class="hud">
   <div class="hud-top-left" *ngIf="state$ | async as state">
+
+    <!-- Level badge + XP bar pulled from character API -->
+    <ng-container *ngIf="character$ | async as char">
+      <div class="level-badge">
+        <span class="lv-label">LV</span>
+        <span class="lv-value">{{ char.level }}</span>
+        <div class="xp-track" [title]="char.xp + ' / ' + char.xpToNext + ' XP'">
+          <div class="xp-fill" [style.width.%]="xpPct(char.xp, char.xpToNext)"></div>
+        </div>
+        <span class="xp-label">{{ char.xp }}/{{ char.xpToNext }}</span>
+      </div>
+    </ng-container>
+
+    <!-- HP / MP from SSE game state -->
     <div class="stat-bar health-bar">
       <span class="stat-label">HP</span>
       <div class="bar-track">
-        <div class="bar-fill" [style.width.%]="state.player.health"></div>
+        <div class="bar-fill"
+             [style.width.%]="state.player.maxHp > 0 ? (state.player.health / state.player.maxHp) * 100 : state.player.health">
+        </div>
       </div>
-      <span class="stat-value">{{ state.player.health }}</span>
+      <span class="stat-value">{{ state.player.health }}/{{ state.player.maxHp || 100 }}</span>
     </div>
     <div class="stat-bar mana-bar">
       <span class="stat-label">MP</span>
       <div class="bar-track">
-        <div class="bar-fill" [style.width.%]="state.player.mana"></div>
+        <div class="bar-fill"
+             [style.width.%]="state.player.maxMana > 0 ? (state.player.mana / state.player.maxMana) * 100 : state.player.mana">
+        </div>
       </div>
-      <span class="stat-value">{{ state.player.mana }}</span>
+      <span class="stat-value">{{ state.player.mana }}/{{ state.player.maxMana || 50 }}</span>
     </div>
+
     <div class="position-display">
       <span class="pos-label">POS</span>
       <span class="pos-value">{{ positionStr(state) }}</span>
     </div>
   </div>
 
-  <div class="api-badge" [class.connected]="connected$ | async" [class.disconnected]="!(connected$ | async)">
-    <span class="api-dot"></span>
-    <span class="api-label">{{ (connected$ | async) ? 'API' : 'API offline' }}</span>
+  <!-- Game time badge (top-center) -->
+  <div class="time-badge" *ngIf="state$ | async as state">
+    <span class="time-day">Day {{ state.gameTime?.dayNumber ?? 1 }}</span>
+    <span class="time-clock">{{ formatTime(state.gameTime) }}</span>
   </div>
 
+  <!-- Top-right controls -->
+  <div class="hud-top-right">
+    <div class="api-badge" [class.connected]="connected$ | async" [class.disconnected]="!(connected$ | async)">
+      <span class="api-dot"></span>
+      <span class="api-label">{{ (connected$ | async) ? 'API' : 'API offline' }}</span>
+    </div>
+    <button class="menu-btn" (click)="toggleMenu()" title="Open Menu">&#9776;</button>
+  </div>
+
+  <!-- Game menu overlay -->
+  <app-game-menu *ngIf="menuOpen" [isOpen]="menuOpen" (closed)="menuOpen = false"></app-game-menu>
 </div>

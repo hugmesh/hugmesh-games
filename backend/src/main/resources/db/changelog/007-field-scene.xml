@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="007-seed-field" author="three-wizards">
+        <!-- Tag cave as level 1 -->
+        <sql>
+UPDATE games SET scene_type = 'cave', sort_order = 1 WHERE id = 1;
+        </sql>
+
+        <!-- Default hero character -->
+        <sql>
+INSERT INTO player_characters
+    (name, level, xp, xp_to_next, max_hp, current_hp, max_mp, current_mp,
+     attack, defense, speed, magic_power, current_scene_id, created_at)
+VALUES
+    ('Hero', 1, 0, 100, 100, 100, 50, 50, 10, 5, 8, 12, 1, NOW());
+        </sql>
+
+        <!-- Open Field — level 2 -->
+        <sql>
+INSERT INTO games (name, description, slug, scene_type, sort_order, thumbnail_url, scene_config, created_at)
+VALUES (
+    'Open Field',
+    'A peaceful meadow stretching to the horizon, with a weathered stone cottage, scattered oaks, and warm afternoon light.',
+    'field', 'field', 2, null, '{}', NOW()
+);
+        </sql>
+
+        <!-- Scene elements for the Open Field (game_id = 2) -->
+        <!-- Procedural sky + atmosphere -->
+        <sql>
+INSERT INTO scene_elements
+    (game_id, element_type, name,
+     position_x, position_y, position_z,
+     rotation_x, rotation_y, rotation_z,
+     properties, sort_order)
+VALUES
+(2,'sky_env','FieldSky', 0,0,0, 0,0,0,
+ '{"skyTopR":0.18,"skyTopG":0.42,"skyTopB":0.88,
+   "horizonR":0.72,"horizonG":0.87,"horizonB":1.0,
+   "groundHR":0.32,"groundHG":0.28,"groundHB":0.22,
+   "ambientEnergy":1.1}', 1),
+
+(2,'sun_light','Sun', 0,0,0, -0.7,0.5,0,
+ '{"colorR":1.0,"colorG":0.95,"colorB":0.82,"energy":2.8}', 2),
+
+-- Cottage at (15, 0, -18), rotated slightly
+(2,'cottage','Cottage', 15,0,-18, 0,0.45,0,
+ '{"width":7.0,"depth":9.0,"wallHeight":4.5,
+   "textureUrl":"/api/assets/games/field/cottage.png"}', 10),
+
+-- Warm candlelight from cottage window
+(2,'fill_light','CottageWarmth', 15,2.5,-18, 0,0,0,
+ '{"colorR":1.0,"colorG":0.78,"colorB":0.4,"energy":2.0,"range":14.0}', 11),
+
+-- Oak trees scattered around the field
+(2,'tree','OakTree1', -8,0,-14, 0,0,0,
+ '{"trunkRadius":0.28,"trunkHeight":3.8,"foliageRadius":2.4,
+   "textureUrl":"/api/assets/games/field/oak.png"}', 20),
+(2,'tree','OakTree2', -13,0,-26, 0,1.2,0,
+ '{"trunkRadius":0.24,"trunkHeight":3.2,"foliageRadius":2.0}', 21),
+(2,'tree','OakTree3', 4,0,-32, 0,0.7,0,
+ '{"trunkRadius":0.34,"trunkHeight":5.0,"foliageRadius":3.1}', 22),
+(2,'tree','OakTree4', -21,0,-9, 0,2.1,0,
+ '{"trunkRadius":0.26,"trunkHeight":3.5,"foliageRadius":2.1}', 23),
+(2,'tree','OakTree5', 26,0,-6, 0,0.3,0,
+ '{"trunkRadius":0.31,"trunkHeight":4.4,"foliageRadius":2.7}', 24),
+(2,'tree','OakTree6', -5,0,18, 0,1.8,0,
+ '{"trunkRadius":0.22,"trunkHeight":3.0,"foliageRadius":1.8}', 25),
+(2,'tree','OakTree7', 18,0,22, 0,0.9,0,
+ '{"trunkRadius":0.29,"trunkHeight":4.0,"foliageRadius":2.3}', 26);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

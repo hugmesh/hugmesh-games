@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Associate quests with the game/level they belong to.
+         All quests for game_id = N must be 'completed' before dependent games unlock. -->
+    <changeSet id="011-1" author="nin">
+        <addColumn tableName="quests">
+            <column name="game_id" type="BIGINT">
+                <constraints foreignKeyName="fk_quest_game"
+                             referencedTableName="games" referencedColumnNames="id"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <!-- Game prerequisites: a game is unlocked when the character has completed
+         ALL quests listed in this table for the target game.
+         If no rows exist for a game, it is unlocked by default. -->
+    <changeSet id="011-2" author="nin">
+        <createTable tableName="game_prerequisites">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="game_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_prereq_game"
+                             referencedTableName="games" referencedColumnNames="id"/>
+            </column>
+            <column name="required_quest_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_prereq_quest"
+                             referencedTableName="quests" referencedColumnNames="id"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="game_prerequisites"
+                             columnNames="game_id,required_quest_id"
+                             constraintName="uq_game_prereq"/>
+    </changeSet>
+
+    <!-- Keep session rows after disconnect so session history can be displayed.
+         NULL disconnected_at = currently active. -->
+    <changeSet id="011-3" author="nin">
+        <addColumn tableName="player_sessions">
+            <column name="disconnected_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Seed data: wire existing quests to their home scenes and set field as
+         depending on the cave quest being complete. -->
+    <changeSet id="011-4" author="nin">
+        <sql>
+UPDATE quests SET game_id = 1 WHERE id = 1;  -- 'Into the Cave'    → cave (game 1)
+UPDATE quests SET game_id = 2 WHERE id = 2;  -- 'Cottage Secret'   → field (game 2)
+
+-- Field (game 2) requires completing 'Into the Cave' (quest 1)
+INSERT INTO game_prerequisites (game_id, required_quest_id) VALUES (2, 1);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
