@@ -44,10 +44,15 @@ public class GameStateService {
     private final AtomicLong tick = new AtomicLong(0);
 
     // Typed event sinks — emit only when content actually changes
-    private final Sinks.Many<PlayerMovement> movementSink = Sinks.many().multicast().onBackpressureBuffer(64);
-    private final Sinks.Many<WorldState>      worldSink    = Sinks.many().multicast().onBackpressureBuffer(64);
-    private final Sinks.Many<CharacterDto>    charStatSink = Sinks.many().multicast().onBackpressureBuffer(16);
-    private final Sinks.Many<SceneEvent>      sceneSink    = Sinks.many().multicast().onBackpressureBuffer(16);
+    // autoCancel=false — without it, multicast sinks terminate the moment all
+    // subscribers disconnect. A single SSE reconnect (iframe remount, browser
+    // nav, etc.) would kill the sink permanently; subsequent tryEmitNext calls
+    // silently drop and no new subscriber ever sees another event. That's the
+    // "first spell works, second doesn't, movement dies" symptom.
+    private final Sinks.Many<PlayerMovement> movementSink = Sinks.many().multicast().onBackpressureBuffer(64, false);
+    private final Sinks.Many<WorldState>      worldSink    = Sinks.many().multicast().onBackpressureBuffer(64, false);
+    private final Sinks.Many<CharacterDto>    charStatSink = Sinks.many().multicast().onBackpressureBuffer(16, false);
+    private final Sinks.Many<SceneEvent>      sceneSink    = Sinks.many().multicast().onBackpressureBuffer(16, false);
 
     private final String sessionId = UUID.randomUUID().toString();
 
