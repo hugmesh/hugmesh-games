@@ -100,8 +100,41 @@ $muted: #7070a0;
   opacity: 0.6;
 }
 
+.card-thumb-placeholder {
+  position: relative;
+}
+
+.level-num {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: rgba(255,255,255,.18);
+  line-height: 1;
+  user-select: none;
+}
+
 .card-body {
   padding: 16px 18px 18px;
+}
+
+.card-meta {
+  margin-bottom: 6px;
+}
+
+.scene-tag {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 2px 7px;
+  border: 1px solid;
+
+  &--cave  { color: #b0b8d0; border-color: rgba(176,184,208,.4); background: rgba(30,30,60,.5); }
+  &--field { color: #7ec87e; border-color: rgba(126,200,126,.4); background: rgba(20,50,20,.5); }
 }
 
 .card-title {
@@ -215,4 +248,61 @@ $muted: #7070a0;
   width: 100vw;
   height: 100vh;
   border: none;
+}
+
+/* ── Locked cards + progress ──────────────────────────── */
+.game-card.locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  &:hover { transform: none; }
+}
+
+.chip {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-left: 6px;
+  &.chip--unlocked { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+  &.chip--locked   { background: rgba(255, 107, 107, 0.15); color: #ff6b6b; }
+}
+
+.lock-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.progress {
+  margin: 10px 0 6px;
+}
+.progress-bar {
+  height: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, $accent 0%, #b388ff 100%);
+  transition: width 0.4s ease;
+}
+.progress-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: $muted;
+}
+
+.play-btn--locked {
+  opacity: 0.6;
+  cursor: not-allowed;
+  &:hover { background: inherit; }
 }

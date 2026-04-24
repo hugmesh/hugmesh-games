@@ -33,6 +33,7 @@ body, :host {
   display: flex;
   gap: 8px;
   list-style: none;
+  margin-left: auto;
 
   a {
     color: #7070a0;
@@ -44,5 +45,44 @@ body, :host {
 
     &:hover { color: #e8e8f0; background: rgba(124,77,255,.12); }
     &.active { color: #b388ff; }
+  }
+}
+
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 20px;
+
+  .user-name {
+    font-size: 0.85rem;
+    color: #b388ff;
+    font-weight: 500;
+  }
+
+  .logout-btn {
+    background: transparent;
+    border: 1px solid #1e1e32;
+    color: #7070a0;
+    font-size: 0.78rem;
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+
+    &:hover { color: #e8e8f0; border-color: #7c4dff; }
+  }
+
+  .login-link {
+    color: #7c4dff;
+    text-decoration: none;
+    font-size: 0.88rem;
+    font-weight: 500;
+    padding: 6px 14px;
+    border: 1px solid #7c4dff;
+    border-radius: 6px;
+    transition: background 0.15s;
+
+    &:hover { background: rgba(124,77,255,0.15); }
   }
 }

@@ -1,8 +1,22 @@
 <nav class="top-nav">
   <a class="nav-brand" routerLink="/">⚗️ Three Wizards</a>
   <ul class="nav-links">
-    <li><a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}">Home</a></li>
+    <li><a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}">Play</a></li>
+    @if (isLoggedIn) {
+      <li><a routerLink="/dashboard" routerLinkActive="active">Dashboard</a></li>
+    }
+    @if (isAdmin) {
+      <li><a routerLink="/admin" routerLinkActive="active">Admin</a></li>
+    }
     <li><a routerLink="/about" routerLinkActive="active">About</a></li>
   </ul>
+  <div class="nav-user">
+    @if (isLoggedIn) {
+      <span class="user-name">{{ displayName }}</span>
+      <button class="logout-btn" (click)="logout()">Sign out</button>
+    } @else {
+      <a routerLink="/login" class="login-link">Sign in</a>
+    }
+  </div>
 </nav>
 <router-outlet></router-outlet>

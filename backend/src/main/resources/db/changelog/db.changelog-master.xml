@@ -9,4 +9,12 @@
     <include file="db/changelog/003-scene-elements.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/004-seed-scene-elements.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/005-seed-cave-geometry.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/006-character-schema.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/007-field-scene.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/008-game-systems.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/009-seed-game-systems.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/010-asset-url.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/011-progression-and-history.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/012-levels-tier.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/013-seed-level-assets.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

@@ -16,6 +16,55 @@
   min-width: 180px;
 }
 
+.level-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(10, 8, 20, 0.75);
+  border: 1px solid rgba(180, 140, 255, 0.4);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.lv-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #b388ff;
+  opacity: 0.8;
+}
+
+.lv-value {
+  font-size: 1rem;
+  font-weight: 900;
+  color: #e0c8ff;
+  min-width: 18px;
+  line-height: 1;
+}
+
+.xp-track {
+  flex: 1;
+  height: 5px;
+  background: rgba(0,0,0,0.5);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.xp-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #7c4dff, #b388ff);
+  transition: width 0.4s ease;
+}
+
+.xp-label {
+  font-size: 0.58rem;
+  font-family: monospace;
+  color: rgba(180,150,255,0.7);
+  white-space: nowrap;
+}
+
 .stat-bar {
   display: flex;
   align-items: center;
@@ -76,10 +125,74 @@
   letter-spacing: 0.1em;
 }
 
-.api-badge {
+.time-badge {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(10, 8, 20, 0.8);
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+}
+
+.time-day {
+  color: rgba(240, 180, 41, 0.75);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.time-clock {
+  color: #f0b429;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.hud-top-right {
   position: absolute;
   top: 1rem;
   right: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.menu-btn {
+  background: rgba(124, 77, 255, 0.2);
+  border: 1px solid rgba(124, 77, 255, 0.45);
+  color: #b388ff;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+  pointer-events: auto;
+  padding: 0;
+
+  &:hover {
+    background: rgba(124, 77, 255, 0.4);
+    border-color: #7c4dff;
+    color: #fff;
+  }
+}
+
+.api-badge {
+  position: static;
   display: flex;
   align-items: center;
   gap: 5px;

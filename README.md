@@ -1,6 +1,6 @@
 # Three Wizards In A Trenchcoat
 
-A fantasy dungeon-crawler built on **Rust + Godot 4** (WebGL/WASM), served through an **Angular** frontend, with a **Spring Boot** backend that delivers game state and controls via streaming SSE.
+A fantasy dungeon-crawler built on **Rust + Godot 4** (WebGL/WASM), served through an **Angular** frontend, with a **Spring Boot** backend that delivers game state and controls via streaming SSE. Authentication is handled by **Casdoor** (OAuth2/OIDC) behind a custom Angular login page — the Casdoor admin UI is never exposed to the network.
 
 > Branch policy: please work on your own branches and open PRs rather than committing directly to `main`.
 
@@ -12,82 +12,820 @@ A fantasy dungeon-crawler built on **Rust + Godot 4** (WebGL/WASM), served throu
 |---|---|
 | Issue Tracker | [ThreeWizardsInATrenchcoat/issues](https://github.com/Nin-Crowley/ThreeWizardsInATrenchcoat/issues) |
 | Pull Requests | [ThreeWizardsInATrenchcoat/pulls](https://github.com/Nin-Crowley/ThreeWizardsInATrenchcoat/pulls) |
+| Godot developer guide | [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md) |
+
+---
+
+## Content hierarchy — games → levels → scenes
+
+The project is organised in three tiers:
+
+```
+Game (umbrella)            e.g. "Three Wizards Saga"
+  └── Level (one WASM)     e.g. "The Enchanted Cave", "Open Field"
+       └── Scene elements  fairies, lights, geometry, NPCs
+            + Level assets  custom textures / plugins / sounds
+```
+
+- A **Game** is the top-level grouping shown on the home page.
+- Each **Level** inside a game is its own compiled Godot WASM bundle, served from
+  `/api/assets/levels/{slug}/`. Level transitions unload the current WASM and mount
+  the next one in the Angular iframe (see "Level transitions" below).
+- **Scene elements** and user-registered **level assets** (textures, plugins,
+  sounds) are fetched by the running Godot bundle from the API at load time.
+- Levels gate on completed **Quests** via `level_prerequisites`: complete all
+  prerequisite quests → the next level unlocks.
+
+Adding levels and assets is a documented workflow — see the
+[Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
 
 ---
 
 ## Architecture
 
-All player input — whether from the Angular HUD buttons, Angular keyboard shortcuts, or Godot keyboard events when the game canvas has focus — flows through the API before affecting game state. The SSE stream is the single source of truth for the Godot scene.
+Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send movement input. All game state changes originate in the Spring Boot API and propagate to every connected client over a single SSE stream that carries five typed event channels.
 
 ```
-  Input sources                Spring Boot :8080            Godot WebGL (iframe)
-  ─────────────────────────    ─────────────────────────    ────────────────────
-  Angular GameControls         ControlController            game_bridge.gd
-  [W key / button]──────────►  POST /api/controls           (own EventSource)
-                                        │                          │
-  Godot _unhandled_input                │                    addEventListener
-  [W key in canvas]─────────►  applyControl()               ('game-state', ...)
-                                        │                          │
-                               GameStateService                    │
-                               AtomicReference<PlayerState>        │
-                               Sinks.Many<GameState>               │
-                               (replay().limit(1))                 │
-                                        │                          │
-  Angular GameStateService ◄────────── SSE /api/game/stream ──────►│
-  (EventSource direct                   │                   state_updated signal
-   to :8080)                            │                          │
-       │                        Heartbeat (1 s)            player_controller.gd
-       │                                                   CharacterBody3D
-       ▼                                                   camera-relative move
-  GameHUD
-  HP/MP bars · Position
+  Browser / Player (up to 3)
+  ──────────────────────────────────────────────────────────────────────────────
+  Angular :4200 (nginx in Docker)
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  LoginComponent          AuthService             HTTP Interceptor        │
+  │  [username / password]──►POST /api/auth/token──►sessionStorage JWT       │
+  │                                                  Bearer: <token>         │
+  │  AuthGuard (isAuthenticated?)                    on every /api/ request  │
+  │                                                                          │
+  │  GameCanvasComponent                                                     │
+  │  <iframe src="/api/assets/games/cave/index.html?game_id=N">             │
+  │      │                                                                   │
+  │      │   Godot WASM (game_bridge.gd)          scene_loader.gd           │
+  │      │   JavaScriptBridge.eval(EventSource)   applies scene config       │
+  │      │   ──────────────────────────────────►  spawns lights/fairies/geo  │
+  │      │                                        _on_time_updated() rotates │
+  │      │                                        DirectionalLight3D (sun)   │
+  │      │                                                                   │
+  │  GameControls (Angular)                                                  │
+  │  [W/A/S/D + HUD buttons]──────────────────────────────────────────────► │
+  └──────────────────────────────────────────────┬──────────────────────────┘
+                                                 │ /api/* (nginx reverse proxy)
+  ─────────────────────────────────────────────  │  ───────────────────────────
+  Spring Boot API :8080                          ▼
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │                                                                          │
+  │  CasdoorAuthController          SecurityConfig (WebFlux)                 │
+  │  POST /api/auth/token ─────────►JWT RS256 via Casdoor JWKS               │
+  │  (ROPC proxy; client_secret     /api/auth/**  → permitAll                │
+  │   stays server-side)            /api/sessions/**                         │
+  │                                 /api/characters/**  → ROLE_USER          │
+  │                                 /api/admin/**       → ROLE_ADMIN         │
+  │                                                                          │
+  │  GameStreamController                                                    │
+  │  GET /api/game/stream ──────────────────────────────────────────────────►│
+  │    Flux.merge(movement$, world$, character$, time$, scene$)              │
+  │    + 30 s keepalive comment                                              │
+  │    ─────────────────────────────────────────────────────────────────►   │
+  │    event: movement   {"x","y","z","rotationY","action","pressed"}        │
+  │    event: world      {"sessionId","tick","timestamp"}                    │
+  │    event: character  {"health","mana","level","xp","xp_to_next"}        │
+  │    event: time       {"dayNumber","hour","minute"}                       │
+  │    event: scene      {"sceneId","sceneName","sceneType"}                 │
+  │                                                                          │
+  │  ControlController                 GameStateService                      │
+  │  POST /api/controls/{charId} ─────►Sinks.many().replay().limit(1)        │
+  │  (validates X-Casdoor-Id           applyControl() mutates PlayerState    │
+  │   == controller session)           emits to all SSE subscribers          │
+  │                                                                          │
+  │  SessionController      ┌─────────────────────────────────────────────┐ │
+  │  /sessions/connect      │  PostgreSQL  (R2DBC reactive + JDBC Liquibase│ │
+  │  /sessions/control  ───►│  games           player_sessions             │ │
+  │  /sessions/me           │  scene_elements  player_positions  (NOTIFY)  │ │
+  │                         │  player_characters               skills      │ │
+  │  CharacterController    │  character_skills  character_items           │ │
+  │  SkillController    ───►│  character_equipment  character_quests        │ │
+  │  ItemController         │  game_time_state     quests                  │ │
+  │  QuestController        └──────────────────┬──────────────────────────┘ │
+  │                                            │                             │
+  │  PgNotificationService ◄───────────────────┘ LISTEN game_events         │
+  │  (player_positions INSERT/UPDATE            pg_notify on trigger)        │
+  │   → emits to GameStateService Sinks)                                    │
+  │                                                                          │
+  │  GameTimeService                                                         │
+  │  Scheduler (every 10 s real = 1 game-minute)                            │
+  │  persists day/hour/minute → emits time$ events                          │
+  │                                                                          │
+  │  AssetController                                                         │
+  │  GET /api/assets/games/{slug}/{file} → ClassPathResource                │
+  │  (Godot WASM bundle: index.html, index.wasm, index.pck, …)              │
+  │                                                                          │
+  └──────────────────────────────────────────────────────────────────────────┘
+                    │ internal Docker network only
+  ──────────────────┼──────────────────────────────────────────────────────────
+  Casdoor :8000     ▼   (no host port binding — unreachable from browser)
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  entrypoint.sh seeds init_data.json from env vars (or random defaults)  │
+  │  Prints client-id / client-secret / passwords to container logs         │
+  │                                                                          │
+  │  POST /api/login/oauth/access_token  ← ROPC grant (proxied by API)      │
+  │  GET  /api/get-jwks                  ← RS256 public keys for JWT verify │
+  └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key architectural decisions
 
-**All controls go through the API first.**  
-Neither the Angular app nor the Godot scene mutates position directly. Every keypress POSTs to `/api/controls`; the resulting `GameState` comes back over SSE and drives both the Angular HUD and Godot movement.
+**Single WASM bundle, multiple scenes.**
+Both `cave` and `field` are served from the same Godot export at `/api/assets/games/cave/`. The `?game_id=N` query param is read by `game_bridge.gd`, which fetches `/api/games/{N}/scene` to get the scene config and routes to the correct `.tscn` file. Adding a new scene only requires a DB row and a new Godot scene file — no re-export.
 
-**Godot has its own EventSource.**  
-Rather than a fragile `postMessage` chain (Angular → GameCanvas → iframe → Godot listener), `game_bridge.gd` opens its own `EventSource` directly to the API using `JavaScriptBridge.eval`. In dev it connects to `http://localhost:8080` to bypass the Vite proxy; in production it uses the same origin.
+**All controls go through the API first.**
+Neither Angular nor Godot mutates position directly. Every keypress POSTs to `/api/controls/{charId}`; the resulting state comes back over SSE and drives both the Angular HUD and Godot movement. The controller role is enforced server-side via `player_sessions.is_controller`.
 
-**Reactor sink is `replay().limit(1)`.**  
-`Sinks.many().multicast().onBackpressureBuffer()` terminates silently in Reactor 3.7 when all subscribers disconnect; new subscriptions then immediately complete. `replay().limit(1)` is a hot sink that never terminates and replays the latest state to new subscribers on connect.
+**Five typed SSE channels on one stream.**
+`GameStreamController` merges `Sinks.Many` from `GameStateService`, `GameTimeService`, and `PgNotificationService` into a single `Flux<ServerSentEvent>`. Each event carries a typed `event:` field (`movement`, `world`, `character`, `time`, `scene`). `game_bridge.gd` registers one `addEventListener` per type — no event parsing gymnastics.
 
-**Angular connects directly to `:8080` in dev.**  
-The Vite dev server proxy injects `Connection: close` on all responses, which kills SSE streams. `environment.ts` sets `apiBase: 'http://localhost:8080'` so `GameStateService` bypasses the proxy entirely. `proxy.conf.js` still has a `configure` hook that forces `keep-alive` on the stream path as a belt-and-suspenders fix.
+**Casdoor kept internal.**
+`docker-compose.yml` exposes no host port for Casdoor. The Angular app never redirects to Casdoor's React UI — a custom form POSTs to `/api/auth/token`, which proxies the OAuth2 ROPC grant server-side, keeping `client_secret` off the browser.
+
+**Reactor sink is `replay().limit(1)`.**
+`Sinks.many().multicast().onBackpressureBuffer()` terminates silently when all subscribers disconnect in Reactor 3.7. `replay().limit(1)` is a hot sink that never terminates and replays the latest state to new subscribers on connect.
+
+**R2DBC + JDBC coexistence.**
+Runtime data access uses non-blocking R2DBC. Liquibase schema migrations need a blocking JDBC `DataSource`. Spring Boot 3 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
 
 ---
 
 ## Data model
 
-### `GameState` — SSE payload (`event: game-state`)
+### SSE event types — `GET /api/game/stream`
 
-| Field | Type | Description |
+| Event name | Payload fields | Emitted when |
 |---|---|---|
-| `sessionId` | `String` | Server session identifier |
-| `player` | `PlayerState` | Full player snapshot |
-| `action` | `String \| null` | Last control action applied (`"MOVE_FORWARD"`, `"JUMP"`, …) |
-| `pressed` | `boolean` | Whether the action key is held |
-| `timestamp` | `long` | Server epoch-ms |
-| `tick` | `long` | Monotonically increasing counter |
+| `movement` | `x`, `y`, `z`, `rotationY`, `action`, `pressed` | Control applied / position updated |
+| `world` | `sessionId`, `tick`, `timestamp` | Heartbeat (1 s) |
+| `character` | `health`, `mana`, `level`, `xp`, `xp_to_next` | Stats change |
+| `time` | `dayNumber`, `hour`, `minute` | Every game-minute (~10 s real) |
+| `scene` | `sceneId`, `sceneName`, `sceneType` | Scene transition |
 
-### `PlayerState` — nested inside `GameState.player`
+### `ControlEvent` — `POST /api/controls/{characterId}` body
 
-| Field | Type | Description |
-|---|---|---|
-| `x` / `y` / `z` | `double` | World position |
-| `rotationY` | `double` | Yaw in radians |
-| `health` | `int` | HP (0–100) |
-| `mana` | `int` | MP (0–100) |
-
-### `ControlEvent` — `POST /api/controls` body
-
-| Field | Type | Description |
+| Field | Type | Values |
 |---|---|---|
 | `action` | `String` | `MOVE_FORWARD`, `MOVE_BACKWARD`, `MOVE_LEFT`, `MOVE_RIGHT`, `JUMP`, `INTERACT`, `CAST_SPELL_1/2/3` |
-| `pressed` | `boolean` | `true` = key down, `false` = release |
+| `pressed` | `boolean` | `true` = key down, `false` = key up |
 | `timestamp` | `long` | Client epoch-ms |
+
+### `SceneDto` — `GET /api/levels/{id}/scene` response
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `Long` | Level ID |
+| `name` | `String` | Display name |
+| `slug` | `String` | URL slug (matches classpath directory) |
+| `sceneType` | `String` | `cave`, `field`, … |
+| `assetUrl` | `String` | Path to this level's Godot WASM bundle entry-point |
+| `elements` | `List<SceneElementDto>` | Scene elements with positions, rotations, properties |
+
+### Level transitions — `TW_LEVEL_TRANSITION` postMessage
+
+When a running Godot WASM needs to hand off to another level's bundle:
+
+```
+Godot (inside iframe)
+  $GameBridge.request_level_transition("field", 2)
+    │
+    ▼  postMessage({type:"TW_LEVEL_TRANSITION", slug:"field", levelId:2})
+Angular host (game-canvas.component.ts)
+  HostListener('window:message') catches payload
+    │
+    ▼  GameLibraryService.getLevel(2) → resolve fresh assetUrl
+  iframe.src = `${level.assetUrl}?level_id=2`
+    │
+    ▼  Godot bundle cold-boots, fetches /api/levels/2/scene
+```
+
+The previous WASM is fully unloaded — persist any in-memory state via the API
+(`PUT /api/characters/{id}` etc) *before* calling `request_level_transition`.
+
+---
+
+## API reference
+
+Notation used in the marble diagrams below:
+
+```
+──────────────────────────────────────────────►  time axis
+
+Mono<T>  (0 or 1 item, then complete)
+   ──────────●─|
+
+Flux<T>  (0..N items, then complete)
+   ──●──●──●──●──|
+
+ServerSentEvent stream  (unbounded — never completes unless client disconnects)
+   ──●────●────●────●──⋯
+
+Error / 4xx response
+   ──────────✗
+
+Empty → switchIfEmpty(404)
+   ─────────────────────✗  404
+```
+
+---
+
+### `AuthController` — `/api/auth`  *(public)*
+
+#### `POST /api/auth/token`
+
+Exchanges username + password for a Casdoor OAuth2 access token via the Resource Owner Password Credentials grant. The `client_secret` is injected server-side — the browser never sees it.
+
+```
+Client                   API                            Casdoor :8000
+  │                       │                                  │
+  │  {username, password}  │                                  │
+  │──────────────────────►│                                  │
+  │                       │  form: grant_type=password       │
+  │                       │        client_id, client_secret  │
+  │                       │  ────────────────────────────────►
+  │                       │                                  │
+  │                       │  ◄────── {access_token, …} ─────│
+  │                       │                                  │
+  │  {access_token,       │
+  │   token_type,         │
+  │   expires_in}         │
+  │◄──────────────────────│
+
+Reactor chain:
+  Mono.just(req)
+   ──●──► WebClient.post("/api/login/oauth/access_token")
+           .bodyValue(form)
+           .retrieve()
+           .bodyToMono(Map)
+   ──────────────────────────●─|
+                              {access_token, token_type, expires_in, id_token}
+```
+
+---
+
+### `GameStreamController` — `/api/game`  *(public)*
+
+#### `GET /api/game/stream`
+
+Multiplexed SSE stream. Five reactive sources are merged into a single connection; each event carries an `event:` type field so clients can register per-type listeners.
+
+```
+movement$  (Sinks replay):   ──●──────────────●────────────●──⋯
+world$     (1 s heartbeat):  ──●──●──●──●──●──●──●──●──●──●──⋯
+character$ (stat changes):   ────────────●────────────────────⋯
+time$      (every ~10 s):    ────────────────────●────────────⋯
+scene$     (transitions):    ──●──────────────────────────────⋯
+keepalive  (30 s comment):   ─────────────────────────────────⋯
+
+Flux.merge(movement$, world$, character$, time$, scene$)
+  .mergeWith(Flux.interval(30s).map(_ -> comment))
+  ──●──●──●──●──●──●──●──●──●──●──●──●──●──●──●──⋯
+    │movement  │world  │character  │time  │scene
+    │          │heartbeat every 1s │
+    └──────────────────────────────┘
+         ServerSentEvent<Object>
+```
+
+#### `GET /api/game/state`
+
+Snapshot of the current game state without subscribing to the stream.
+
+```
+──request──► Mono.just(gameStateService.currentState())
+ ──────────────────────────●─|
+                            {snapshot}
+```
+
+---
+
+### `GameController` — `/api/games`  *(public)*
+
+Umbrella tier. Each game groups one or more Levels.
+
+#### `GET /api/games` · `GET /api/games/{id}`
+
+```
+──request──► gameRepo.findAllByOrderBySortOrderAsc()
+ ──────────────●──●──|  Game{id, name, slug, sortOrder, …}
+```
+
+#### `GET /api/games/{id}/levels`
+
+Returns every Level inside the umbrella game, ordered by sort_order.
+
+```
+──request──► levelRepo.findByGameIdOrderBySortOrderAsc(id)
+ ──────────────●──●──|  Level{id, slug, assetUrl, sceneType, …}
+```
+
+#### `GET /api/games/available/{characterId}`
+
+Nested structure — every umbrella game with its levels, each level annotated
+with `unlocked` / quest-progress for the caller's character. Drives the home
+page games-with-levels drilldown.
+
+```
+──request──► charQuests.findByCharacterId
+              ──●──► games.findAll().flatMap(g ->
+                      levels.findByGameId(g.id)
+                        .flatMap(build AvailableLevelDto)
+                        .collectList()
+                      .map(ls -> GameWithLevelsDto))
+ ──────────────●──●──|
+```
+
+### `LevelController` — `/api/levels`  *(public)*
+
+One level = one compiled Godot WASM bundle.
+
+#### `GET /api/levels` · `GET /api/levels/{id}`
+
+```
+──request──► levelRepo.findAllByOrderBySortOrderAsc()
+ ──────────────●──●──|  Level…
+```
+
+#### `GET /api/levels/{id}/scene`
+
+The descriptor consumed by `scene_loader.gd` at bundle startup.
+
+```
+──request──► levels.findById(id)
+              ──●──► sceneElements.findByLevelIdOrderBySortOrder(id)
+                      ──●──●──● collectList()
+                                ──●─|  SceneDto{…, assetUrl, elements:[…]}
+```
+
+### `LevelAssetController` — `/api/levels/{levelId}/assets`  *(public)*
+
+Registry for user-added textures / plugins / sounds attached to a level. GDScript
+uses labels to look up assets without hardcoding filenames.
+
+#### `GET /api/levels/{levelId}/assets`
+
+```
+──request──► levelAssetRepo.findByLevelId(levelId)
+ ──────────────●──●──|  LevelAsset{label, assetType, filePath, …}
+```
+
+#### `GET /api/levels/{levelId}/assets/by-label/{label}`
+
+```
+──request──► levelAssetRepo.findByLevelIdAndLabel(levelId, label)
+              │
+     ┌────────┴────────┐
+     │ found           │ empty
+     ▼                 ▼
+  ──●─|               ──✗ 404
+     LevelAsset
+```
+
+#### `POST /api/levels/{levelId}/assets`
+
+```
+body: {label, assetType, filePath, contentType, sizeBytes}
+──request──► repo.save(LevelAsset{…})
+ ──────────────────────────●─|  LevelAsset (with id, uploadedAt)
+```
+
+#### `DELETE /api/levels/{levelId}/assets/{assetId}`
+
+```
+──request──► repo.deleteById(assetId)
+ ──────────────────────────●─|  (empty body)
+```
+
+---
+
+### `AssetController` — `/api/assets`  *(public)*
+
+#### `GET /api/assets/levels/{slug}/{filename}`
+
+**Primary path** for per-level WASM bundles. Each level's compiled files live under
+`classpath:assets/levels/{slug}/`. The Angular iframe mounts `index.html` from here
+and Godot fetches its `.wasm`/`.pck` from the same directory.
+
+#### `GET /api/assets/{filename}` · `GET /api/assets/games/{slug}/{filename}`
+
+Legacy / root-level static assets. The `games/{slug}/` form is kept for
+backward-compat with content that hasn't been moved to the `levels/` hierarchy yet.
+
+```
+──request──► Mono.fromCallable(() -> ClassPathResource(path))
+                   │
+         ┌─────────┴──────────┐
+         │ exists             │ missing
+         ▼                    ▼
+  .contentType(mediaType)    ResponseEntity.notFound()
+  .body(resource)
+  ──────────────●─|           ──────✗  404
+```
+
+Supported extensions → content-types:
+
+| ext | type |
+|---|---|
+| `html` | `text/html` |
+| `js` | `application/javascript` |
+| `wasm` | `application/wasm` |
+| `pck` | `application/octet-stream` |
+| `png`/`jpg` | `image/png` · `image/jpeg` |
+| `glb`/`gltf` | `model/gltf-binary` · `model/gltf+json` |
+
+---
+
+### `ControlController` — `/api/controls`  *(public — validated by session)*
+
+#### `POST /api/controls/{characterId}`
+
+Accepts control events. Validates that the `X-Casdoor-Id` header matches the session marked `is_controller = true`. Non-controllers receive `403`.
+
+```
+──request──► sessionService.isController(casdoorId, characterId)
+                   │
+         ┌─────────┴──────────────┐
+         │ is controller          │ not controller
+         ▼                        ▼
+  gameStateService                ──✗  403 Forbidden
+  .applyControl(event)
+         │
+  Sinks.many().emitNext(newState)
+         │
+  ──────●─|  ResponseEntity<Void> 200
+```
+
+---
+
+### `SessionController` — `/api/sessions`  *(authenticated)*
+
+#### `POST /api/sessions/connect`
+
+Creates or resumes a player session, enforcing the 3-player cap.
+
+```
+──request──► sessionRepo.countActiveSessions()
+                   │
+         ┌─────────┴──────────┐
+         │ count < 3          │ count = 3
+         ▼                    ▼
+  createOrResumeSession()    ──✗  409 Conflict
+  (first joiner auto-claims
+   controller role)
+         │
+  ──────●─|  {sessionToken, isController, playerCount}
+```
+
+#### `POST /api/sessions/control`
+
+Attempts to claim the exclusive controller role.
+
+```
+──request──► sessionRepo.countByIsControllerTrue()
+                   │
+         ┌─────────┴──────────┐
+         │ count = 0          │ count > 0
+         ▼                    ▼
+  setController(true)    ──────●─|
+         │                {claimed: false}
+  ──────●─|
+  {claimed: true}
+```
+
+#### `DELETE /api/sessions/me`
+
+```
+──request──► sessionRepo.deleteByCasdoorId(casdoorId)
+ ──────────────────────────●─|  (no body)
+```
+
+---
+
+### `CharacterController` — `/api/characters`  *(authenticated)*
+
+#### `GET /api/characters`
+
+```
+──request──► characterRepo.findAll()
+              ──map(toDto)──►
+ ──────────────●──●──●──●──|
+               CharacterDto…
+```
+
+#### `GET /api/characters/{id}`
+
+```
+──request──► characterRepo.findById(id)
+                   │
+         ┌─────────┴──────────┐
+         │ found              │ empty
+         ▼                    ▼
+  map(toDto)           switchIfEmpty(404)
+  ──────●─|                   ──✗
+```
+
+#### `PUT /api/characters/{id}`
+
+Patches HP, MP, level, XP, ability stats, and current scene, then notifies the SSE character channel.
+
+```
+──request──► characterRepo.findById(id)
+              ──●──► map(applyPatch)
+                      ──●──► characterRepo.save()
+                              ──●──► gameStateService.notifyCharacterChange()
+ ──────────────────────────────────────────────●─|
+                                              CharacterDto (updated)
+```
+
+---
+
+### `SkillController` — `/api/skills`  *(authenticated)*
+
+#### `GET /api/skills`
+
+```
+──request──► skillRepo.findAll()
+              ──map(toDto)──►
+ ──────────────●──●──●──●──|
+               SkillDto…
+```
+
+#### `GET /api/skills/character/{characterId}`
+
+```
+──request──► characterSkillRepo.findByCharacterId(id)
+              ──flatMap(cs -> skillRepo.findById(cs.skillId))
+              ──map(toDto)──►
+ ──────────────●──●──●──|
+               SkillDto (learned skills only)
+```
+
+#### `GET /api/skills/character/{characterId}/slots`
+
+```
+──request──► slotRepo.findByCharacterIdOrderBySlotNumber(id)
+              ──map(slot -> {slotNumber, skill or null})──►
+ ──────────────●──●──●──●──●──|
+               {slot: 1, skill: {…}}
+               {slot: 2, skill: null}   (empty slot)
+               …
+```
+
+#### `PUT /api/skills/character/{characterId}/slots/{slot}`
+
+```
+──request──► slotRepo.save(CharacterSkillSlot{charId, slot, skillId})
+ ──────────────────────────●─|  (no body)
+```
+
+---
+
+### `ItemController` — `/api/items`  *(authenticated)*
+
+#### `GET /api/items/character/{characterId}/inventory`
+
+```
+──request──► charItemRepo.findByCharacterId(id)
+              ──flatMap(ci -> itemRepo.findById(ci.itemId)
+                               .map(item -> ItemDto{…, quantity: ci.quantity}))
+ ──────────────●──●──●──|
+               ItemDto (with quantity)…
+```
+
+#### `GET /api/items/character/{characterId}/equipment`
+
+```
+──request──► charEquipRepo.findByCharacterId(id)
+              ──flatMap(ce -> itemRepo.findById(ce.itemId))
+              ──map(item -> {slot, item or null})──►
+ ──────────────●──●──●──●──●──|
+               {slot: "head",    item: {…}}
+               {slot: "chest",   item: null}  (empty)
+               …
+```
+
+#### `PUT /api/items/character/{characterId}/equipment/{slot}`
+
+```
+──request──► charEquipRepo.save(CharacterEquipment{charId, slot, itemId})
+ ──────────────────────────●─|  (no body)
+```
+
+---
+
+### `QuestController` — `/api/quests`  *(authenticated)*
+
+#### `GET /api/quests`
+
+```
+──request──► questRepo.findAll()
+              ──map(toDto)──►
+ ──────────────●──●──●──|
+               QuestDto…
+```
+
+#### `GET /api/quests/character/{characterId}`
+
+```
+──request──► charQuestRepo.findByCharacterId(id)
+              ──flatMap(cq -> questRepo.findById(cq.questId)
+                               .map(q -> QuestDto{…, status: cq.status,
+                                                     completedAt: cq.completedAt}))
+ ──────────────●──●──●──|
+               QuestDto (with character-specific status)…
+```
+
+---
+
+### `AdminController` — `/api/admin`  *(ROLE_ADMIN only)*
+
+#### `GET /api/admin/sessions`
+
+```
+──request──► sessionRepo.findAll()
+ ──────────────●──●──●──|
+               SessionDto…
+```
+
+#### `DELETE /api/admin/sessions/{casdoorId}`
+
+Force-disconnects a player session regardless of controller status.
+
+```
+──request──► sessionRepo.deleteByCasdoorId(casdoorId)
+ ──────────────────────────●─|  (no body)
+```
+
+#### `GET /api/admin/characters`
+
+```
+──request──► characterRepo.findAll()
+              ──map(toDto)──►
+ ──────────────●──●──●──|
+               CharacterDto…
+```
+
+#### `PUT /api/admin/characters/{id}`
+
+Same patch pipeline as the player `CharacterController`, without the ownership check.
+
+```
+──request──► characterRepo.findById(id)
+              ──●──► map(applyPatch)
+                      ──●──► characterRepo.save()
+ ──────────────────────────────────────●─|
+                                      CharacterDto (updated)
+```
+
+---
+
+### `GameTimeController` — `/api/time`  *(public)*
+
+#### `GET /api/time`
+
+Returns the current in-game clock state. The `GameTimeService` scheduler advances 1 game-minute every ~10 real seconds and persists to `game_time_state`.
+
+```
+GameTimeService scheduler (every 10 s real):
+  ──tick──tick──tick──tick──⋯
+     │      │      │
+  minute++ minute++ day++ (at 23:59)
+  persist  emit time$ SSE event
+
+GET /api/time:
+──request──► timeRepo.findFirst()
+              ──map(toDto)──►
+ ──────────────────────────●─|
+                            {dayNumber, hour, minute}
+```
+
+---
+
+## Database schema
+
+```
+games ────────────────────────────────────────────────────  ← umbrella tier
+  id, name, description, slug, sort_order,
+  thumbnail_url, created_at
+
+levels ───────────────────────────────────────────────────  ← one WASM per row
+  id, game_id(→games), name, description, slug,
+  scene_type, sort_order, asset_url, scene_config,
+  thumbnail_url, created_at
+
+scene_elements ───────────────────────────────────────────
+  id, level_id(→levels), element_type, name,
+  position_x/y/z, rotation_x/y/z, properties, sort_order
+
+level_assets ─────────────────────────────────────────────  ← user-added content
+  id, level_id(→levels), label, asset_type,
+  file_path, content_type, size_bytes, uploaded_at
+  (unique label per level)
+
+level_prerequisites ──────────────────────────────────────
+  id, level_id(→levels), required_quest_id(→quests)
+
+player_characters ────────────────────────────────────────
+  id, name, casdoor_id, level, xp, xp_to_next,
+  max_hp, current_hp, max_mp, current_mp,
+  attack, defense, speed, magic_power,
+  current_level_id(→levels), created_at
+
+player_sessions ──────────────────────────────────────────
+  id, session_token, casdoor_id,
+  character_id(→player_characters),
+  is_controller, connected_at, last_ping
+
+player_positions ─────────────────────────────────────────  ◄─ NOTIFY trigger
+  id, character_id(→player_characters),
+  scene_id(→games), pos_x, pos_y, pos_z,
+  rotation_y, updated_at
+
+game_time_state ──────────────────────────────────────────
+  id, day_number, hour, minute,
+  real_started_at, last_persisted_at
+
+skills ───────  character_skills ───  character_skill_slots
+  id, name      character_id          character_id, slot_number
+  skill_type    skill_id              skill_id
+  mana_cost     learned_at
+
+items ───────  character_items ─────  character_equipment
+  id, name      character_id          character_id, slot
+  item_type     item_id, quantity      item_id
+
+quests ──────  quest_objectives ────  character_quests
+  id, name      quest_id              character_id, quest_id
+  reward_xp     description           status, started_at
+  reward_gold   required_count        completed_at
+```
+
+---
+
+## Godot asset pipeline
+
+Each level compiles to its **own** WASM bundle. `export_presets.cfg` holds one
+preset per level; the Makefile loops over `GODOT_LEVELS` and runs
+`godot --headless --export-release "<preset>"` for each one, with the output
+going under `backend/src/main/resources/assets/levels/<slug>/`.
+
+```
+make build-godot
+  │
+  ├─ cargo build --release     → godot-project/rust_extension/bin/libthree_wizards.so
+  │
+  ├─ for preset in $(GODOT_LEVELS):
+  │    godot --headless --export-release "<preset>"
+  │       → backend/src/main/resources/assets/levels/<slug>/
+  │          index.html  index.wasm  index.pck  index.js  index.side.wasm
+  │    scripts/patch-godot-html.py <slug>/index.html <slug>/index.side.wasm
+  │
+  └─ ✓ all levels exported
+
+make seed-db
+  │
+  └─ scripts/seed-games.sql  (ON CONFLICT (slug) DO UPDATE)
+       upserts level rows with asset_url = '/api/assets/levels/<slug>/index.html'
+
+make deploy  =  build-godot + seed-db
+  (then rebuild the api image so the new classpath assets ship)
+```
+
+Adding a new level touches four places — `export_presets.cfg`, `Makefile`
+`GODOT_LEVELS`, the `levels` DB row, and (optionally) `level_prerequisites`.
+Full walk-through with naming rules and common mistakes: see the
+[Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
+
+### User-added assets (textures, plugins, sounds)
+
+Drop a file into `backend/src/main/resources/assets/levels/<slug>/` then register
+it so GDScript can resolve it by label:
+
+```
+curl -X POST http://localhost:8080/api/levels/<id>/assets \
+  -H 'Content-Type: application/json' \
+  -d '{"label":"oak-bark","assetType":"texture",
+       "filePath":"/api/assets/levels/field/oak.png",
+       "contentType":"image/png"}'
+```
+
+From GDScript (editor or web, via the `ApiClient` helper):
+
+```gdscript
+var api := ApiClient.new(); add_child(api)
+api.resolve_asset(level_id, "oak-bark", func(url):
+    # … HTTPRequest the url and apply as albedo_texture …
+)
+```
+
+Level transitions from inside the game are one call:
+
+```gdscript
+$GameBridge.request_level_transition("field", 2)
+```
+
+See the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md#mid-game-level-transitions) for the full flow.
 
 ---
 
@@ -102,6 +840,7 @@ The Vite dev server proxy injects `Connection: close` on all responses, which ki
 | npm | 10+ | JS package manager |
 | Angular CLI | 19 | Frontend build tool |
 | Make | any | Build orchestration |
+| Docker + Compose | 24+ / v2 | Full stack (Postgres, Casdoor, API, nginx) |
 | Emscripten | 3.1+ | *(optional)* Rust → WASM |
 
 ---
@@ -182,7 +921,16 @@ sudo dnf install make
 sudo pacman -S make
 ```
 
-### 7. Emscripten (optional)
+### 7. Docker + Compose
+
+```bash
+# Debian/Ubuntu (official repo)
+sudo apt install -y docker.io docker-compose-plugin
+sudo usermod -aG docker $USER   # re-login after this
+docker compose version
+```
+
+### 8. Emscripten (optional)
 
 ```bash
 git clone https://github.com/emscripten-core/emsdk.git ~/emsdk
@@ -242,6 +990,32 @@ choco install make
 # Or use Git for Windows — make.exe is at C:\Program Files\Git\usr\bin\
 ```
 
+### 7. Docker Desktop
+
+Download from [docs.docker.com/desktop/install/windows-install](https://docs.docker.com/desktop/install/windows-install/). Enable WSL 2 backend.
+
+---
+
+## Running with Docker Compose (recommended)
+
+```bash
+# First run: Casdoor generates random credentials and prints them to its logs
+docker compose up -d
+
+# Check Casdoor seed credentials (client-id, client-secret, admin/player passwords)
+docker compose logs casdoor | grep -A 6 "Casdoor seed"
+
+# Open the app
+open http://localhost:4200
+```
+
+The `api` container waits for both `postgres` (healthcheck) and `casdoor` (healthcheck) before starting. Liquibase runs schema migrations automatically on first boot.
+
+To override credentials:
+```bash
+CASDOOR_CLIENT_SECRET=mysecret CASDOOR_ADMIN_PASS=mypass docker compose up -d
+```
+
 ---
 
 ## Building the project
@@ -260,15 +1034,17 @@ This installs frontend `node_modules` and generates the Maven wrapper.
 make build
 ```
 
-Order: `cargo build --release` → `godot --export-release` → `mvn package` → `ng build`
+Order: `cargo build --release` → `godot --export-release` → `patch-godot-html.py` → `mvn package` → `ng build`
 
 ### Individual steps
 
 ```bash
 make build-rust      # Rust GDExtension → godot-project/rust_extension/bin/
-make build-godot     # Godot WebGL export → frontend/src/assets/game/
+make build-godot     # Godot WebGL export + HTML patch → backend classpath assets
 make build-backend   # Spring Boot JAR
 make build-frontend  # Angular dist
+make seed-db         # Upsert game records with asset_url in running Postgres
+make deploy          # build-godot + seed-db (then rebuild api image to serve new WASM)
 ```
 
 ### Clean
@@ -295,11 +1071,9 @@ make dev-frontend
 
 Open [http://localhost:4200](http://localhost:4200).
 
-> **Important:** Do not use the VS Code Spring Boot Dashboard or the IntelliJ Spring Boot run config to start the backend. These tools auto-restart using stale compiled classes in `target/classes`, which can bring up an old version of the service with bugs that were already fixed. Always use `make dev-backend`, which runs `./mvnw clean spring-boot:run` to compile from source.
+> **Important:** Do not use the VS Code Spring Boot Dashboard or the IntelliJ Spring Boot run config to start the backend — these tools start from stale compiled classes. Always use `make dev-backend`, which runs `./mvnw clean spring-boot:run`.
 
 > The Godot game iframe only appears after `make build-godot` has been run at least once. Until then the canvas area will be blank.
-
-> `GameStateService` in Angular connects directly to `http://localhost:8080` in dev (see `frontend/src/environments/environment.ts`), bypassing the Vite proxy. This is intentional — the proxy injects `Connection: close` which terminates SSE streams.
 
 ---
 
@@ -327,9 +1101,7 @@ Open [http://localhost:4200](http://localhost:4200).
 | 2 | — | Cast Spell 2 (Ice) |
 | 3 | — | Cast Spell 3 (Lightning) |
 
-Keyboard input works both from the Angular page (when the browser window has focus) and from inside the Godot canvas (when the iframe has focus). Both paths POST to `/api/controls`.
-
-On-screen buttons in the Angular HUD mirror all movement actions and support touch input.
+Keyboard input works both from the Angular page and from inside the Godot canvas. Both paths POST to `/api/controls/{characterId}`. Only the session holding `is_controller = true` has its events applied.
 
 ---
 
@@ -337,74 +1109,102 @@ On-screen buttons in the Angular HUD mirror all movement actions and support tou
 
 ```
 ThreeWizardsInATrenchcoat/
-├── Makefile                          # Master build chain
+├── Makefile                              # Master build + seed-db + deploy
+├── scripts/
+│   ├── patch-godot-html.py              # Patches WASM sizes + scene prefetch
+│   └── seed-games.sql                   # Idempotent game record upserts
+├── docker-compose.yml                   # postgres + casdoor (internal) + api + frontend
+├── docker/
+│   └── postgres-init.sql                # Creates casdoor DB alongside threewizards
+├── casdoor/
+│   ├── conf/app.conf                    # Casdoor config (postgres, origin, initDataFile)
+│   ├── init_data.json.tpl               # Org / app / user seed template
+│   └── entrypoint.sh                    # Substitutes env vars, generates random secrets
 ├── game/
-│   └── rust/                         # Rust GDExtension crate
+│   └── rust/                            # Rust GDExtension crate
 │       ├── Cargo.toml
 │       └── src/
-│           ├── lib.rs                # Extension entry point
-│           ├── cave_scene.rs         # CaveScene node
-│           ├── player.rs             # PlayerController stub
-│           └── game_state.rs         # GameStateBridge stub
-├── godot-project/                    # Godot 4.6 project
+│           ├── lib.rs                   # Extension entry point
+│           ├── cave_scene.rs            # CaveScene node
+│           ├── player.rs                # PlayerController stub
+│           └── game_state.rs            # GameStateBridge stub
+├── godot-project/                       # Godot 4.6 project
 │   ├── project.godot
-│   ├── export_presets.cfg            # Web export → frontend/src/assets/game/
+│   ├── export_presets.cfg               # Web export → backend classpath assets
 │   ├── scenes/
-│   │   └── cave.tscn                 # Cave with CSG collision + player + camera rig
+│   │   ├── cave.tscn                    # Cave: CSG geometry + player + camera rig
+│   │   └── field.tscn                   # Open field: procedural sky + terrain
 │   ├── scripts/
-│   │   ├── camera_controller.gd      # Orbit camera: scroll zoom, drag orbit, FP/3P switch
-│   │   ├── game_bridge.gd            # Own EventSource via JavaScriptBridge; keyboard → API
-│   │   └── player_controller.gd      # Applies SSE state; camera-relative WASD movement
+│   │   ├── camera_controller.gd         # Orbit camera: scroll zoom, drag orbit, FP/3P
+│   │   ├── fairy.gd                     # Floating fairy particle behaviour
+│   │   ├── game_bridge.gd               # EventSource (5 typed channels) + keyboard → API
+│   │   ├── player_controller.gd         # Applies SSE movement state
+│   │   └── scene_loader.gd              # Fetches scene config, spawns elements, sun rotation
 │   └── rust_extension/
-│       └── three_wizards.gdextension # GDExtension manifest
-├── frontend/                         # Angular 19 application
-│   ├── proxy.conf.js                 # /api → :8080 with SSE keep-alive fix
-│   ├── proxy.conf.json               # Legacy JSON proxy (kept for reference)
+│       └── three_wizards.gdextension    # GDExtension manifest
+├── frontend/                            # Angular 19 standalone app
+│   ├── nginx.conf                       # Reverse-proxies /api → api:8080
+│   ├── Dockerfile                       # ng build → nginx
 │   └── src/
 │       ├── environments/
-│       │   ├── environment.ts        # Dev: apiBase = 'http://localhost:8080'
-│       │   └── environment.prod.ts   # Prod: apiBase = '' (same origin)
+│       │   ├── environment.ts           # Dev: apiBase = 'http://localhost:8080'
+│       │   └── environment.prod.ts      # Prod: apiBase = ''
 │       └── app/
-│           ├── game-canvas/          # Godot iframe host
-│           ├── game-controls/        # WASD/arrow buttons + keyboard shortcuts
-│           ├── game-hud/             # HP bar, MP bar, position, API connection badge
-│           ├── services/
-│           │   ├── control.service.ts    # POST /api/controls
-│           │   └── game-state.service.ts # EventSource with reconnect; emits to BehaviorSubjects
-│           └── models/game-state.model.ts
-└── backend/                          # Spring Boot 3 / Java 21 / WebFlux
+│           ├── http-auth.interceptor.ts # Attaches Bearer token to /api/* requests
+│           ├── auth.guard.ts            # Route guard: AuthService.isAuthenticated()
+│           ├── login/                   # Form-based login (no Casdoor redirect)
+│           ├── home/                    # Game listing
+│           ├── game-canvas/             # Godot iframe host (reads game.assetUrl)
+│           ├── game-controls/           # WASD + spell buttons
+│           ├── game-hud/                # HP, MP, position, session badge
+│           └── services/
+│               ├── auth.service.ts      # sessionStorage JWT, login/logout/getClaims
+│               ├── control.service.ts   # POST /api/controls
+│               └── game-state.service.ts # EventSource with reconnect; typed events
+└── backend/                             # Spring Boot 3.x / Java 21 / WebFlux + R2DBC
     └── src/main/java/com/threewizards/
-        ├── config/WebConfig.java          # CORS filter
-        ├── controller/
-        │   ├── GameStreamController.java  # GET /api/game/stream (SSE)
-        │   ├── ControlController.java     # POST /api/controls
-        │   └── AssetController.java       # GET /api/assets/{file}
-        ├── model/
-        │   ├── GameState.java             # Java record
-        │   ├── PlayerState.java           # Java record
-        │   └── ControlEvent.java          # Java record
-        └── service/GameStateService.java  # Sinks.many().replay().limit(1) + 1 s heartbeat
+        ├── config/
+        │   ├── JdbcDataSourceConfig.java  # @Primary HikariDataSource for Liquibase
+        │   ├── SecurityConfig.java        # JWT resource server, path rules
+        │   └── WebConfig.java             # CORS
+        ├── controller/                    # (12 controllers — see API Reference above)
+        ├── model/                         # R2DBC entities + DTOs + records
+        ├── repository/                    # ReactiveCrudRepository interfaces
+        └── service/
+            ├── GameStateService.java      # Sinks.many().replay().limit(1) + heartbeat
+            ├── GameTimeService.java       # In-game clock scheduler
+            ├── PgNotificationService.java # LISTEN game_events → SSE scene$
+            ├── SessionService.java        # 3-player cap + controller arbitration
+            └── AdminPasswordService.java  # Dev profile: prints credentials at startup
 ```
 
 ---
 
 ## SSE debugging
 
-The backend logs all control events and state changes at INFO level, and every SSE emission at DEBUG level.
-
-To watch the SSE stream directly:
 ```bash
+# Watch the full multiplexed stream (all 5 event types)
 curl -N http://localhost:8080/api/game/stream
+
+# Filter to a single channel
+curl -N http://localhost:8080/api/game/stream | grep -A1 "^event: time"
 ```
 
-Each event looks like:
+Example events:
 ```
-event: game-state
-data: {"sessionId":"...","player":{"x":0.0,"y":0.9,"z":0.0,...},"action":"MOVE_FORWARD","pressed":true,"timestamp":...,"tick":42}
+event: movement
+data: {"x":3.2,"y":0.9,"z":-1.4,"rotationY":1.05,"action":"MOVE_FORWARD","pressed":true}
+
+event: time
+data: {"dayNumber":1,"hour":8,"minute":12}
+
+event: world
+data: {"sessionId":"abc123","tick":441,"timestamp":1714000800000}
 ```
 
-To enable DEBUG logging for the service, add this to `backend/src/main/resources/application.yml`:
+To enable DEBUG logging:
 ```yaml
+# backend/src/main/resources/application.yml
 logging:
   level:
     com.threewizards: DEBUG

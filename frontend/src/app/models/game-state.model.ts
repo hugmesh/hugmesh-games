@@ -1,3 +1,5 @@
+import { GameTime } from './game-time.model';
+
 export type GameAction =
   | 'MOVE_FORWARD'
   | 'MOVE_BACKWARD'
@@ -22,6 +24,13 @@ export interface PlayerState {
   rotationY: number;
   health: number;
   mana: number;
+  level: number;
+  xp: number;
+  xpToNext: number;
+  maxHp: number;
+  maxMana: number;
+  attack: number;
+  defense: number;
 }
 
 export interface GameState {
@@ -31,4 +40,5 @@ export interface GameState {
   pressed: boolean;
   timestamp: number;
   tick: number;
+  gameTime?: GameTime;
 }

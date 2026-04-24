@@ -1,4 +1,5 @@
 services:
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -9,16 +10,44 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U threewizards"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  casdoor:
+    image: casbin/casdoor:latest
+    entrypoint: ["/bin/sh", "/casdoor-init.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      RUNNING_IN_DOCKER: "true"
+      # Set these explicitly to override generated random values.
+      # Leave unset to get a secure random secret printed to container logs on first run.
+      CASDOOR_CLIENT_ID: ${CASDOOR_CLIENT_ID:-twclient001}
+      CASDOOR_CLIENT_SECRET: ${CASDOOR_CLIENT_SECRET:-}
+      CASDOOR_ADMIN_PASS: ${CASDOOR_ADMIN_PASS:-}
+      CASDOOR_PLAYER_PASS: ${CASDOOR_PLAYER_PASS:-}
+    volumes:
+      - ./casdoor/conf:/conf
+      - ./casdoor/init_data.json.tpl:/init_data.json.tpl
+      - ./casdoor/entrypoint.sh:/casdoor-init.sh
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   api:
     build: ./backend
     depends_on:
       postgres:
+        condition: service_healthy
+      casdoor:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -28,7 +57,19 @@ services:
       DB_NAME: threewizards
       DB_USER: threewizards
       DB_PASS: threewizards
+      CASDOOR_ENDPOINT: http://casdoor:8000
+      CASDOOR_CLIENT_ID: ${CASDOOR_CLIENT_ID:-twclient001}
+      CASDOOR_CLIENT_SECRET: ${CASDOOR_CLIENT_SECRET:-}
+      CASDOOR_ORGANIZATION: threewizards
+      SPRING_PROFILES_ACTIVE: prod
     restart: on-failure
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "4200:80"
 
 volumes:
   pgdata:

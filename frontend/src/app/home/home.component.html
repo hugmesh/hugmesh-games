@@ -3,46 +3,81 @@
   <section class="hero">
     <div class="hero-inner">
       <h1 class="hero-title">Three Wizards<br><span>In A Trenchcoat</span></h1>
-      <p class="hero-sub">Choose your adventure</p>
+      <p class="hero-sub">Select a level to begin your adventure</p>
     </div>
   </section>
 
   <section class="game-grid-section">
-    <h2 class="section-label">Games</h2>
+    <h2 class="section-label">Levels</h2>
     <div class="game-grid">
-      @for (game of games$ | async; track game.id) {
-        <div class="game-card" (click)="selectGame(game)" [class.active]="activeGame?.id === game.id">
+      @for (level of levels$ | async; track level.id) {
+        <div class="game-card"
+             [class.active]="activeLevel?.id === level.id"
+             [class.locked]="!level.unlocked"
+             (click)="selectLevel(level)">
           <div class="card-thumb">
             <div class="card-thumb-placeholder">
-              <span class="thumb-icon">⚔️</span>
+              <span class="level-num">{{ level.sortOrder }}</span>
+              <span class="thumb-icon">{{ sceneIcon(level) }}</span>
+              @if (!level.unlocked) {
+                <span class="lock-overlay">🔒</span>
+              }
             </div>
           </div>
           <div class="card-body">
-            <h3 class="card-title">{{ game.name }}</h3>
-            <p class="card-desc">{{ game.description }}</p>
-            <button class="play-btn" (click)="selectGame(game); $event.stopPropagation()">▶ Play</button>
+            <div class="card-meta">
+              <span class="scene-tag scene-tag--{{ level.sceneType }}">{{ level.sceneType }}</span>
+              @if (level.unlocked) {
+                <span class="chip chip--unlocked">Unlocked</span>
+              } @else {
+                <span class="chip chip--locked">Locked</span>
+              }
+            </div>
+            <h3 class="card-title">{{ level.name }}</h3>
+            <p class="card-desc">{{ level.description }}</p>
+            @if (level.totalQuests > 0) {
+              <div class="progress">
+                <div class="progress-bar">
+                  <div class="progress-fill" [style.width.%]="(level.completedQuests * 100 / level.totalQuests)"></div>
+                </div>
+                <span class="progress-text">{{ level.completedQuests }} / {{ level.totalQuests }} quests</span>
+              </div>
+            }
+            @if (level.unlocked) {
+              <button class="play-btn" (click)="selectLevel(level); $event.stopPropagation()">
+                &#9654; Play
+              </button>
+            } @else {
+              <button class="play-btn play-btn--locked" disabled>
+                &#128274; Complete earlier quests to unlock
+              </button>
+            }
           </div>
         </div>
       }
-      @if ((games$ | async)?.length === 0) {
-        <p class="empty-state">No games available — make sure the API is running.</p>
+      @if ((levels$ | async)?.length === 0) {
+        <p class="empty-state">No levels available — make sure the API is running.</p>
       }
     </div>
   </section>
 
-  @if (activeGame) {
+  @if (activeLevel) {
     <section class="canvas-section" #canvasSection>
       <div class="canvas-header">
-        <span class="canvas-title">{{ activeGame.name }}</span>
+        <span class="canvas-title">
+          {{ sceneIcon(activeLevel) }} {{ activeLevel.name }}
+        </span>
         <div class="canvas-actions">
           <button class="icon-btn" (click)="toggleFullscreen()" title="Fullscreen">
-            {{ isFullscreen ? '⛶' : '⛶' }} {{ isFullscreen ? 'Exit Fullscreen' : 'Fullscreen' }}
+            &#x26F6; {{ isFullscreen ? 'Exit Fullscreen' : 'Fullscreen' }}
           </button>
-          <button class="icon-btn close-btn" (click)="closeGame()" title="Close">✕ Close</button>
+          <button class="icon-btn close-btn" (click)="closeLevel()" title="Close">&#10005; Close</button>
         </div>
       </div>
       <div class="canvas-container" #canvasContainer>
-        <app-game-canvas [game]="activeGame"></app-game-canvas>
+        <app-game-canvas
+          [game]="activeLevel"
+          (levelTransition)="onLevelTransition($event)"></app-game-canvas>
         <div class="hud-layer">
           <app-game-hud></app-game-hud>
           <app-game-controls></app-game-controls>

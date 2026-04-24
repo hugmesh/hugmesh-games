@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Restructure to a three-tier hierarchy:
+            games  → levels  → scene_elements
+        where each level is its own compiled Godot WASM bundle.
+
+        Strategy:
+          1. Rename the existing `games` table to `levels` (FKs follow automatically).
+          2. Rename dependent columns (scene_elements.game_id → level_id, etc).
+          3. Create a fresh `games` table for the umbrella concept.
+          4. Add `levels.game_id` FK pointing at the new games table.
+          5. Seed a default "Three Wizards" umbrella game and link all existing levels to it.
+          6. Update asset URLs: /api/assets/games/{slug}/ → /api/assets/levels/{slug}/
+          7. Add a `level_assets` table so Godot users can register custom textures / plugins
+             per level, served back through the API.
+    -->
+
+    <!-- Step 1: rename games → levels (preserves all FK target references) -->
+    <changeSet id="012-1" author="nin">
+        <renameTable oldTableName="games" newTableName="levels"/>
+    </changeSet>
+
+    <!-- Step 2: rename dependent columns to reflect the new terminology -->
+    <changeSet id="012-2" author="nin">
+        <renameColumn tableName="scene_elements"
+                      oldColumnName="game_id" newColumnName="level_id"/>
+    </changeSet>
+    <changeSet id="012-3" author="nin">
+        <renameColumn tableName="quests"
+                      oldColumnName="game_id" newColumnName="level_id"/>
+    </changeSet>
+    <changeSet id="012-4" author="nin">
+        <renameTable oldTableName="game_prerequisites" newTableName="level_prerequisites"/>
+        <renameColumn tableName="level_prerequisites"
+                      oldColumnName="game_id" newColumnName="level_id"/>
+    </changeSet>
+    <changeSet id="012-5" author="nin">
+        <renameColumn tableName="player_characters"
+                      oldColumnName="current_scene_id" newColumnName="current_level_id"/>
+    </changeSet>
+
+    <!-- Step 3: create the new umbrella games table -->
+    <changeSet id="012-6" author="nin">
+        <createTable tableName="games">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="TEXT"/>
+            <column name="slug" type="VARCHAR(50)">
+                <constraints unique="true" nullable="false"/>
+            </column>
+            <column name="thumbnail_url" type="VARCHAR(255)"/>
+            <column name="sort_order" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Step 4: add game_id FK on levels -->
+    <changeSet id="012-7" author="nin">
+        <addColumn tableName="levels">
+            <column name="game_id" type="BIGINT">
+                <constraints foreignKeyName="fk_level_game"
+                             referencedTableName="games" referencedColumnNames="id"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <!-- Step 5: seed a default umbrella game and backfill levels -->
+    <changeSet id="012-8" author="nin">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+VALUES (1, 'Three Wizards Saga',
+        'The full adventure across cave depths and open fields.',
+        'three-wizards', 1, NOW())
+ON CONFLICT (slug) DO NOTHING;
+
+UPDATE levels SET game_id = 1 WHERE game_id IS NULL;
+
+-- Reset sequence past seeded value
+SELECT setval('games_id_seq', GREATEST((SELECT MAX(id) FROM games), 1));
+        </sql>
+    </changeSet>
+
+    <!-- Step 6: update asset URLs to the new path -->
+    <changeSet id="012-9" author="nin">
+        <sql>
+UPDATE levels SET asset_url = '/api/assets/levels/cave/index.html'  WHERE slug = 'cave';
+UPDATE levels SET asset_url = '/api/assets/levels/field/index.html' WHERE slug = 'field';
+        </sql>
+    </changeSet>
+
+    <!-- Step 7: level_assets — registry for user-added textures / plugins / extra files.
+         Godot developers upload via the API; the file_path is relative to the level's
+         classpath directory. The label makes each asset findable from GDScript. -->
+    <changeSet id="012-10" author="nin">
+        <createTable tableName="level_assets">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="level_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_lasset_level"
+                             referencedTableName="levels" referencedColumnNames="id"/>
+            </column>
+            <column name="label" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="asset_type" type="VARCHAR(50)" defaultValue="texture">
+                <constraints nullable="false"/>
+            </column>
+            <column name="file_path" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="content_type" type="VARCHAR(100)"/>
+            <column name="size_bytes" type="BIGINT"/>
+            <column name="uploaded_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="level_assets" columnNames="level_id,label"
+                             constraintName="uq_level_asset_label"/>
+    </changeSet>
+
+</databaseChangeLog>

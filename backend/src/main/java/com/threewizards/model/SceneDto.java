@@ -7,5 +7,6 @@ public record SceneDto(
         String name,
         String slug,
         String sceneType,
+        String assetUrl,
         List<SceneElementDto> elements
 ) {}

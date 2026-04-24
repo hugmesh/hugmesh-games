@@ -1,8 +1,11 @@
 package com.threewizards.repository;
 
 import com.threewizards.model.Game;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-@Repository
-public interface GameRepository extends JpaRepository<Game, Long> {}
+public interface GameRepository extends ReactiveCrudRepository<Game, Long> {
+    Mono<Game> findBySlug(String slug);
+    Flux<Game> findAllByOrderBySortOrderAsc();
+}

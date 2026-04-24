@@ -6,5 +6,6 @@ public record GameState(
         String action,
         boolean pressed,
         long timestamp,
-        long tick
+        long tick,
+        GameTimeDto gameTime
 ) {}

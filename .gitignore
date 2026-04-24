@@ -27,7 +27,16 @@ frontend/src/assets/game/*.png
 frontend/node_modules/
 frontend/dist/
 frontend/.angular/
+# ng-openapi-gen output — generated from openapi.json at build/gen-api time
+frontend/src/app/api/
 
 # Spring Boot
 backend/target/
 backend/.mvn/wrapper/maven-wrapper.jar
+
+# Casdoor — rendered init_data is generated at container startup from the .tpl template.
+# Never commit the rendered file; it bakes in default / rotated secrets.
+casdoor/init_data.json
+
+# Frontend OpenAPI spec — regenerated from the live backend via `make gen-api`.
+frontend/openapi.json

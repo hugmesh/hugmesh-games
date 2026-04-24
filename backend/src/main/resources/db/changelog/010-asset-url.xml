@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Add asset_url column: points to the Godot WASM bundle served by AssetController -->
+    <changeSet id="010-1" author="nin">
+        <addColumn tableName="games">
+            <column name="asset_url" type="VARCHAR(255)"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Seed asset URLs for the cave and field scenes (both use the cave WASM bundle) -->
+    <changeSet id="010-2" author="nin">
+        <update tableName="games">
+            <column name="asset_url" value="/api/assets/games/cave/index.html"/>
+            <where>slug = 'cave'</where>
+        </update>
+        <update tableName="games">
+            <column name="asset_url" value="/api/assets/games/cave/index.html"/>
+            <where>slug = 'field'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>

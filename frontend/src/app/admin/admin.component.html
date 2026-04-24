@@ -1,0 +1,117 @@
+<div class="admin-page">
+  <header class="admin-header">
+    <div>
+      <h1 class="admin-title">&#9878; Admin Panel</h1>
+      <span class="admin-subtitle">Server management — no game canvas loaded</span>
+    </div>
+    <button class="btn" (click)="refresh()">&#8635; Refresh</button>
+  </header>
+
+  @if (errorMessage) {
+    <p class="error-banner">{{ errorMessage }}</p>
+  }
+
+  @if (stats$ | async; as stats) {
+    <section class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">Total users</span>
+        <span class="stat-value">{{ stats.totalUsers }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Total sessions</span>
+        <span class="stat-value">{{ stats.totalSessions }}</span>
+      </div>
+      <div class="stat-card stat-card--accent">
+        <span class="stat-label">Currently active</span>
+        <span class="stat-value">{{ stats.currentlyActive }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Avg session (min)</span>
+        <span class="stat-value">{{ stats.averageSessionMinutes }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Characters</span>
+        <span class="stat-value">{{ stats.totalCharacters }}</span>
+      </div>
+    </section>
+
+    <section class="admin-section">
+      <h2 class="section-title">Per-user usage</h2>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Character</th>
+              <th>Casdoor ID</th>
+              <th>Sessions</th>
+              <th>Total minutes</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (u of stats.perUser; track u.casdoorId) {
+              <tr>
+                <td>{{ u.characterName || '—' }}</td>
+                <td class="td-mono">{{ u.casdoorId }}</td>
+                <td>{{ u.sessionCount }}</td>
+                <td>{{ u.totalMinutes }}</td>
+                <td>
+                  <span class="badge" [class.badge--yes]="u.online" [class.badge--no]="!u.online">
+                    {{ u.online ? 'Online' : 'Offline' }}
+                  </span>
+                </td>
+                <td>
+                  @if (u.online) {
+                    <button class="btn btn-sm btn-danger" (click)="kick(u.casdoorId)">Kick</button>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr><td colspan="6" class="td-empty">No user activity yet.</td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
+
+  <section class="admin-section">
+    <h2 class="section-title">Active sessions right now</h2>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Character</th>
+            <th>Casdoor ID</th>
+            <th>Last active</th>
+            <th>Controller</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of (sessions$ | async); track s.id) {
+            <tr>
+              <td class="td-id">{{ s.id }}</td>
+              <td>{{ s.characterId }}</td>
+              <td class="td-mono">{{ s.casdoorId }}</td>
+              <td class="td-mono">{{ s.lastActiveAt }}</td>
+              <td>
+                <span class="badge" [class.badge--yes]="s.isController" [class.badge--no]="!s.isController">
+                  {{ s.isController ? 'Yes' : 'No' }}
+                </span>
+              </td>
+            </tr>
+          } @empty {
+            <tr><td colspan="5" class="td-empty">No active sessions.</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="admin-nav-back">
+    <a routerLink="/">← Back to game</a> &nbsp;·&nbsp;
+    <a routerLink="/dashboard">Player dashboard →</a>
+  </p>
+</div>

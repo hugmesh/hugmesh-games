@@ -1,12 +1,9 @@
 package com.threewizards.repository;
 
 import com.threewizards.model.SceneElement;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import reactor.core.publisher.Flux;
 
-import java.util.List;
-
-@Repository
-public interface SceneElementRepository extends JpaRepository<SceneElement, Long> {
-    List<SceneElement> findByGameIdOrderBySortOrder(Long gameId);
+public interface SceneElementRepository extends ReactiveCrudRepository<SceneElement, Long> {
+    Flux<SceneElement> findByLevelIdOrderBySortOrder(Long levelId);
 }

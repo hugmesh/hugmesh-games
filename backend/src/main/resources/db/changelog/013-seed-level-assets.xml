@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Seed the level_assets table so GDScript / the editor has something to resolve
+        against out of the box. Each row documents the bundle file plus any labelled
+        texture / plugin the level's scene_elements reference via textureUrl.
+
+        Godot developers add new rows by dropping their file into
+        backend/src/main/resources/assets/levels/{slug}/ and POSTing to
+        /api/levels/{id}/assets with {label, assetType, filePath, contentType}.
+    -->
+
+    <changeSet id="013-1" author="nin">
+        <sql>
+-- Cave level (id = 1) — bundle entry-point + any referenced textures
+INSERT INTO level_assets (level_id, label, asset_type, file_path, content_type, uploaded_at)
+SELECT 1, 'bundle-entry', 'wasm-entry',
+       '/api/assets/levels/cave/index.html', 'text/html', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM level_assets WHERE level_id = 1 AND label = 'bundle-entry');
+
+-- Field level (id = 2)
+INSERT INTO level_assets (level_id, label, asset_type, file_path, content_type, uploaded_at)
+SELECT 2, 'bundle-entry', 'wasm-entry',
+       '/api/assets/levels/field/index.html', 'text/html', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM level_assets WHERE level_id = 2 AND label = 'bundle-entry');
+
+-- Field textures referenced from scene_elements.textureUrl
+INSERT INTO level_assets (level_id, label, asset_type, file_path, content_type, uploaded_at)
+SELECT 2, 'oak-bark', 'texture',
+       '/api/assets/games/field/oak.png', 'image/png', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM level_assets WHERE level_id = 2 AND label = 'oak-bark');
+
+INSERT INTO level_assets (level_id, label, asset_type, file_path, content_type, uploaded_at)
+SELECT 2, 'cottage-wall', 'texture',
+       '/api/assets/games/field/cottage.png', 'image/png', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM level_assets WHERE level_id = 2 AND label = 'cottage-wall');
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
