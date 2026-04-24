@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="005" author="three-wizards">
+        <!-- position y = height/2 so the base sits on the floor (y=0) -->
+        <!-- stalactites hang from ceiling (y≈20); position y = ceiling_y - height/2 -->
+        <sql>
+INSERT INTO scene_elements (game_id, element_type, name, position_x, position_y, position_z, rotation_x, rotation_y, rotation_z, properties, sort_order) VALUES
+(1,'stalagmite','Stalagmite3',   5,   2.0,  -8,  0,0,0, '{"radius":0.5,"height":4.0}',  51),
+(1,'stalagmite','Stalagmite4',  -7,   1.75,-12,  0,0,0, '{"radius":0.4,"height":3.5}',  52),
+(1,'stalagmite','Stalagmite5',  12,   2.5,  -5,  0,0,0, '{"radius":0.6,"height":5.0}',  53),
+(1,'stalagmite','Stalagmite6',  -3,   1.5, -20,  0,0,0, '{"radius":0.35,"height":3.0}', 54),
+(1,'stalagmite','Stalagmite7',  18,   2.0, -20,  0,0,0, '{"radius":0.5,"height":4.0}',  55),
+(1,'stalagmite','Stalagmite8', -22,   2.0, -18,  0,0,0, '{"radius":0.45,"height":4.0}', 56),
+(1,'stalagmite','Stalagmite9',   8,   1.75,  8,  0,0,0, '{"radius":0.4,"height":3.5}',  57),
+(1,'stalagmite','Stalagmite10',-14,   2.0,  12,  0,0,0, '{"radius":0.5,"height":4.0}',  58),
+(1,'stalactite','Stalactite4',   8,  16.5, -15,  0,0,0, '{"radius":0.4,"height":7.0}',  60),
+(1,'stalactite','Stalactite5', -12,  17.0,  -8,  0,0,0, '{"radius":0.5,"height":6.0}',  61),
+(1,'stalactite','Stalactite6',   3,  16.0, -30,  0,0,0, '{"radius":0.35,"height":8.0}', 62),
+(1,'stalactite','Stalactite7', -20,  17.0,  20,  0,0,0, '{"radius":0.45,"height":6.0}', 63);
+        </sql>
+    </changeSet>
+</databaseChangeLog>

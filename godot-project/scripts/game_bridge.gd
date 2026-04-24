@@ -25,6 +25,10 @@ func _ready() -> void:
 func _fetch_game_config() -> void:
 	JavaScriptBridge.eval("""
 (function() {
+	if (window._twSceneReady === true) {
+		console.log('[GameBridge] scene already prefetched, skipping fetch');
+		return;
+	}
 	var params = new URLSearchParams(window.location.search);
 	var gameId = params.get('game_id') || '1';
 	var base = (window.location.host === 'localhost:4200') ? 'http://localhost:8080' : '';

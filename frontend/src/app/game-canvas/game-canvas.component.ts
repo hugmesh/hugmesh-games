@@ -29,7 +29,7 @@ export class GameCanvasComponent implements OnChanges, OnDestroy {
     if (!this.game) return;
     this.gameLoaded = false;
     this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(
-      `${environment.apiBase}/api/assets/games/${this.game.slug}/index.html?game_id=${this.game.id}`
+      `/api/assets/games/${this.game.slug}/index.html?game_id=${this.game.id}`
     );
     if (!this._sub) {
       this._sub = this.gameState.state$.subscribe(s => this._postState(s));

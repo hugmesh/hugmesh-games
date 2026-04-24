@@ -1,28 +1,109 @@
 extends Node
 
-# Polls window._twSceneConfig (set by game_bridge.gd) then spawns all scene
-# elements (lights, fairies, world environment) from the API response.
+# Manages the intro loading overlay, polls window._twSceneReady (set by
+# game_bridge.gd), spawns scene elements, then triggers the cinematic intro.
 
 var _done := false
 var _t := 0.0
 
+var _overlay: CanvasLayer = null
+var _overlay_root: Control = null
+var _status_label: Label = null
+
+func _ready() -> void:
+	_build_loading_overlay()
+	if not OS.has_feature("web"):
+		call_deferred("_finish_loading")
+
+func _build_loading_overlay() -> void:
+	_overlay = CanvasLayer.new()
+	_overlay.layer = 100
+	_overlay.name = "LoadingOverlay"
+
+	_overlay_root = Control.new()
+	_overlay_root.name = "OverlayRoot"
+	_overlay_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay.add_child(_overlay_root)
+
+	var bg := ColorRect.new()
+	bg.color = Color(0.02, 0.02, 0.06, 1.0)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay_root.add_child(bg)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay_root.add_child(center)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "The Enchanted Cave"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 42)
+	title.add_theme_color_override("font_color", Color(0.75, 0.85, 1.0))
+	vbox.add_child(title)
+
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 28)
+	vbox.add_child(gap)
+
+	_status_label = Label.new()
+	_status_label.text = "Loading"
+	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_status_label.add_theme_font_size_override("font_size", 18)
+	_status_label.add_theme_color_override("font_color", Color(0.5, 0.6, 0.85))
+	vbox.add_child(_status_label)
+
+	get_tree().root.add_child(_overlay)
+
 func _process(delta: float) -> void:
-	if _done or not OS.has_feature("web"):
+	if _done:
 		return
+
+	if is_instance_valid(_status_label):
+		@warning_ignore("integer_division")
+		var n := int(Time.get_ticks_msec() / 450) % 4
+		_status_label.text = "Loading" + ".".repeat(n)
+
+	if not OS.has_feature("web"):
+		return
+
 	_t += delta
 	if _t < 0.1:
 		return
 	_t = 0.0
-	var ready: Variant = JavaScriptBridge.eval("window._twSceneReady === true")
-	if ready != true:
+
+	var js_ready: Variant = JavaScriptBridge.eval("window._twSceneReady === true")
+	if js_ready != true:
 		return
 	_done = true
+
 	var raw: Variant = JavaScriptBridge.eval("JSON.stringify(window._twSceneConfig)")
-	if not raw or raw == "null":
-		return
-	var config = JSON.parse_string(str(raw))
-	if config is Dictionary:
-		_apply(config)
+	if raw and raw != "null":
+		var config = JSON.parse_string(str(raw))
+		if config is Dictionary:
+			_apply(config)
+
+	_finish_loading()
+
+func _finish_loading() -> void:
+	_done = true
+
+	var cam := get_parent().get_node_or_null("Player/CameraPivot")
+	if cam and cam.has_method("play_intro"):
+		cam.play_intro()
+
+	var player := get_parent().get_node_or_null("Player")
+	if player and player.has_method("start_drop"):
+		player.start_drop()
+
+	if is_instance_valid(_overlay_root):
+		var ov := _overlay
+		var tween := create_tween()
+		tween.tween_property(_overlay_root, "modulate:a", 0.0, 1.4)
+		tween.tween_callback(func(): if is_instance_valid(ov): ov.queue_free())
 
 func _apply(config: Dictionary) -> void:
 	for el in config.get("elements", []):
@@ -30,11 +111,13 @@ func _apply(config: Dictionary) -> void:
 
 func _spawn(el: Dictionary) -> void:
 	match el.get("elementType", ""):
-		"world_env":    _world_env(el)
+		"world_env":     _world_env(el)
 		"ambient_light": _ambient(el)
-		"torch":        _torch(el)
-		"fill_light":   _fill_light(el)
-		"fairy":        _fairy(el)
+		"torch":         _torch(el)
+		"fill_light":    _fill_light(el)
+		"fairy":         _fairy(el)
+		"stalagmite":    _stalagmite(el)
+		"stalactite":    _stalactite(el)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,8 +140,8 @@ func _rot(el: Dictionary) -> Vector3:
 		float(el.get("rotationZ", 0))
 	)
 
-func _fairy_color(name: String) -> Color:
-	match name:
+func _fairy_color(color_name: String) -> Color:
+	match color_name:
 		"green":  return Color(0.3, 1.0, 0.5)
 		"blue":   return Color(0.2, 0.6, 1.0)
 		_:        return Color(0.8, 0.3, 1.0)
@@ -84,10 +167,14 @@ func _world_env(el: Dictionary) -> void:
 		float(p.get("fogB", 0.6))
 	)
 	env.fog_density = float(p.get("fogDensity", 0.003))
-	var we := WorldEnvironment.new()
-	we.name = el.get("name", "WorldEnvironment")
-	we.environment = env
-	get_parent().add_child(we)
+	var existing: WorldEnvironment = get_parent().get_node_or_null("WorldEnvironment")
+	if existing:
+		existing.environment = env
+	else:
+		var we := WorldEnvironment.new()
+		we.name = "WorldEnvironment"
+		we.environment = env
+		get_parent().add_child(we)
 
 func _ambient(el: Dictionary) -> void:
 	var p := _props(el)
@@ -155,8 +242,8 @@ func _fairy(el: Dictionary) -> void:
 	proc.spread = 180.0
 	proc.initial_velocity_min = 0.05
 	proc.initial_velocity_max = 0.35
-	proc.scale_min = 0.03
-	proc.scale_max = 0.09
+	proc.scale_min = 1.0
+	proc.scale_max = 3.0
 	proc.color = color
 	proc.turbulence_enabled = true
 	proc.turbulence_noise_strength = 1.0
@@ -179,3 +266,30 @@ func _fairy(el: Dictionary) -> void:
 	fairy.add_child(particles)
 
 	get_parent().add_child(fairy)
+
+func _stalagmite(el: Dictionary) -> void:
+	var p := _props(el)
+	var csg := CSGCylinder3D.new()
+	csg.name = el.get("name", "Stalagmite")
+	csg.position = _pos(el)
+	csg.radius = float(p.get("radius", 0.4))
+	csg.height = float(p.get("height", 3.5))
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.18, 0.14, 0.12)
+	mat.roughness = 0.95
+	csg.material_override = mat
+	get_parent().add_child(csg)
+
+func _stalactite(el: Dictionary) -> void:
+	var p := _props(el)
+	var csg := CSGCylinder3D.new()
+	csg.name = el.get("name", "Stalactite")
+	csg.position = _pos(el)
+	csg.rotation.z = PI
+	csg.radius = float(p.get("radius", 0.4))
+	csg.height = float(p.get("height", 5.0))
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.18, 0.14, 0.12)
+	mat.roughness = 0.95
+	csg.material_override = mat
+	get_parent().add_child(csg)

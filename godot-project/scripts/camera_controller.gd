@@ -8,16 +8,46 @@ const MOUSE_SENS   := 0.003
 const PITCH_MIN    := deg_to_rad(-80.0)
 const PITCH_MAX    := deg_to_rad(25.0)
 
+const INTRO_DURATION   := 2.8
+const INTRO_YAW_START  := PI
+const INTRO_PITCH_START := deg_to_rad(50.0)
+const INTRO_ARM_START  := 14.0
+
 var _arm   := 5.0
 var _yaw   := 0.0
 var _pitch := deg_to_rad(15.0)  # positive = camera above looking down
+
+var _intro_active := false
+var _intro_t      := 0.0
 
 @onready var _cam: Camera3D = $Camera3D
 
 func _ready() -> void:
 	call_deferred("_update")
 
+func play_intro() -> void:
+	_yaw   = INTRO_YAW_START
+	_pitch = INTRO_PITCH_START
+	_arm   = INTRO_ARM_START
+	_intro_t = 0.0
+	_intro_active = true
+	_update()
+
+func _process(delta: float) -> void:
+	if not _intro_active:
+		return
+	_intro_t = min(_intro_t + delta / INTRO_DURATION, 1.0)
+	var s := smoothstep(0.0, 1.0, _intro_t)
+	_yaw   = lerp(INTRO_YAW_START, 0.0, s)
+	_pitch = lerp(INTRO_PITCH_START, deg_to_rad(15.0), s)
+	_arm   = lerp(INTRO_ARM_START, 5.0, s)
+	_update()
+	if _intro_t >= 1.0:
+		_intro_active = false
+
 func _unhandled_input(event: InputEvent) -> void:
+	if _intro_active:
+		return
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_arm = clamp(_arm - ZOOM_SPEED, ZOOM_MIN, ZOOM_MAX)

@@ -8,4 +8,5 @@
     <include file="db/changelog/002-seed-data.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-scene-elements.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/004-seed-scene-elements.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/005-seed-cave-geometry.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

@@ -4,8 +4,7 @@
     class="game-frame"
     [src]="frameSrc"
     title="Three Wizards In A Trenchcoat"
-    allow="fullscreen; pointer-lock"
-    sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups allow-forms allow-downloads"
+    allow="fullscreen; pointer-lock; autoplay"
     (load)="onFrameLoad()"
   ></iframe>
   @if (!gameLoaded) {

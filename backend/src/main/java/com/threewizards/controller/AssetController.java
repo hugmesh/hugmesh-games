@@ -31,17 +31,17 @@ public class AssetController {
 
     @GetMapping("/{filename:.+}")
     public Mono<ResponseEntity<Resource>> getAsset(@PathVariable String filename) {
-        return serveFile("assets/" + filename, false);
+        return serveFile("assets/" + filename);
     }
 
     @GetMapping("/games/{slug}/{filename:.+}")
     public Mono<ResponseEntity<Resource>> getGameAsset(
             @PathVariable String slug,
             @PathVariable String filename) {
-        return serveFile("assets/games/" + slug + "/" + filename, true);
+        return serveFile("assets/games/" + slug + "/" + filename);
     }
 
-    private Mono<ResponseEntity<Resource>> serveFile(String path, boolean addIsolationHeaders) {
+    private Mono<ResponseEntity<Resource>> serveFile(String path) {
         return Mono.fromCallable(() -> {
             ClassPathResource resource = new ClassPathResource(path);
             if (!resource.exists()) {
@@ -52,13 +52,9 @@ public class AssetController {
                     ? filename.substring(filename.lastIndexOf('.') + 1).toLowerCase()
                     : "";
             MediaType mediaType = MEDIA_TYPES.getOrDefault(ext, MediaType.APPLICATION_OCTET_STREAM);
-            var builder = ResponseEntity.ok().contentType(mediaType);
-            if (addIsolationHeaders) {
-                builder = builder
-                        .header("Cross-Origin-Opener-Policy", "same-origin")
-                        .header("Cross-Origin-Embedder-Policy", "require-corp");
-            }
-            return builder.<Resource>body(resource);
+            return ResponseEntity.ok()
+                    .contentType(mediaType)
+                    .<Resource>body(resource);
         });
     }
 }

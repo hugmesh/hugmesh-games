@@ -9,7 +9,7 @@
 #   node        (v20+)
 
 SHELL := /bin/bash
-.PHONY: all clean build build-rust build-godot build-backend build-frontend \
+.PHONY: all clean build build-rust build-godot patch-godot build-backend build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend
 
 GODOT        ?= godot
@@ -65,6 +65,15 @@ build-godot: build-rust
 	    exit $$status; \
 	  fi
 	@echo "✓ Godot export done → $(GODOT_EXPORT_DIR)/"
+	$(MAKE) patch-godot
+
+# ── Post-export index.html patches ───────────────────────────────────────────
+# Godot regenerates index.html on every export. This target re-applies custom
+# patches: correct file sizes (progress bar) and scene prefetch script.
+
+patch-godot:
+	@echo "→ Patching $(GODOT_EXPORT_DIR)/index.html..."
+	@python3 scripts/patch-godot-html.py $(GODOT_EXPORT_DIR)/index.html $(GODOT_EXPORT_DIR)/index.side.wasm
 
 # ── Spring Boot Backend ───────────────────────────────────────────────────────
 
