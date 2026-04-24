@@ -113,6 +113,8 @@ func _on_state_updated(state: Dictionary) -> void:
 	if not state.has("action") or state["action"] == null:
 		return
 	var pressed: bool = state.get("pressed", false)
+	# Verbose diagnostic — remove once spell chain is confirmed reliable in the wild.
+	print("[player] state_updated action=", state["action"], " pressed=", pressed)
 	match state["action"]:
 		"MOVE_FORWARD":  _sse_dir.z = -1.0 if pressed else 0.0
 		"MOVE_BACKWARD": _sse_dir.z =  1.0 if pressed else 0.0
@@ -132,44 +134,55 @@ func _on_state_updated(state: Dictionary) -> void:
 func _cast_spell(slot: int) -> void:
 	if slot < 1 or slot > SPELL_COLORS.size():
 		return
-	var color: Color    = SPELL_COLORS[slot - 1]
+	var color: Color       = SPELL_COLORS[slot - 1]
 	var spell_name: String = SPELL_NAMES[slot - 1]
-	print("[player] cast spell %d (%s)" % [slot, spell_name])
+	print("[player] *** _cast_spell START slot=%d (%s) ***" % [slot, spell_name])
 
+	# Much larger + brighter projectile — tier 1 at 0.6 radius, tier 5 at 1.0.
+	# If this doesn't show up, the spell signal isn't reaching player_controller at all.
 	var proj := MeshInstance3D.new()
 	var sphere := SphereMesh.new()
-	sphere.radius = 0.18 + (slot - 1) * 0.04   # bigger spells for higher slots
+	sphere.radius = 0.6 + (slot - 1) * 0.1
 	sphere.height = sphere.radius * 2.0
 	proj.mesh = sphere
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.emission_enabled = true
 	mat.emission = color
-	mat.emission_energy_multiplier = 4.5
+	mat.emission_energy_multiplier = 8.0
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	proj.material_override = mat
 
-	# Spawn at hand position, in world space.
-	get_parent().add_child(proj)
+	# Attach to the scene root (same parent as player) so the projectile doesn't
+	# move with the player after spawn.
+	var host: Node = get_parent()
+	if host == null:
+		push_warning("[player] no parent to host spell projectile")
+		return
+	host.add_child(proj)
+
+	var spawn_pos: Vector3
 	if is_instance_valid(_hand_anchor):
-		proj.global_position = _hand_anchor.global_position
+		spawn_pos = _hand_anchor.global_position
 	else:
-		proj.global_position = global_position + Vector3(0, 0.6, 0)
+		spawn_pos = global_position + Vector3(0, 0.6, 0)
+	proj.global_position = spawn_pos
+	print("[player] projectile spawned at ", spawn_pos, " parent=", host.name)
 
-	# Velocity along the player's forward axis (negative Z in local).
 	var forward := -transform.basis.z
-	var spell_vel := forward * 18.0
+	if forward.length() < 0.01:
+		forward = Vector3(0, 0, -1)   # Fallback if basis is zero during intro
+	var travel := forward * 28.0
 
-	# Manual tween-based motion + light + queue_free.
 	var glow := OmniLight3D.new()
 	glow.light_color = color
-	glow.light_energy = 2.5
-	glow.omni_range = 6.0
+	glow.light_energy = 4.0
+	glow.omni_range = 10.0
 	proj.add_child(glow)
 
 	var tween := proj.create_tween()
-	tween.tween_property(proj, "global_position",
-		proj.global_position + spell_vel * 1.6, 1.6)
-	tween.parallel().tween_property(mat, "emission_energy_multiplier", 0.0, 1.6)
+	tween.tween_property(proj, "global_position", spawn_pos + travel, 2.2)
+	tween.parallel().tween_property(mat, "emission_energy_multiplier", 0.0, 2.2)
 	tween.tween_callback(func(): if is_instance_valid(proj): proj.queue_free())
 
 # E key → tell the API to consume the first inventory item. The API responds
