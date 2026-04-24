@@ -216,6 +216,27 @@ What happens:
 | `resolve_asset` returns 404 | `label` isn't in `level_assets` or `level_id` wrong |
 | `postMessage` transition doesn't fire | payload shape wrong — must be literally `TW_LEVEL_TRANSITION` and include `slug` + `levelId` |
 | Exported bundle includes other levels' scenes | `exclude_filter` in your preset is incomplete |
+| `ERROR: Parent node is busy setting up children, add_child() failed` | Calling `add_child` (or `get_tree().root.add_child`) directly from `_ready()` or `_process()` while siblings are still `_ready`-ing. Use `node.add_child.call_deferred(child)`. |
+| Loading dots animate forever, prefetch logged success | `JavaScriptBridge.eval(...) != true` Variant compare is unreliable. Use `bool(JavaScriptBridge.eval("!!window.foo"))` to coerce through a real JS boolean. |
+| Iframe shows old WASM after `make build-godot` | Browser cached the iframe HTML. The Angular `game-canvas` already cache-busts with `&t=...`; if the timestamp isn't in the URL, it's the wrong code path. |
+
+### Why so many `call_deferred` calls
+
+Godot 4 enforces a "tree is busy" guard while `_ready()` is propagating. Any
+script that adds children or attaches nodes to `get_tree().root` from inside
+`_ready` / `_process` / `_input` runs the risk of hitting it. The convention
+in this project is:
+
+- `_ready()` builds detached subtrees with `Node.new()` + sync `add_child` on
+  those new nodes (safe — the new node isn't in the tree yet).
+- The final attachment to a node that **is** in the tree (the parent or
+  `get_tree().root`) is always `call_deferred`'ed.
+- `_apply()` and any spawn handler called from polling code (`_process`)
+  are similarly deferred. See `scene_loader._process` for the pattern.
+
+If you're writing a new spawn handler, copy that pattern. Sync `add_child` on
+fresh nodes you just created, deferred `add_child` for anything attaching to
+the live tree.
 
 ---
 

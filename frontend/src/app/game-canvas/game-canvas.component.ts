@@ -41,6 +41,10 @@ export class GameCanvasComponent implements OnInit, OnChanges, OnDestroy {
   gameLoaded = false;
   frameSrc: SafeResourceUrl = '';
 
+  /** Id of the level currently mounted in the iframe. Prevents redundant
+   *  remounts (and the SSE / WASM tear-down they trigger) when Angular
+   *  fires `ngOnChanges` for unrelated input identity changes. */
+  private _mountedId: number | null = null;
   private _sub: Subscription | null = null;
 
   constructor(
@@ -57,6 +61,11 @@ export class GameCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnChanges(): void {
     if (!this.game) return;
+    // Skip remount when the same level reference comes through again.
+    // Without this, every parent-component change detection would tear down
+    // the iframe (and the SSE channels inside it) just because the game
+    // object identity changed.
+    if (this.game.id === this._mountedId) return;
     this._mountLevel(this.game);
   }
 
@@ -100,11 +109,13 @@ export class GameCanvasComponent implements OnInit, OnChanges, OnDestroy {
 
   private _mountLevel(level: PlayableGame): void {
     this.gameLoaded = false;
+    this._mountedId = level.id;
     const base = level.assetUrl
       ?? (level.slug ? `/api/assets/levels/${level.slug}/index.html`
                       : '/api/assets/levels/cave/index.html');
-    // Cache-bust the iframe src so the browser refetches the patched index.html
-    // every mount — otherwise stale prefetch JS sticks around even after rebuilds.
+    // Cache-bust on actual mount only — the timestamp changes only when the
+    // level id changes, so stable in-place renders don't recycle the iframe
+    // (which would kill the SSE channels and WASM state).
     this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(
       `${base}?level_id=${level.id}&t=${Date.now()}`
     );
