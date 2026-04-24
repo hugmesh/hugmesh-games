@@ -57,6 +57,16 @@ export class GameControlsComponent implements OnInit, OnDestroy {
   /** Item quick-slot — first inventory item, used on E. */
   itemSlot: ItemSlot = { name: null, icon: '🎒', quantity: 0 };
 
+  /** Whether the on-screen movement D-pad is visible. Toggled by the chevron
+   *  button at the corner. Persists for the session in sessionStorage so a
+   *  reload preserves the player's preference. */
+  dpadVisible = sessionStorage.getItem('tw_dpad_hidden') !== '1';
+
+  toggleDpad(): void {
+    this.dpadVisible = !this.dpadVisible;
+    sessionStorage.setItem('tw_dpad_hidden', this.dpadVisible ? '0' : '1');
+  }
+
   readonly interactBtn: ControlButton =
     { action: 'INTERACT', label: 'Use Item', key: 'e', icon: '🤝', pressed: false };
 
@@ -129,6 +139,7 @@ export class GameControlsComponent implements OnInit, OnDestroy {
     if (e.key >= '1' && e.key <= '5') {
       e.preventDefault();
       const slot = parseInt(e.key, 10);
+      this._fireSpellOverlay(slot);
       this.controls.sendControl(this._spellAction[slot], true);
       setTimeout(() => this.controls.sendControl(this._spellAction[slot], false), 50);
       return;
@@ -171,8 +182,22 @@ export class GameControlsComponent implements OnInit, OnDestroy {
   }
 
   onSpellClick(slot: SkillSlot): void {
+    this._fireSpellOverlay(slot.slot);
     this.controls.sendControl(this._spellAction[slot.slot], true);
     setTimeout(() => this.controls.sendControl(this._spellAction[slot.slot], false), 50);
+  }
+
+  /** Always-on CSS spell overlay so SOMETHING is visible regardless of
+   *  iframe/WASM state. If this doesn't appear on keypress, the key isn't
+   *  reaching Angular at all (iframe has focus — click outside to retry). */
+  private _fireSpellOverlay(slot: number): void {
+    const colors = ['#ff6b1a', '#7cc4ff', '#ffe14a', '#9c7050', '#fff5cc'];
+    const el = document.createElement('div');
+    el.className = 'tw-spell-overlay';
+    el.style.setProperty('--spell-color', colors[slot - 1] ?? '#7c4dff');
+    el.style.setProperty('--spell-size', `${48 + slot * 10}px`);
+    document.body.appendChild(el);
+    el.addEventListener('animationend', () => el.remove(), { once: true });
   }
 
   onItemClick(): void {
