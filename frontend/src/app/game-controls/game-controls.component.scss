@@ -1,16 +1,30 @@
-.controls-panel {
-  display: flex;
-  align-items: flex-end;
-  gap: 2rem;
-  padding: 1rem 1.5rem;
-  background: linear-gradient(to top, rgba(10, 8, 20, 0.92), transparent);
+/* Component is no longer a single flex container — both dpad and hotbar are
+ * absolutely positioned so they don't stack under the HP/MP HUD bars. */
+:host {
   user-select: none;
 }
 
 .dpad-cluster {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 8px 8px 6px;
+  background: rgba(10, 8, 20, 0.55);
+  border: 1px solid rgba(124, 77, 255, 0.25);
+  border-radius: 12px;
+  backdrop-filter: blur(6px);
+  z-index: 5;
+  pointer-events: auto;
+  transition: transform 0.25s cubic-bezier(.5,.0,.4,1), opacity 0.2s;
+
+  &.hidden {
+    transform: translate(-130%, 0);
+    opacity: 0;
+    pointer-events: none;
+  }
 }
 
 .dpad-row {
@@ -19,12 +33,47 @@
   justify-content: center;
 }
 
-.action-cluster {
+/* Small chevron at the top-right of the dpad to fold it away. */
+.dpad-toggle {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(124, 77, 255, 0.4);
+  background: rgba(20, 18, 32, 0.95);
+  color: #b388ff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
   display: flex;
-  gap: 8px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  max-width: 240px;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+  transition: background 0.15s, border-color 0.15s;
+
+  &:hover { background: rgba(50, 40, 80, 0.95); border-color: #b388ff; }
+}
+
+/* When the dpad is hidden, this slim tab sticks to the left edge so the
+ * player can bring controls back. Doesn't overlap the HUD. */
+.dpad-show-tab {
+  position: absolute;
+  left: 0;
+  bottom: 80px;
+  padding: 6px 10px 6px 8px;
+  background: rgba(20, 18, 32, 0.85);
+  border: 1px solid rgba(124, 77, 255, 0.4);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: #b388ff;
+  font-size: 0.75rem;
+  cursor: pointer;
+  z-index: 5;
+  pointer-events: auto;
+
+  &:hover { background: rgba(50, 40, 80, 0.95); color: #fff; }
 }
 
 .ctrl-btn {

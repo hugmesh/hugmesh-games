@@ -1,76 +1,89 @@
-<div class="controls-panel">
-  <!-- Movement D-pad bottom-left -->
-  <div class="dpad-cluster">
-    <div class="dpad-row dpad-top">
-      <button
-        *ngFor="let btn of movementButtons.slice(0,1)"
-        class="ctrl-btn dpad-btn"
-        [class.pressed]="btn.pressed"
-        [attr.title]="btn.label + ' [' + btn.key.toUpperCase() + ']'"
-        (mousedown)="onButtonDown(btn)"
-        (mouseup)="onButtonUp(btn)"
-        (mouseleave)="onButtonUp(btn)"
-        (touchstart)="onButtonDown(btn)"
-        (touchend)="onButtonUp(btn)">
-        <span class="btn-icon">{{ btn.icon }}</span>
-        <span class="btn-key">{{ btn.key.toUpperCase() }}</span>
-      </button>
-    </div>
-    <div class="dpad-row dpad-middle">
-      <button
-        *ngFor="let btn of movementButtons.slice(1,4)"
-        class="ctrl-btn dpad-btn"
-        [class.pressed]="btn.pressed"
-        [attr.title]="btn.label + ' [' + btn.key.toUpperCase() + ']'"
-        (mousedown)="onButtonDown(btn)"
-        (mouseup)="onButtonUp(btn)"
-        (mouseleave)="onButtonUp(btn)"
-        (touchstart)="onButtonDown(btn)"
-        (touchend)="onButtonUp(btn)">
-        <span class="btn-icon">{{ btn.icon }}</span>
-        <span class="btn-key">{{ btn.key.toUpperCase() }}</span>
-      </button>
-    </div>
-    <div class="dpad-row dpad-bottom">
-      <button
-        *ngFor="let btn of movementButtons.slice(4)"
-        class="ctrl-btn jump-btn"
-        [class.pressed]="btn.pressed"
-        [attr.title]="btn.label + ' [Space]'"
-        (mousedown)="onButtonDown(btn)"
-        (mouseup)="onButtonUp(btn)"
-        (mouseleave)="onButtonUp(btn)"
-        (touchstart)="onButtonDown(btn)"
-        (touchend)="onButtonUp(btn)">
-        <span class="btn-icon">{{ btn.icon }}</span>
-        <span class="btn-key">SPACE</span>
-      </button>
-    </div>
-  </div>
+<!-- Movement D-pad — bottom-left, always positioned outside the document flow
+     so it sits beneath the HP/MP HUD bars instead of stacking under them. -->
+<div class="dpad-cluster" [class.hidden]="!dpadVisible">
+  <button class="dpad-toggle"
+          (click)="toggleDpad()"
+          [attr.title]="(dpadVisible ? 'Hide' : 'Show') + ' on-screen controls'">
+    {{ dpadVisible ? '⌄' : '⌃' }}
+  </button>
 
-  <!-- Bottom-center hotbar: 5 spells + 1 quick item -->
-  <div class="hotbar">
+  <div class="dpad-row dpad-top">
     <button
-      *ngFor="let s of spellSlots"
-      class="hotbar-slot spell-slot"
-      [attr.title]="(s.name ?? 'Empty') + (s.name ? ' — ' + s.manaCost + ' MP' : '') + ' [' + s.slot + ']'"
-      (click)="onSpellClick(s)">
-      <span class="slot-icon">{{ s.icon }}</span>
-      <span class="slot-key">{{ s.slot }}</span>
-      <span *ngIf="s.name" class="slot-mana">{{ s.manaCost }}</span>
-    </button>
-
-    <div class="hotbar-divider"></div>
-
-    <button
-      class="hotbar-slot item-slot"
-      [class.empty]="!itemSlot.name"
-      [class.pressed]="interactBtn.pressed"
-      [attr.title]="(itemSlot.name ?? 'No item') + ' [E]'"
-      (click)="onItemClick()">
-      <span class="slot-icon">{{ itemSlot.icon }}</span>
-      <span class="slot-key">E</span>
-      <span *ngIf="itemSlot.quantity > 0" class="slot-count">×{{ itemSlot.quantity }}</span>
+      *ngFor="let btn of movementButtons.slice(0,1)"
+      class="ctrl-btn dpad-btn"
+      [class.pressed]="btn.pressed"
+      [attr.title]="btn.label + ' [' + btn.key.toUpperCase() + ']'"
+      (mousedown)="onButtonDown(btn)"
+      (mouseup)="onButtonUp(btn)"
+      (mouseleave)="onButtonUp(btn)"
+      (touchstart)="onButtonDown(btn)"
+      (touchend)="onButtonUp(btn)">
+      <span class="btn-icon">{{ btn.icon }}</span>
+      <span class="btn-key">{{ btn.key.toUpperCase() }}</span>
     </button>
   </div>
+  <div class="dpad-row dpad-middle">
+    <button
+      *ngFor="let btn of movementButtons.slice(1,4)"
+      class="ctrl-btn dpad-btn"
+      [class.pressed]="btn.pressed"
+      [attr.title]="btn.label + ' [' + btn.key.toUpperCase() + ']'"
+      (mousedown)="onButtonDown(btn)"
+      (mouseup)="onButtonUp(btn)"
+      (mouseleave)="onButtonUp(btn)"
+      (touchstart)="onButtonDown(btn)"
+      (touchend)="onButtonUp(btn)">
+      <span class="btn-icon">{{ btn.icon }}</span>
+      <span class="btn-key">{{ btn.key.toUpperCase() }}</span>
+    </button>
+  </div>
+  <div class="dpad-row dpad-bottom">
+    <button
+      *ngFor="let btn of movementButtons.slice(4)"
+      class="ctrl-btn jump-btn"
+      [class.pressed]="btn.pressed"
+      [attr.title]="btn.label + ' [Space]'"
+      (mousedown)="onButtonDown(btn)"
+      (mouseup)="onButtonUp(btn)"
+      (mouseleave)="onButtonUp(btn)"
+      (touchstart)="onButtonDown(btn)"
+      (touchend)="onButtonUp(btn)">
+      <span class="btn-icon">{{ btn.icon }}</span>
+      <span class="btn-key">SPACE</span>
+    </button>
+  </div>
+</div>
+
+<!-- Persistent edge-tab to bring the dpad back when hidden. Always rendered. -->
+<button *ngIf="!dpadVisible"
+        class="dpad-show-tab"
+        (click)="toggleDpad()"
+        title="Show on-screen controls">
+  ⌃ Controls
+</button>
+
+<!-- Bottom-center hotbar: 5 spells + 1 quick item -->
+<div class="hotbar">
+  <button
+    *ngFor="let s of spellSlots"
+    class="hotbar-slot spell-slot"
+    [attr.title]="(s.name ?? 'Empty') + (s.name ? ' — ' + s.manaCost + ' MP' : '') + ' [' + s.slot + ']'"
+    (click)="onSpellClick(s)">
+    <span class="slot-icon">{{ s.icon }}</span>
+    <span class="slot-key">{{ s.slot }}</span>
+    <span *ngIf="s.name" class="slot-mana">{{ s.manaCost }}</span>
+  </button>
+
+  <div class="hotbar-divider"></div>
+
+  <button
+    class="hotbar-slot item-slot"
+    [class.empty]="!itemSlot.name"
+    [class.pressed]="interactBtn.pressed"
+    [attr.title]="(itemSlot.name ?? 'No item') + ' [E]'"
+    (click)="onItemClick()">
+    <span class="slot-icon">{{ itemSlot.icon }}</span>
+    <span class="slot-key">E</span>
+    <span *ngIf="itemSlot.quantity > 0" class="slot-count">×{{ itemSlot.quantity }}</span>
+  </button>
 </div>
