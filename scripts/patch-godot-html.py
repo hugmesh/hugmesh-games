@@ -23,9 +23,9 @@ PREFETCH = """\
 // is ready long before GDScript polls for window._twSceneReady.
 (function(){
 \tvar p = new URLSearchParams(window.location.search);
-\tvar gameId = p.get('game_id') || '1';
-\tvar base = (window.location.host === 'localhost:4200') ? 'http://localhost:8080' : '';
-\tfetch(base + '/api/games/' + gameId + '/scene')
+\tvar levelId = p.get('level_id') || p.get('game_id') || '1';
+\t// Always relative — nginx (compose) and the dev proxy both forward /api correctly.
+\tfetch('/api/levels/' + levelId + '/scene')
 \t\t.then(function(r) { return r.json(); })
 \t\t.then(function(scene) {
 \t\t\twindow._twSceneConfig = scene;

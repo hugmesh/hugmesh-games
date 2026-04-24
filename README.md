@@ -1209,3 +1209,81 @@ logging:
   level:
     com.threewizards: DEBUG
 ```
+
+---
+
+## Troubleshooting — recurring gotchas
+
+Symptoms and the underlying causes that have already bitten this project. If you
+hit one of these again, start with the listed file rather than chasing the
+symptom across the stack.
+
+### Every API request returns 500 with `Missing required "keys" member`
+
+Spring Security's reactive JWT decoder is fetching JWKs from a non-JWK endpoint.
+Casdoor exposes both `/api/get-jwks` (admin-auth required, returns an error
+JSON) and `/.well-known/jwks` (anonymous, real JWK Set). Always use the
+well-known path:
+
+```yaml
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${CASDOOR_ENDPOINT}/.well-known/jwks
+```
+
+### Iframe blocked by Firefox / Chrome refuses to embed the WASM bundle
+
+`SecurityConfig` must call `.headers(h -> h.frameOptions(fo ->
+fo.mode(SAMEORIGIN)))`. Spring Security WebFlux defaults to
+`X-Frame-Options: DENY` which blocks even same-origin embedding.
+
+### "API offline" stays on for 30 s after every page load
+
+`Flux.interval(period)` first emits at `t = period`, and Reactor-Netty doesn't
+flush response headers until the first body chunk — so the browser's
+`EventSource` never fires `onopen` and the Angular `connected$` BehaviorSubject
+stays `false`. The fix in `GameStreamController` is `Flux.interval(Duration.ZERO,
+Duration.ofSeconds(15))` so a `:keepalive` comment ships immediately.
+
+### Liquibase fails on `relation "games_pkey" already exists`
+
+`<renameTable>` in PostgreSQL renames the table only — the backing PK index,
+unique constraints, and sequences keep their original names. The `012-5b`
+changeset renames `games_pkey` / `games_slug_key` / `games_id_seq` to
+`levels_*` (with `IF EXISTS` guards) before `012-6` creates the new
+umbrella `games` table. Any future `<renameTable>` migration needs a
+matching cleanup changeset.
+
+### Cave loads but is empty (no lights, fairies, or geometry)
+
+Two distinct GD bugs both produce this:
+
+- `add_child` from inside `_ready()` or `_process()` while the scene tree is
+  still propagating `_ready` to siblings. Godot 4 emits `Parent node is busy
+  setting up children, add_child() failed`. Always use
+  `node.add_child.call_deferred(child)` for tree mutations from these callbacks.
+  In `scene_loader.gd` both the loading-overlay attachment to the tree root and
+  the per-element `_apply(config)` are deferred.
+- `JavaScriptBridge.eval(...) != true` is unreliable Variant comparison. Use
+  `bool(JavaScriptBridge.eval("!!window.foo"))` so the bridge marshals a real
+  JS boolean. Without this the polling loop never advances and the loading
+  dots animate forever.
+
+### Iframe shows a stale Godot bundle after rebuild
+
+Browsers aggressively cache iframe contents even when `Cache-Control:
+no-store` is set, because the URL didn't change between mounts. The Angular
+game-canvas component now appends `&t=${Date.now()}` to the iframe `src` so
+each mount gets a unique URL and Firefox refetches.
+
+### Movement events silently dropped at the API
+
+`POST /api/controls/{characterId}` returns `403` when the caller is not the
+holder of the controller role. The frontend must call `POST /api/sessions/connect`
+on login (which auto-grants controller to the first joiner) before any
+controls fire — otherwise the server logs `Not the current controller` and
+no movement reaches the SSE stream. The Angular dashboard / home-page
+session bootstrap is responsible for that handshake.

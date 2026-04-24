@@ -28,7 +28,11 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          jwk-set-uri: ${CASDOOR_ENDPOINT:http://localhost:8000}/api/get-jwks
+          # Standard unauthenticated JWKS endpoint. Casdoor's /api/get-jwks requires
+          # an admin token — using it here causes Spring Security's JWT decoder to
+          # explode with "Missing required 'keys' member" and returns 500 on every
+          # request that carries a Bearer header, including permitAll endpoints.
+          jwk-set-uri: ${CASDOOR_ENDPOINT:http://localhost:8000}/.well-known/jwks
 
 casdoor:
   endpoint: ${CASDOOR_ENDPOINT:http://localhost:8000}

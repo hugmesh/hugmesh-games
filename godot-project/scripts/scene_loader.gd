@@ -58,7 +58,9 @@ func _build_loading_overlay() -> void:
 	_status_label.add_theme_color_override("font_color", Color(0.5, 0.6, 0.85))
 	vbox.add_child(_status_label)
 
-	get_tree().root.add_child(_overlay)
+	# Deferred: scene_loader._ready() runs while siblings are still _ready-ing,
+	# so adding a CanvasLayer to the tree root synchronously fails.
+	get_tree().root.add_child.call_deferred(_overlay)
 
 func _process(delta: float) -> void:
 	if _done:
@@ -77,21 +79,32 @@ func _process(delta: float) -> void:
 		return
 	_t = 0.0
 
-	var js_ready: Variant = JavaScriptBridge.eval("window._twSceneReady === true")
-	if js_ready != true:
+	# JavaScriptBridge.eval returns Variant; bool() is the safe coercion.
+	# `!!window._twSceneReady` returns a true JS boolean which marshals cleanly.
+	var js_ready := bool(JavaScriptBridge.eval("!!window._twSceneReady"))
+	if not js_ready:
 		return
 	_done = true
 
-	var raw: Variant = JavaScriptBridge.eval("JSON.stringify(window._twSceneConfig)")
-	if raw and raw != "null":
-		var config = JSON.parse_string(str(raw))
+	var raw: Variant = JavaScriptBridge.eval("JSON.stringify(window._twSceneConfig || null)")
+	var raw_str := str(raw) if raw != null else "null"
+	print("[scene_loader] _twSceneReady=true, raw len=", raw_str.length())
+
+	if raw_str != "" and raw_str != "null":
+		var config = JSON.parse_string(raw_str)
 		if config is Dictionary:
-			# Route to the appropriate scene before spawning any elements.
+			print("[scene_loader] config dict, ", config.get("elements", []).size(), " elements")
 			var scene_type := str(config.get("sceneType", "cave"))
 			if scene_type == "field" and get_parent().name != "Field":
 				get_tree().change_scene_to_file("res://scenes/field.tscn")
 				return
-			_apply(config)
+			# Defer: _process() runs while the scene tree is still propagating _ready();
+			# add_child from here fails with "Parent node is busy setting up children".
+			_apply.call_deferred(config)
+		else:
+			push_warning("[scene_loader] config is not a Dictionary: ", typeof(config))
+	else:
+		push_warning("[scene_loader] _twSceneConfig empty/null after _twSceneReady=true")
 
 	_finish_loading()
 
