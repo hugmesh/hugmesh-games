@@ -5,10 +5,12 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { Subscription } from 'rxjs';
+import { Subscription, of } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
 import { GameStateService } from '../services/game-state.service';
 import { GameState } from '../models/game-state.model';
 import { GameLibraryService } from '../services/game-library.service';
+import { SessionService } from '../services/session.service';
 
 /** Minimal shape the canvas needs — satisfied by both GameListing and AvailableLevel. */
 export interface PlayableGame {
@@ -51,12 +53,21 @@ export class GameCanvasComponent implements OnInit, OnChanges, OnDestroy {
     private gameState: GameStateService,
     private sanitizer: DomSanitizer,
     private library: GameLibraryService,
+    private session: SessionService,
   ) {}
 
   ngOnInit(): void {
     if (!this._sub) {
       this._sub = this.gameState.state$.subscribe(s => this._postState(s));
     }
+    // Without this, every /api/controls/* POST that carries X-Casdoor-Id gets
+    // 403'd — the server rejects control input from anyone who isn't the
+    // holder of the controller role, and the JWT sub sits in the header on
+    // every Angular call. connect() auto-grants the role to the first joiner;
+    // claimControl() is a fallback for when another session already holds it.
+    this.session.connect(1).pipe(
+      switchMap(r => r?.isController ? of(r) : this.session.claimControl())
+    ).subscribe();
   }
 
   ngOnChanges(): void {

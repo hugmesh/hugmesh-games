@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- 5 starter elemental spells per character + 5 advanced spells gated by quest rewards.
+         Each elemental tier scales: damage, projectile size, mana cost go up.
+
+         Starter loadout (slots 1-5):
+           1: Fireball       (fire, basic)
+           2: Ice Shard      (ice, basic)
+           3: Thunder Bolt   (lightning, basic)
+           4: Stone Spike    (earth, basic)
+           5: Holy Light     (light, basic)
+
+         Quest rewards (advanced):
+           Inferno Lance     (fire, tier 2)
+           Glacial Storm     (ice, tier 2)
+           Chain Lightning   (lightning, tier 2)
+           Earthquake        (earth, tier 2)
+           Solar Flare       (light, tier 2 — rare)
+    -->
+
+    <!-- Add reward_skill_id to quests so completing a quest can unlock a new spell -->
+    <changeSet id="014-1" author="nin">
+        <addColumn tableName="quests">
+            <column name="reward_skill_id" type="BIGINT">
+                <constraints foreignKeyName="fk_quest_reward_skill"
+                             referencedTableName="skills" referencedColumnNames="id"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <!-- Reset existing skills to the new 5-elemental starter set + advanced rewards -->
+    <changeSet id="014-2" author="nin">
+        <sql>
+-- Wipe and reseed character_skill_slots / character_skills / skills
+DELETE FROM character_skill_slots;
+DELETE FROM character_skills;
+DELETE FROM skills;
+
+-- Reset sequence so id=1..10 are deterministic
+SELECT setval(pg_get_serial_sequence('skills','id'), 1, false);
+
+-- Starter spells (id 1-5)
+INSERT INTO skills (name, skill_type, description, mana_cost, effect_json, icon_url) VALUES
+  ('Fireball',     'spell', 'A blazing sphere of flame.',                10,
+   '{"element":"fire","damage":25,"projectileScale":1.0,"color":[1.0,0.4,0.1]}',  null),
+  ('Ice Shard',    'spell', 'A razor-sharp shard of frost.',              8,
+   '{"element":"ice","damage":20,"projectileScale":0.8,"color":[0.5,0.85,1.0]}',  null),
+  ('Thunder Bolt', 'spell', 'A crackling bolt of electricity.',          12,
+   '{"element":"lightning","damage":28,"projectileScale":0.9,"color":[0.95,0.95,0.4]}', null),
+  ('Stone Spike',  'spell', 'Conjures a jagged stone projectile.',       11,
+   '{"element":"earth","damage":24,"projectileScale":1.1,"color":[0.55,0.4,0.25]}',null),
+  ('Holy Light',   'spell', 'A radiant beam that heals or smites.',      14,
+   '{"element":"light","damage":18,"heal":20,"projectileScale":1.2,"color":[1.0,0.95,0.7]}', null);
+
+-- Advanced quest-locked spells (id 6-10)
+INSERT INTO skills (name, skill_type, description, mana_cost, effect_json, icon_url) VALUES
+  ('Inferno Lance',   'spell', 'A piercing lance of roaring inferno.',         22,
+   '{"element":"fire","damage":55,"projectileScale":1.6,"color":[1.0,0.2,0.05]}',null),
+  ('Glacial Storm',   'spell', 'A spiraling tempest of ice.',                  20,
+   '{"element":"ice","damage":48,"projectileScale":1.5,"slow":true,"color":[0.6,0.95,1.0]}', null),
+  ('Chain Lightning', 'spell', 'Forks of arcane lightning that chain.',        25,
+   '{"element":"lightning","damage":62,"projectileScale":1.4,"chain":3,"color":[1.0,1.0,0.5]}', null),
+  ('Earthquake',      'spell', 'Splits the ground in a shockwave.',            28,
+   '{"element":"earth","damage":58,"projectileScale":1.8,"color":[0.45,0.3,0.2]}', null),
+  ('Solar Flare',     'spell', 'A blinding flare of pure sunlight.',           30,
+   '{"element":"light","damage":70,"heal":40,"projectileScale":2.0,"color":[1.0,0.9,0.4]}', null);
+
+-- All five starter spells learned + slotted for character 1
+INSERT INTO character_skills (character_id, skill_id) VALUES (1,1),(1,2),(1,3),(1,4),(1,5);
+INSERT INTO character_skill_slots (character_id, slot_number, skill_id) VALUES
+  (1,1,1),(1,2,2),(1,3,3),(1,4,4),(1,5,5);
+        </sql>
+    </changeSet>
+
+    <!-- Hook quest rewards: existing quest 1 grants Inferno Lance, quest 2 grants Glacial Storm.
+         Add 3 more quests, each granting one of the remaining advanced spells. -->
+    <changeSet id="014-3" author="nin">
+        <sql>
+UPDATE quests SET reward_skill_id = 6 WHERE id = 1;  -- Cave  → Inferno Lance
+UPDATE quests SET reward_skill_id = 7 WHERE id = 2;  -- Field → Glacial Storm
+
+INSERT INTO quests (name, description, reward_xp, reward_gold, reward_skill_id, level_id) VALUES
+  ('Voice of the Storm',  'Survive a thunderstorm in the open field and channel its power.',   200, 80, 8, 2),
+  ('Heart of the Mountain','Find the molten core deep in the cave.',                            220, 90, 9, 1),
+  ('Dawn at the Cottage', 'Witness the sunrise from the cottage roof.',                         260,100,10,2);
+        </sql>
+    </changeSet>
+
+    <!-- More items — typical RPG starter assortment. Bring inventory variety up to 10. -->
+    <changeSet id="014-4" author="nin">
+        <sql>
+INSERT INTO items (name, item_type, description, effect_json, icon_url) VALUES
+  ('Iron Sword',       'weapon',     'A reliable iron blade.',
+   '{"attack":12,"slot":"weapon"}', null),
+  ('Oak Bow',          'weapon',     'A flexible bow carved from oak.',
+   '{"attack":9,"speed":3,"slot":"weapon"}', null),
+  ('Apprentice Wand',  'weapon',     'Channels minor magic.',
+   '{"magicPower":6,"slot":"weapon"}', null),
+  ('Leather Boots',    'armor',      'Quiet footwear for nimble travel.',
+   '{"defense":3,"speed":2,"slot":"feet"}', null),
+  ('Steel Helm',       'armor',      'Protects the head in melee.',
+   '{"defense":5,"slot":"head"}', null),
+  ('Antidote',         'consumable', 'Cures poison and minor ailments.',
+   '{"cure":"poison"}', null),
+  ('Ether',            'consumable', 'Restores 50 MP.',
+   '{"mana":50}', null),
+  ('Phoenix Feather',  'consumable', 'Revives from defeat once.',
+   '{"revive":true}', null);
+
+-- Give character 1 a varied starting bag: 3 healing pots, 2 mana pots, 1 antidote, an iron sword (replaces nothing)
+INSERT INTO character_items (character_id, item_id, quantity)
+SELECT 1, id, 1 FROM items WHERE name IN ('Iron Sword','Antidote','Phoenix Feather','Ether')
+  AND NOT EXISTS (
+    SELECT 1 FROM character_items ci WHERE ci.character_id = 1 AND ci.item_id = items.id
+  );
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

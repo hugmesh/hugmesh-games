@@ -17,4 +17,5 @@
     <include file="db/changelog/011-progression-and-history.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/012-levels-tier.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/013-seed-level-assets.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/014-spell-loadout-and-rewards.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

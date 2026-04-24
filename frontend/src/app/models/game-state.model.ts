@@ -9,6 +9,8 @@ export type GameAction =
   | 'CAST_SPELL_1'
   | 'CAST_SPELL_2'
   | 'CAST_SPELL_3'
+  | 'CAST_SPELL_4'
+  | 'CAST_SPELL_5'
   | 'INTERACT';
 
 export interface ControlEvent {

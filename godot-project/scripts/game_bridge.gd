@@ -51,7 +51,10 @@ func _connect_sse_web() -> void:
 	JavaScriptBridge.eval("""
 (function() {
 	if (window._twGameSSE) { window._twGameSSE.close(); }
-	window._twLatestMovement  = null;
+	// Movement queued (not latest-wins) so a rapid keydown→keyup pair doesn't
+	// collapse into just the keyup — spells only fire on pressed=true and get
+	// lost between Godot's ~16ms polls otherwise.
+	window._twMovementQueue   = [];
 	window._twLatestWorld     = null;
 	window._twLatestCharacter = null;
 	window._twLatestTime      = null;
@@ -59,7 +62,12 @@ func _connect_sse_web() -> void:
 	var base = (window.location.host === 'localhost:4200') ? 'http://localhost:8080' : '';
 	var src = new EventSource(base + '/api/game/stream');
 	window._twGameSSE = src;
-	src.addEventListener('movement',  function(e) { try { window._twLatestMovement  = JSON.parse(e.data); } catch(ex) {} });
+	src.addEventListener('movement',  function(e) {
+		try {
+			window._twMovementQueue.push(JSON.parse(e.data));
+			if (window._twMovementQueue.length > 32) window._twMovementQueue.shift();
+		} catch(ex) {}
+	});
 	src.addEventListener('world',     function(e) { try { window._twLatestWorld     = JSON.parse(e.data); } catch(ex) {} });
 	src.addEventListener('character', function(e) { try { window._twLatestCharacter = JSON.parse(e.data); } catch(ex) {} });
 	src.addEventListener('time',      function(e) { try { window._twLatestTime      = JSON.parse(e.data); } catch(ex) {} });
@@ -76,13 +84,27 @@ func _poll(js_var: String) -> Dictionary:
 	JavaScriptBridge.eval("%s = null" % js_var)
 	return parsed if parsed is Dictionary else {}
 
+# Pull every queued movement event in order so spells (which only fire on
+# pressed==true) and controller-role changes aren't swallowed when keydown
+# and keyup land in the same poll window.
+func _drain_movement_queue() -> void:
+	var raw: Variant = JavaScriptBridge.eval(
+		"JSON.stringify((window._twMovementQueue && window._twMovementQueue.splice(0, window._twMovementQueue.length)) || [])"
+	)
+	if not raw or raw == "null":
+		return
+	var parsed = JSON.parse_string(str(raw))
+	if not (parsed is Array):
+		return
+	for item in parsed:
+		if item is Dictionary:
+			movement_updated.emit(item)
+			state_updated.emit(item)
+
 func _process(_delta: float) -> void:
 	if not OS.has_feature("web"):
 		return
-	var m := _poll("window._twLatestMovement")
-	if not m.is_empty():
-		movement_updated.emit(m)
-		state_updated.emit(m)
+	_drain_movement_queue()
 	var w := _poll("window._twLatestWorld")
 	if not w.is_empty():
 		world_updated.emit(w)

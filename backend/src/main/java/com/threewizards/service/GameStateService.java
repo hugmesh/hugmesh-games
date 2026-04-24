@@ -35,13 +35,24 @@ public class GameStateService {
     // Per-character state — keyed by character DB id
     private final ConcurrentHashMap<Long, AtomicReference<PlayerState>> characterStates = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, String> lastActions = new ConcurrentHashMap<>();
+    // Tracks the last pressed-state for the action above so we can detect key
+    // releases even when neither the position nor the action label changes —
+    // critical because the Godot player only stops moving when it receives a
+    // pressed=false event, and without this map keyups on a held direction
+    // get swallowed and the character walks forever.
+    private final ConcurrentHashMap<Long, Boolean> lastPressed = new ConcurrentHashMap<>();
     private final AtomicLong tick = new AtomicLong(0);
 
     // Typed event sinks — emit only when content actually changes
-    private final Sinks.Many<PlayerMovement> movementSink = Sinks.many().multicast().onBackpressureBuffer(64);
-    private final Sinks.Many<WorldState>      worldSink    = Sinks.many().multicast().onBackpressureBuffer(64);
-    private final Sinks.Many<CharacterDto>    charStatSink = Sinks.many().multicast().onBackpressureBuffer(16);
-    private final Sinks.Many<SceneEvent>      sceneSink    = Sinks.many().multicast().onBackpressureBuffer(16);
+    // autoCancel=false — without it, multicast sinks terminate the moment all
+    // subscribers disconnect. A single SSE reconnect (iframe remount, browser
+    // nav, etc.) would kill the sink permanently; subsequent tryEmitNext calls
+    // silently drop and no new subscriber ever sees another event. That's the
+    // "first spell works, second doesn't, movement dies" symptom.
+    private final Sinks.Many<PlayerMovement> movementSink = Sinks.many().multicast().onBackpressureBuffer(64, false);
+    private final Sinks.Many<WorldState>      worldSink    = Sinks.many().multicast().onBackpressureBuffer(64, false);
+    private final Sinks.Many<CharacterDto>    charStatSink = Sinks.many().multicast().onBackpressureBuffer(16, false);
+    private final Sinks.Many<SceneEvent>      sceneSink    = Sinks.many().multicast().onBackpressureBuffer(16, false);
 
     private final String sessionId = UUID.randomUUID().toString();
 
@@ -79,6 +90,7 @@ public class GameStateService {
         AtomicReference<PlayerState> ref = characterStates.computeIfAbsent(
                 characterId, id -> new AtomicReference<>(PlayerState.defaults()));
         String prevAction = lastActions.get(characterId);
+        Boolean prevPressed = lastPressed.get(characterId);
 
         PlayerState before = ref.get();
         PlayerState after = switch (event.action()) {
@@ -90,12 +102,14 @@ public class GameStateService {
             default -> before;
         };
 
-        boolean posChanged    = !before.equals(after);
-        boolean actionChanged = !Objects.equals(prevAction, event.action());
+        boolean posChanged     = !before.equals(after);
+        boolean actionChanged  = !Objects.equals(prevAction, event.action());
+        boolean pressedChanged = prevPressed == null || prevPressed != event.pressed();
 
-        if (posChanged || actionChanged) {
+        if (posChanged || actionChanged || pressedChanged) {
             ref.set(after);
             lastActions.put(characterId, event.action());
+            lastPressed.put(characterId, event.pressed());
             long t = tick.incrementAndGet();
 
             PlayerMovement movement = new PlayerMovement(
