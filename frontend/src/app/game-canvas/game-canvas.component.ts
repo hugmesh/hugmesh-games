@@ -103,8 +103,10 @@ export class GameCanvasComponent implements OnInit, OnChanges, OnDestroy {
     const base = level.assetUrl
       ?? (level.slug ? `/api/assets/levels/${level.slug}/index.html`
                       : '/api/assets/levels/cave/index.html');
+    // Cache-bust the iframe src so the browser refetches the patched index.html
+    // every mount — otherwise stale prefetch JS sticks around even after rebuilds.
     this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(
-      `${base}?level_id=${level.id}`
+      `${base}?level_id=${level.id}&t=${Date.now()}`
     );
   }
 

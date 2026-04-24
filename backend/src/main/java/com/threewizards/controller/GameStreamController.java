@@ -81,7 +81,11 @@ public class GameStreamController {
         Flux<ServerSentEvent<Object>> scene = gameStateService.sceneStream()
                 .map(e -> sse(sseId, "scene", e));
 
-        Flux<ServerSentEvent<Object>> keepalive = Flux.interval(Duration.ofSeconds(30))
+        // First keepalive at t=0 so response headers flush immediately —
+        // browser EventSource only fires onopen once headers arrive, and the
+        // Angular HUD's connected$ stays false until then ("API offline").
+        // Subsequent keepalives every 15s.
+        Flux<ServerSentEvent<Object>> keepalive = Flux.interval(Duration.ZERO, Duration.ofSeconds(15))
                 .map(i -> ServerSentEvent.<Object>builder().comment("keepalive").build());
 
         return Flux.merge(movement, world, stats, time, scene, keepalive);

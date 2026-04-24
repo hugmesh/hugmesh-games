@@ -48,6 +48,12 @@ public class SecurityConfig {
                 })
                 .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(jwtConverter())))
                 .csrf(csrf -> csrf.disable())
+                // Spring Security defaults X-Frame-Options to DENY which blocks even
+                // same-origin iframe embedding. The Angular game-canvas mounts the
+                // Godot WASM bundle in an iframe, so we relax it to SAMEORIGIN.
+                .headers(h -> h.frameOptions(fo ->
+                        fo.mode(org.springframework.security.web.server.header
+                                .XFrameOptionsServerHttpHeadersWriter.Mode.SAMEORIGIN)))
                 .build();
     }
 
@@ -68,6 +74,12 @@ public class SecurityConfig {
                 })
                 .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(jwtConverter())))
                 .csrf(csrf -> csrf.disable())
+                // Spring Security defaults X-Frame-Options to DENY which blocks even
+                // same-origin iframe embedding. The Angular game-canvas mounts the
+                // Godot WASM bundle in an iframe, so we relax it to SAMEORIGIN.
+                .headers(h -> h.frameOptions(fo ->
+                        fo.mode(org.springframework.security.web.server.header
+                                .XFrameOptionsServerHttpHeadersWriter.Mode.SAMEORIGIN)))
                 .build();
     }
 

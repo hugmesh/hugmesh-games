@@ -68,11 +68,11 @@ public class GameStateService {
                                 String.format("%.1f", state.z()))))
                 .switchIfEmpty(Mono.fromSupplier(PlayerState::defaults)
                         .doOnNext(s -> log.warn("Character 1 not found, using defaults")))
-                .doOnNext(state -> {
-                    characterStates.put(1L, new AtomicReference<>(state));
-                    lastActions.put(1L, null);
-                })
+                .doOnNext(state -> characterStates.put(1L, new AtomicReference<>(state)))
                 .subscribe();
+        // lastActions is lazily populated by applyControl; ConcurrentHashMap rejects
+        // null values, and downstream code treats an absent key the same as "no
+        // previous action", so we don't seed it here.
     }
 
     public void applyControl(ControlEvent event, Long characterId) {

@@ -45,6 +45,21 @@
                       oldColumnName="current_scene_id" newColumnName="current_level_id"/>
     </changeSet>
 
+    <!-- PostgreSQL does not auto-rename the PK index, unique constraints, or
+         sequences attached to a table when you RENAME TABLE. After 012-1
+         renamed games → levels, the artifacts `games_pkey`, `games_slug_key`,
+         `games_id_seq` remained in the public schema attached to `levels`.
+         When 012-6 creates a fresh `games` table it also tries to auto-generate
+         those same names → "relation games_pkey already exists".
+         IF EXISTS guards keep this idempotent across fresh and migrated DBs. -->
+    <changeSet id="012-5b" author="nin">
+        <sql splitStatements="true">
+ALTER INDEX IF EXISTS games_pkey RENAME TO levels_pkey;
+ALTER INDEX IF EXISTS games_slug_key RENAME TO levels_slug_key;
+ALTER SEQUENCE IF EXISTS games_id_seq RENAME TO levels_id_seq;
+        </sql>
+    </changeSet>
+
     <!-- Step 3: create the new umbrella games table -->
     <changeSet id="012-6" author="nin">
         <createTable tableName="games">
