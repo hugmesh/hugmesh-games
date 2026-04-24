@@ -43,112 +43,163 @@ Adding levels and assets is a documented workflow — see the
 
 ## Architecture
 
-Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send movement input. All game state changes originate in the Spring Boot API and propagate to every connected client over a single SSE stream that carries five typed event channels.
+Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send input. All game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with five typed event channels.
 
 ```
   Browser / Player (up to 3)
-  ──────────────────────────────────────────────────────────────────────────────
-  Angular :4200 (nginx in Docker)
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │  LoginComponent          AuthService             HTTP Interceptor        │
-  │  [username / password]──►POST /api/auth/token──►sessionStorage JWT       │
-  │                                                  Bearer: <token>         │
-  │  AuthGuard (isAuthenticated?)                    on every /api/ request  │
-  │                                                                          │
-  │  GameCanvasComponent                                                     │
-  │  <iframe src="/api/assets/games/cave/index.html?game_id=N">             │
-  │      │                                                                   │
-  │      │   Godot WASM (game_bridge.gd)          scene_loader.gd           │
-  │      │   JavaScriptBridge.eval(EventSource)   applies scene config       │
-  │      │   ──────────────────────────────────►  spawns lights/fairies/geo  │
-  │      │                                        _on_time_updated() rotates │
-  │      │                                        DirectionalLight3D (sun)   │
-  │      │                                                                   │
-  │  GameControls (Angular)                                                  │
-  │  [W/A/S/D + HUD buttons]──────────────────────────────────────────────► │
-  └──────────────────────────────────────────────┬──────────────────────────┘
-                                                 │ /api/* (nginx reverse proxy)
-  ─────────────────────────────────────────────  │  ───────────────────────────
-  Spring Boot API :8080                          ▼
+  ══════════════════════════════════════════════════════════════════════════════
+  Angular :4200 (nginx static server + /api reverse proxy in Docker)
   ┌──────────────────────────────────────────────────────────────────────────┐
   │                                                                          │
-  │  CasdoorAuthController          SecurityConfig (WebFlux)                 │
-  │  POST /api/auth/token ─────────►JWT RS256 via Casdoor JWKS               │
-  │  (ROPC proxy; client_secret     /api/auth/**  → permitAll                │
-  │   stays server-side)            /api/sessions/**                         │
-  │                                 /api/characters/**  → ROLE_USER          │
-  │                                 /api/admin/**       → ROLE_ADMIN         │
+  │  LoginComponent ──► AuthService ──► sessionStorage JWT                   │
+  │                     POST /api/auth/token (ROPC proxy)                    │
   │                                                                          │
-  │  GameStreamController                                                    │
-  │  GET /api/game/stream ──────────────────────────────────────────────────►│
-  │    Flux.merge(movement$, world$, character$, time$, scene$)              │
-  │    + 30 s keepalive comment                                              │
-  │    ─────────────────────────────────────────────────────────────────►   │
-  │    event: movement   {"x","y","z","rotationY","action","pressed"}        │
-  │    event: world      {"sessionId","tick","timestamp"}                    │
-  │    event: character  {"health","mana","level","xp","xp_to_next"}        │
-  │    event: time       {"dayNumber","hour","minute"}                       │
-  │    event: scene      {"sceneId","sceneName","sceneType"}                 │
+  │  HTTP Interceptor attaches Bearer <jwt> to every /api/* request          │
+  │  AuthGuard on every protected route                                      │
   │                                                                          │
-  │  ControlController                 GameStateService                      │
-  │  POST /api/controls/{charId} ─────►Sinks.many().replay().limit(1)        │
-  │  (validates X-Casdoor-Id           applyControl() mutates PlayerState    │
-  │   == controller session)           emits to all SSE subscribers          │
+  │  HomeComponent (/)                                                       │
+  │  └── GameCanvasComponent                                                 │
+  │       ngOnInit → SessionService.connect(1) → auto-claims controller role │
+  │       ┌─ iframe src="/api/assets/levels/{slug}/index.html?level_id=N&t=…"│
+  │       │                                                                  │
+  │       │   Godot WASM bundle (per-level; cave / field / …)                │
+  │       │   ┌──────────────────────────────────────────────────────────┐  │
+  │       │   │  index.html <script> prefetch JSON ────►                  │  │
+  │       │   │    fetch /api/levels/N/scene → window._twSceneConfig      │  │
+  │       │   │                                                           │  │
+  │       │   │  game_bridge.gd                                           │  │
+  │       │   │    EventSource /api/game/stream ──► window._twMovement    │  │
+  │       │   │      Queue (not latest-wins, FIFO, capped 32)             │  │
+  │       │   │    _unhandled_input(KEY_1..5) ──► direct _cast_spell(N)   │  │
+  │       │   │      + parallel POST /api/controls/1 (MP / XP server-side)│  │
+  │       │   │                                                           │  │
+  │       │   │  scene_loader.gd                                          │  │
+  │       │   │    _apply.call_deferred(config) spawns lights/fairies/geo │  │
+  │       │   │    _on_time_updated() rotates DirectionalLight3D (sun)   │  │
+  │       │   │                                                           │  │
+  │       │   │  player_controller.gd   (CharacterBody3D)                 │  │
+  │       │   │    _sse_dir from MOVE_* events → _physics_process velocity│  │
+  │       │   │    HandAnchor Node3D → equipped weapon mesh               │  │
+  │       │   │    _cast_spell(N) → glowing projectile from hand anchor   │  │
+  │       │   │    _use_first_item() on E → POST use-first-item           │  │
+  │       │   └──────────────────────────────────────────────────────────┘  │
+  │       │                                                                  │
+  │       └── (levelTransition) event ← window:message TW_LEVEL_TRANSITION   │
+  │             GameLibraryService.getLevel(id) → swap iframe src            │
   │                                                                          │
-  │  SessionController      ┌─────────────────────────────────────────────┐ │
-  │  /sessions/connect      │  PostgreSQL  (R2DBC reactive + JDBC Liquibase│ │
-  │  /sessions/control  ───►│  games           player_sessions             │ │
-  │  /sessions/me           │  scene_elements  player_positions  (NOTIFY)  │ │
-  │                         │  player_characters               skills      │ │
-  │  CharacterController    │  character_skills  character_items           │ │
-  │  SkillController    ───►│  character_equipment  character_quests        │ │
-  │  ItemController         │  game_time_state     quests                  │ │
-  │  QuestController        └──────────────────┬──────────────────────────┘ │
-  │                                            │                             │
-  │  PgNotificationService ◄───────────────────┘ LISTEN game_events         │
-  │  (player_positions INSERT/UPDATE            pg_notify on trigger)        │
-  │   → emits to GameStateService Sinks)                                    │
+  │  GameControls (Angular)                                                  │
+  │    WASD / Space / 1-5 / E keyboard + on-screen buttons                   │
+  │    Digit keys 1-5 also fire a CSS spell overlay (always-visible cue)     │
+  │    HUD spell hotbar hydrates from /api/skills/character/1/slots          │
+  │    HUD item quick-slot = first row of /api/items/character/1/inventory   │
+  └──────────────────────────────┬───────────────────────────────────────────┘
+                                 │ /api/* (nginx → api:8080)
+  ══════════════════════════════ │ ═══════════════════════════════════════════
+  Spring Boot API :8080          ▼    (WebFlux, R2DBC + JDBC-for-Liquibase)
+  ┌──────────────────────────────────────────────────────────────────────────┐
   │                                                                          │
-  │  GameTimeService                                                         │
-  │  Scheduler (every 10 s real = 1 game-minute)                            │
-  │  persists day/hour/minute → emits time$ events                          │
+  │  SecurityConfig (WebFlux)                                                │
+  │  • /api/auth/**  → permitAll                                             │
+  │  • /api/admin/** → ROLE_ADMIN                                            │
+  │  • /api/characters|skills|items|quests|sessions/** → authenticated       │
+  │  • X-Frame-Options: SAMEORIGIN so the iframe can embed WASM              │
+  │  • JWT RS256 verified via ${CASDOOR}/.well-known/jwks (public)           │
+  │                                                                          │
+  │  CasdoorAuthController                                                   │
+  │  POST /api/auth/token ──► ROPC proxy to Casdoor (client_secret server)   │
+  │                                                                          │
+  │  SessionController                 ControlController                     │
+  │  POST /api/sessions/connect        POST /api/controls/{charId}           │
+  │  POST /api/sessions/control          checks X-Casdoor-Id matches the     │
+  │  DELETE /api/sessions/me             holder of the controller role      │
+  │  GET   /api/sessions/history         → 403 if not; else applyControl()   │
+  │                                                                          │
+  │  GameStreamController ── GET /api/game/stream (text/event-stream)        │
+  │    Flux.merge(movement$, world$, character$, time$, scene$) + keepalive  │
+  │    Flux.interval(Duration.ZERO, 15s) keepalive → first flush at t=0      │
+  │                                                                          │
+  │                                                                          │
+  │  GameStateService                                                        │
+  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │ Sinks.many().multicast().onBackpressureBuffer(N, autoCancel=false)│   │
+  │  │  • movementSink  (PlayerMovement)                                │    │
+  │  │  • worldSink     (WorldState tick + everyone's positions)        │    │
+  │  │  • charStatSink  (CharacterDto HP/MP/XP/level)                   │    │
+  │  │  • sceneSink     (SceneEvent level_id + payload)                 │    │
+  │  │  autoCancel=false is critical — default true terminates the sink │    │
+  │  │  when all subscribers disconnect, silently killing the stream.   │    │
+  │  └──────────────────────────────────────────────────────────────────┘    │
+  │                                                                          │
+  │  applyControl(ControlEvent, characterId):                                │
+  │    MOVE_*  → mutate PlayerState position                                 │
+  │    JUMP    → mutate PlayerState y                                        │
+  │    other   → no position change; emit still fires                        │
+  │    gate: posChanged || actionChanged || pressedChanged                   │
+  │           (pressedChanged catches keyup of held directions)              │
+  │                                                                          │
+  │  GameTimeService                 CharacterController                     │
+  │  scheduler: 10s real = 1 min     PUT  /characters/{id}/quests/{qid}/     │
+  │  persists to game_time_state     complete → grants reward_skill_id       │
+  │  emits time$ each tick           POST /characters/{id}/use-first-item    │
+  │                                                                          │
+  │  ┌─────────────────────────────────────────────────────────────────┐   │
+  │  │  PostgreSQL (R2DBC runtime + HikariDataSource for Liquibase)     │   │
+  │  │                                                                   │   │
+  │  │  games → levels → scene_elements        skills ← character_skills │   │
+  │  │          (per-level WASM asset_url)     quests ← character_quests │   │
+  │  │  level_prerequisites ── quests          items  ← character_items  │   │
+  │  │  level_assets (user textures/plugins)    ← character_equipment    │   │
+  │  │  player_characters    player_sessions   character_skill_slots     │   │
+  │  │  player_positions  ── NOTIFY trigger    game_time_state           │   │
+  │  └──────────────────────────┬──────────────────────────────────────┘   │
+  │                             │                                            │
+  │  PgNotificationService ◄────┘ LISTEN game_events                        │
+  │    → feeds sceneSink                                                     │
   │                                                                          │
   │  AssetController                                                         │
-  │  GET /api/assets/games/{slug}/{file} → ClassPathResource                │
-  │  (Godot WASM bundle: index.html, index.wasm, index.pck, …)              │
+  │    GET /api/assets/levels/{slug}/{file} → ClassPathResource             │
+  │         (primary WASM bundle path — per-level)                           │
+  │    GET /api/assets/games/{slug}/{file}  → legacy fallback                │
   │                                                                          │
   └──────────────────────────────────────────────────────────────────────────┘
                     │ internal Docker network only
-  ──────────────────┼──────────────────────────────────────────────────────────
-  Casdoor :8000     ▼   (no host port binding — unreachable from browser)
+  ──────────────────┼───────────────────────────────────────────────────────────
+  Casdoor :8000     ▼   (no host port binding — unreachable from the browser)
   ┌──────────────────────────────────────────────────────────────────────────┐
-  │  entrypoint.sh seeds init_data.json from env vars (or random defaults)  │
-  │  Prints client-id / client-secret / passwords to container logs         │
+  │  entrypoint.sh renders init_data.json from env vars or random secrets   │
+  │  Prints client-id / client-secret / passwords on first-run              │
   │                                                                          │
-  │  POST /api/login/oauth/access_token  ← ROPC grant (proxied by API)      │
-  │  GET  /api/get-jwks                  ← RS256 public keys for JWT verify │
+  │  POST /api/login/oauth/access_token   ← ROPC grant (proxied by API)     │
+  │  GET  /.well-known/jwks               ← RS256 public keys (anonymous)   │
+  │       ⚠ /api/get-jwks requires admin auth — DO NOT use for verify       │
   └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key architectural decisions
 
-**Single WASM bundle, multiple scenes.**
-Both `cave` and `field` are served from the same Godot export at `/api/assets/games/cave/`. The `?game_id=N` query param is read by `game_bridge.gd`, which fetches `/api/games/{N}/scene` to get the scene config and routes to the correct `.tscn` file. Adding a new scene only requires a DB row and a new Godot scene file — no re-export.
+**Per-level WASM bundles.**
+Each level compiles to its own Godot export under `/api/assets/levels/{slug}/`. The iframe URL carries `?level_id=N`; the patched `index.html` prefetches `/api/levels/N/scene` so scene config is ready before the WASM finishes compiling. Adding a new level = new `.tscn` + new preset in `export_presets.cfg` + new row in `levels` — see [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md).
 
-**All controls go through the API first.**
-Neither Angular nor Godot mutates position directly. Every keypress POSTs to `/api/controls/{charId}`; the resulting state comes back over SSE and drives both the Angular HUD and Godot movement. The controller role is enforced server-side via `player_sessions.is_controller`.
+**All controls authenticate through a session.**
+Every `/api/controls/{charId}` POST carries `X-Casdoor-Id`; the server rejects it with 403 unless that casdoor user is the holder of the controller role. `GameCanvasComponent.ngOnInit` auto-calls `/api/sessions/connect` (and claims the role if no one else has it), so solo play "just works". Up to 3 players may be connected simultaneously; only one holds the role at a time.
+
+**Spells fire both client-side and server-side.**
+The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WASM so the visual is instant and doesn't depend on the SSE round-trip. The same keypress also POSTs `/api/controls/1` so the server can eventually apply MP cost / XP / cooldown. Angular's hotbar handler additionally fires a CSS overlay as a guaranteed-visible cue — useful for debugging iframe focus issues.
 
 **Five typed SSE channels on one stream.**
-`GameStreamController` merges `Sinks.Many` from `GameStateService`, `GameTimeService`, and `PgNotificationService` into a single `Flux<ServerSentEvent>`. Each event carries a typed `event:` field (`movement`, `world`, `character`, `time`, `scene`). `game_bridge.gd` registers one `addEventListener` per type — no event parsing gymnastics.
+`GameStreamController` merges four `Sinks.Many` from `GameStateService` + one from `GameTimeService` + a keepalive `Flux.interval(Duration.ZERO, 15s)` into a single `Flux<ServerSentEvent>`. The immediate first-tick keepalive forces response headers to flush at connect time, so browser `EventSource.onopen` fires in milliseconds instead of waiting for the first real event. Each payload carries an `event:` field (`movement`, `world`, `character`, `time`, `scene`) so clients register per-type listeners.
 
-**Casdoor kept internal.**
-`docker-compose.yml` exposes no host port for Casdoor. The Angular app never redirects to Casdoor's React UI — a custom form POSTs to `/api/auth/token`, which proxies the OAuth2 ROPC grant server-side, keeping `client_secret` off the browser.
+**SSE sinks must not autoCancel.**
+`Sinks.many().multicast().onBackpressureBuffer(N)` defaults to `autoCancel=true` — when every subscriber disconnects (iframe remount, EventSource reconnect, network blip), the sink terminates permanently and all subsequent `tryEmitNext` calls silently drop. Every sink in this project passes `autoCancel=false` explicitly. Producing a "first keypress works, then everything dies" symptom until this was fixed.
 
-**Reactor sink is `replay().limit(1)`.**
-`Sinks.many().multicast().onBackpressureBuffer()` terminates silently when all subscribers disconnect in Reactor 3.7. `replay().limit(1)` is a hot sink that never terminates and replays the latest state to new subscribers on connect.
+**Movement queue, not latest-wins.**
+`window._twMovementQueue` is an array that the JS SSE listener pushes to per-event. Previously the listener stored only the latest payload, so rapid keydown+keyup pairs (exactly what spell keys produce) collapsed into just the keyup and the `pressed=true` event was lost between Godot's 16 ms polls. `_drain_movement_queue` now splices the array atomically each frame and emits `state_updated` in FIFO order.
+
+**Casdoor kept internal; JWKS at `/.well-known/jwks`.**
+`docker-compose.yml` exposes no host port for Casdoor. Spring Security's JWT decoder is wired to the anonymous `/.well-known/jwks` — **not** `/api/get-jwks`, which requires admin auth and would return an error payload that throws `"Missing required keys member"` on every Bearer-tagged request, including permitAll ones.
 
 **R2DBC + JDBC coexistence.**
-Runtime data access uses non-blocking R2DBC. Liquibase schema migrations need a blocking JDBC `DataSource`. Spring Boot 3 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
+Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 3 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
 
 ---
 
@@ -156,13 +207,84 @@ Runtime data access uses non-blocking R2DBC. Liquibase schema migrations need a 
 
 ### SSE event types — `GET /api/game/stream`
 
-| Event name | Payload fields | Emitted when |
-|---|---|---|
-| `movement` | `x`, `y`, `z`, `rotationY`, `action`, `pressed` | Control applied / position updated |
-| `world` | `sessionId`, `tick`, `timestamp` | Heartbeat (1 s) |
-| `character` | `health`, `mana`, `level`, `xp`, `xp_to_next` | Stats change |
-| `time` | `dayNumber`, `hour`, `minute` | Every game-minute (~10 s real) |
-| `scene` | `sceneId`, `sceneName`, `sceneType` | Scene transition |
+| Event name | Payload fields | Emitted when | Delivery |
+|---|---|---|---|
+| `movement` | `x`, `y`, `z`, `rotationY`, `action`, `pressed`, `tick` | Every control event (press AND release, see `pressedChanged` gate) | Queued FIFO in-bridge |
+| `world` | `sessionId`, `tick`, `timestamp`, `characters[]` | When any character's state changes | Latest-wins snapshot |
+| `character` | `health`, `mana`, `level`, `xp`, `xpToNext` | Stat patch or item use | Latest-wins snapshot |
+| `time` | `dayNumber`, `hour`, `minute` | Every game-minute (~10 s real) | Latest-wins snapshot |
+| `scene` | `sceneId`, `sceneName`, `sceneType`, `eventType` | Scene transition / scene_element NOTIFY | Latest-wins snapshot |
+| `:keepalive` (SSE comment) | — | `t=0` on connect, then every 15 s | Flushes response headers so `onopen` fires immediately |
+
+### HUD layout
+
+```
+ ┌──────────────────────────────────────────────── canvas-section ───────┐
+ │  ╔═══════════════════════════════════════════════════════════════════╗ │
+ │  ║                                                                   ║ │
+ │  ║                        Godot iframe                               ║ │
+ │  ║                  (per-level WASM bundle)                          ║ │
+ │  ║                                                                   ║ │
+ │  ╚═══════════════════════════════════════════════════════════════════╝ │
+ │  ┌──── hud-layer (pointer-events: none) ─────────────────────────────┐ │
+ │  │                                                                    │ │
+ │  │  app-game-hud   (HP / MP / position / session badge)              │ │
+ │  │  app-game-controls                                                 │ │
+ │  │                                                                    │ │
+ │  │    [W]                              ┌─────── hotbar ─────────┐     │ │
+ │  │  [A][S][D]                          │ 🔥 ❄ ⚡ 🪨 ✨  │  🧪 ×3 │     │ │
+ │  │    [SPACE]                          │  1  2  3  4  5   │   E  │     │ │
+ │  │  (bottom-left)                      └────── bottom-center ────┘    │ │
+ │  │                                     (mana cost shown per slot;    │ │
+ │  │                                      item slot = first inventory  │ │
+ │  │                                      row, consumed on E press)    │ │
+ │  └────────────────────────────────────────────────────────────────────┘ │
+ └────────────────────────────────────────────────────────────────────────┘
+```
+
+### Input flow — keypress to visible effect
+
+```
+  ┌────────── parent window (Angular) ──────────┐     ┌───── iframe (Godot WASM) ─────┐
+  │                                             │     │                               │
+  │  keydown '1'                                │     │  keydown '1' (KEY_1)           │
+  │   │                                         │     │   │                            │
+  │   ▼                                         │     │   ▼                            │
+  │  game-controls.onKeyDown                    │     │  game_bridge._unhandled_input  │
+  │   ├── _fireSpellOverlay(1)                  │     │   ├── player._cast_spell(1)   │
+  │   │   (CSS orb flies up; always visible)    │     │   │   (projectile from hand)  │
+  │   │                                         │     │   │                            │
+  │   ├── ControlService.sendControl(           │     │   └── send_control(           │
+  │   │     'CAST_SPELL_1', true)               │     │         'CAST_SPELL_1', true) │
+  │   │   POST /api/controls/1                  │     │        POST /api/controls/1    │
+  │   │   + X-Casdoor-Id                        │     │        (no casdoor header)    │
+  │   │                                         │     │                               │
+  │   └── 50ms later: sendControl(…, false)     │     │   keyup: send_control(…,false)│
+  └─────────────────────────────────────────────┘     └───────────────────────────────┘
+                      ║                                                ║
+                      ╚══════════════════════╦═════════════════════════╝
+                                             ▼
+                  ┌─────────────── Spring Boot API ────────────────┐
+                  │  ControlController.receiveControl              │
+                  │  → applyControl: gate on posChanged ||         │
+                  │       actionChanged || pressedChanged          │
+                  │  → movementSink.tryEmitNext                    │
+                  └──────────────────────┬─────────────────────────┘
+                                         ▼
+                    GET /api/game/stream Flux<ServerSentEvent>
+                                         ▼
+                  ┌─────────── iframe JS SSE listener ─────────────┐
+                  │  push into window._twMovementQueue (FIFO)      │
+                  └──────────────────────┬─────────────────────────┘
+                                         ▼
+                  game_bridge._drain_movement_queue (each _process frame)
+                                         ▼
+                  player_controller._on_state_updated (per-event)
+                                         ▼
+                  match action → _cast_spell / _use_first_item / _sse_dir
+```
+
+Spells cast via two redundant paths — the direct in-WASM call fires the visual instantly; the round-trip through the API exists so the server can eventually subtract MP, grant XP, resolve collisions with enemies, etc.
 
 ### `ControlEvent` — `POST /api/controls/{characterId}` body
 
@@ -538,6 +660,80 @@ Patches HP, MP, level, XP, ability stats, and current scene, then notifies the S
                                               CharacterDto (updated)
 ```
 
+#### `PUT /api/characters/{id}/quests/{questId}/complete`
+
+Marks the quest complete and, if it has a `reward_skill_id`, grants the character that skill (idempotent).
+
+```
+──request──► charQuests.findByCharacterIdAndQuestId(id, qid)
+                   │
+         ┌─────────┴──────────┐
+         │ found              │ empty
+         ▼                    ▼
+  status='completed'     switchIfEmpty(404)
+  completedAt=NOW()            ──✗
+  charQuests.save()
+         │
+  questRepo.findById(qid)
+         │
+         ▼ reward_skill_id present?
+         │
+  charSkills.findByCharacterId
+    .filter(skillId == reward)
+    .hasElements()
+         │
+  ┌──────┴──────┐
+  │ already has │ new
+  ▼             ▼
+  no-op       charSkills.save({charId, rewardSkillId})
+  │             │
+  ●─────────────●─| CharacterQuest (updated)
+```
+
+#### `POST /api/characters/{id}/use-first-item`
+
+Consumes the lowest-id inventory item (typically a potion), applies its JSON effect, decrements quantity, and broadcasts the updated character over SSE so the HUD HP/MP bars update instantly.
+
+```
+──request──► charItems.findByCharacterId(id)
+              .filter(qty > 0).sort(by id).next()
+                   │
+         ┌─────────┴──────────┐
+         │ found              │ empty
+         ▼                    ▼
+  itemRepo.findById    ──✗ 404 "no usable item"
+         │
+  parse effect_json:
+    "heal":N → currentHp += N (cap maxHp)
+    "mana":N → currentMp += N (cap maxMp)
+         │
+  charItems.save(qty-1)
+         │
+  characters.save(updated)
+         │
+  gameStateService.notifyCharacterStatChange
+         │
+  ──────●─|  CharacterDto (updated)
+```
+
+#### `GET /api/characters/{id}/dashboard`
+
+Passive snapshot for the player dashboard — character stats, time, games with levels, quests, session playtime — without loading the game canvas.
+
+```
+──request──► zip(
+                characterRepo.findById(id).map(toDto),
+                progression.availableGamesWithLevels(id).collectList(),
+                charQuests.findByCharacterId(id)
+                  .flatMap(cq → questRepo.findById → map toDto).collectList(),
+                sessions.findHistoryByCasdoorId(char.casdoorId).collectList()
+              )
+              ──map──► DashboardDto{
+                          character, gameTime, games, quests,
+                          totalPlayMinutes, totalSessions }
+ ──────────────●─|
+```
+
 ---
 
 ### `SkillController` — `/api/skills`  *(authenticated)*
@@ -735,11 +931,12 @@ player_characters ────────────────────�
 player_sessions ──────────────────────────────────────────
   id, session_token, casdoor_id,
   character_id(→player_characters),
-  is_controller, connected_at, last_ping
+  is_controller, connected_at, last_ping,
+  disconnected_at      (null = active; set = session history row)
 
 player_positions ─────────────────────────────────────────  ◄─ NOTIFY trigger
   id, character_id(→player_characters),
-  scene_id(→games), pos_x, pos_y, pos_z,
+  scene_id(→levels), pos_x, pos_y, pos_z,
   rotation_y, updated_at
 
 game_time_state ──────────────────────────────────────────
@@ -750,16 +947,36 @@ skills ───────  character_skills ───  character_skill_slots
   id, name      character_id          character_id, slot_number
   skill_type    skill_id              skill_id
   mana_cost     learned_at
+  effect_json
+  icon_url
 
 items ───────  character_items ─────  character_equipment
   id, name      character_id          character_id, slot
   item_type     item_id, quantity      item_id
+  effect_json
+  icon_url
 
 quests ──────  quest_objectives ────  character_quests
   id, name      quest_id              character_id, quest_id
   reward_xp     description           status, started_at
   reward_gold   required_count        completed_at
+  reward_skill_id(→skills)  ← granted on complete
+  level_id(→levels)
 ```
+
+### Spell catalog (migration 014)
+
+Five starter spells auto-slotted for character 1 at slots 1–5; five advanced spells granted by completing the five quests.
+
+| Slot | Starter spell | Element | MP | Damage | Quest reward → Advanced |
+|---|---|---|---|---|---|
+| 1 | Fireball | fire | 10 | 25 | Into the Cave → **Inferno Lance** (55 dmg, 22 MP) |
+| 2 | Ice Shard | ice | 8 | 20 | The Cottage Secret → **Glacial Storm** (48 dmg, slow, 20 MP) |
+| 3 | Thunder Bolt | lightning | 12 | 28 | Voice of the Storm → **Chain Lightning** (62 dmg, chain-3, 25 MP) |
+| 4 | Stone Spike | earth | 11 | 24 | Heart of the Mountain → **Earthquake** (58 dmg, 28 MP) |
+| 5 | Holy Light | light | 14 | 18 + heal 20 | Dawn at the Cottage → **Solar Flare** (70 dmg + heal 40, 30 MP) |
+
+Projectile size scales with tier: starter radius ≈ 0.6, advanced ≈ 1.0.
 
 ---
 
@@ -1171,7 +1388,7 @@ ThreeWizardsInATrenchcoat/
         ├── model/                         # R2DBC entities + DTOs + records
         ├── repository/                    # ReactiveCrudRepository interfaces
         └── service/
-            ├── GameStateService.java      # Sinks.many().replay().limit(1) + heartbeat
+            ├── GameStateService.java      # 4 typed Sinks (autoCancel=false) + keyup gate
             ├── GameTimeService.java       # In-game clock scheduler
             ├── PgNotificationService.java # LISTEN game_events → SSE scene$
             ├── SessionService.java        # 3-player cap + controller arbitration
