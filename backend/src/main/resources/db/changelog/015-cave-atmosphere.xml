@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Cave atmosphere pass:
+          - Darker world_env (ambientEnergy 1.8 → 0.35, denser darker fog)
+          - Dim the existing torches & fill lights so the cave reads as a
+            real underground space instead of a brightly-lit set
+          - Add scattered boulders (rocky uneven floor)
+          - Add still-water pools — translucent, slight emission
+          - Add ceiling water-drip particles
+          - Add bright light shafts piercing down from ceiling holes
+    -->
+
+    <changeSet id="015-1" author="nin">
+        <sql>
+-- Darker overall lighting + denser cave fog
+UPDATE scene_elements
+SET properties = '{"ambientColorR":0.35,"ambientColorG":0.42,"ambientColorB":0.55,"ambientEnergy":0.35,"fogDensity":0.012,"fogR":0.12,"fogG":0.16,"fogB":0.22}'
+WHERE level_id = 1 AND element_type = 'world_env';
+
+-- Reduce the wide ambient fill so torch / shaft light has contrast
+UPDATE scene_elements
+SET properties = '{"colorR":0.35,"colorG":0.42,"colorB":0.55,"energy":0.5}'
+WHERE level_id = 1 AND element_type = 'ambient_light';
+
+-- Cull half the broad fill_lights so shadows can settle in
+DELETE FROM scene_elements
+WHERE level_id = 1 AND element_type = 'fill_light' AND name IN ('FillLight2','FillLight3','FillLight4');
+        </sql>
+    </changeSet>
+
+    <!-- Boulders — rocky uneven floor coverage -->
+    <changeSet id="015-2" author="nin">
+        <sql>
+INSERT INTO scene_elements
+  (level_id, element_type, name, position_x, position_y, position_z,
+   rotation_x, rotation_y, rotation_z, properties, sort_order)
+VALUES
+  -- Small foreground rocks
+  (1,'boulder','BoulderA1', -3, 0.0, -4, 0, 0.7, 0, '{"radius":0.6,"height":0.5,"colorR":0.20,"colorG":0.18,"colorB":0.16}', 50),
+  (1,'boulder','BoulderA2',  4, 0.0, -7, 0, 1.4, 0, '{"radius":0.8,"height":0.6,"colorR":0.22,"colorG":0.18,"colorB":0.14}', 51),
+  (1,'boulder','BoulderA3', -7, 0.0,  3, 0, 0.3, 0, '{"radius":1.0,"height":0.8,"colorR":0.18,"colorG":0.16,"colorB":0.14}', 52),
+  (1,'boulder','BoulderA4',  9, 0.0,  6, 0, 2.1, 0, '{"radius":1.2,"height":0.9,"colorR":0.21,"colorG":0.18,"colorB":0.15}', 53),
+  -- Mid-cave clusters
+  (1,'boulder','BoulderB1',-13, 0.0, -18, 0, 0.5, 0, '{"radius":1.5,"height":1.2,"colorR":0.19,"colorG":0.17,"colorB":0.15}', 54),
+  (1,'boulder','BoulderB2', 14, 0.0, -22, 0, 1.9, 0, '{"radius":1.3,"height":1.0,"colorR":0.18,"colorG":0.16,"colorB":0.14}', 55),
+  (1,'boulder','BoulderB3', -8, 0.0,  20, 0, 2.4, 0, '{"radius":1.6,"height":1.4,"colorR":0.20,"colorG":0.17,"colorB":0.15}', 56),
+  (1,'boulder','BoulderB4', 18, 0.0,  18, 0, 0.9, 0, '{"radius":1.4,"height":1.1,"colorR":0.22,"colorG":0.19,"colorB":0.16}', 57),
+  -- Large back-of-cave rocks
+  (1,'boulder','BoulderC1',-22, 0.0, -38, 0, 1.2, 0, '{"radius":2.4,"height":2.0,"colorR":0.16,"colorG":0.14,"colorB":0.12}', 58),
+  (1,'boulder','BoulderC2', 22, 0.0,  42, 0, 0.4, 0, '{"radius":2.2,"height":1.8,"colorR":0.18,"colorG":0.16,"colorB":0.14}', 59),
+  (1,'boulder','BoulderC3',  0, 0.0,  52, 0, 1.6, 0, '{"radius":2.6,"height":2.2,"colorR":0.17,"colorG":0.15,"colorB":0.13}', 60),
+  (1,'boulder','BoulderC4', -3, 0.0, -50, 0, 2.8, 0, '{"radius":2.0,"height":1.6,"colorR":0.19,"colorG":0.17,"colorB":0.15}', 61);
+        </sql>
+    </changeSet>
+
+    <!-- Still-water pools — translucent, faint emission. Sit slightly below
+         floor level so the player walks at the rim. -->
+    <changeSet id="015-3" author="nin">
+        <sql>
+INSERT INTO scene_elements
+  (level_id, element_type, name, position_x, position_y, position_z,
+   rotation_x, rotation_y, rotation_z, properties, sort_order)
+VALUES
+  (1,'water_pool','PoolNorth',  -6, 0.02, -28, 0, 0, 0, '{"width":5.0,"depth":4.0,"colorR":0.12,"colorG":0.32,"colorB":0.55,"emission":0.4}', 70),
+  (1,'water_pool','PoolEast',   12, 0.02,   2, 0, 0, 0, '{"width":4.0,"depth":3.5,"colorR":0.10,"colorG":0.30,"colorB":0.50,"emission":0.35}', 71),
+  (1,'water_pool','PoolSouth',  -2, 0.02,  35, 0, 0, 0, '{"width":6.0,"depth":4.5,"colorR":0.14,"colorG":0.34,"colorB":0.58,"emission":0.45}', 72),
+  (1,'water_pool','PoolWest',  -18, 0.02,   8, 0, 0, 0, '{"width":3.5,"depth":3.0,"colorR":0.11,"colorG":0.30,"colorB":0.52,"emission":0.4}', 73),
+  (1,'water_pool','PoolDeep',   16, 0.02, -36, 0, 0, 0, '{"width":4.5,"depth":4.0,"colorR":0.10,"colorG":0.28,"colorB":0.48,"emission":0.5}', 74);
+        </sql>
+    </changeSet>
+
+    <!-- Ceiling water drips — particle emitters of falling droplets -->
+    <changeSet id="015-4" author="nin">
+        <sql>
+INSERT INTO scene_elements
+  (level_id, element_type, name, position_x, position_y, position_z,
+   rotation_x, rotation_y, rotation_z, properties, sort_order)
+VALUES
+  (1,'water_drip','DripA',  -6, 18.5, -28, 0, 0, 0, '{"rate":3.0,"colorR":0.45,"colorG":0.65,"colorB":0.95}', 80),
+  (1,'water_drip','DripB',  12, 18.5,   2, 0, 0, 0, '{"rate":2.5,"colorR":0.45,"colorG":0.65,"colorB":0.95}', 81),
+  (1,'water_drip','DripC',  -2, 18.5,  35, 0, 0, 0, '{"rate":4.0,"colorR":0.45,"colorG":0.65,"colorB":0.95}', 82),
+  (1,'water_drip','DripD',  -1, 18.5,   0, 0, 0, 0, '{"rate":2.0,"colorR":0.45,"colorG":0.65,"colorB":0.95}', 83),
+  (1,'water_drip','DripE',  10, 18.5,  20, 0, 0, 0, '{"rate":3.5,"colorR":0.45,"colorG":0.65,"colorB":0.95}', 84),
+  (1,'water_drip','DripF', -10, 18.5, -10, 0, 0, 0, '{"rate":2.8,"colorR":0.45,"colorG":0.65,"colorB":0.95}', 85),
+  (1,'water_drip','DripG',   6, 18.5, -45, 0, 0, 0, '{"rate":2.2,"colorR":0.45,"colorG":0.65,"colorB":0.95}', 86),
+  (1,'water_drip','DripH', -16, 18.5,  40, 0, 0, 0, '{"rate":3.3,"colorR":0.45,"colorG":0.65,"colorB":0.95}', 87);
+        </sql>
+    </changeSet>
+
+    <!-- Light shafts — bright pillars piercing down from ceiling holes -->
+    <changeSet id="015-5" author="nin">
+        <sql>
+INSERT INTO scene_elements
+  (level_id, element_type, name, position_x, position_y, position_z,
+   rotation_x, rotation_y, rotation_z, properties, sort_order)
+VALUES
+  (1,'light_shaft','ShaftCenter',  0, 18.0,   0, 0, 0, 0, '{"radius":3.0,"height":18.0,"energy":4.5,"colorR":1.0,"colorG":0.96,"colorB":0.85}', 90),
+  (1,'light_shaft','ShaftNorth',  -8, 18.0, -22, 0, 0, 0, '{"radius":2.5,"height":18.0,"energy":3.5,"colorR":1.0,"colorG":0.94,"colorB":0.78}', 91),
+  (1,'light_shaft','ShaftSouth',  10, 18.0,  30, 0, 0, 0, '{"radius":2.8,"height":18.0,"energy":4.0,"colorR":1.0,"colorG":0.95,"colorB":0.80}', 92),
+  (1,'light_shaft','ShaftEast',   22, 18.0,  -8, 0, 0, 0, '{"radius":2.0,"height":18.0,"energy":3.0,"colorR":1.0,"colorG":0.92,"colorB":0.72}', 93),
+  (1,'light_shaft','ShaftDeep',  -18, 18.0,  46, 0, 0, 0, '{"radius":2.2,"height":18.0,"energy":3.2,"colorR":1.0,"colorG":0.93,"colorB":0.75}', 94);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

@@ -122,9 +122,23 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not OS.has_feature("web"):
 		return
 	if event is InputEventKey and not event.is_echo():
-		var action: String = KEY_ACTIONS.get(event.keycode, "")
+		var key_ev := event as InputEventKey
+		var action: String = KEY_ACTIONS.get(key_ev.keycode, "")
+		print("[bridge] KEY keycode=", key_ev.keycode,
+			" pressed=", key_ev.pressed, " action='", action, "'")
 		if action != "":
-			send_control(action, event.pressed)
+			# Spells fire instantly client-side so they don't depend on the
+			# SSE round-trip. The control event still fires so the server can
+			# apply side effects (MP cost, XP, etc.) when we wire those up.
+			if key_ev.pressed and action.begins_with("CAST_SPELL_"):
+				var slot := int(action.substr(11))
+				var player := get_parent().get_node_or_null("Player")
+				if player and player.has_method("_cast_spell"):
+					print("[bridge] direct _cast_spell(", slot, ") on ", player.name)
+					player._cast_spell(slot)
+				else:
+					push_warning("[bridge] Player node missing or no _cast_spell")
+			send_control(action, key_ev.pressed)
 			get_viewport().set_input_as_handled()
 
 func send_control(action: String, pressed: bool) -> void:

@@ -3,6 +3,7 @@ package com.threewizards.controller;
 import com.threewizards.model.ControlEvent;
 import com.threewizards.service.GameStateService;
 import com.threewizards.service.SessionService;
+import com.threewizards.service.SpellService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,10 +20,14 @@ public class ControlController {
 
     private final GameStateService gameStateService;
     private final SessionService sessionService;
+    private final SpellService spellService;
 
-    public ControlController(GameStateService gameStateService, SessionService sessionService) {
+    public ControlController(GameStateService gameStateService,
+                             SessionService sessionService,
+                             SpellService spellService) {
         this.gameStateService = gameStateService;
         this.sessionService   = sessionService;
+        this.spellService     = spellService;
     }
 
     @Operation(
@@ -65,6 +70,23 @@ public class ControlController {
 
         if (casdoorId != null && !casdoorId.isBlank() && !sessionService.isController(casdoorId)) {
             return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Not the current controller"));
+        }
+
+        // Spell cast: drain MP first; only emit the movement event if the cast
+        // was affordable. Out-of-MP casts return 204 with no SSE side effects.
+        String action = event.action();
+        if (event.pressed() && action != null && action.startsWith("CAST_SPELL_")) {
+            int slot;
+            try { slot = Integer.parseInt(action.substring("CAST_SPELL_".length())); }
+            catch (NumberFormatException nfe) { slot = -1; }
+            if (slot >= 1 && slot <= 5) {
+                final int finalSlot = slot;
+                return spellService.castSpell(characterId, finalSlot)
+                        .doOnNext(success -> {
+                            if (success) gameStateService.applyControl(event, characterId);
+                        })
+                        .thenReturn(ResponseEntity.<Void>noContent().build());
+            }
         }
 
         gameStateService.applyControl(event, characterId);
