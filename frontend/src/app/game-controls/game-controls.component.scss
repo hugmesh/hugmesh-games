@@ -92,3 +92,61 @@
   padding: 1px 4px;
   border-radius: 3px;
 }
+
+/* Bottom-center hotbar — 5 spells + 1 quick-item slot, single horizontal row */
+.hotbar {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(10, 10, 18, 0.55);
+  border: 1px solid rgba(124, 77, 255, 0.25);
+  border-radius: 12px;
+  padding: 8px 10px;
+  backdrop-filter: blur(6px);
+  z-index: 5;
+}
+
+.hotbar-divider {
+  width: 1px;
+  height: 40px;
+  background: rgba(124, 77, 255, 0.3);
+  margin: 0 4px;
+}
+
+.hotbar-slot {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(20, 20, 32, 0.85);
+  color: #e8e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s, box-shadow 0.15s;
+
+  &:hover { border-color: #7c4dff; box-shadow: 0 0 0 1px rgba(124, 77, 255, 0.4); }
+  &:active, &.pressed { transform: translateY(1px) scale(0.96); border-color: #b388ff; }
+  &.empty { opacity: 0.45; cursor: not-allowed; }
+}
+
+.item-slot { border-color: rgba(74, 222, 128, 0.25); }
+
+.slot-icon { font-size: 1.6rem; line-height: 1; }
+
+.slot-key {
+  position: absolute; top: 2px; left: 4px;
+  font-size: 0.6rem; font-family: monospace;
+  color: #b388ff; background: rgba(0, 0, 0, 0.45);
+  padding: 1px 4px; border-radius: 3px;
+}
+
+.slot-mana   { position: absolute; bottom: 2px; right: 4px; font-size: 0.6rem; color: #5dc0ff; }
+.slot-count  { position: absolute; bottom: 2px; right: 4px; font-size: 0.6rem; color: #4ade80; font-weight: 700; }

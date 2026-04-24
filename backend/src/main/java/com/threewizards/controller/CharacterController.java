@@ -2,11 +2,15 @@ package com.threewizards.controller;
 
 import com.threewizards.model.CharacterDto;
 import com.threewizards.model.CharacterQuest;
+import com.threewizards.model.CharacterSkill;
 import com.threewizards.model.DashboardDto;
 import com.threewizards.model.GameWithLevelsDto;
 import com.threewizards.model.PlayerSession;
 import com.threewizards.model.QuestDto;
+import com.threewizards.repository.CharacterItemRepository;
 import com.threewizards.repository.CharacterQuestRepository;
+import com.threewizards.repository.CharacterSkillRepository;
+import com.threewizards.repository.ItemRepository;
 import com.threewizards.repository.PlayerCharacterRepository;
 import com.threewizards.repository.PlayerSessionRepository;
 import com.threewizards.repository.QuestRepository;
@@ -38,6 +42,9 @@ public class CharacterController {
     private final CharacterQuestRepository charQuests;
     private final QuestRepository questRepo;
     private final PlayerSessionRepository sessionRepo;
+    private final CharacterSkillRepository charSkills;
+    private final CharacterItemRepository charItems;
+    private final ItemRepository itemRepo;
 
     public CharacterController(PlayerCharacterRepository characters,
                                GameStateService gameStateService,
@@ -45,7 +52,10 @@ public class CharacterController {
                                ProgressionService progression,
                                CharacterQuestRepository charQuests,
                                QuestRepository questRepo,
-                               PlayerSessionRepository sessionRepo) {
+                               PlayerSessionRepository sessionRepo,
+                               CharacterSkillRepository charSkills,
+                               CharacterItemRepository charItems,
+                               ItemRepository itemRepo) {
         this.characters       = characters;
         this.gameStateService = gameStateService;
         this.gameTimeService  = gameTimeService;
@@ -53,6 +63,9 @@ public class CharacterController {
         this.charQuests       = charQuests;
         this.questRepo        = questRepo;
         this.sessionRepo      = sessionRepo;
+        this.charSkills       = charSkills;
+        this.charItems        = charItems;
+        this.itemRepo         = itemRepo;
     }
 
     @Operation(
@@ -232,6 +245,81 @@ public class CharacterController {
                     cq.setStatus("completed");
                     cq.setCompletedAt(Instant.now());
                     return charQuests.save(cq);
-                });
+                })
+                // After marking complete, look up the quest's reward_skill_id
+                // and grant it to the character if they don't already have it.
+                .flatMap(cq -> questRepo.findById(cq.getQuestId())
+                        .flatMap(quest -> {
+                            Long rewardSkill = quest.getRewardSkillId();
+                            if (rewardSkill == null) return Mono.just(cq);
+                            return charSkills.findByCharacterId(id)
+                                    .filter(cs -> rewardSkill.equals(cs.getSkillId()))
+                                    .hasElements()
+                                    .flatMap(alreadyHas -> {
+                                        if (alreadyHas) return Mono.just(cq);
+                                        CharacterSkill grant = new CharacterSkill();
+                                        grant.setCharacterId(id);
+                                        grant.setSkillId(rewardSkill);
+                                        return charSkills.save(grant).thenReturn(cq);
+                                    });
+                        })
+                        .defaultIfEmpty(cq));
+    }
+
+    @Operation(
+        summary = "Use the character's first inventory item (E key / quick slot)",
+        description = """
+            Looks up the lowest-id item in `character_items` for this character,
+            applies its effect (heal HP / restore MP / cure status), and decrements
+            the quantity. Returns the updated character snapshot so the HUD reflects
+            the new HP/MP. If the inventory is empty or the only items are
+            non-consumable (weapons, armor), returns 404.
+
+            ```
+            ──request──► charItems.findByCharacterId(id)
+                          ──filter qty>0, sort by id ──first──►
+                            itemRepo.findById(item)
+                              ──apply effect──► characters.save()
+                              ──decrement quantity──► charItems.save()
+             ──────────────────────────────────────●─|  CharacterDto
+            ```
+            """)
+    @PostMapping("/{id}/use-first-item")
+    public Mono<CharacterDto> useFirstItem(@PathVariable Long id) {
+        return charItems.findByCharacterId(id)
+                .filter(ci -> ci.getQuantity() > 0)
+                .sort(java.util.Comparator.comparing(CharacterItem -> CharacterItem.getId() == null ? Long.MAX_VALUE : CharacterItem.getId()))
+                .next()
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "no usable item")))
+                .flatMap(ci -> itemRepo.findById(ci.getItemId())
+                        .flatMap(item -> characters.findById(id).flatMap(c -> {
+                            String effect = item.getEffectJson() == null ? "" : item.getEffectJson();
+                            if (effect.contains("\"heal\"")) {
+                                int heal = parseIntField(effect, "heal", 0);
+                                c.setCurrentHp(Math.min(c.getMaxHp(), c.getCurrentHp() + heal));
+                            }
+                            if (effect.contains("\"mana\"")) {
+                                int mana = parseIntField(effect, "mana", 0);
+                                c.setCurrentMp(Math.min(c.getMaxMp(), c.getCurrentMp() + mana));
+                            }
+                            // Decrement quantity
+                            ci.setQuantity(ci.getQuantity() - 1);
+                            return charItems.save(ci)
+                                    .then(characters.save(c))
+                                    .doOnNext(saved -> gameStateService.notifyCharacterStatChange(CharacterDto.from(saved)))
+                                    .map(CharacterDto::from);
+                        })));
+    }
+
+    /** Tiny JSON int extractor — only handles `"key":<number>` patterns. */
+    private static int parseIntField(String json, String key, int fallback) {
+        String pattern = "\"" + key + "\":";
+        int idx = json.indexOf(pattern);
+        if (idx < 0) return fallback;
+        int start = idx + pattern.length();
+        int end = start;
+        while (end < json.length() && (Character.isDigit(json.charAt(end)) || json.charAt(end) == '-')) end++;
+        try { return Integer.parseInt(json.substring(start, end)); }
+        catch (NumberFormatException e) { return fallback; }
     }
 }

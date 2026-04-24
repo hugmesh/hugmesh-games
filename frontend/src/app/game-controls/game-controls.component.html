@@ -1,4 +1,5 @@
 <div class="controls-panel">
+  <!-- Movement D-pad bottom-left -->
   <div class="dpad-cluster">
     <div class="dpad-row dpad-top">
       <button
@@ -47,20 +48,29 @@
     </div>
   </div>
 
-  <div class="action-cluster">
+  <!-- Bottom-center hotbar: 5 spells + 1 quick item -->
+  <div class="hotbar">
     <button
-      *ngFor="let btn of actionButtons"
-      class="ctrl-btn action-btn"
-      [class.pressed]="btn.pressed"
-      [attr.title]="btn.label + ' [' + btn.key.toUpperCase() + ']'"
-      (mousedown)="onButtonDown(btn)"
-      (mouseup)="onButtonUp(btn)"
-      (mouseleave)="onButtonUp(btn)"
-      (touchstart)="onButtonDown(btn)"
-      (touchend)="onButtonUp(btn)">
-      <span class="btn-icon">{{ btn.icon }}</span>
-      <span class="btn-label">{{ btn.label }}</span>
-      <span class="btn-key">{{ btn.key.toUpperCase() }}</span>
+      *ngFor="let s of spellSlots"
+      class="hotbar-slot spell-slot"
+      [attr.title]="(s.name ?? 'Empty') + (s.name ? ' — ' + s.manaCost + ' MP' : '') + ' [' + s.slot + ']'"
+      (click)="onSpellClick(s)">
+      <span class="slot-icon">{{ s.icon }}</span>
+      <span class="slot-key">{{ s.slot }}</span>
+      <span *ngIf="s.name" class="slot-mana">{{ s.manaCost }}</span>
+    </button>
+
+    <div class="hotbar-divider"></div>
+
+    <button
+      class="hotbar-slot item-slot"
+      [class.empty]="!itemSlot.name"
+      [class.pressed]="interactBtn.pressed"
+      [attr.title]="(itemSlot.name ?? 'No item') + ' [E]'"
+      (click)="onItemClick()">
+      <span class="slot-icon">{{ itemSlot.icon }}</span>
+      <span class="slot-key">E</span>
+      <span *ngIf="itemSlot.quantity > 0" class="slot-count">×{{ itemSlot.quantity }}</span>
     </button>
   </div>
 </div>
