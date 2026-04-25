@@ -34,6 +34,9 @@ test.describe('full-stack smoke', () => {
       }
     });
 
+    const dodecaAssets = () =>
+      [...seenAssetUrls].filter(u => u.includes('/levels/dodecahedron/'));
+
     // Step 1: visit /login (auth guard sends unauthenticated users here).
     await page.goto('/login', { waitUntil: 'networkidle' });
     await expect(page.locator('input[formControlName="username"]')).toBeVisible();
@@ -73,6 +76,35 @@ test.describe('full-stack smoke', () => {
     await expect.poll(
       () => seenSceneUrls.size,
       { timeout: 30_000, message: 'expected /api/levels/{id}/scene to be fetched by the prefetch script' },
+    ).toBeGreaterThan(0);
+
+    // ── Step 6: chrome-less Dodecahedron Demo ───────────────────────────────
+    // Close the cave canvas, return to the home grid, click the dodecahedron
+    // card. Verify (a) its WASM/PCK assets fetch with HTTP 200, and (b) the
+    // HUD + controls overlays are NOT rendered (sceneType=dodecahedron is
+    // marked CHROMELESS in home.component.ts).
+    await page.locator('button.close-btn').click();
+    await expect(page.locator('app-game-canvas iframe')).toHaveCount(0);
+
+    const dodecaCard = page.locator('.game-card', {
+      has: page.locator('.scene-tag--dodecahedron'),
+    }).first();
+    await expect(dodecaCard).toBeVisible({ timeout: 15_000 });
+    await dodecaCard.click();
+
+    // The chrome-less rule: hud-layer must not be in the DOM for this game.
+    await expect(page.locator('.hud-layer')).toHaveCount(0);
+    await expect(page.locator('app-game-hud')).toHaveCount(0);
+    await expect(page.locator('app-game-controls')).toHaveCount(0);
+
+    // Dodecahedron WASM bundle is ~37 MB — give it a wide window.
+    await expect.poll(
+      () => dodecaAssets().filter(u => u.endsWith('.wasm')).length,
+      { timeout: 90_000, message: 'expected /api/assets/levels/dodecahedron/index.wasm' },
+    ).toBeGreaterThan(0);
+    await expect.poll(
+      () => dodecaAssets().filter(u => u.endsWith('.pck')).length,
+      { timeout: 90_000, message: 'expected /api/assets/levels/dodecahedron/index.pck' },
     ).toBeGreaterThan(0);
 
     // Capture diagnostic artifacts even on success.

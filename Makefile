@@ -11,7 +11,8 @@
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-godot patch-godot build-backend build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db deploy \
-        gen-certs e2e e2e-down e2e-logs gen-api
+        gen-certs e2e e2e-down e2e-logs gen-api \
+        test test-rust test-backend test-frontend
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -29,9 +30,9 @@ RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/three_wizards.was
 GODOT_EXPORT_ROOT   = $(BACKEND_DIR)/src/main/resources/assets/levels
 # Space-separated list of level slugs that map to export preset names.
 # Add new levels here AND in godot-project/export_presets.cfg.
-GODOT_LEVELS        = Cave Field
-BACKEND_JAR         = $(BACKEND_DIR)/target/three-wizards-api-0.1.0-SNAPSHOT.jar
-FRONTEND_DIST       = $(FRONTEND_DIR)/dist/three-wizards-frontend
+GODOT_LEVELS        = Cave Field Dodecahedron
+BACKEND_JAR         = $(BACKEND_DIR)/target/snapdragon-gaming-bff-0.1.0-SNAPSHOT.jar
+FRONTEND_DIST       = $(FRONTEND_DIR)/dist/snapdragon-games-frontend
 
 # ── Full production build ─────────────────────────────────────────────────────
 
@@ -216,11 +217,16 @@ e2e: gen-certs
 	  sleep 5; \
 	done
 	@echo "→ Running Playwright suite…"
-	-docker compose $(E2E_FILES) run --rm \
+	@# Single shell line: must capture $? from `compose run` *before* anything
+	@# else clobbers it. A separate recipe line would start a fresh shell where
+	@# $? is whatever the previous `echo` returned (i.e. always 0). `set +e`
+	@# stops the shell aborting on the failing run so we still tear down.
+	@set +e; \
+	docker compose $(E2E_FILES) run --rm \
 	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
 	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
-	  e2e
-	@status=$$?; \
+	  e2e; \
+	status=$$?; \
 	echo "→ Tearing down…"; \
 	docker compose $(E2E_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
 	if [ $$status -eq 0 ]; then echo "✓ E2E PASSED"; \
@@ -231,7 +237,51 @@ e2e-down:
 
 e2e-logs:
 	docker compose $(E2E_FILES) logs -f --tail 50
-	@echo "✓ Deploy done — rebuild and push the api container to serve new assets"
+
+# ── Per-project unit tests ───────────────────────────────────────────────────
+# Each subproject runs its own native test framework. `make test` runs them
+# all sequentially. Each one is also runnable in isolation (CI fan-out).
+#
+#   test-rust      → cargo test in game/rust (host toolchain; needs cargo)
+#   test-backend   → mvnw test in backend/   (host toolchain; needs JDK 21)
+#   test-frontend  → ng test in a Docker container (Chromium baked in,
+#                    so the host doesn't need a browser)
+#
+# Godot has no GDScript test suite yet — coverage of the runtime layer is
+# exercised by `make e2e`, which loads the WASM bundle in a real browser.
+
+FRONTEND_TEST_IMAGE = snapdragon-games-frontend-test
+
+test: test-rust test-backend test-frontend
+	@echo "✓ All project unit tests passed"
+
+test-rust: deps-rust
+	@echo "→ Running Rust unit tests…"
+	cd $(RUST_DIR) && cargo test
+	@echo "✓ Rust tests passed"
+
+test-backend:
+	@echo "→ Running backend (Spring Boot) unit tests…"
+	@command -v mvn >/dev/null 2>&1 || { echo "ERROR: mvn not found"; exit 1; }
+	cd $(BACKEND_DIR) && ./mvnw -q test
+	@echo "✓ Backend tests passed"
+
+test-frontend:
+	@echo "→ Building frontend test image (chromium baked in)…"
+	docker build -q -f $(FRONTEND_DIR)/Dockerfile.test -t $(FRONTEND_TEST_IMAGE) $(FRONTEND_DIR) >/dev/null
+	@echo "→ Running Angular (Karma) unit tests in container…"
+	docker run --rm --init \
+	  -v $(PWD)/$(FRONTEND_DIR):/work \
+	  -w /work \
+	  $(FRONTEND_TEST_IMAGE) \
+	  sh -c '\
+	    if [ ! -d node_modules ] || ! npm ls karma-jasmine >/dev/null 2>&1; then \
+	      echo "[test-frontend] installing deps (one-shot)…"; \
+	      npm install --silent --no-audit --no-fund; \
+	    fi; \
+	    npm test \
+	  '
+	@echo "✓ Frontend tests passed"
 
 # ── Dev servers ───────────────────────────────────────────────────────────────
 

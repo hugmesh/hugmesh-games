@@ -1,0 +1,9 @@
+# Containerised Karma runner for `make test-frontend`. Bakes Chromium so
+# the host doesn't need a browser; the source dir is mounted at runtime so
+# we don't have to rebuild the image every code change.
+FROM node:20-bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+ENV CHROME_BIN=/usr/bin/chromium
+WORKDIR /work

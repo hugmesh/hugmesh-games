@@ -20,4 +20,5 @@
     <include file="db/changelog/014-spell-loadout-and-rewards.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/015-cave-atmosphere.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/016-normalization-and-indexes.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/017-snapdragon-catalog.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

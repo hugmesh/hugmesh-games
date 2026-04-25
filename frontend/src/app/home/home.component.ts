@@ -12,9 +12,14 @@ import { Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 
 const SCENE_ICONS: Record<string, string> = {
-  cave:  '🏔',
-  field: '🌿',
+  cave:         '🏔',
+  field:        '🌿',
+  dodecahedron: '⬡',
 };
+
+// Scene types that are pure visual demos — no character, no HUD, no
+// movement controls overlay. Add new chrome-less games here.
+const CHROMELESS_SCENE_TYPES = new Set(['dodecahedron']);
 
 @Component({
   selector: 'app-home',
@@ -37,6 +42,11 @@ export class HomeComponent implements OnInit {
 
   sceneIcon(level: AvailableGame): string {
     return SCENE_ICONS[level.sceneType] ?? '⚔';
+  }
+
+  /** Pure visual demos suppress the HUD + control overlays. */
+  isChromeless(level: AvailableGame | null): boolean {
+    return !!level && CHROMELESS_SCENE_TYPES.has(level.sceneType);
   }
 
   ngOnInit(): void {

@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: three-wizards-api
+    name: snapdragon-gaming-bff
   webflux:
     base-path: /
 

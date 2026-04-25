@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Snapdragon Games is a portal: each row in `games` is a separate title.
+        Migration 012 already inserted game id=1 (Three Wizards In A Trenchcoat).
+        This migration:
+          • adds the second title — a chrome-less Dodecahedron Demo (no quests,
+            no items, no HUD; the WASM is a single spinning regular dodecahedron),
+          • adds the matching level row (slug 'dodecahedron') with scene_type
+            'dodecahedron' so the home view knows to suppress HUD/controls,
+          • registers the bundle entry-point in level_assets.
+    -->
+
+    <changeSet id="017-1-dodecahedron-game" author="nin">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT 2,
+       'Dodecahedron Demo',
+       'A spinning regular dodecahedron rendered in WebGL. Pure visual demo — no objectives, no inventory, no controls.',
+       'dodecahedron',
+       2,
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'dodecahedron');
+        </sql>
+    </changeSet>
+
+    <changeSet id="017-2-rename-twiat" author="nin">
+        <sql>
+-- Migration 012 named the umbrella game "Three Wizards Saga". Now that the
+-- portal is Snapdragon Games and TWiaT is one of its titles, rename to
+-- match the visible branding. (The slug stays stable so URLs don't break.)
+UPDATE games
+   SET name        = 'Three Wizards In A Trenchcoat',
+       description = 'A JRPG romp across cave depths and open fields. Three wizards, one trenchcoat.'
+ WHERE slug = 'three-wizards';
+        </sql>
+    </changeSet>
+
+    <changeSet id="017-3-dodecahedron-level" author="nin">
+        <sql>
+INSERT INTO levels
+    (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT
+    'Spinning Dodecahedron',
+    'A regular dodecahedron rotating in 3D space. Take a moment, watch it spin.',
+    'dodecahedron',
+    'dodecahedron',
+    1,
+    '/api/assets/levels/dodecahedron/index.html',
+    '{}',
+    (SELECT id FROM games WHERE slug = 'dodecahedron'),
+    NOW()
+WHERE NOT EXISTS (SELECT 1 FROM levels WHERE slug = 'dodecahedron');
+        </sql>
+    </changeSet>
+
+    <changeSet id="017-4-dodecahedron-bundle-asset" author="nin">
+        <sql>
+INSERT INTO level_assets (level_id, label, asset_type, file_path, content_type, uploaded_at)
+SELECT (SELECT id FROM levels WHERE slug = 'dodecahedron'),
+       'bundle-entry',
+       'wasm-entry',
+       '/api/assets/levels/dodecahedron/index.html',
+       'text/html',
+       NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM level_assets la
+    JOIN levels l ON l.id = la.level_id
+    WHERE l.slug = 'dodecahedron' AND la.label = 'bundle-entry'
+);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

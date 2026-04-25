@@ -1,6 +1,8 @@
-# Three Wizards In A Trenchcoat
+# Snapdragon Games
 
-A fantasy dungeon-crawler built on **Rust + Godot 4** (WebGL/WASM), served through an **Angular** frontend, with a **Spring Boot** backend that delivers game state and controls via streaming SSE. Authentication is handled by **Casdoor** (OAuth2/OIDC) behind a custom Angular login page — the Casdoor admin UI is never exposed to the network.
+A browser-native game portal — multiple titles delivered as per-game **Rust + Godot 4** (WebGL/WASM) bundles, served through an **Angular** front-end, with the **Snapdragon Gaming BFF** (Spring Boot) streaming game state and controls over SSE. Authentication is handled by **Casdoor** (OAuth2/OIDC) behind a custom Angular login page — the Casdoor admin UI is never exposed to the network.
+
+The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cave depths and open fields. The catalog also ships a *Spinning Dodecahedron* tech demo to show off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items).
 
 > Branch policy: please work on your own branches and open PRs rather than committing directly to `main`.
 
@@ -21,20 +23,28 @@ A fantasy dungeon-crawler built on **Rust + Godot 4** (WebGL/WASM), served throu
 The project is organised in three tiers:
 
 ```
-Game (umbrella)            e.g. "Three Wizards Saga"
-  └── Level (one WASM)     e.g. "The Enchanted Cave", "Open Field"
-       └── Scene elements  fairies, lights, geometry, NPCs
-            + Level assets  custom textures / plugins / sounds
+Game (a title in the catalog)   e.g. "Three Wizards In A Trenchcoat", "Dodecahedron Demo"
+  └── Level (one WASM)          e.g. "The Enchanted Cave", "Spinning Dodecahedron"
+       └── Scene elements       fairies, lights, geometry, NPCs
+            + Level assets       custom textures / plugins / sounds
 ```
 
-- A **Game** is the top-level grouping shown on the home page.
+- A **Game** is one row in the `games` table — it appears as a card on the Snapdragon
+  Games portal home page. Today the catalog ships *Three Wizards In A Trenchcoat* (a
+  JRPG with quests, HUD, and movement controls) and the *Dodecahedron Demo* (a
+  chrome-less single-scene tech demo with no HUD, no quests, no items).
 - Each **Level** inside a game is its own compiled Godot WASM bundle, served from
   `/api/assets/levels/{slug}/`. Level transitions unload the current WASM and mount
   the next one in the Angular iframe (see "Level transitions" below).
+- A level whose `scene_type` is in the `CHROMELESS_SCENE_TYPES` set in
+  [home.component.ts](frontend/src/app/home/home.component.ts) (currently just
+  `dodecahedron`) renders without `app-game-hud` or `app-game-controls` — useful for
+  pure-visual demos that don't have a character / quest / spell loadout.
 - **Scene elements** and user-registered **level assets** (textures, plugins,
   sounds) are fetched by the running Godot bundle from the API at load time.
 - Levels gate on completed **Quests** via `level_prerequisites`: complete all
-  prerequisite quests → the next level unlocks.
+  prerequisite quests → the next level unlocks. Games with no quests (like the
+  Dodecahedron Demo) just have an unconditionally-unlocked level.
 
 Adding levels and assets is a documented workflow — see the
 [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
@@ -1258,11 +1268,43 @@ Order: `cargo build --release` → `godot --export-release` → `patch-godot-htm
 ```bash
 make build-rust      # Rust GDExtension → godot-project/rust_extension/bin/
 make build-godot     # Godot WebGL export + HTML patch → backend classpath assets
-make build-backend   # Spring Boot JAR
-make build-frontend  # Angular dist
+make build-backend   # Spring Boot JAR (artifact: snapdragon-gaming-bff)
+make build-frontend  # Angular dist (project: snapdragon-games-frontend)
 make seed-db         # Upsert game records with asset_url in running Postgres
 make deploy          # build-godot + seed-db (then rebuild api image to serve new WASM)
 ```
+
+### Testing
+
+Per-project unit tests are wired into `make`. Each one runs in isolation; `make test`
+chains them sequentially.
+
+```bash
+make test            # rust + backend + frontend (chains through all three)
+make test-rust       # cargo test in game/rust (host toolchain; needs cargo)
+make test-backend    # mvnw test in backend/ (host toolchain; needs JDK 21)
+make test-frontend   # ng test inside Docker (Chromium baked into the image,
+                     # so the host doesn't need a browser installed)
+```
+
+The frontend runner builds [frontend/Dockerfile.test](frontend/Dockerfile.test) once
+(node:20-bookworm-slim + chromium) and reuses it on every run. Karma is configured
+with the `ChromeHeadlessCI` launcher (no-sandbox flags so it runs inside containers).
+
+### Cross-platform end-to-end test
+
+```bash
+make e2e             # full Docker stack + Playwright browser test
+make e2e-down        # tear down the e2e compose stack manually
+make e2e-logs        # tail logs from the running e2e stack
+```
+
+`make e2e` boots the entire stack with TLS (self-signed certs auto-generated under
+`e2e/certs/`, or set `CERT_PATH=/abs/path` to use your own), waits for the
+`cassandra-init → api → frontend` chain to become healthy, then runs the Playwright
+suite which: logs in, opens the cave level (asserts WASM/PCK assets serve), closes
+it, opens the Dodecahedron Demo (asserts it loads chrome-less — no HUD, no controls
+overlay). Override the player password with `E2E_PLAYER_PASSWORD=...`.
 
 ### Clean
 
@@ -1350,13 +1392,17 @@ ThreeWizardsInATrenchcoat/
 │   ├── export_presets.cfg               # Web export → backend classpath assets
 │   ├── scenes/
 │   │   ├── cave.tscn                    # Cave: CSG geometry + player + camera rig
-│   │   └── field.tscn                   # Open field: procedural sky + terrain
+│   │   ├── field.tscn                   # Open field: procedural sky + terrain
+│   │   └── dodecahedron.tscn            # Chrome-less demo: spinning regular dodecahedron
 │   ├── scripts/
 │   │   ├── camera_controller.gd         # Orbit camera: scroll zoom, drag orbit, FP/3P
 │   │   ├── fairy.gd                     # Floating fairy particle behaviour
 │   │   ├── game_bridge.gd               # EventSource (5 typed channels) + keyboard → API
 │   │   ├── player_controller.gd         # Applies SSE movement state
+│   │   ├── dodecahedron_spinner.gd      # Builds dodecahedron from φ-vertices via SurfaceTool
 │   │   └── scene_loader.gd              # Fetches scene config, spawns elements, sun rotation
+│   │                                    # (early-bypasses to dodecahedron.tscn when the
+│   │                                    #  level_dodecahedron custom feature is set)
 │   └── rust_extension/
 │       └── three_wizards.gdextension    # GDExtension manifest
 ├── frontend/                            # Angular 19 standalone app

@@ -53,14 +53,13 @@ services:
       api:
         condition: service_started
     environment:
-      # Hits the host's published port through host.docker.internal so the
-      # test sees what a real browser sees — TLS, nginx routing, cache rules,
-      # everything.
-      E2E_BASE_URL: ${E2E_BASE_URL:-https://host.docker.internal:8080}
+      # Hits the frontend service over the docker network on its TLS listener.
+      # Going through host.docker.internal:8080 is unreliable on Linux (the
+      # host-gateway hop can fail with ERR_ADDRESS_UNREACHABLE), and we still
+      # exercise the same nginx + TLS + /api proxy path — just one hop shorter.
+      E2E_BASE_URL: ${E2E_BASE_URL:-https://frontend:8443}
       E2E_PLAYER_USERNAME: ${E2E_PLAYER_USERNAME:-player}
       E2E_PLAYER_PASSWORD: ${E2E_PLAYER_PASSWORD:-e2e-player-pass}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./e2e/results:/work/results
     profiles:

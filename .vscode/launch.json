@@ -8,7 +8,7 @@
       "request": "launch",
       "name": "API: Spring Boot (Debug)",
       "mainClass": "com.threewizards.ThreeWizardsApplication",
-      "projectName": "three-wizards-api",
+      "projectName": "snapdragon-gaming-bff",
       "cwd": "${workspaceFolder}/backend",
       "args": "",
       "vmArgs": "-Dspring.profiles.active=dev",
@@ -21,7 +21,7 @@
       "name": "API: Attach to mvnw (5005)",
       "hostName": "localhost",
       "port": 5005,
-      "projectName": "three-wizards-api"
+      "projectName": "snapdragon-gaming-bff"
     },
 
     // ── Angular Frontend ──────────────────────────────────────────────────
