@@ -42,12 +42,36 @@ services:
       retries: 12
       start_period: 20s
 
+  cassandra:
+    # Cross-pod session/cache layer. The api uses it as a CQL-backed store of
+    # active sessions / per-pod controller leases / aggregate stats so a
+    # multi-pod deployment can answer admin-stream queries from any pod
+    # without a fan-out to the others.
+    image: cassandra:5
+    environment:
+      CASSANDRA_CLUSTER_NAME: ThreeWizardsCluster
+      CASSANDRA_DC: dc1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+      - ./docker/cassandra-init.cql:/docker-entrypoint-initdb.d/01-init.cql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
   api:
     build: ./backend
     depends_on:
       postgres:
         condition: service_healthy
       casdoor:
+        condition: service_healthy
+      cassandra:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -61,6 +85,9 @@ services:
       CASDOOR_CLIENT_ID: ${CASDOOR_CLIENT_ID:-twclient001}
       CASDOOR_CLIENT_SECRET: ${CASDOOR_CLIENT_SECRET:-}
       CASDOOR_ORGANIZATION: threewizards
+      CASSANDRA_CONTACT_POINTS: cassandra:9042
+      CASSANDRA_KEYSPACE: threewizards
+      CASSANDRA_LOCAL_DC: dc1
       SPRING_PROFILES_ACTIVE: prod
     restart: on-failure
 
@@ -73,3 +100,4 @@ services:
 
 volumes:
   pgdata:
+  cassandra_data:

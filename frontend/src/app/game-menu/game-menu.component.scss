@@ -15,6 +15,10 @@ $gold: #f0b429;
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
+  // Parent .hud sets pointer-events: none so the iframe receives clicks
+  // through the HUD layer. The menu must explicitly opt back in or its
+  // backdrop-click-to-close fails AND clicks fall through to the iframe.
+  pointer-events: auto;
 }
 
 .menu-panel {

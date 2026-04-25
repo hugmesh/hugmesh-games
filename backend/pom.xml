@@ -40,6 +40,13 @@
       <artifactId>r2dbc-postgresql</artifactId>
     </dependency>
 
+    <!-- Cassandra reactive — cross-pod session/cache layer (active sessions,
+         controller leases, pod heartbeats). See docker/cassandra-init.cql. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-cassandra-reactive</artifactId>
+    </dependency>
+
     <!-- JDBC (DataSource only) — used exclusively by Liquibase -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

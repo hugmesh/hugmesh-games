@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Index every foreign-key column the reactive repos query through.
+
+        R2DBC's repository methods hit Postgres directly, so each
+        `findByCharacterId` etc. is a separate query rather than a JOIN
+        Hibernate would batch. Without an index the planner does a sequential
+        scan on every call — fine at 3 players, painful as the data grows.
+
+        We also add unique constraints where the schema implies one so future
+        seed runs can't insert duplicates.
+
+        Postgres `CREATE INDEX IF NOT EXISTS` skips silently when re-applied,
+        so this changeset stays idempotent across fresh + migrated DBs.
+    -->
+
+    <changeSet id="016-1" author="nin">
+        <sql splitStatements="true">
+-- One row per character per quest is already enforced by 008's uq_char_quest.
+-- Mirror that on character_skills (slot 1..N can be set even if the skill is
+-- learned multiple times — but learning the same spell twice is meaningless).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_char_skill_pair
+    ON character_skills (character_id, skill_id);
+
+-- Most-hit FK paths during gameplay
+CREATE INDEX IF NOT EXISTS ix_character_skills_char    ON character_skills      (character_id);
+CREATE INDEX IF NOT EXISTS ix_character_skill_slots_ch ON character_skill_slots (character_id);
+CREATE INDEX IF NOT EXISTS ix_character_items_char     ON character_items       (character_id);
+CREATE INDEX IF NOT EXISTS ix_character_equipment_char ON character_equipment   (character_id);
+CREATE INDEX IF NOT EXISTS ix_character_quests_char    ON character_quests      (character_id);
+
+-- Scene + level lookups
+CREATE INDEX IF NOT EXISTS ix_scene_elements_level     ON scene_elements        (level_id);
+CREATE INDEX IF NOT EXISTS ix_scene_elements_lvl_sort  ON scene_elements        (level_id, sort_order);
+CREATE INDEX IF NOT EXISTS ix_levels_game              ON levels                (game_id);
+CREATE INDEX IF NOT EXISTS ix_level_assets_level       ON level_assets          (level_id);
+CREATE INDEX IF NOT EXISTS ix_level_prerequisites_level ON level_prerequisites  (level_id);
+
+-- Session history queries (filter by casdoor_id, sort by connected_at desc)
+CREATE INDEX IF NOT EXISTS ix_player_sessions_casdoor       ON player_sessions  (casdoor_id);
+CREATE INDEX IF NOT EXISTS ix_player_sessions_casdoor_open  ON player_sessions  (casdoor_id) WHERE disconnected_at IS NULL;
+CREATE INDEX IF NOT EXISTS ix_player_sessions_active        ON player_sessions  (connected_at DESC) WHERE disconnected_at IS NULL;
+
+-- player_positions FK + the NOTIFY trigger fires per-row update
+CREATE INDEX IF NOT EXISTS ix_player_positions_char ON player_positions (character_id);
+
+-- player_characters by casdoor_id (used by SessionService.findByCasdoorId-equivalent paths)
+CREATE INDEX IF NOT EXISTS ix_player_characters_casdoor ON player_characters (casdoor_id);
+
+-- quests grouped per level
+CREATE INDEX IF NOT EXISTS ix_quests_level ON quests (level_id);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
