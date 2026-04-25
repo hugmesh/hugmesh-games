@@ -11,7 +11,7 @@
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
-        gen-certs e2e e2e-down e2e-logs gen-api \
+        gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend
 
 GODOT        ?= godot
@@ -144,6 +144,44 @@ build-backend-native:
 	@echo "→ Building native-image (GraalVM, ~5–10 min)…"
 	docker build -f $(BACKEND_DIR)/Dockerfile.native -t $(NATIVE_IMAGE) $(BACKEND_DIR)
 	@echo "✓ Native image built → $(NATIVE_IMAGE)"
+
+# ── End-to-end test against the native-image stack ───────────────────────────
+# Same Playwright suite as `make e2e` but with the JVM api swapped for
+# the GraalVM native binary via docker-compose.native.yml. Use this to
+# surface any reflection / resource hint gaps that the AOT processor
+# missed; fold the fixes into SnapdragonRuntimeHints.
+
+E2E_NATIVE_FILES = $(E2E_FILES) -f docker-compose.native.yml
+
+e2e-native: gen-certs build-backend-native
+	@echo "→ Building remaining e2e images on top of the native api…"
+	docker compose $(E2E_NATIVE_FILES) build frontend e2e
+	@echo "→ Starting native-image stack with TLS…"
+	docker compose $(E2E_NATIVE_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
+	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"
+	@for i in $$(seq 1 60); do \
+	  api_ok=0; web_ok=0; \
+	  docker compose $(E2E_NATIVE_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
+	  if [ $$((i % 6)) -eq 0 ]; then \
+	    echo "  … attempt $$i/60: api=$$api_ok web=$$web_ok"; \
+	  fi; \
+	  if [ $$i -eq 60 ]; then echo "  ✗ native stack failed to come up"; \
+	    docker compose $(E2E_NATIVE_FILES) logs --tail 50 api; exit 1; fi; \
+	  sleep 5; \
+	done
+	@echo "→ Running Playwright suite against native-image…"
+	@set +e; \
+	docker compose $(E2E_NATIVE_FILES) run --rm \
+	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
+	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  e2e; \
+	status=$$?; \
+	echo "→ Tearing down…"; \
+	docker compose $(E2E_NATIVE_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	if [ $$status -eq 0 ]; then echo "✓ E2E (native) PASSED"; \
+	else echo "✗ E2E (native) FAILED (status $$status) — see e2e/results/"; exit $$status; fi
 
 # ── OpenAPI model generation ──────────────────────────────────────────────────
 # Fetches the live OpenAPI spec and regenerates TypeScript models in src/app/api/.

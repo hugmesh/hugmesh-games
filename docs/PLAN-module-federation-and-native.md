@@ -148,29 +148,38 @@ Target: each game ships as an **Angular remote module** (built by Webpack 5 / na
 - Backend: `/api/assets/levels/{slug}/` is unchanged but `index.html` is no longer used by the host (the remote loads `index.js` directly)
 
 ### Left off at
-**Pre-conditions in place; main refactor not started.** Done in this branch:
-- COOP `same-origin` + COEP `require-corp` headers added to both
+**Bootstrap + topology stubs in place; per-remote Angular projects still TODO.**
+Done in this branch:
+- COOP `same-origin` + COEP `require-corp` headers in both
   `frontend/nginx.conf` (HTTP) and `frontend/nginx-tls.conf` (HTTPS / e2e). This
-  unblocks SharedArrayBuffer + threaded WASM once we host Godot bundles directly
-  inside Angular instead of behind an iframe (the iframe shell currently sets these
-  itself; the SPA shell needs them once the iframe goes away).
+  unblocks SharedArrayBuffer + threaded WASM once Godot bundles mount directly
+  inside Angular.
+- `main.ts` now preloads the federation manifest from
+  `GET /api/federation/manifest` BEFORE `bootstrapApplication`, parking the
+  result on `window.__SNAPDRAGON_FEDERATION_MANIFEST__`. `FederationService`
+  reads from there if present, else lazy-fetches.
+- `docker-compose.yml` carries five nginx-stub services that match the
+  seeded `federation_modules` rows: `login`, `admin`, `games-three-wizards`,
+  `games-dodecahedron`, `wasm-fragment`. Each serves a stub
+  `/remoteEntry.json` (`{exposes:[], stub:true}`) and a placeholder index.
+  `wasm-fragment` advertises COOP/COEP and a `/fragment` doc endpoint.
+- Stubs sit on the compose network; only `frontend` is host-published, so
+  the topology matches the eventual production shape.
 
-**Next session — concrete first slice:**
+**Next session — concrete first slice for the actual remote split:**
 1. `npm i @angular-architects/native-federation` and run its host installer (or
-   replicate manually: `federation.config.js`, `federation.manifest.json`, swap
-   `application` builder for `@angular-architects/native-federation:build` in
-   `angular.json`).
+   replicate manually: `federation.config.js`, swap `application` builder for
+   `@angular-architects/native-federation:build` in `angular.json`).
 2. Create a single demo remote (`games-dodecahedron`) under `frontend/projects/`.
    It exposes one `DodecahedronGameComponent` that takes a slug input and mounts
    the existing Godot bundle directly against an Angular-managed `<canvas>` (load
-   `/api/assets/levels/dodecahedron/index.js` at runtime, `new Engine({canvas, executable})`).
+   `/api/assets/levels/dodecahedron/index.js` at runtime,
+   `new Engine({canvas, executable})`). Replace the `games-dodecahedron`
+   compose stub with a build of the new project.
 3. Wire it into `home.component` only when `level.sceneType === 'dodecahedron'` so
    the iframe path stays alive for the TWiaT levels until the second remote lands.
 4. Run `make e2e` — extend the spec to assert the dodecahedron canvas is in the
    DOM (not the iframe) and `hud-layer` is still absent.
-
-Once that one remote works end-to-end, the second (`games-three-wizards`) follows
-the same pattern with the additional bridge for SSE / control routing.
 
 ---
 
@@ -369,7 +378,38 @@ Target: an admin uploads a zip from the browser → BFF unpacks, validates, regi
 - `frontend/src/app/admin/admin.component.html` — link to game-upload route
 
 ### Left off at
-**Not started.**
+**Backend done; admin UI live; integration test pending.** Done in this branch:
+- Migration 021 (`game_uploads` table + `games.current_version_dir` column).
+- `GameUploadService` accepts a multipart bundle zip, validates manifest
+  schema_version=2 + slug regex + zip-slip-safe paths, bounds entry count
+  (500) + total bytes (200 MB), SHA-256s the bundle/ tree → version dir
+  name, atomic-move stages → `<gamesDir>/<slug>/<sha-prefix>`, runs
+  `register.sql` inside ONE R2DBC transaction (statement-by-statement
+  split that respects single-quoted strings), UPDATEs
+  `games.current_version_dir`, marks prior uploads superseded.
+- `POST /api/admin/games/upload` (ROLE_ADMIN) is the REST surface;
+  `GET /api/admin/games/{slug}/uploads` returns the rollback history.
+- `AssetController` two-tier resolver: filesystem under
+  `current_version_dir` first, classpath fallback. Lets newly uploaded
+  games serve without rebuilding the API image.
+- `docker-compose.yml` mounts a `games_uploads` named volume on the
+  api service.
+- Admin UI at `/admin/games` (route + nav link gated on isAdmin) with
+  drag-drop bundle upload, rollback history, per-game access controls
+  (all/role/user) using the existing Casdoor role-list proxy.
+
+**Open follow-ups:**
+1. Integration test that POSTs a fixture zip through the upload
+   endpoint, verifies the rows landed in `games_uploads` + `games`
+   + `federation_modules` + `game_access`, and that the asset
+   resolver serves from the new version dir.
+2. Active-version pinning for in-flight launches: currently the
+   AssetController reads `current_version_dir` per request, so a swap
+   mid-launch could swap the WASM under the player's feet. Capture
+   `version_dir` on the `game_launches` row at launch time and serve
+   from THAT (PLAN section A's session-safety contract).
+3. Disk-pressure cap: keep last N uploads per slug, prune older
+   `version_dir` trees in a scheduled task.
 
 ---
 
@@ -471,13 +511,17 @@ Target: native binary built by Spring Boot's `native` profile, cold start <100 m
   → `debian:bookworm-slim` runtime.
 - `Makefile`: `make build-backend-native`.
 
-**Open** (next session, before declaring D done):
-1. Run `make build-backend-native` end-to-end (5–10 min, 6–8 GB RAM). Likely surfaces
+**Open** (run when host has 6–8 GB free for the AOT compiler):
+1. Run `make build-backend-native` end-to-end (5–10 min). Likely surfaces
    missing hints around: Casdoor JWKS verification, Springdoc OpenAPI `@Operation`
    reflection, Liquibase singleton scope. Add to `SnapdragonRuntimeHints` as they
    appear.
-2. Add an `api-native` service to `docker-compose.yml` so `make e2e` can be
-   parametrised to hit the native image. Verify the e2e suite passes against it.
+2. ✓ **Done in this branch:** `docker-compose.native.yml` overlay swaps the
+   JVM api service for the native binary (`docker compose -f docker-compose.yml
+   -f docker-compose.native.yml up`). `make e2e-native` runs the full
+   Playwright suite against the native image — same pipeline as `make e2e`
+   but with the overlay added. The build itself isn't run on PR CI; gate
+   behind a `[native]` commit-message marker or a separate workflow.
 3. Document the build prerequisites + tradeoffs in the README testing section
    (currently only the JVM build is documented).
 
@@ -593,15 +637,28 @@ Target reached this branch:
   new paths.
 
 ### Left off at
-**Done in this branch.** Open follow-ups:
-1. Each game project still uses the legacy `game_bridge.gd` directly
-   (raw `JavaScriptBridge.eval` calls). The new `HostBridge` Rust node
-   isn't yet adopted in scenes — that migration happens game-by-game
-   alongside the section-A federated remote split.
+**Done in this branch + IDE local-play unblocked.** Updates:
+- TWiaT's `game_bridge.gd` now has an explicit local-play branch:
+  on non-web builds it skips SSE entirely, fires a stub
+  `scene_updated` so `scene_loader.gd`'s bootstrap runs, and routes
+  keyboard input straight back through `movement_updated` /
+  `state_updated`. The player controller consumes the same signals
+  it always did, so editor F5 drives the wizard from the keyboard
+  without spinning up the BFF / Casdoor / Postgres / Cassandra.
+- `extensions/snapdragon-bridge/example/bridge_glue.gd` is a
+  reference template for new games that want to use the Rust
+  `HostBridge` directly instead of the legacy GDScript bridge. Drop
+  a copy into `scripts/bridge_glue.gd`, attach to a `HostBridge` node,
+  connect game scripts to its signals.
+
+**Open follow-ups:**
+1. Migrate the existing TWiaT scripts (`player_controller`,
+   `scene_loader`, `camera_controller`, `fairy`) onto the
+   `HostBridge` Rust node so the legacy `game_bridge.gd` can retire.
+   Each scene update can move independently.
 2. Web target for the Rust bridge: the WASM cargo target falls through
    with a warning if emscripten isn't installed; per-export-preset
-   `extensions_support` stays false to suppress "no library matching
-   this platform" boot warnings. Light-weight; fix when emscripten
+   `extensions_support` stays false. Light-weight; fix when emscripten
    tooling is set up.
 
 ---

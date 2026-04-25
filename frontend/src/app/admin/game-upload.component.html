@@ -31,7 +31,7 @@
   @if (uploadStatus() === 'success' && uploadResult()) {
     <div class="result success">
       ✓ Installed <code>{{ uploadResult()!.slug }}</code>
-      @ <code>{{ uploadResult()!.contentHash.substring(0, 12) }}…</code>
+      &#64; <code>{{ uploadResult()!.contentHash.substring(0, 12) }}…</code>
       ({{ uploadResult()!.uploadedAt }})
     </div>
   }

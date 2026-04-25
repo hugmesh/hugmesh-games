@@ -24,7 +24,19 @@ func _ready() -> void:
 		_fetch_game_config()
 		_connect_sse_web()
 	else:
-		push_warning("GameBridge: SSE not available outside web export")
+		# Local-play mode (Godot editor F5, headless export). No JS bridge,
+		# no parent module, no API. Fake a scene_ready so scene_loader runs
+		# its bootstrap, and let _unhandled_input below echo movement events
+		# straight back through movement_updated / state_updated so the
+		# player still drives from the keyboard. Mirrors HostBridge's
+		# Standalone mode for projects on the legacy GDScript bridge.
+		print("[GameBridge] local-play mode (no API; keyboard echoes through movement_updated)")
+		var stub_scene := {
+			"sceneType": "cave",
+			"name": "local-play",
+			"elements": [],
+		}
+		scene_updated.emit(stub_scene)
 
 func _fetch_game_config() -> void:
 	JavaScriptBridge.eval("""
@@ -119,27 +131,37 @@ func _process(_delta: float) -> void:
 		scene_updated.emit(s)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not OS.has_feature("web"):
-		return
 	if event is InputEventKey and not event.is_echo():
 		var key_ev := event as InputEventKey
 		var action: String = KEY_ACTIONS.get(key_ev.keycode, "")
+		if action == "":
+			return
 		print("[bridge] KEY keycode=", key_ev.keycode,
 			" pressed=", key_ev.pressed, " action='", action, "'")
-		if action != "":
-			# Spells fire instantly client-side so they don't depend on the
-			# SSE round-trip. The control event still fires so the server can
-			# apply side effects (MP cost, XP, etc.) when we wire those up.
-			if key_ev.pressed and action.begins_with("CAST_SPELL_"):
-				var slot := int(action.substr(11))
-				var player := get_parent().get_node_or_null("Player")
-				if player and player.has_method("_cast_spell"):
-					print("[bridge] direct _cast_spell(", slot, ") on ", player.name)
-					player._cast_spell(slot)
-				else:
-					push_warning("[bridge] Player node missing or no _cast_spell")
+
+		# Spells fire instantly client-side so they don't depend on the
+		# SSE round-trip. The control event still fires so the server can
+		# apply side effects (MP cost, XP, etc.) when we wire those up.
+		if key_ev.pressed and action.begins_with("CAST_SPELL_"):
+			var slot := int(action.substr(11))
+			var player := get_parent().get_node_or_null("Player")
+			if player and player.has_method("_cast_spell"):
+				print("[bridge] direct _cast_spell(", slot, ") on ", player.name)
+				player._cast_spell(slot)
+			else:
+				push_warning("[bridge] Player node missing or no _cast_spell")
+
+		if OS.has_feature("web"):
 			send_control(action, key_ev.pressed)
-			get_viewport().set_input_as_handled()
+		else:
+			# Local-play: synthesize the movement event the SSE side would
+			# have produced. Player controllers consume movement_updated;
+			# they don't care whether the source is the BFF or local input.
+			var ts: int = int(Time.get_unix_time_from_system() * 1000)
+			var local := {"action": action, "pressed": key_ev.pressed, "timestamp": ts}
+			movement_updated.emit(local)
+			state_updated.emit(local)
+		get_viewport().set_input_as_handled()
 
 func send_control(action: String, pressed: bool) -> void:
 	if not OS.has_feature("web"):
