@@ -124,11 +124,42 @@ public class GameLaunchController {
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
                 .flatMap(row -> {
                     // A user can only terminate their own launches; admins go
-                    // through a separate /api/admin/launches/{uid} endpoint
-                    // (not yet implemented — see PLAN section C).
+                    // through /api/admin/launches/{uid} below.
                     if (!Objects.equals(row.getCasdoorUserId(), userId)) {
                         return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN));
                     }
+                    if (row.getTerminatedAt() != null) {
+                        return Mono.empty();
+                    }
+                    row.setTerminatedAt(Instant.now());
+                    return launches.save(row).then();
+                });
+    }
+
+    @Operation(
+        summary = "List all active launches (admin only).",
+        description = "Active = terminated_at IS NULL. The dashboard's 'kick' button calls revoke below.")
+    @GetMapping("/launches")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    reactor.core.publisher.Flux<com.threewizards.model.GameLaunch> activeLaunches() {
+        return launches.findByTerminatedAtIsNullOrderByStartedAtDesc();
+    }
+
+    @Operation(
+        summary = "Force-revoke ANY launch (admin only).",
+        description = """
+            Lets an admin terminate a launch the player owns — useful for kicking
+            stuck sessions, locking out a compromised token, or reclaiming a
+            launch slot after a crash. Differs from `DELETE /api/games/launches/{uid}`
+            (the player-side terminate) only in that the ownership check is skipped.
+            """)
+    @DeleteMapping("/admin/launches/{uid}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    Mono<Void> adminRevoke(@PathVariable String uid) {
+        return launches.findByUid(uid)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(row -> {
                     if (row.getTerminatedAt() != null) {
                         return Mono.empty();
                     }

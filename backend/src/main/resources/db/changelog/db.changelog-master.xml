@@ -24,4 +24,5 @@
     <include file="db/changelog/018-federation-modules.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/019-game-access.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/020-game-launches.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/021-game-uploads.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

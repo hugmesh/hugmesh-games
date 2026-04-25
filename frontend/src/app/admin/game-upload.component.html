@@ -1,0 +1,111 @@
+<section class="upload-page">
+  <h2>Upload a game bundle</h2>
+  <p class="hint">
+    Drag a <code>&lt;slug&gt;-snapdragon-bundle.zip</code> produced by
+    <em>Project → Tools → Snapdragon → Export to Snapdragon…</em> in the
+    Godot editor. The BFF validates <code>manifest.json</code> (schema_version 2),
+    runs <code>register.sql</code> in a transaction, and atomically swaps the
+    asset version dir without disturbing live sessions.
+  </p>
+
+  <div class="dropzone"
+       [class.dragging]="isDragging()"
+       (dragover)="onDragOver($event)"
+       (dragleave)="onDragLeave()"
+       (drop)="onDrop($event)">
+    @if (selectedFile) {
+      <p>📦 {{ selectedFile.name }} ({{ (selectedFile.size / 1024 / 1024).toFixed(1) }} MB)</p>
+    } @else {
+      <p>Drop a bundle zip here or</p>
+    }
+    <input type="file" accept=".zip" (change)="onFilePicked($event)">
+  </div>
+
+  <button class="primary"
+          (click)="upload()"
+          [disabled]="!selectedFile || uploadStatus() === 'uploading'">
+    @if (uploadStatus() === 'uploading') { Uploading… }
+    @else { Install bundle }
+  </button>
+
+  @if (uploadStatus() === 'success' && uploadResult()) {
+    <div class="result success">
+      ✓ Installed <code>{{ uploadResult()!.slug }}</code>
+      @ <code>{{ uploadResult()!.contentHash.substring(0, 12) }}…</code>
+      ({{ uploadResult()!.uploadedAt }})
+    </div>
+  }
+  @if (uploadStatus() === 'error') {
+    <div class="result error">✗ {{ uploadError() }}</div>
+  }
+</section>
+
+<section class="history-page">
+  <h2>Upload history</h2>
+  <div class="row">
+    <input [(ngModel)]="historySlug" placeholder="game slug (e.g. dodecahedron)">
+    <button (click)="loadHistory()">Load</button>
+  </div>
+  @if (history().length) {
+    <table>
+      <thead>
+        <tr><th>uploaded_at</th><th>hash</th><th>by</th><th>active</th></tr>
+      </thead>
+      <tbody>
+        @for (row of history(); track row.id) {
+          <tr [class.superseded]="row.supersededAt">
+            <td>{{ row.uploadedAt }}</td>
+            <td><code>{{ row.contentHash.substring(0, 12) }}…</code></td>
+            <td>{{ row.uploadedBy }}</td>
+            <td>{{ row.supersededAt ? 'no (superseded)' : 'yes' }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</section>
+
+<section class="access-page">
+  <h2>Per-game access</h2>
+  <p class="hint">
+    Layered on top of quest-based level unlocks. Grant access to
+    <strong>everyone</strong>, a <strong>Casdoor role</strong> (the role
+    catalog comes from <code>/api/admin/roles</code>), or a single
+    <strong>Casdoor user id</strong>. Multiple grants are additive (union).
+  </p>
+
+  <div class="form">
+    <label>game slug
+      <input [(ngModel)]="accessSlug" placeholder="three-wizards">
+    </label>
+    <label>scope
+      <select [(ngModel)]="accessScope">
+        <option value="all">all (every authenticated user)</option>
+        <option value="role">role (Casdoor role)</option>
+        <option value="user">user (Casdoor sub-claim)</option>
+      </select>
+    </label>
+    @if (accessScope === 'role') {
+      <label>role
+        <select [(ngModel)]="accessValue">
+          <option value="">— pick a role —</option>
+          @for (r of roles(); track r.name) {
+            <option [value]="r.name">{{ r.name }} — {{ r.displayName }}</option>
+          }
+        </select>
+      </label>
+    }
+    @if (accessScope === 'user') {
+      <label>casdoor user id
+        <input [(ngModel)]="accessValue" placeholder="8257e529-914a-43ba-a212-…">
+      </label>
+    }
+    <div class="actions">
+      <button class="primary" (click)="grant()">Grant</button>
+      <button (click)="revoke()">Revoke</button>
+    </div>
+    @if (accessStatus()) {
+      <p class="status">{{ accessStatus() }}</p>
+    }
+  </div>
+</section>

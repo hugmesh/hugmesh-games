@@ -109,6 +109,11 @@ services:
       CASSANDRA_KEYSPACE: threewizards
       CASSANDRA_LOCAL_DC: dc1
       SPRING_PROFILES_ACTIVE: prod
+      # Hot-uploaded games land here; AssetController falls back to this
+      # path when classpath assets/levels/<slug>/ doesn't have the file.
+      APP_UPLOADS_GAMES_DIR: /var/snapdragon/games
+    volumes:
+      - games_uploads:/var/snapdragon/games
     restart: on-failure
 
   frontend:
@@ -123,3 +128,4 @@ services:
 volumes:
   pgdata:
   cassandra_data:
+  games_uploads:

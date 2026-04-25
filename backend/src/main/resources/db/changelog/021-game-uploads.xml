@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Hot-upload bookkeeping (PLAN section C).
+
+        The admin console accepts a Snapdragon bundle zip (produced by
+        the Godot editor plugin in addons/snapdragon_export). The BFF:
+
+          1. Streams the multipart upload to a staging directory.
+          2. Validates manifest.json schema_version + slug regex + zip-
+             slip-safe paths.
+          3. Hashes the bundle/ tree → version dir name (sha256 prefix).
+          4. Renames staging → /var/snapdragon/games/<slug>/<version>/.
+          5. Inserts a row HERE with the version_dir + manifest.
+          6. Runs register.sql from the bundle inside the same tx.
+          7. Updates `current_version_dir` on the matching game row.
+
+        Active sessions captured the version_dir at launch time, so a
+        swap doesn't disturb anyone mid-play (PLAN section C).
+
+        `superseded_at` flips when a newer upload for the same slug wins
+        — keeps the history queryable for rollback.
+    -->
+
+    <changeSet id="021-1-game-uploads" author="nin">
+        <createTable tableName="game_uploads">
+            <column name="id" type="bigserial">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="slug" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version_dir" type="text">
+                <!-- Filesystem path the bundle assets live at. -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="content_hash" type="varchar(64)">
+                <!-- SHA-256 hex digest of the bundle/ tree, used as version. -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="manifest_json" type="jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="uploaded_by" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="uploaded_at" type="timestamptz" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="superseded_at" type="timestamptz"/>
+        </createTable>
+
+        <createIndex tableName="game_uploads" indexName="idx_uploads_slug_active">
+            <column name="slug"/>
+            <column name="uploaded_at" descending="true"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="021-2-games-current-version-dir" author="nin">
+        <addColumn tableName="games">
+            <column name="current_version_dir" type="text"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

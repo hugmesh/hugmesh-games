@@ -1,10 +1,12 @@
 package com.threewizards.controller;
 
 import com.threewizards.repository.GameLaunchRepository;
+import com.threewizards.repository.GameRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -13,6 +15,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +27,7 @@ import java.util.Objects;
 public class AssetController {
 
     private final GameLaunchRepository launches;
+    private final GameRepository games;
     /**
      * When {@code true}, the level-asset path requires a launch UID
      * minted by {@code POST /api/games/{slug}/launch}. While the
@@ -31,11 +36,23 @@ public class AssetController {
      * keep working. Flip via env: {@code APP_ASSETS_REQUIRE_LAUNCH_UID=true}.
      */
     private final boolean requireLaunchUid;
+    /**
+     * Filesystem root for HOT-uploaded games. AssetController falls back
+     * to {@code <gamesDir>/<slug>/<version>/<file>} when the classpath
+     * version isn't found, so games installed via
+     * {@code /api/admin/games/upload} serve without rebuilding the API
+     * image. Empty string disables the fallback.
+     */
+    private final String gamesDir;
 
     public AssetController(GameLaunchRepository launches,
-                           @Value("${app.assets.require-launch-uid:false}") boolean requireLaunchUid) {
+                           GameRepository games,
+                           @Value("${app.assets.require-launch-uid:false}") boolean requireLaunchUid,
+                           @Value("${app.uploads.games-dir:/var/snapdragon/games}") String gamesDir) {
         this.launches = launches;
+        this.games = games;
         this.requireLaunchUid = requireLaunchUid;
+        this.gamesDir = gamesDir;
     }
 
     private static final Map<String, MediaType> MEDIA_TYPES = Map.ofEntries(
@@ -93,7 +110,7 @@ public class AssetController {
             return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "launch-uid required — use /api/assets/levels/{slug}/{uid}/{filename}"));
         }
-        return serveFile("assets/levels/" + slug + "/" + filename);
+        return serveLevelFile(slug, filename);
     }
 
     @Operation(
@@ -119,24 +136,62 @@ public class AssetController {
                     if (!Objects.equals(launch.getGameSlug(), slug)) {
                         return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
                     }
-                    return serveFile("assets/levels/" + slug + "/" + filename);
+                    return serveLevelFile(slug, filename);
                 });
     }
 
     private Mono<ResponseEntity<Resource>> serveFile(String path) {
-        return Mono.fromCallable(() -> {
-            ClassPathResource resource = new ClassPathResource(path);
-            if (!resource.exists()) {
-                return ResponseEntity.<Resource>notFound().build();
-            }
-            String filename = path.substring(path.lastIndexOf('/') + 1);
-            String ext = filename.contains(".")
-                    ? filename.substring(filename.lastIndexOf('.') + 1).toLowerCase()
-                    : "";
-            MediaType mediaType = MEDIA_TYPES.getOrDefault(ext, MediaType.APPLICATION_OCTET_STREAM);
-            return ResponseEntity.ok()
-                    .contentType(mediaType)
-                    .<Resource>body(resource);
-        });
+        return Mono.fromCallable(() -> respondWith(new ClassPathResource(path), path));
+    }
+
+    /**
+     * Two-tier resolution for level assets:
+     * <ol>
+     *   <li>Hot-uploaded version (filesystem) — read
+     *       {@code games.current_version_dir} and look for the file there.</li>
+     *   <li>Classpath fallback — for games shipped in the API image
+     *       (cave / field / dodecahedron at boot).</li>
+     * </ol>
+     * The first non-404 wins. Zip-slip-safe: rejects any filename that
+     * would escape the version dir after normalisation.
+     */
+    private Mono<ResponseEntity<Resource>> serveLevelFile(String slug, String filename) {
+        return games.findBySlug(slug)
+                .map(g -> {
+                    String versionDir = g.getCurrentVersionDir();
+                    if (versionDir == null || versionDir.isBlank() || gamesDir.isBlank()) {
+                        return Mono.fromCallable(() ->
+                                respondWith(new ClassPathResource("assets/levels/" + slug + "/" + filename),
+                                            filename));
+                    }
+                    return Mono.fromCallable(() -> {
+                        Path base = Path.of(versionDir).normalize();
+                        Path target = base.resolve(filename).normalize();
+                        if (!target.startsWith(base) || !Files.isRegularFile(target)) {
+                            // Fall back to classpath if the filesystem
+                            // version doesn't have the file (a partial
+                            // upload or a renamed asset).
+                            return respondWith(new ClassPathResource("assets/levels/" + slug + "/" + filename),
+                                               filename);
+                        }
+                        return respondWith(new FileSystemResource(target), filename);
+                    });
+                })
+                .flatMap(m -> m)
+                .switchIfEmpty(Mono.fromCallable(() ->
+                        respondWith(new ClassPathResource("assets/levels/" + slug + "/" + filename), filename)));
+    }
+
+    private static ResponseEntity<Resource> respondWith(Resource resource, String filenameForExt) {
+        if (!resource.exists()) {
+            return ResponseEntity.<Resource>notFound().build();
+        }
+        String ext = filenameForExt.contains(".")
+                ? filenameForExt.substring(filenameForExt.lastIndexOf('.') + 1).toLowerCase()
+                : "";
+        MediaType mediaType = MEDIA_TYPES.getOrDefault(ext, MediaType.APPLICATION_OCTET_STREAM);
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .<Resource>body(resource);
     }
 }
