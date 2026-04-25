@@ -183,7 +183,12 @@ Target: a Godot editor plugin (in `godot-project/addons/snapdragon_export/`) tha
 - `Makefile` — add `make test-godot-plugin` (optional; could be deferred)
 
 ### Left off at
-**Not started.**
+**Done in this branch.** Plugin scaffolds Project → Tools → Snapdragon menu, gathers
+metadata via the dialog, shells out to `OS.get_executable_path()` with
+`--export-release` to drive the chosen Web preset, and packs `manifest.json` +
+`bundle/` into a zip via `ZIPPacker`. Manifest schema is `schema_version: 1` —
+matching parser will land in C. The `make test-godot-plugin` target is **deferred**
+(headless plugin smoke needs a fixture preset; not blocking C).
 
 ---
 
@@ -366,7 +371,27 @@ Target: native binary built by Spring Boot's `native` profile, cold start <100 m
 - README + this plan: document tradeoffs (slow build, no class reload in dev)
 
 ### Left off at
-**Not started.**
+**Scaffolded, not yet built end-to-end.** In this branch:
+- `pom.xml` has the `native` profile (spring-boot-maven-plugin `process-aot` +
+  `org.graalvm.buildtools:native-maven-plugin`, plus a tiny `--initialize-at-run-time`
+  list for jansi to suppress the AnsiConsole startup-init failure).
+- `SnapdragonRuntimeHints` registers reflection for the 13 JSON-boundary record DTOs
+  (`MemberCategory.INVOKE_DECLARED_CONSTRUCTORS|METHODS` + `DECLARED_FIELDS`) plus
+  the `db/changelog/*.xml` resource pattern. Wired via `@ImportRuntimeHints` on
+  `ThreeWizardsApplication`.
+- `backend/Dockerfile.native` — multi-stage `ghcr.io/graalvm/native-image-community:21`
+  → `debian:bookworm-slim` runtime.
+- `Makefile`: `make build-backend-native`.
+
+**Open** (next session, before declaring D done):
+1. Run `make build-backend-native` end-to-end (5–10 min, 6–8 GB RAM). Likely surfaces
+   missing hints around: Casdoor JWKS verification, Springdoc OpenAPI `@Operation`
+   reflection, Liquibase singleton scope. Add to `SnapdragonRuntimeHints` as they
+   appear.
+2. Add an `api-native` service to `docker-compose.yml` so `make e2e` can be
+   parametrised to hit the native image. Verify the e2e suite passes against it.
+3. Document the build prerequisites + tradeoffs in the README testing section
+   (currently only the JVM build is documented).
 
 ---
 

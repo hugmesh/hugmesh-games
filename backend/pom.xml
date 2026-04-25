@@ -113,4 +113,52 @@
       </plugin>
     </plugins>
   </build>
+
+  <!--
+    `mvn -Pnative native:compile` produces a single statically-linked binary
+    from the Spring Boot app — sub-second cold start, ~100 MB RSS, ~150 MB
+    container instead of the JRE-based ~400 MB image. The JVM build
+    (`mvn package`) keeps working as the default; use the native profile
+    only when you've got 6–8 GB of RAM available for the AOT compiler.
+
+    See `backend/Dockerfile.native` for the matching multi-stage build and
+    `make build-backend-native` for the convenience wrapper.
+
+    Phase-2 plan: docs/PLAN-module-federation-and-native.md (section D).
+  -->
+  <profiles>
+    <profile>
+      <id>native</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>process-aot</id>
+                <goals><goal>process-aot</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.graalvm.buildtools</groupId>
+            <artifactId>native-maven-plugin</artifactId>
+            <configuration>
+              <!--
+                GraalVM swallows the SLF4J + Spring banner on startup unless we
+                tell it to re-initialise these classes at runtime. The list grows
+                on a build-by-build basis as new third-party libs surface
+                build-time-init bugs; keep it minimal.
+              -->
+              <buildArgs>
+                <buildArg>--initialize-at-run-time=org.fusesource.jansi.AnsiConsole</buildArg>
+                <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+              </buildArgs>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

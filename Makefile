@@ -9,7 +9,7 @@
 #   node        (v20+)
 
 SHELL := /bin/bash
-.PHONY: all clean build build-rust build-godot patch-godot build-backend build-frontend \
+.PHONY: all clean build build-rust build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db deploy \
         gen-certs e2e e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend
@@ -102,6 +102,20 @@ build-backend:
 	@command -v mvn >/dev/null 2>&1 || { echo "ERROR: mvn not found"; exit 1; }
 	cd $(BACKEND_DIR) && ./mvnw -q package -DskipTests
 	@echo "✓ Backend build done → $(BACKEND_JAR)"
+
+# ── Native AOT build (GraalVM) ────────────────────────────────────────────────
+# Produces a single statically-linked binary — sub-second cold start, ~150 MB
+# image. Build is slow (~5–10 min) and memory-hungry (~6–8 GB). The JVM build
+# (`make build-backend`) remains the default; this target is opt-in until the
+# native path is proven end-to-end.
+#
+# Phase-2 plan: docs/PLAN-module-federation-and-native.md (section D).
+NATIVE_IMAGE = snapdragon-gaming-bff:native
+
+build-backend-native:
+	@echo "→ Building native-image (GraalVM, ~5–10 min)…"
+	docker build -f $(BACKEND_DIR)/Dockerfile.native -t $(NATIVE_IMAGE) $(BACKEND_DIR)
+	@echo "✓ Native image built → $(NATIVE_IMAGE)"
 
 # ── OpenAPI model generation ──────────────────────────────────────────────────
 # Fetches the live OpenAPI spec and regenerates TypeScript models in src/app/api/.
