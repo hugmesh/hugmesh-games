@@ -172,12 +172,30 @@ func send_control(action: String, pressed: bool) -> void:
 		"true" if pressed else "false",
 		ts
 	]
+	# Read the parent SPA's stored JWT (AuthService.STORAGE_KEY = 'tw_auth')
+	# and attach it as `Authorization: Bearer <token>` so the BFF can
+	# verify the caller via JWT instead of the legacy X-Casdoor-Id
+	# header (which any client could spoof). Same-origin iframe →
+	# window.parent.sessionStorage is reachable; cross-origin would
+	# raise SecurityError and we fall through to an unauthenticated
+	# request — the BFF's controller-role check then has no identity
+	# and skips, matching the previous Godot bridge behaviour.
 	JavaScriptBridge.eval("""
 (function(){
+	var token = '';
+	try {
+		var raw = window.parent.sessionStorage.getItem('tw_auth');
+		if (raw) {
+			var stored = JSON.parse(raw);
+			token = stored.accessToken || '';
+		}
+	} catch (e) {}
 	var base = (window.location.host === 'localhost:4200') ? 'http://localhost:8080' : '';
+	var headers = {'Content-Type': 'application/json'};
+	if (token) headers['Authorization'] = 'Bearer ' + token;
 	fetch(base + '/api/controls/1', {
 		method: 'POST',
-		headers: {'Content-Type': 'application/json'},
+		headers: headers,
 		body: '%s'
 	}).catch(function(){});
 })();
