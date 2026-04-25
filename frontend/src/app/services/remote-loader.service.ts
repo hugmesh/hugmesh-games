@@ -1,34 +1,40 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, createComponent, EnvironmentInjector, Type, inject } from '@angular/core';
+import { createCustomElement } from '@angular/elements';
+import { loadRemoteModule } from '@angular-architects/native-federation';
 import { Observable, defer, from, of, shareReplay } from 'rxjs';
 import { map, switchMap } from 'rxjs/operators';
 
 import { FederationRemote, FederationService } from './federation.service';
 
 /**
- * Loads a federated remote's bundle into the host page at runtime.
+ * Loads a federated remote module via native-federation's runtime,
+ * then registers its exported component as a Web Component so the
+ * host's templates can render it as `<app-<slug>-remote>`.
  *
- * Today this uses the script-tag-injection pattern — the remote was
- * built with `outputHashing: "none"` so we know its main.js path
- * without having to parse its index.html. Once the remote project
- * graduates to real `@angular-architects/native-federation:build`, the
- * loadRemote() call here changes to native-federation's
- * `loadRemoteModule(...)` but the public surface (an Observable that
- * resolves once the remote has registered its custom element) stays
- * the same.
+ * Pipeline per slug:
+ *   1. Resolve the federation_modules row (RemoteService).
+ *   2. `loadRemoteModule({remoteName, exposedModule:'./GameRoot'})`
+ *      pulls the remote's exposed component class. Native-federation
+ *      handles ESM import + shared-deps deduplication.
+ *   3. `createCustomElement(...)` wraps the Angular component as a
+ *      Web Component using THIS host's environmentInjector — no
+ *      separate Angular tree, no zone collisions.
+ *   4. `customElements.define(...)` registers the tag, the browser
+ *      upgrades any existing instance the host has rendered.
  *
- * Each remote is loaded at most once per page; subsequent calls hit a
- * shared cache via shareReplay(1).
+ * Cached per slug via shareReplay; subsequent calls are free.
  */
 @Injectable({ providedIn: 'root' })
 export class RemoteLoaderService {
 
   private readonly federation = inject(FederationService);
+  private readonly envInjector = inject(EnvironmentInjector);
   private readonly cache = new Map<string, Observable<FederationRemote>>();
 
   /**
-   * Resolve `slug` to its federation_modules row, then ensure the
-   * remote's main.js + polyfills.js are loaded. Resolves to the
-   * manifest entry when the bundle is in DOM and ready.
+   * Resolve `gameSlug` to its remote-game manifest entry, load the
+   * remote module, register its `<app-<slug>-remote>` Web Component.
+   * Resolves to the manifest row when the registration is in place.
    */
   loadGameRemote(gameSlug: string): Observable<FederationRemote> {
     const cached = this.cache.get(gameSlug);
@@ -39,7 +45,7 @@ export class RemoteLoaderService {
         if (!remote) {
           return of<never>();
         }
-        return defer(() => from(this.injectRemote(remote))).pipe(map(() => remote));
+        return defer(() => from(this.registerRemoteAsCustomElement(remote))).pipe(map(() => remote));
       }),
       shareReplay(1),
     );
@@ -47,33 +53,38 @@ export class RemoteLoaderService {
     return stream;
   }
 
-  private async injectRemote(remote: FederationRemote): Promise<void> {
-    // remoteEntryUrl points at `/_remotes/<slug>/remoteEntry.json`.
-    // The matching main bundle lives next door at `main.js`. With
-    // outputHashing: 'none' the filename is stable.
-    const base = remote.remoteEntryUrl.replace(/remoteEntry\.json$/, '');
-    const polyfills = `${base}polyfills.js`;
-    const main = `${base}main.js`;
-
-    // Load polyfills first so zone.js + ES shims are present before
-    // main.js executes.
-    if (!document.querySelector(`script[data-snapdragon-remote="${remote.slug}-polyfills"]`)) {
-      await this.appendScript(polyfills, `${remote.slug}-polyfills`);
+  private async registerRemoteAsCustomElement(remote: FederationRemote): Promise<void> {
+    const tagName = `app-${remote.gameSlug}-remote`;
+    if (customElements.get(tagName)) {
+      return;
     }
-    if (!document.querySelector(`script[data-snapdragon-remote="${remote.slug}-main"]`)) {
-      await this.appendScript(main, `${remote.slug}-main`);
-    }
-  }
 
-  private appendScript(src: string, marker: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const tag = document.createElement('script');
-      tag.src = src;
-      tag.type = 'module';
-      tag.dataset['snapdragonRemote'] = marker;
-      tag.onload = () => resolve();
-      tag.onerror = err => reject(err);
-      document.head.appendChild(tag);
+    // remote.slug is the federation manifest's `name`; remote.exposedModule
+    // is the './GameRoot' path the federation.config.js exposes block uses.
+    const mod = await loadRemoteModule({
+      remoteName: remote.slug,
+      exposedModule: remote.exposedModule ?? './GameRoot',
     });
+
+    // Find the first exported class — federation.config.js exposes
+    // a single component per remote so the first match is correct.
+    const ComponentClass = Object.values(mod).find(
+      v => typeof v === 'function',
+    ) as Type<unknown> | undefined;
+
+    if (!ComponentClass) {
+      throw new Error(`[remote-loader] no class export found in ${remote.slug}/${remote.exposedModule}`);
+    }
+
+    // Wrap the component as a Web Component using THIS host's injector
+    // so the remote's render shares zone + change detection with the
+    // host shell. Different from createElement() with a fresh app —
+    // here the remote's component lifecycle runs in the host's tree.
+    const element = createCustomElement(ComponentClass, { injector: this.envInjector });
+    customElements.define(tagName, element);
+    console.log(`[remote-loader] registered <${tagName}> from ${remote.slug}`);
   }
 }
+
+// Defer + createComponent kept around for future imperative-mount paths.
+void createComponent;

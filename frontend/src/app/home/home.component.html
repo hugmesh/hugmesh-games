@@ -75,21 +75,25 @@
         </div>
       </div>
       <div class="canvas-container" #canvasContainer>
-        <!--
-          Federation rendering for dodecahedron is built + scaffolded
-          (RemoteLoaderService preloads its bundle when the player
-          clicks the card; trace shows main.js + polyfills.js fetch
-          successfully) but the host-side <app-dodecahedron-remote>
-          mount surface has an open binding bug — the dual-bootstrap
-          context apparently doesn't fire the iframe `[src]` binding.
-          Until that's fixed, dodecahedron renders through the same
-          legacy <app-game-canvas> iframe as cave/field; the remote's
-          main.js still loads (preserving the federation flow for
-          future debugging) but its on-screen mount is bypassed.
-        -->
-        <app-game-canvas
-          [game]="activeLevel"
-          (levelTransition)="onLevelTransition($event)"></app-game-canvas>
+        @if (isFederated(activeLevel)) {
+          <!--
+            Federated remote module — built independently under
+            frontend/projects/games-<slug>/ with the
+            @angular-architects/native-federation:build builder, served
+            by its own nginx container, loaded at runtime by
+            RemoteLoaderService through native-federation's
+            loadRemote(). The remote registers its element via
+            customElements.define(); the host renders the bare tag and
+            the browser upgrades it. No iframe.
+          -->
+          @switch (activeRemoteSlug) {
+            @case ('dodecahedron') { <app-dodecahedron-remote></app-dodecahedron-remote> }
+          }
+        } @else {
+          <app-game-canvas
+            [game]="activeLevel"
+            (levelTransition)="onLevelTransition($event)"></app-game-canvas>
+        }
         @if (!isChromeless(activeLevel)) {
           <div class="hud-layer">
             <app-game-hud></app-game-hud>
