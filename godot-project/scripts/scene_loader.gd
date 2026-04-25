@@ -157,6 +157,10 @@ func _spawn(el: Dictionary) -> void:
 		"stalactite":    _stalactite(el)
 		"tree":          _tree(el)
 		"cottage":       _cottage(el)
+		"boulder":       _boulder(el)
+		"water_pool":    _water_pool(el)
+		"water_drip":    _water_drip(el)
+		"light_shaft":   _light_shaft(el)
 
 # ── Texture helpers ────────────────────────────────────────────────────────────
 
@@ -478,3 +482,160 @@ func _cottage(el: Dictionary) -> void:
 	cottage.add_child(door)
 
 	get_parent().add_child(cottage)
+
+# ── Cave atmosphere (boulders, pools, drips, light shafts) ────────────────────
+
+# Irregular dark rock — squashed sphere with random-ish per-instance scaling
+# so identical properties still produce visually distinct boulders.
+func _boulder(el: Dictionary) -> void:
+	var p := _props(el)
+	var radius := float(p.get("radius", 1.0))
+	var height := float(p.get("height", 0.8))
+	var seed_id := int(el.get("id", 0))
+
+	var b := CSGSphere3D.new()
+	b.name = el.get("name", "Boulder")
+	b.radius = radius
+	# Squash vertically and randomise to give an uneven rocky look.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_id * 1009 + 7
+	var sx := 1.0 + rng.randf_range(-0.25, 0.35)
+	var sz := 1.0 + rng.randf_range(-0.25, 0.35)
+	var sy := clampf(height / max(radius, 0.001), 0.4, 1.4)
+	b.scale = Vector3(sx, sy, sz)
+	b.position = _pos(el)
+	# Sit it half-buried so it reads as a boulder embedded in the floor.
+	b.position.y += radius * sy * 0.55
+	b.rotation = _rot(el)
+	b.use_collision = true
+
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(
+		float(p.get("colorR", 0.20)),
+		float(p.get("colorG", 0.18)),
+		float(p.get("colorB", 0.16))
+	)
+	mat.roughness = 0.96
+	mat.metallic = 0.05
+	b.material_override = mat
+	get_parent().add_child(b)
+
+# Translucent still-water pool — flat plane with subtle emission so it catches
+# light from torches and shafts.
+func _water_pool(el: Dictionary) -> void:
+	var p := _props(el)
+	var width := float(p.get("width", 4.0))
+	var depth := float(p.get("depth", 4.0))
+
+	var pool := CSGBox3D.new()
+	pool.name = el.get("name", "WaterPool")
+	pool.size = Vector3(width, 0.08, depth)
+	pool.position = _pos(el)
+
+	var mat := StandardMaterial3D.new()
+	var col := Color(
+		float(p.get("colorR", 0.12)),
+		float(p.get("colorG", 0.32)),
+		float(p.get("colorB", 0.55)),
+		0.65,
+	)
+	mat.albedo_color = col
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.metallic = 0.6
+	mat.roughness = 0.18
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = float(p.get("emission", 0.4))
+	pool.material_override = mat
+	get_parent().add_child(pool)
+
+# Falling water droplet stream from the ceiling. Uses GPU particles with
+# downward gravity; each drop is a tiny emissive sphere that fades on landing.
+func _water_drip(el: Dictionary) -> void:
+	var p := _props(el)
+	var rate := float(p.get("rate", 3.0))
+	var color := Color(
+		float(p.get("colorR", 0.45)),
+		float(p.get("colorG", 0.65)),
+		float(p.get("colorB", 0.95))
+	)
+
+	var drip := GPUParticles3D.new()
+	drip.name = el.get("name", "Drip")
+	drip.position = _pos(el)
+	drip.amount = max(8, int(rate * 4))
+	drip.lifetime = 1.6
+	drip.preprocess = 0.5
+
+	var proc := ParticleProcessMaterial.new()
+	proc.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	proc.emission_box_extents = Vector3(0.05, 0.0, 0.05)
+	proc.gravity = Vector3(0, -9.0, 0)
+	proc.initial_velocity_min = 0.2
+	proc.initial_velocity_max = 0.5
+	proc.scale_min = 0.6
+	proc.scale_max = 1.0
+	proc.color = color
+	drip.process_material = proc
+
+	var drop_mesh := SphereMesh.new()
+	drop_mesh.radius = 0.06
+	drop_mesh.height = 0.18  # elongated droplet
+	var drop_mat := StandardMaterial3D.new()
+	drop_mat.albedo_color = color
+	drop_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	drop_mat.emission_enabled = true
+	drop_mat.emission = color
+	drop_mat.emission_energy_multiplier = 1.4
+	drop_mesh.surface_set_material(0, drop_mat)
+	drip.draw_pass_1 = drop_mesh
+
+	get_parent().add_child(drip)
+
+# Bright pillar of light from a hole in the ceiling. SpotLight pointing
+# straight down + a faint cone mesh so the shaft is visible against fog.
+func _light_shaft(el: Dictionary) -> void:
+	var p := _props(el)
+	var radius := float(p.get("radius", 2.5))
+	var height := float(p.get("height", 18.0))
+	var energy := float(p.get("energy", 4.0))
+	var color := Color(
+		float(p.get("colorR", 1.0)),
+		float(p.get("colorG", 0.95)),
+		float(p.get("colorB", 0.78))
+	)
+
+	var shaft := Node3D.new()
+	shaft.name = el.get("name", "LightShaft")
+	shaft.position = _pos(el)
+
+	# The actual light. SpotLight aimed straight down; shadows on so boulders
+	# break up the beam on the floor.
+	var light := SpotLight3D.new()
+	light.light_color = color
+	light.light_energy = energy
+	light.spot_range = height + 4.0
+	light.spot_angle = rad_to_deg(atan(radius / max(height, 0.001)))
+	light.shadow_enabled = true
+	light.rotation = Vector3(deg_to_rad(-90.0), 0.0, 0.0)
+	shaft.add_child(light)
+
+	# Visible cone — a stretched cylinder with additive blending so the beam
+	# reads through the cave's fog instead of looking like an abstract dim spot.
+	var cone := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.4
+	cyl.bottom_radius = radius
+	cyl.height = height
+	cone.mesh = cyl
+	cone.position.y = -height * 0.5
+	var cone_mat := StandardMaterial3D.new()
+	cone_mat.albedo_color = Color(color.r, color.g, color.b, 0.18)
+	cone_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cone_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cone_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	cone_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	cone.material_override = cone_mat
+	shaft.add_child(cone)
+
+	get_parent().add_child(shaft)
