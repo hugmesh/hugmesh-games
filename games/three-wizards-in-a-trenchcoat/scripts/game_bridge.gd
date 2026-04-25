@@ -1,11 +1,22 @@
 extends Node
 
+# Legacy GDScript signals — kept declared so any third-party code or older
+# scene file still subscribing receives nothing (silent no-op rather than
+# parse error). All TWiaT consumers (player_controller, scene_loader) now
+# read from the sibling HostBridge node's typed channels; this file
+# dispatches into HostBridge directly via _dispatch() instead of emitting
+# these signals. Remove the declarations once no scene references them.
 signal state_updated(state: Dictionary)
 signal movement_updated(data: Dictionary)
 signal world_updated(data: Dictionary)
 signal character_updated(data: Dictionary)
 signal time_updated(data: Dictionary)
 signal scene_updated(data: Dictionary)
+
+# Sibling HostBridge node (Rust GDExtension class). Resolved on _ready.
+# Null when the scene hasn't been migrated to include a HostBridge node;
+# in that case _dispatch falls back to legacy GDScript signal emission.
+var _host_bridge: Node = null
 
 const KEY_ACTIONS := {
 	KEY_W: "MOVE_FORWARD",  KEY_UP:    "MOVE_FORWARD",
@@ -20,23 +31,43 @@ const KEY_ACTIONS := {
 }
 
 func _ready() -> void:
+	# Sibling HostBridge resolves only after the scene tree is built.
+	_host_bridge = get_parent().get_node_or_null("HostBridge")
+
 	if OS.has_feature("web"):
 		_fetch_game_config()
 		_connect_sse_web()
 	else:
 		# Local-play mode (Godot editor F5, headless export). No JS bridge,
-		# no parent module, no API. Fake a scene_ready so scene_loader runs
-		# its bootstrap, and let _unhandled_input below echo movement events
-		# straight back through movement_updated / state_updated so the
-		# player still drives from the keyboard. Mirrors HostBridge's
-		# Standalone mode for projects on the legacy GDScript bridge.
-		print("[GameBridge] local-play mode (no API; keyboard echoes through movement_updated)")
+		# no parent module, no API. Fake a scene event so scene_loader
+		# runs its bootstrap, and let _unhandled_input below echo movement
+		# events through HostBridge so the player still drives from the
+		# keyboard. Mirrors HostBridge's Standalone mode.
+		print("[GameBridge] local-play mode (no API; keyboard echoes through HostBridge)")
 		var stub_scene := {
 			"sceneType": "cave",
 			"name": "local-play",
 			"elements": [],
 		}
-		scene_updated.emit(stub_scene)
+		_dispatch("scene", stub_scene)
+
+
+# Dispatch a typed event into the sibling HostBridge node when present;
+# otherwise fall back to the legacy GDScript signal emission. Keeps
+# scenes that haven't yet wired up a HostBridge working as before.
+func _dispatch(event_type: String, payload: Dictionary) -> void:
+	if _host_bridge != null:
+		_host_bridge.dispatch_event(event_type, JSON.stringify(payload))
+		return
+	# Legacy fallback — these emit() calls are no-ops once consumers
+	# migrate (PLAN section G). Kept so a scene without HostBridge
+	# isn't broken by this commit.
+	match event_type:
+		"movement":  movement_updated.emit(payload); state_updated.emit(payload)
+		"world":     world_updated.emit(payload)
+		"character": character_updated.emit(payload)
+		"time":      time_updated.emit(payload)
+		"scene":     scene_updated.emit(payload)
 
 func _fetch_game_config() -> void:
 	JavaScriptBridge.eval("""
@@ -110,8 +141,7 @@ func _drain_movement_queue() -> void:
 		return
 	for item in parsed:
 		if item is Dictionary:
-			movement_updated.emit(item)
-			state_updated.emit(item)
+			_dispatch("movement", item)
 
 func _process(_delta: float) -> void:
 	if not OS.has_feature("web"):
@@ -119,16 +149,16 @@ func _process(_delta: float) -> void:
 	_drain_movement_queue()
 	var w := _poll("window._twLatestWorld")
 	if not w.is_empty():
-		world_updated.emit(w)
+		_dispatch("world", w)
 	var c := _poll("window._twLatestCharacter")
 	if not c.is_empty():
-		character_updated.emit(c)
+		_dispatch("character", c)
 	var t := _poll("window._twLatestTime")
 	if not t.is_empty():
-		time_updated.emit(t)
+		_dispatch("time", t)
 	var s := _poll("window._twLatestScene")
 	if not s.is_empty():
-		scene_updated.emit(s)
+		_dispatch("scene", s)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and not event.is_echo():
@@ -155,12 +185,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			send_control(action, key_ev.pressed)
 		else:
 			# Local-play: synthesize the movement event the SSE side would
-			# have produced. Player controllers consume movement_updated;
+			# have produced. Player controllers consume movement_received;
 			# they don't care whether the source is the BFF or local input.
 			var ts: int = int(Time.get_unix_time_from_system() * 1000)
 			var local := {"action": action, "pressed": key_ev.pressed, "timestamp": ts}
-			movement_updated.emit(local)
-			state_updated.emit(local)
+			_dispatch("movement", local)
 		get_viewport().set_input_as_handled()
 
 func send_control(action: String, pressed: bool) -> void:
