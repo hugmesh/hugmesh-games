@@ -1,10 +1,19 @@
 import { Injectable, createComponent, EnvironmentInjector, Type, inject } from '@angular/core';
 import { createCustomElement } from '@angular/elements';
-import { loadRemoteModule } from '@angular-architects/native-federation';
 import { Observable, defer, from, of, shareReplay } from 'rxjs';
 import { map, switchMap } from 'rxjs/operators';
 
 import { FederationRemote, FederationService } from './federation.service';
+
+// `@angular-architects/native-federation` is loaded LAZILY in
+// `registerRemoteAsCustomElement` instead of statically imported here.
+// Karma's webpack-based test bundler can't parse the package's ESM
+// `index.js` (the Module-parse-failed error blocks every spec that
+// transitively imports this file), so a static import would
+// effectively make this service untestable. The dynamic import is
+// equivalent at runtime — the federation runtime still loads, just
+// on-demand the first time a game card is clicked.
+type LoadRemoteModuleFn = (opts: { remoteName: string; exposedModule: string }) => Promise<Record<string, unknown>>;
 
 /**
  * Loads a federated remote module via native-federation's runtime,
@@ -59,9 +68,18 @@ export class RemoteLoaderService {
       return;
     }
 
+    // Variable-specifier dynamic import keeps native-federation OUT of
+    // karma's static dependency graph — webpack's parser only follows
+    // string-literal imports, so passing through a variable is opaque.
+    // At runtime the import map (set up by initFederation) resolves
+    // the bare specifier; in tests this method is never reached, so
+    // the import never executes.
+    const specifier = '@angular-architects/native-federation';
+    const fed = await import(/* webpackIgnore: true */ specifier) as { loadRemoteModule: LoadRemoteModuleFn };
+
     // remote.slug is the federation manifest's `name`; remote.exposedModule
     // is the './GameRoot' path the federation.config.js exposes block uses.
-    const mod = await loadRemoteModule({
+    const mod = await fed.loadRemoteModule({
       remoteName: remote.slug,
       exposedModule: remote.exposedModule ?? './GameRoot',
     });
