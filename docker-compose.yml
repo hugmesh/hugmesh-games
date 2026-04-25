@@ -133,50 +133,47 @@ services:
     ports:
       - "8080:8080"
 
-  # ── Federation remote stubs ─────────────────────────────────────────────────
-  # Each `federation_modules` row points at one of these services. They
-  # currently serve a 200 OK placeholder so the manifest URLs resolve and
-  # the host federation runtime doesn't 404 during initFederation. Real
-  # builds — separate Angular projects with their own
-  # `@angular-architects/native-federation:build` config — replace these
-  # in PLAN section A's full-split phase.
+  # ── Federation remotes ──────────────────────────────────────────────────────
+  # Each `federation_modules` row points at one of these services. login,
+  # admin, games-three-wizards, and games-dodecahedron are real Angular
+  # remotes built with `@angular-architects/native-federation:build` and
+  # served by nginx. wasm-fragment stays an nginx-only service (it's a
+  # `fragment` kind that streams Godot bundles by `?slug=&level=` — no
+  # Angular build needed).
   #
-  # Today these stubs are reachable on the compose network only; they're
-  # not exposed on the host. The host shell (frontend service above) is
-  # the only public-facing piece.
+  # All four expose only on the compose network; the host shell (frontend
+  # above) is the only public-facing service. The host's nginx proxies
+  # /_remotes/<slug>/ → http://<slug>:8080/ so the browser sees a single
+  # origin (same COOP/COEP, same TLS termination, no CORS gymnastics).
 
   login:
-    image: nginx:1.27-alpine
+    build:
+      context: ./frontend
+      dockerfile: projects/login/Dockerfile
     expose: ["8080"]
-    volumes:
-      - ./frontend/federation-stubs/login.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./frontend/federation-stubs/remote-stub.html:/usr/share/nginx/html/index.html:ro
 
   admin:
-    image: nginx:1.27-alpine
+    build:
+      context: ./frontend
+      dockerfile: projects/admin/Dockerfile
     expose: ["8080"]
-    volumes:
-      - ./frontend/federation-stubs/admin.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./frontend/federation-stubs/remote-stub.html:/usr/share/nginx/html/index.html:ro
 
   games-three-wizards:
-    image: nginx:1.27-alpine
+    build:
+      context: ./frontend
+      dockerfile: projects/games-three-wizards/Dockerfile
     expose: ["8080"]
-    volumes:
-      - ./frontend/federation-stubs/game.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./frontend/federation-stubs/remote-stub.html:/usr/share/nginx/html/index.html:ro
 
-  # First fully-built federated remote. Real ng build + nginx-served
-  # bundle; the host shell discovers it via /api/federation/manifest
-  # and injects its main bundle at runtime when a player clicks the
-  # Dodecahedron card. The other game-* services stay as stubs until
-  # their per-project builds land.
   games-dodecahedron:
     build:
       context: ./frontend
       dockerfile: projects/games-dodecahedron/Dockerfile
     expose: ["8080"]
 
+  # wasm-fragment is the shared bundle streamer the game remotes call
+  # with `?slug=&level=`. It needs COOP/COEP for SharedArrayBuffer +
+  # threaded WASM; it does NOT need an Angular build because it's a
+  # storage/transport tier, not a UI tier. Keep on nginx-stub config.
   wasm-fragment:
     image: nginx:1.27-alpine
     expose: ["8080"]

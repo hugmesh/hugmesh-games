@@ -3,6 +3,141 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
+    "login": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/login",
+      "sourceRoot": "projects/login/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": { "target": "login:esbuild:production" },
+          "configurations": {
+            "development": { "target": "login:esbuild:development", "dev": true },
+            "production": { "target": "login:esbuild:production" }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/login",
+            "index": "projects/login/src/index.html",
+            "browser": "projects/login/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/login/tsconfig.app.json",
+            "assets": [],
+            "styles": [],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                { "type": "initial", "maximumWarning": "500kb", "maximumError": "2mb" }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
+    "admin": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/admin",
+      "sourceRoot": "projects/admin/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": { "target": "admin:esbuild:production" },
+          "configurations": {
+            "development": { "target": "admin:esbuild:development", "dev": true },
+            "production": { "target": "admin:esbuild:production" }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/admin",
+            "index": "projects/admin/src/index.html",
+            "browser": "projects/admin/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/admin/tsconfig.app.json",
+            "assets": [],
+            "styles": [],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                { "type": "initial", "maximumWarning": "500kb", "maximumError": "2mb" }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
+    "games-three-wizards": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/games-three-wizards",
+      "sourceRoot": "projects/games-three-wizards/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": { "target": "games-three-wizards:esbuild:production" },
+          "configurations": {
+            "development": { "target": "games-three-wizards:esbuild:development", "dev": true },
+            "production": { "target": "games-three-wizards:esbuild:production" }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/games-three-wizards",
+            "index": "projects/games-three-wizards/src/index.html",
+            "browser": "projects/games-three-wizards/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/games-three-wizards/tsconfig.app.json",
+            "assets": [],
+            "styles": [],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                { "type": "initial", "maximumWarning": "500kb", "maximumError": "2mb" }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
     "games-dodecahedron": {
       "projectType": "application",
       "schematics": {},
