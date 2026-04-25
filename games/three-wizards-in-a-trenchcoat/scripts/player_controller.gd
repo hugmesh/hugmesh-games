@@ -17,6 +17,7 @@ const SPELL_COLORS := [
 const SPELL_NAMES := ["Fireball", "Ice Shard", "Thunder Bolt", "Stone Spike", "Holy Light"]
 
 var _game_bridge: Node = null
+var _host_bridge: Node = null
 var _sse_dir       := Vector3.ZERO
 var _pending_jump  := false
 var _drop_started  := false
@@ -25,11 +26,22 @@ var _hand_anchor: Node3D = null
 var _equipped_mesh: MeshInstance3D = null
 
 func _ready() -> void:
-	_game_bridge = get_parent().get_node_or_null("GameBridge")
-	if _game_bridge:
-		_game_bridge.state_updated.connect(_on_state_updated)
+	# Migration step (PLAN section G follow-up): prefer the Rust
+	# HostBridge node if the scene wired one up — its `movement_received`
+	# signal carries the same payload as GameBridge.state_updated, just
+	# JSON-encoded so the bridge stays portable across Godot snapshots.
+	# Fall back to the legacy GameBridge for scenes that haven't been
+	# migrated yet OR if the GDExtension failed to load (e.g. no Rust
+	# binary in the bundle's bin/).
+	_host_bridge = get_parent().get_node_or_null("HostBridge")
+	if _host_bridge != null:
+		_host_bridge.movement_received.connect(_on_movement_json)
 	else:
-		push_warning("PlayerController: GameBridge not found under parent")
+		_game_bridge = get_parent().get_node_or_null("GameBridge")
+		if _game_bridge:
+			_game_bridge.state_updated.connect(_on_state_updated)
+		else:
+			push_warning("PlayerController: neither HostBridge nor GameBridge found under parent")
 	_setup_hand_anchor()
 
 # Build a Marker3D-equivalent on the player at shoulder height that the equipped
@@ -108,6 +120,16 @@ func _physics_process(delta: float) -> void:
 		velocity.z = 0.0
 
 	move_and_slide()
+
+# HostBridge's typed signals carry stringly-typed JSON payloads (the
+# bridge stays portable across gdext Dictionary-API drift). Parse and
+# delegate to the existing handler so the migrated subscriber path
+# matches the legacy one byte-for-byte.
+func _on_movement_json(payload_json: String) -> void:
+	var parsed: Variant = JSON.parse_string(payload_json)
+	if parsed is Dictionary:
+		_on_state_updated(parsed)
+
 
 func _on_state_updated(state: Dictionary) -> void:
 	if not state.has("action") or state["action"] == null:
