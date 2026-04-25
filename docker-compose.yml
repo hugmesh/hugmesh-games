@@ -56,13 +56,28 @@ services:
       HEAP_NEWSIZE: 128M
     volumes:
       - cassandra_data:/var/lib/cassandra
-      - ./docker/cassandra-init.cql:/docker-entrypoint-initdb.d/01-init.cql:ro
     healthcheck:
       test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 30
       start_period: 60s
+
+  cassandra-init:
+    # One-shot keyspace + table bootstrap. The official cassandra image has
+    # no /docker-entrypoint-initdb.d mechanism (that's Postgres-only), so we
+    # run cqlsh against the live Cassandra container ourselves. Exits 0 once
+    # the schema is in place; the api blocks on this via
+    # condition: service_completed_successfully so it never starts before
+    # the keyspace exists.
+    image: cassandra:5
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./docker/cassandra-init.cql:/init.cql:ro
+    entrypoint: ["sh", "-c", "cqlsh cassandra 9042 -f /init.cql && echo '✓ keyspace ready'"]
+    restart: "no"
 
   api:
     build: ./backend
@@ -73,6 +88,8 @@ services:
         condition: service_healthy
       cassandra:
         condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
     # No host port — the web nginx terminates on :8080 and proxies /api
     # to api:8080 internally. Keeping the api off the host avoids a port
     # conflict with the web port and matches a real prod topology.
