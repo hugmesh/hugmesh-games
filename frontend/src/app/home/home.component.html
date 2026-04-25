@@ -76,21 +76,25 @@
       </div>
       <div class="canvas-container" #canvasContainer>
         <!--
-          Host shell now bootstraps under @angular-architects/native-
+          Host shell bootstraps under @angular-architects/native-
           federation:build (post-process strips modulepreload + flips
           polyfills script type to module-shim; main/bootstrap split
-          breaks the import-map chicken-and-egg). Per-remote integration
-          (loadRemoteModule + createCustomElement) is wired in
-          RemoteLoaderService and the federation manifest, but the
-          remote's own dist still needs polish — its bundles load but
-          the registered <app-<slug>-remote> doesn't yet render its
-          inner WASM iframe. Until that closes, every level renders
-          through <app-game-canvas>; the federation runtime is live in
-          the background ready for the cutover.
+          breaks the import-map chicken-and-egg). Federated levels
+          mount via the registered <app-<slug>-remote> Web Component
+          (loadRemoteModule + createCustomElement, see
+          RemoteLoaderService); legacy levels stay on <app-game-canvas>.
         -->
-        <app-game-canvas
-          [game]="activeLevel"
-          (levelTransition)="onLevelTransition($event)"></app-game-canvas>
+        @if (isFederated(activeLevel)) {
+          @switch (activeRemoteSlug) {
+            @case ('dodecahedron') {
+              <app-dodecahedron-remote class="remote-mount"></app-dodecahedron-remote>
+            }
+          }
+        } @else {
+          <app-game-canvas
+            [game]="activeLevel"
+            (levelTransition)="onLevelTransition($event)"></app-game-canvas>
+        }
         @if (!isChromeless(activeLevel)) {
           <div class="hud-layer">
             <app-game-hud></app-game-hud>

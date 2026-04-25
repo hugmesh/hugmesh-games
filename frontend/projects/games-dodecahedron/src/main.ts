@@ -1,14 +1,12 @@
-// Standalone preview entry — opening dist/games-dodecahedron/index.html
-// directly bootstraps the component for ad-hoc testing. The real
-// federation flow doesn't run this file; the host calls
-// loadRemoteModule({remoteName:'games-dodecahedron', exposedModule:'./GameRoot'})
-// which pulls dodecahedron-remote.component.js straight out of the
-// federation runtime. See federation.config.js exposes block.
-
-import { bootstrapApplication } from '@angular/platform-browser';
-import { DodecahedronRemoteComponent } from './app/dodecahedron-remote.component';
-
-bootstrapApplication(DodecahedronRemoteComponent).catch(err => {
-  // eslint-disable-next-line no-console
-  console.error('[games-dodecahedron] standalone bootstrap failed', err);
-});
+// Build entry for the federated remote. Native-federation loads this
+// `main.js` as part of remote initialization — anything with a top-
+// level side effect runs INSIDE the host shell at that point, so a
+// `bootstrapApplication(...)` call here would spawn a second Angular
+// application inside the host (NG0904 / NG0203). Keep this file
+// side-effect-free; the host fetches the exposed component via
+// `loadRemoteModule({remoteName, exposedModule:'./GameRoot'})` per
+// federation.config.js — that path goes directly to GameRoot-*.js.
+//
+// The component is re-exported so users opening dist/index.html in
+// isolation get a clear "no bootstrap" hint rather than a blank page.
+export { DodecahedronRemoteComponent } from './app/dodecahedron-remote.component';

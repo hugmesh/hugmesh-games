@@ -5,8 +5,21 @@
 // imported below once initFederation completes; that's native-
 // federation's documented "break-the-chicken-and-egg" pattern.
 
-import { initFederation } from '@angular-architects/native-federation';
+import { initFederation, loadRemoteModule } from '@angular-architects/native-federation';
 import { environment } from './environments/environment';
+
+// Stash the federation runtime's `loadRemoteModule` on the global so
+// services that need it can pick it up WITHOUT statically importing
+// `@angular-architects/native-federation` themselves. Why this matters:
+// karma's webpack-based test bundler can't parse the package's ESM
+// `index.js` ("Module parse failed" — see RemoteLoaderService comment),
+// and a direct dynamic `import('@angular-architects/native-federation')`
+// at the call site fails at runtime because es-module-shims tries to
+// resolve the bare specifier against the import map (which only holds
+// remote slugs, not the federation package). Pre-stashing on the global
+// from main.ts (whose static import IS bundled by esbuild) is the only
+// path that keeps both the karma graph and the production runtime happy.
+(globalThis as any).__SNAPDRAGON_LOAD_REMOTE_MODULE__ = loadRemoteModule;
 
 interface BffManifest {
   generatedAt?: string;

@@ -53,8 +53,16 @@ test.describe('full-stack smoke', () => {
     const cardCount = await gameCards.count();
     expect(cardCount).toBeGreaterThan(0);
 
-    // Step 4: click the first unlocked level (Cave is always unlocked at id=1).
-    await gameCards.filter({ hasNot: page.locator('.locked') }).first().click();
+    // Step 4: pick the Cave card (legacy iframe path) by its scene-tag —
+    // sortOrder ties between cave/field/dodecahedron mean "first unlocked"
+    // can land on the federated dodecahedron card and skip the legacy
+    // <app-game-canvas> branch we want to exercise here. Federated render
+    // is exercised in Step 6 below.
+    const caveCard = page.locator('.game-card', {
+      has: page.locator('.scene-tag--cave'),
+    }).first();
+    await expect(caveCard).toBeVisible({ timeout: 15_000 });
+    await caveCard.click();
 
     // Wait for the iframe to attach + start streaming bytes.
     const iframe = page.frameLocator('app-game-canvas iframe');
@@ -78,11 +86,17 @@ test.describe('full-stack smoke', () => {
       { timeout: 30_000, message: 'expected /api/levels/{id}/scene to be fetched by the prefetch script' },
     ).toBeGreaterThan(0);
 
-    // ── Step 6: chrome-less Dodecahedron Demo ───────────────────────────────
+    // ── Step 6: federated chrome-less Dodecahedron Demo ─────────────────────
     // Close the cave canvas, return to the home grid, click the dodecahedron
-    // card. Verify (a) its WASM/PCK assets fetch with HTTP 200, and (b) the
-    // HUD + controls overlays are NOT rendered (sceneType=dodecahedron is
-    // marked CHROMELESS in home.component.ts).
+    // card. The dodecahedron level renders via the federated remote
+    // (<app-dodecahedron-remote> registered by RemoteLoaderService +
+    // loadRemoteModule), NOT the legacy <app-game-canvas>. Verify
+    //   (a) the federated custom element is mounted,
+    //   (b) the legacy <app-game-canvas> path is gone for this level,
+    //   (c) HUD + controls overlays are NOT rendered (sceneType is
+    //       CHROMELESS in home.component.ts), and
+    //   (d) WASM/PCK still fetch with HTTP 200 (the iframe inside the
+    //       federated component points at the same Godot asset URLs).
     await page.locator('button.close-btn').click();
     await expect(page.locator('app-game-canvas iframe')).toHaveCount(0);
 
@@ -91,6 +105,12 @@ test.describe('full-stack smoke', () => {
     }).first();
     await expect(dodecaCard).toBeVisible({ timeout: 15_000 });
     await dodecaCard.click();
+
+    // Federated mount: the host registered the custom element via
+    // loadRemoteModule + createCustomElement; the upgraded element holds
+    // the iframe pointing at /api/assets/levels/dodecahedron/index.html.
+    await expect(page.locator('app-dodecahedron-remote')).toBeAttached({ timeout: 30_000 });
+    await expect(page.locator('app-game-canvas')).toHaveCount(0);
 
     // The chrome-less rule: hud-layer must not be in the DOM for this game.
     await expect(page.locator('.hud-layer')).toHaveCount(0);
