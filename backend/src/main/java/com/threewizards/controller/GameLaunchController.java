@@ -103,6 +103,9 @@ public class GameLaunchController {
                             row.setGameSlug(slug);
                             row.setCasdoorUserId(userId);
                             row.setExpiresAt(Instant.now().plus(LAUNCH_TTL));
+                            // Pin the active version dir so a hot upload
+                            // doesn't swap WASM under this session's feet.
+                            row.setVersionDir(g.getCurrentVersionDir());
                             return launches.save(row)
                                     .map(saved -> new LaunchResponse(
                                             saved.getUid(),

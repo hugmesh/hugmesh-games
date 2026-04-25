@@ -24,6 +24,14 @@ public class GameLaunch {
     private Instant startedAt;
     private Instant expiresAt;
     private Instant terminatedAt;
+    /**
+     * Filesystem path of the version this launch was minted against.
+     * Captured at launch time from {@code games.current_version_dir}
+     * so a hot upload mid-session doesn't swap the WASM under the
+     * player's feet. NULL when the launch was for a classpath-only
+     * game (cave / field / dodecahedron ship in the API jar).
+     */
+    private String versionDir;
 
     public Long getId() { return id; }
     public String getUid() { return uid; }
@@ -32,10 +40,12 @@ public class GameLaunch {
     public Instant getStartedAt() { return startedAt; }
     public Instant getExpiresAt() { return expiresAt; }
     public Instant getTerminatedAt() { return terminatedAt; }
+    public String getVersionDir() { return versionDir; }
 
     public void setUid(String uid) { this.uid = uid; }
     public void setGameSlug(String gameSlug) { this.gameSlug = gameSlug; }
     public void setCasdoorUserId(String casdoorUserId) { this.casdoorUserId = casdoorUserId; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public void setTerminatedAt(Instant terminatedAt) { this.terminatedAt = terminatedAt; }
+    public void setVersionDir(String versionDir) { this.versionDir = versionDir; }
 }

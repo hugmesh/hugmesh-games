@@ -146,13 +146,25 @@
             <artifactId>native-maven-plugin</artifactId>
             <configuration>
               <!--
-                GraalVM swallows the SLF4J + Spring banner on startup unless we
-                tell it to re-initialise these classes at runtime. The list grows
-                on a build-by-build basis as new third-party libs surface
-                build-time-init bugs; keep it minimal.
+                Classes that need RUNTIME init (cannot be pre-initialised at
+                build time). The list grows as new third-party libs surface
+                their JIT-only invariants. Discovered via runtime
+                NoClassDefFoundError or "Class initialization is not yet
+                supported within native-image" trace.
               -->
               <buildArgs>
                 <buildArg>--initialize-at-run-time=org.fusesource.jansi.AnsiConsole</buildArg>
+                <!--
+                  Netty's jctools-shaded MPSC queues read thread-local +
+                  Unsafe state in their static initialiser, so build-time
+                  init can leave them in an "init failed" state that
+                  manifests at runtime as NoClassDefFoundError when the
+                  Cassandra reactive driver's frame encoder allocates a
+                  buffer. Defer ALL of jctools (broad package) to
+                  runtime — same workaround Spring's docs recommend for
+                  Cassandra + R2DBC reactive stacks under native-image.
+                -->
+                <buildArg>--initialize-at-run-time=io.netty.util.internal.shaded.org.jctools</buildArg>
                 <buildArg>-H:+ReportExceptionStackTraces</buildArg>
               </buildArgs>
             </configuration>

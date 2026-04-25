@@ -136,8 +136,35 @@ public class AssetController {
                     if (!Objects.equals(launch.getGameSlug(), slug)) {
                         return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
                     }
-                    return serveLevelFile(slug, filename);
+                    // Active-version pin: serve from the dir captured at
+                    // launch time so a hot upload mid-session doesn't swap
+                    // WASM under the player's feet. Falls back to the
+                    // current games.current_version_dir / classpath when
+                    // the launch wasn't pinned (legacy launch row, or
+                    // game has never been hot-uploaded).
+                    String pinned = launch.getVersionDir();
+                    if (pinned == null || pinned.isBlank()) {
+                        return serveLevelFile(slug, filename);
+                    }
+                    return serveFromPinnedDir(pinned, slug, filename);
                 });
+    }
+
+    private Mono<ResponseEntity<Resource>> serveFromPinnedDir(String versionDir,
+                                                              String slug,
+                                                              String filename) {
+        return Mono.fromCallable(() -> {
+            Path base = Path.of(versionDir).normalize();
+            Path target = base.resolve(filename).normalize();
+            if (!target.startsWith(base) || !Files.isRegularFile(target)) {
+                // Pinned dir gone (manual cleanup, disk pressure prune)
+                // — fall back to the classpath build of the level. This
+                // accepts a small mid-session asset drift but avoids 404.
+                return respondWith(new ClassPathResource("assets/levels/" + slug + "/" + filename),
+                                   filename);
+            }
+            return respondWith(new FileSystemResource(target), filename);
+        });
     }
 
     private Mono<ResponseEntity<Resource>> serveFile(String path) {

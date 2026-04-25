@@ -64,6 +64,51 @@ public class SnapdragonRuntimeHints implements RuntimeHintsRegistrar {
         // classpath at runtime; native-image needs to know to bake them in.
         hints.resources().registerPattern("db/changelog/*.xml");
 
+        // Netty's jctools-shaded queues read field offsets via Unsafe at
+        // class-init. Spring Boot's bundled GraalVM reachability metadata
+        // is pinned to netty 4.1.80 but our app uses 4.1.115, so the
+        // *Field producer/consumer-index classes drift out of coverage.
+        // Register them by name so reflective field lookup succeeds.
+        for (String cls : new String[]{
+                "io.netty.util.internal.shaded.org.jctools.queues.MpscArrayQueueProducerIndexField",
+                "io.netty.util.internal.shaded.org.jctools.queues.MpscArrayQueueConsumerIndexField",
+                "io.netty.util.internal.shaded.org.jctools.queues.MpscArrayQueueProducerLimitField",
+                "io.netty.util.internal.shaded.org.jctools.queues.unpadded.MpscUnpaddedArrayQueueProducerIndexField",
+                "io.netty.util.internal.shaded.org.jctools.queues.unpadded.MpscUnpaddedArrayQueueConsumerIndexField",
+                "io.netty.util.internal.shaded.org.jctools.queues.unpadded.MpscUnpaddedArrayQueueProducerLimitField",
+        }) {
+            hints.reflection().registerTypeIfPresent(classLoader, cls,
+                    h -> h.withMembers(MemberCategory.DECLARED_FIELDS,
+                            MemberCategory.INVOKE_DECLARED_CONSTRUCTORS));
+        }
+
+        // Liquibase resolves UIService implementations by reflective
+        // constructor; ServiceLocator-style. Each implementation must
+        // expose its no-arg constructor to native-image.
+        for (String cls : new String[]{
+                "liquibase.ui.LoggerUIService",
+                "liquibase.ui.ConsoleUIService",
+                "liquibase.logging.core.JavaLogService",
+                "liquibase.logging.core.DefaultLoggerConfiguration",
+                "liquibase.executor.jvm.JdbcExecutor",
+                "liquibase.command.core.UpdateCommandStep",
+                "liquibase.changelog.StandardChangeLogHistoryService",
+                "liquibase.lockservice.StandardLockService",
+                "liquibase.snapshot.SnapshotGeneratorFactory",
+                "liquibase.parser.core.xml.XMLChangeLogSAXParser",
+                "liquibase.parser.core.yaml.YamlChangeLogParser",
+                "liquibase.parser.core.json.JsonChangeLogParser",
+                "liquibase.serializer.core.xml.XMLChangeLogSerializer",
+                "liquibase.serializer.core.yaml.YamlChangeLogSerializer",
+                "liquibase.serializer.core.json.JsonChangeLogSerializer",
+                "liquibase.database.core.PostgresDatabase",
+        }) {
+            hints.reflection().registerTypeIfPresent(classLoader, cls,
+                    h -> h.withMembers(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+                            MemberCategory.INVOKE_DECLARED_METHODS,
+                            MemberCategory.DECLARED_FIELDS));
+        }
+
         // Casdoor JWKS verification eventually loads the BouncyCastle-style
         // RSA verifier; the OAuth2 resource-server starter handles its own
         // hints, so we deliberately don't duplicate them here.

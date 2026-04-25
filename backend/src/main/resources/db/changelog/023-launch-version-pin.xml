@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Active-version pinning for in-flight launches (PLAN section C
+        session-safety contract).
+
+        Without this, AssetController reads `games.current_version_dir`
+        per request and a hot upload swaps the WASM under a player's
+        feet mid-session. Capturing the version_dir AT launch time and
+        serving from THAT row preserves byte-stable assets for the
+        duration of the launch's TTL.
+
+        NULL on existing rows / freshly minted rows for a game that
+        has never been hot-uploaded; AssetController falls back to the
+        classpath in that case (the bundled cave/field/dodecahedron
+        ship in the API jar).
+    -->
+
+    <changeSet id="023-1-launch-version-pin" author="nin">
+        <addColumn tableName="game_launches">
+            <column name="version_dir" type="text"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>
