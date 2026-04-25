@@ -148,38 +148,69 @@ Target: each game ships as an **Angular remote module** (built by Webpack 5 / na
 - Backend: `/api/assets/levels/{slug}/` is unchanged but `index.html` is no longer used by the host (the remote loads `index.js` directly)
 
 ### Left off at
-**Bootstrap + topology stubs in place; per-remote Angular projects still TODO.**
-Done in this branch:
-- COOP `same-origin` + COEP `require-corp` headers in both
-  `frontend/nginx.conf` (HTTP) and `frontend/nginx-tls.conf` (HTTPS / e2e). This
-  unblocks SharedArrayBuffer + threaded WASM once Godot bundles mount directly
-  inside Angular.
-- `main.ts` now preloads the federation manifest from
-  `GET /api/federation/manifest` BEFORE `bootstrapApplication`, parking the
-  result on `window.__SNAPDRAGON_FEDERATION_MANIFEST__`. `FederationService`
-  reads from there if present, else lazy-fetches.
-- `docker-compose.yml` carries five nginx-stub services that match the
-  seeded `federation_modules` rows: `login`, `admin`, `games-three-wizards`,
-  `games-dodecahedron`, `wasm-fragment`. Each serves a stub
-  `/remoteEntry.json` (`{exposes:[], stub:true}`) and a placeholder index.
-  `wasm-fragment` advertises COOP/COEP and a `/fragment` doc endpoint.
-- Stubs sit on the compose network; only `frontend` is host-published, so
-  the topology matches the eventual production shape.
+**Host shell + four real remotes live; per-game federated render proven on
+dodecahedron; legacy iframe still serves cave + field until the host's
+routing migrates.**
 
-**Next session — concrete first slice for the actual remote split:**
-1. `npm i @angular-architects/native-federation` and run its host installer (or
-   replicate manually: `federation.config.js`, swap `application` builder for
-   `@angular-architects/native-federation:build` in `angular.json`).
-2. Create a single demo remote (`games-dodecahedron`) under `frontend/projects/`.
-   It exposes one `DodecahedronGameComponent` that takes a slug input and mounts
-   the existing Godot bundle directly against an Angular-managed `<canvas>` (load
-   `/api/assets/levels/dodecahedron/index.js` at runtime,
-   `new Engine({canvas, executable})`). Replace the `games-dodecahedron`
-   compose stub with a build of the new project.
-3. Wire it into `home.component` only when `level.sceneType === 'dodecahedron'` so
-   the iframe path stays alive for the TWiaT levels until the second remote lands.
-4. Run `make e2e` — extend the spec to assert the dodecahedron canvas is in the
-   DOM (not the iframe) and `hud-layer` is still absent.
+Done in this branch:
+- COOP `same-origin` + COEP `require-corp` in both `frontend/nginx.conf`
+  (HTTP) and `frontend/nginx-tls.conf` (HTTPS / e2e). Unblocks
+  SharedArrayBuffer + threaded WASM for any future direct-mount Godot
+  bundle.
+- Manifest preload: `main.ts` fetches `GET /api/federation/manifest`
+  BEFORE Angular bootstrap, parks the result on
+  `window.__SNAPDRAGON_FEDERATION_MANIFEST__`, and feeds the slug→URL
+  map into `initFederation(...)`. `FederationService` reads from the
+  global if present, else lazy-fetches.
+- Host bootstrap under `@angular-architects/native-federation:build`:
+  modulepreload tags stripped + polyfills script flipped to
+  `module-shim` in `frontend/Dockerfile`; main.ts/bootstrap.ts split
+  so static `@angular/*` imports only fire AFTER `initFederation()`
+  hydrates the import map. (Solves the chicken-and-egg blocker.)
+- `loadRemoteModule` exposed via `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`
+  so `RemoteLoaderService` can pick it up without statically importing
+  `@angular-architects/native-federation` (karma's webpack parser
+  can't read the package's ESM index.js).
+- Real per-remote builds replace the nginx stubs:
+  - `login` (kind=remote-shell, exposes `./LoginComponent`) — form-only
+    standalone; emits `submitCredentials`; host owns AuthService.
+  - `admin` (kind=remote-shell, exposes `./AdminShell`) — pill grid
+    driven by host-supplied `actions`; emits `(action)` events.
+  - `games-three-wizards` (kind=remote-game, exposes `./GameRoot`) —
+    iframe-pointed-at-BFF shell parameterised by `levelSlug`.
+  - `games-dodecahedron` (kind=remote-game, exposes `./GameRoot`) —
+    federated render proven end-to-end (e2e asserts).
+  - Each ships a `federation.config.js` + side-effect-free `main.ts` +
+    nginx Dockerfile. `withNativeFederation` shares all `@angular/*`
+    deps as singletons so a single Angular runtime crosses the seam.
+- `wasm-fragment` (kind=fragment) still nginx-only — but no longer a
+  static placeholder; `/fragment?slug=…` redirects to
+  `/api/assets/levels/<slug>/index.html` so the federation_modules
+  contract is honoured.
+- Per-game federated render: home.component.html forks on
+  `isFederated(activeLevel)` — federated levels mount
+  `<app-<slug>-remote>` (registered by `RemoteLoaderService` via
+  `loadRemoteModule` + `createCustomElement`); legacy levels stay on
+  `<app-game-canvas>`. Today only `dodecahedron` takes the federated
+  branch; cave + field still iframe through `<app-game-canvas>`.
+
+**Next session — wiring the host's routing through the real remotes:**
+1. Switch `app.routes.ts`'s `/login` route from the in-tree
+   `LoginComponent` to `loadComponent: () => loadRemoteModule({
+     remoteName: 'login', exposedModule: './LoginComponent' }).then(m =>
+   m.LoginRemoteComponent)`. Wire host's `AuthService.login()` into the
+   remote's `(submitCredentials)` event. Then delete `src/app/login/`.
+2. Same for `/admin` against `./AdminShell` behind a ROLE_ADMIN guard.
+   Migrate the upload UI from the host's in-tree admin component into
+   the remote's pill-driven action shell (or split it into a separate
+   `admin-uploads` remote).
+3. Add `'three-wizards'` (the games table slug, not the level slug)
+   to `FEDERATED_GAME_SLUGS` in home.component.ts and let
+   `<app-games-three-wizards-remote>` take over cave + field. Once
+   that's green, delete `src/app/game-canvas/` and its iframe.
+4. `wasm-fragment` could grow to actually proxy/serve Godot bundles
+   from a per-game volume so the api service stops being on the asset
+   path; deferred until the asset-tier split lands.
 
 ---
 
