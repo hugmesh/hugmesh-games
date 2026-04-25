@@ -3,7 +3,7 @@
     {
       "owner": "admin",
       "name": "threewizards",
-      "displayName": "Three Wizards",
+      "displayName": "Snapdragon Games",
       "websiteUrl": "http://localhost:4200",
       "favicon": "",
       "passwordType": "plain",
@@ -17,10 +17,10 @@
     {
       "owner": "admin",
       "name": "threewizards-app",
-      "displayName": "Three Wizards App",
+      "displayName": "Snapdragon Games",
       "logo": "",
       "homepageUrl": "http://localhost:4200",
-      "description": "Three Wizards In A Trenchcoat — Player Portal",
+      "description": "Snapdragon Games — Player Portal",
       "organization": "threewizards",
       "cert": "cert-built-in",
       "enablePassword": true,

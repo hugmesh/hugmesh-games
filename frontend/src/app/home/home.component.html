@@ -2,8 +2,8 @@
 
   <section class="hero">
     <div class="hero-inner">
-      <h1 class="hero-title">Three Wizards<br><span>In A Trenchcoat</span></h1>
-      <p class="hero-sub">Select a level to begin your adventure</p>
+      <h1 class="hero-title">Snapdragon<br><span>Games</span></h1>
+      <p class="hero-sub">Choose a world to enter</p>
     </div>
   </section>
 
@@ -78,10 +78,12 @@
         <app-game-canvas
           [game]="activeLevel"
           (levelTransition)="onLevelTransition($event)"></app-game-canvas>
-        <div class="hud-layer">
-          <app-game-hud></app-game-hud>
-          <app-game-controls></app-game-controls>
-        </div>
+        @if (!isChromeless(activeLevel)) {
+          <div class="hud-layer">
+            <app-game-hud></app-game-hud>
+            <app-game-controls></app-game-controls>
+          </div>
+        }
       </div>
     </section>
   }

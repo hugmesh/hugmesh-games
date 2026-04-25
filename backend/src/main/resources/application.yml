@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: three-wizards-api
+    name: snapdragon-gaming-bff
   webflux:
     base-path: /
 
@@ -22,6 +22,20 @@ spring:
 
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.xml
+
+  # Reactive Cassandra — cross-pod session/cache layer (see docker/cassandra-init.cql).
+  # Spring auto-discovers Reactive Cassandra when the starter is on the classpath;
+  # we only need the keyspace + contact points.
+  cassandra:
+    contact-points: ${CASSANDRA_CONTACT_POINTS:cassandra:9042}
+    keyspace-name:  ${CASSANDRA_KEYSPACE:threewizards}
+    local-datacenter: ${CASSANDRA_LOCAL_DC:dc1}
+    schema-action: NONE   # init script in docker creates the schema; never auto-create here
+    request:
+      timeout: 10s
+    connection:
+      connect-timeout: 30s
+      init-query-timeout: 30s
 
   # OAuth2 Resource Server — validate JWTs issued by Casdoor
   security:

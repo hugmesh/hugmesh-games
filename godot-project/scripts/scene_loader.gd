@@ -13,6 +13,14 @@ var _overlay_root: Control = null
 var _status_label: Label = null
 
 func _ready() -> void:
+	# Standalone demo bundles (e.g. dodecahedron) ship with their own scene
+	# and don't need the loading overlay, game bridge, or SSE plumbing. Bail
+	# out before doing any setup and switch to the demo scene immediately.
+	if OS.has_feature("level_dodecahedron"):
+		_done = true
+		call_deferred("_swap_to_demo", "res://scenes/dodecahedron.tscn")
+		return
+
 	_build_loading_overlay()
 	if not OS.has_feature("web"):
 		call_deferred("_finish_loading")
@@ -128,6 +136,10 @@ func _finish_loading() -> void:
 		var tween := create_tween()
 		tween.tween_property(_overlay_root, "modulate:a", 0.0, 1.4)
 		tween.tween_callback(func(): if is_instance_valid(ov): ov.queue_free())
+
+func _swap_to_demo(scene_path: String) -> void:
+	get_tree().change_scene_to_file(scene_path)
+
 
 func _on_time_updated(t: Dictionary) -> void:
 	if not is_instance_valid(_sun_node):

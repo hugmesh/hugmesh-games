@@ -7,15 +7,31 @@
 -- holds the per-WASM rows with asset_url + scene_type. Updates here target
 -- `levels` accordingly.
 
--- Ensure the umbrella game exists. Migration 012-8 already inserts this row;
--- the ON CONFLICT keeps re-runs idempotent.
+-- Snapdragon Games is a portal: each row in `games` is a separate game
+-- title. "Three Wizards In A Trenchcoat" is just one of the games in the
+-- catalog; the new Dodecahedron Demo is a second, standalone game with
+-- no quests or items (its level is a pure visual demo).
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
-VALUES (1, 'Three Wizards Saga',
-        'The full adventure across cave depths and open fields.',
+VALUES (1, 'Three Wizards In A Trenchcoat',
+        'A JRPG romp across cave depths and open fields. Three wizards, one trenchcoat.',
         'three-wizards', 1, NOW())
-ON CONFLICT (slug) DO NOTHING;
+ON CONFLICT (slug) DO UPDATE
+    SET name        = EXCLUDED.name,
+        description = EXCLUDED.description,
+        sort_order  = EXCLUDED.sort_order;
 
--- Levels — point each at its own per-level WASM bundle.
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+VALUES (2, 'Dodecahedron Demo',
+        'A spinning regular dodecahedron rendered in WebGL. Pure visual demo — no objectives, no inventory, no controls.',
+        'dodecahedron', 2, NOW())
+ON CONFLICT (slug) DO UPDATE
+    SET name        = EXCLUDED.name,
+        description = EXCLUDED.description,
+        sort_order  = EXCLUDED.sort_order;
+
+-- Levels — point each at its own per-level WASM bundle. The dodecahedron
+-- level uses scene_type = 'dodecahedron' which the home view treats as a
+-- chrome-less demo (no HUD, no controls overlay).
 INSERT INTO levels
     (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
 VALUES
@@ -34,6 +50,14 @@ VALUES
         '/api/assets/levels/field/index.html',
         '{}',
         1, NOW()
+    ),
+    (
+        'Spinning Dodecahedron',
+        'A regular dodecahedron rotating in 3D space. Take a moment, watch it spin.',
+        'dodecahedron', 'dodecahedron', 1,
+        '/api/assets/levels/dodecahedron/index.html',
+        '{}',
+        2, NOW()
     )
 ON CONFLICT (slug) DO UPDATE
     SET asset_url   = EXCLUDED.asset_url,

@@ -10,7 +10,9 @@
 
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-godot patch-godot build-backend build-frontend \
-        dev-backend dev-frontend install deps-rust deps-frontend seed-db deploy gen-api
+        dev-backend dev-frontend install deps-rust deps-frontend seed-db deploy \
+        gen-certs e2e e2e-down e2e-logs gen-api \
+        test test-rust test-backend test-frontend
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -28,9 +30,9 @@ RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/three_wizards.was
 GODOT_EXPORT_ROOT   = $(BACKEND_DIR)/src/main/resources/assets/levels
 # Space-separated list of level slugs that map to export preset names.
 # Add new levels here AND in godot-project/export_presets.cfg.
-GODOT_LEVELS        = Cave Field
-BACKEND_JAR         = $(BACKEND_DIR)/target/three-wizards-api-0.1.0-SNAPSHOT.jar
-FRONTEND_DIST       = $(FRONTEND_DIR)/dist/three-wizards-frontend
+GODOT_LEVELS        = Cave Field Dodecahedron
+BACKEND_JAR         = $(BACKEND_DIR)/target/snapdragon-gaming-bff-0.1.0-SNAPSHOT.jar
+FRONTEND_DIST       = $(FRONTEND_DIR)/dist/snapdragon-games-frontend
 
 # ── Full production build ─────────────────────────────────────────────────────
 
@@ -171,7 +173,115 @@ seed-db:
 # Rebuilds the Godot WASM bundle, patches HTML, then upserts DB game records.
 # Rebuilding the backend Docker image is required to pick up new classpath assets.
 deploy: build-godot seed-db
-	@echo "✓ Deploy done — rebuild and push the api container to serve new assets"
+	@echo "✓ deploy ready — rebuild api/frontend images to ship the new assets"
+
+# ── Cross-platform end-to-end test ────────────────────────────────────────────
+# `make e2e` runs the full stack with self-signed TLS + Java truststore mounted
+# in the api, then drives Playwright against https://localhost:8080 to assert
+# login, games list, and WASM/PCK loading on level click.
+#
+# Cross-platform: every dependency (openssl, JDK keytool, node, Chromium) runs
+# inside Docker. Host requirements: docker + make + a POSIX shell.
+#
+# Override `CERT_PATH=/abs/path/to/certs` to use your own certs (must contain
+# ca.crt, server.crt, server.key, keystore.p12, truststore.p12).
+# Override `E2E_PLAYER_PASSWORD=...` to set the Casdoor player password.
+
+E2E_FILES        = -f docker-compose.yml -f docker-compose.e2e.yml
+E2E_PLAYER_USER ?= player
+E2E_PLAYER_PASS ?= e2e-player-pass
+
+gen-certs:
+	@echo "→ Generating self-signed certs (or reusing CERT_PATH if set)…"
+	@sh scripts/gen-certs.sh
+
+e2e: gen-certs
+	@echo "→ Building images with TLS layer…"
+	docker compose $(E2E_FILES) build api frontend e2e
+	@echo "→ Starting stack with TLS…"
+	docker compose $(E2E_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
+	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"
+	@for i in $$(seq 1 60); do \
+	  api_ok=0; web_ok=0; \
+	  docker compose $(E2E_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
+	  if [ $$((i % 6)) -eq 0 ]; then \
+	    echo "  … attempt $$i/60: api=$$api_ok web=$$web_ok"; \
+	    docker compose $(E2E_FILES) ps --format 'table {{.Service}}\t{{.Status}}' | tail -n +2 | sed 's/^/      /'; \
+	  fi; \
+	  if [ $$i -eq 60 ]; then echo "  ✗ stack failed to come up in 5 minutes"; \
+	    echo "--- api log ---"; docker compose $(E2E_FILES) logs --tail 30 api; \
+	    echo "--- frontend log ---"; docker compose $(E2E_FILES) logs --tail 10 frontend; \
+	    exit 1; fi; \
+	  sleep 5; \
+	done
+	@echo "→ Running Playwright suite…"
+	@# Single shell line: must capture $? from `compose run` *before* anything
+	@# else clobbers it. A separate recipe line would start a fresh shell where
+	@# $? is whatever the previous `echo` returned (i.e. always 0). `set +e`
+	@# stops the shell aborting on the failing run so we still tear down.
+	@set +e; \
+	docker compose $(E2E_FILES) run --rm \
+	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
+	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  e2e; \
+	status=$$?; \
+	echo "→ Tearing down…"; \
+	docker compose $(E2E_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	if [ $$status -eq 0 ]; then echo "✓ E2E PASSED"; \
+	else echo "✗ E2E FAILED (status $$status) — see e2e/results/"; exit $$status; fi
+
+e2e-down:
+	docker compose $(E2E_FILES) down -v --remove-orphans
+
+e2e-logs:
+	docker compose $(E2E_FILES) logs -f --tail 50
+
+# ── Per-project unit tests ───────────────────────────────────────────────────
+# Each subproject runs its own native test framework. `make test` runs them
+# all sequentially. Each one is also runnable in isolation (CI fan-out).
+#
+#   test-rust      → cargo test in game/rust (host toolchain; needs cargo)
+#   test-backend   → mvnw test in backend/   (host toolchain; needs JDK 21)
+#   test-frontend  → ng test in a Docker container (Chromium baked in,
+#                    so the host doesn't need a browser)
+#
+# Godot has no GDScript test suite yet — coverage of the runtime layer is
+# exercised by `make e2e`, which loads the WASM bundle in a real browser.
+
+FRONTEND_TEST_IMAGE = snapdragon-games-frontend-test
+
+test: test-rust test-backend test-frontend
+	@echo "✓ All project unit tests passed"
+
+test-rust: deps-rust
+	@echo "→ Running Rust unit tests…"
+	cd $(RUST_DIR) && cargo test
+	@echo "✓ Rust tests passed"
+
+test-backend:
+	@echo "→ Running backend (Spring Boot) unit tests…"
+	@command -v mvn >/dev/null 2>&1 || { echo "ERROR: mvn not found"; exit 1; }
+	cd $(BACKEND_DIR) && ./mvnw -q test
+	@echo "✓ Backend tests passed"
+
+test-frontend:
+	@echo "→ Building frontend test image (chromium baked in)…"
+	docker build -q -f $(FRONTEND_DIR)/Dockerfile.test -t $(FRONTEND_TEST_IMAGE) $(FRONTEND_DIR) >/dev/null
+	@echo "→ Running Angular (Karma) unit tests in container…"
+	docker run --rm --init \
+	  -v $(PWD)/$(FRONTEND_DIR):/work \
+	  -w /work \
+	  $(FRONTEND_TEST_IMAGE) \
+	  sh -c '\
+	    if [ ! -d node_modules ] || ! npm ls karma-jasmine >/dev/null 2>&1; then \
+	      echo "[test-frontend] installing deps (one-shot)…"; \
+	      npm install --silent --no-audit --no-fund; \
+	    fi; \
+	    npm test \
+	  '
+	@echo "✓ Frontend tests passed"
 
 # ── Dev servers ───────────────────────────────────────────────────────────────
 

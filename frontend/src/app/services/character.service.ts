@@ -3,14 +3,33 @@ import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { CharacterState } from '../models/character.model';
+import { GameStateService } from './game-state.service';
 import { environment } from '../../environments/environment';
 
+/**
+ * Single source of truth for the player's character. Emits on:
+ *   • initial /api/characters/{id} GET (load())
+ *   • subsequent PUT patches (update())
+ *   • inbound SSE `character` events broadcast by the API on stat changes
+ *     (spell MP drain, item use, quest reward, etc.)
+ *
+ * Components binding to `character$` get live updates from any of those
+ * paths — no need to poll, and no diverging copies of HP/MP across the HUD.
+ */
 @Injectable({ providedIn: 'root' })
 export class CharacterService {
   private readonly http = inject(HttpClient);
+  private readonly gameState = inject(GameStateService);
 
   private readonly _character$ = new BehaviorSubject<CharacterState | null>(null);
   readonly character$ = this._character$.asObservable();
+
+  constructor() {
+    // Forward SSE `character` events into our BehaviorSubject so anything
+    // bound to character$ updates in real time (HUD HP/MP bars, dashboard,
+    // skill-cost displays, etc.).
+    this.gameState.character$.subscribe(c => this._character$.next(c));
+  }
 
   load(id: number = 1): Observable<CharacterState> {
     return this.http.get<CharacterState>(`${environment.apiBase}/api/characters/${id}`).pipe(

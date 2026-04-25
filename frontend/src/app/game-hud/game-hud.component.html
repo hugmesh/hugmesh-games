@@ -13,25 +13,28 @@
       </div>
     </ng-container>
 
-    <!-- HP / MP from SSE game state -->
-    <div class="stat-bar health-bar">
-      <span class="stat-label">HP</span>
-      <div class="bar-track">
-        <div class="bar-fill"
-             [style.width.%]="state.player.maxHp > 0 ? (state.player.health / state.player.maxHp) * 100 : state.player.health">
+    <!-- HP / MP from CharacterService — auto-updates on SSE `character` events
+         so spell MP drains, item heals, and damage all show in real time. -->
+    <ng-container *ngIf="character$ | async as char">
+      <div class="stat-bar health-bar">
+        <span class="stat-label">HP</span>
+        <div class="bar-track">
+          <div class="bar-fill"
+               [style.width.%]="char.maxHp > 0 ? (char.currentHp / char.maxHp) * 100 : 0">
+          </div>
         </div>
+        <span class="stat-value">{{ char.currentHp }}/{{ char.maxHp }}</span>
       </div>
-      <span class="stat-value">{{ state.player.health }}/{{ state.player.maxHp || 100 }}</span>
-    </div>
-    <div class="stat-bar mana-bar">
-      <span class="stat-label">MP</span>
-      <div class="bar-track">
-        <div class="bar-fill"
-             [style.width.%]="state.player.maxMana > 0 ? (state.player.mana / state.player.maxMana) * 100 : state.player.mana">
+      <div class="stat-bar mana-bar">
+        <span class="stat-label">MP</span>
+        <div class="bar-track">
+          <div class="bar-fill"
+               [style.width.%]="char.maxMp > 0 ? (char.currentMp / char.maxMp) * 100 : 0">
+          </div>
         </div>
+        <span class="stat-value">{{ char.currentMp }}/{{ char.maxMp }}</span>
       </div>
-      <span class="stat-value">{{ state.player.mana }}/{{ state.player.maxMana || 50 }}</span>
-    </div>
+    </ng-container>
 
     <div class="position-display">
       <span class="pos-label">POS</span>
@@ -54,6 +57,6 @@
     <button class="menu-btn" (click)="toggleMenu()" title="Open Menu">&#9776;</button>
   </div>
 
-  <!-- Game menu overlay -->
-  <app-game-menu *ngIf="menuOpen" [isOpen]="menuOpen" (closed)="menuOpen = false"></app-game-menu>
+  <!-- Game menu overlay — closeMenu also clears input suppression -->
+  <app-game-menu *ngIf="menuOpen" [isOpen]="menuOpen" (closed)="closeMenu()"></app-game-menu>
 </div>

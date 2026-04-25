@@ -42,6 +42,43 @@ services:
       retries: 12
       start_period: 20s
 
+  cassandra:
+    # Cross-pod session/cache layer. The api uses it as a CQL-backed store of
+    # active sessions / per-pod controller leases / aggregate stats so a
+    # multi-pod deployment can answer admin-stream queries from any pod
+    # without a fan-out to the others.
+    image: cassandra:5
+    environment:
+      CASSANDRA_CLUSTER_NAME: ThreeWizardsCluster
+      CASSANDRA_DC: dc1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  cassandra-init:
+    # One-shot keyspace + table bootstrap. The official cassandra image has
+    # no /docker-entrypoint-initdb.d mechanism (that's Postgres-only), so we
+    # run cqlsh against the live Cassandra container ourselves. Exits 0 once
+    # the schema is in place; the api blocks on this via
+    # condition: service_completed_successfully so it never starts before
+    # the keyspace exists.
+    image: cassandra:5
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./docker/cassandra-init.cql:/init.cql:ro
+    entrypoint: ["sh", "-c", "cqlsh cassandra 9042 -f /init.cql && echo '✓ keyspace ready'"]
+    restart: "no"
+
   api:
     build: ./backend
     depends_on:
@@ -49,8 +86,15 @@ services:
         condition: service_healthy
       casdoor:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+      cassandra:
+        condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
+    # No host port — the web nginx terminates on :8080 and proxies /api
+    # to api:8080 internally. Keeping the api off the host avoids a port
+    # conflict with the web port and matches a real prod topology.
+    expose:
+      - "8080"
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
@@ -61,6 +105,9 @@ services:
       CASDOOR_CLIENT_ID: ${CASDOOR_CLIENT_ID:-twclient001}
       CASDOOR_CLIENT_SECRET: ${CASDOOR_CLIENT_SECRET:-}
       CASDOOR_ORGANIZATION: threewizards
+      CASSANDRA_CONTACT_POINTS: cassandra:9042
+      CASSANDRA_KEYSPACE: threewizards
+      CASSANDRA_LOCAL_DC: dc1
       SPRING_PROFILES_ACTIVE: prod
     restart: on-failure
 
@@ -68,8 +115,11 @@ services:
     build: ./frontend
     depends_on:
       - api
+    # Web is on :8080 across compose / dev / e2e. nginx serves the Angular
+    # bundle and reverse-proxies /api/* to api:8080 internally.
     ports:
-      - "4200:80"
+      - "8080:8080"
 
 volumes:
   pgdata:
+  cassandra_data:

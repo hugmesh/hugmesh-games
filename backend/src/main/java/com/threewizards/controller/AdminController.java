@@ -8,11 +8,14 @@ import com.threewizards.service.SessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.Map;
 
 @Tag(name = "Admin", description = "Server-management endpoints. Requires ROLE_ADMIN (isAdmin claim in JWT).")
@@ -42,6 +45,50 @@ public class AdminController {
     @GetMapping("/sessions")
     public Flux<SessionDto> sessions() {
         return sessionService.activeSessions();
+    }
+
+    @Operation(
+        summary = "Live admin SSE stream — active sessions, players, stats every 5 s",
+        description = """
+            Pushes the admin dashboard's live numbers continuously instead of
+            requiring `/api/admin/stats` polling. Each tick emits one event per
+            type so the dashboard can register `addEventListener` per channel.
+
+            ```
+            connect ─►  Flux.interval(0, 5s)
+                         ──tick──tick──tick──⋯
+                            │
+                        per-tick: zip(
+                            sessionService.computeStats(),
+                            sessionService.activeSessions().collectList(),
+                            characterRepo.findAll().collectList())
+                            │
+                          three SSE events:
+                            event: stats     {AdminStatsDto}
+                            event: sessions  [SessionDto…]
+                            event: roster    [CharacterDto…]
+            ```
+
+            Cassandra-backed cross-pod synchronisation means even when the API
+            scales horizontally the per-tick snapshot reflects every pod's
+            session map, not just the one this request hit.
+            """)
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<Object>> stream() {
+        return Flux.interval(Duration.ZERO, Duration.ofSeconds(5))
+                .flatMap(tick -> Mono.zip(
+                                sessionService.computeStats(),
+                                sessionService.activeSessions().collectList(),
+                                characters.findAll().map(CharacterDto::from).collectList()
+                        )
+                        .flatMapMany(t -> Flux.just(
+                                ServerSentEvent.<Object>builder()
+                                        .event("stats").data(t.getT1()).build(),
+                                ServerSentEvent.<Object>builder()
+                                        .event("sessions").data(t.getT2()).build(),
+                                ServerSentEvent.<Object>builder()
+                                        .event("roster").data(t.getT3()).build()
+                        )));
     }
 
     @Operation(
