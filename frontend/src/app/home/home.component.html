@@ -75,25 +75,21 @@
         </div>
       </div>
       <div class="canvas-container" #canvasContainer>
-        @if (isFederated(activeLevel)) {
-          <!--
-            Federated remote module — built independently under
-            frontend/projects/games-<slug>/ with the
-            @angular-architects/native-federation:build builder, served
-            by its own nginx container, loaded at runtime by
-            RemoteLoaderService through native-federation's
-            loadRemote(). The remote registers its element via
-            customElements.define(); the host renders the bare tag and
-            the browser upgrades it. No iframe.
-          -->
-          @switch (activeRemoteSlug) {
-            @case ('dodecahedron') { <app-dodecahedron-remote></app-dodecahedron-remote> }
-          }
-        } @else {
-          <app-game-canvas
-            [game]="activeLevel"
-            (levelTransition)="onLevelTransition($event)"></app-game-canvas>
-        }
+        <!--
+          Federation render path is currently bypassed — the
+          per-remote Angular sub-project (frontend/projects/games-
+          dodecahedron/), the federation.config.js scaffolding, the
+          dodecahedron-remote.component.ts exposed surface, and the
+          RemoteLoaderService all stay committed for a focused
+          follow-up session. The native-federation builder swap on
+          the host blocks bootstrap on a modulepreload+importmap
+          ordering issue we couldn't crack in this session; see
+          docs/PLAN-module-federation-and-native.md (section A).
+          Today every level renders through the legacy iframe path.
+        -->
+        <app-game-canvas
+          [game]="activeLevel"
+          (levelTransition)="onLevelTransition($event)"></app-game-canvas>
         @if (!isChromeless(activeLevel)) {
           <div class="hud-layer">
             <app-game-hud></app-game-hud>

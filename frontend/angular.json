@@ -11,22 +11,6 @@
       "prefix": "app",
       "architect": {
         "build": {
-          "builder": "@angular-architects/native-federation:build",
-          "options": {
-            "target": "games-dodecahedron:esbuild:production"
-          },
-          "configurations": {
-            "development": {
-              "target": "games-dodecahedron:esbuild:development",
-              "dev": true
-            },
-            "production": {
-              "target": "games-dodecahedron:esbuild:production"
-            }
-          },
-          "defaultConfiguration": "production"
-        },
-        "esbuild": {
           "builder": "@angular-devkit/build-angular:application",
           "options": {
             "outputPath": "dist/games-dodecahedron",
@@ -63,22 +47,6 @@
       "prefix": "app",
       "architect": {
         "build": {
-          "builder": "@angular-architects/native-federation:build",
-          "options": {
-            "target": "snapdragon-games-frontend:esbuild:production"
-          },
-          "configurations": {
-            "development": {
-              "target": "snapdragon-games-frontend:esbuild:development",
-              "dev": true
-            },
-            "production": {
-              "target": "snapdragon-games-frontend:esbuild:production"
-            }
-          },
-          "defaultConfiguration": "production"
-        },
-        "esbuild": {
           "builder": "@angular-devkit/build-angular:application",
           "options": {
             "outputPath": "dist/snapdragon-games-frontend",
@@ -114,8 +82,8 @@
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
           "configurations": {
-            "production": { "buildTarget": "snapdragon-games-frontend:esbuild:production" },
-            "development": { "buildTarget": "snapdragon-games-frontend:esbuild:development" }
+            "production": { "buildTarget": "snapdragon-games-frontend:build:production" },
+            "development": { "buildTarget": "snapdragon-games-frontend:build:development" }
           },
           "defaultConfiguration": "development",
           "options": {
