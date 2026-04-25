@@ -16,7 +16,7 @@ extends Window
 # accepts; nothing else here knows about HTTP — uploading is a separate
 # step the operator does from the admin UI.
 
-const MANIFEST_SCHEMA_VERSION := 1
+const MANIFEST_SCHEMA_VERSION := 2
 const ManifestBuilder := preload("res://addons/snapdragon_export/manifest_builder.gd")
 
 var _preset_dropdown: OptionButton
@@ -229,6 +229,19 @@ func _on_export_pressed() -> void:
 		return
 	mf.store_string(JSON.stringify(manifest, "  "))
 	mf.close()
+
+	# v2: emit register.sql so the BFF's upload endpoint can run it inside
+	# the install transaction and self-register the new game (rows in
+	# games / levels / federation_modules / game_access). The BFF still
+	# validates schema_version + slug before executing.
+	var sql_path := ProjectSettings.globalize_path(staging + "/register.sql")
+	var sql_file := FileAccess.open(sql_path, FileAccess.WRITE)
+	if sql_file == null:
+		_set_status("Could not write register.sql (%s)." % sql_path, true)
+		_export_btn.disabled = false
+		return
+	sql_file.store_string(ManifestBuilder.to_register_sql(manifest))
+	sql_file.close()
 
 	# Pack staging/ into a zip at output_path.
 	var abs_output := output_path

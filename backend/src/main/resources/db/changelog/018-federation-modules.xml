@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Federation manifest, DB-backed.
+
+        The Snapdragon Games portal is moving from a monolithic Angular SPA
+        to a Module Federation host that loads remote modules at runtime.
+        Replacing a static `federation.manifest.json` with this table lets:
+
+          • new game remotes appear in the portal without redeploying the host
+            (a Godot bundle uploaded via /api/admin/games/upload also inserts
+             its federation_modules row in the same transaction);
+          • Admin and Login UIs ship as separate remotes whose URLs can be
+            rotated independently from the host shell;
+          • each module's enabled state be flipped from the admin console
+            without a fresh build.
+
+        The host fetches `GET /api/federation/manifest` on bootstrap and feeds
+        the result into native-federation's `initFederation`. See
+        docs/PLAN-module-federation-and-native.md (section A) for the runtime
+        flow + topology diagram.
+    -->
+
+    <changeSet id="018-1-federation-modules-table" author="nin">
+        <createTable tableName="federation_modules">
+            <column name="id" type="bigserial">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="slug" type="text">
+                <!-- e.g. 'host', 'admin', 'login', 'games-dodecahedron' -->
+                <constraints unique="true" nullable="false"/>
+            </column>
+            <column name="display_name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="kind" type="text">
+                <!-- 'host' | 'remote-shell' (admin/login/portal) | 'remote-game' | 'fragment' -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="remote_entry_url" type="text">
+                <!--
+                  Where native-federation looks for the remote's `remoteEntry.json`.
+                  For 'fragment' rows this is the parametrised wasm-fragment URL the
+                  parent game remote calls into (?slug=...).
+                -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="exposed_module" type="text">
+                <!-- The exposed module name on the remote (e.g. './Component'). NULL for fragments. -->
+                <constraints nullable="true"/>
+            </column>
+            <column name="game_slug" type="text">
+                <!--
+                  For kind='remote-game' rows: the games.slug this remote serves.
+                  Lets the host map a clicked game-card to the correct remote
+                  without an extra join through level metadata.
+                -->
+                <constraints nullable="true"/>
+            </column>
+            <column name="version" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="enabled" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="metadata" type="jsonb">
+                <!-- Free-form: integrity hashes, scope, dependencies, etc. -->
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex tableName="federation_modules" indexName="idx_fed_modules_kind_enabled">
+            <column name="kind"/>
+            <column name="enabled"/>
+        </createIndex>
+
+        <createIndex tableName="federation_modules" indexName="idx_fed_modules_game_slug">
+            <column name="game_slug"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="018-2-seed-initial-modules" author="nin">
+        <!--
+          Seed the topology that exists *today plus the planned splits*. URLs
+          are placeholders; the actual hostnames are wired in docker-compose.yml
+          as the per-remote nginx services come online (see PLAN section A).
+          The host row points at its own origin so the federation runtime has
+          a self-reference for fallback / debugging.
+        -->
+        <sql>
+INSERT INTO federation_modules
+    (slug, display_name, kind, remote_entry_url, exposed_module, game_slug, version, enabled, metadata)
+VALUES
+    ('host',                'Snapdragon Games — Portal Host', 'host',
+     '/',                                              NULL,             NULL,
+     '0.1.0', true,
+     '{"role":"shell","note":"the federation host itself; pointer kept for self-reference"}'::jsonb),
+    ('login',               'Login UI',                       'remote-shell',
+     'http://login:8080/remoteEntry.json',             './LoginComponent', NULL,
+     '0.1.0', true,
+     '{"public":true}'::jsonb),
+    ('admin',               'Admin Console',                  'remote-shell',
+     'http://admin:8080/remoteEntry.json',             './AdminShell',   NULL,
+     '0.1.0', true,
+     '{"requiresRole":"admin"}'::jsonb),
+    ('games-three-wizards', 'Three Wizards In A Trenchcoat',  'remote-game',
+     'http://games-three-wizards:8080/remoteEntry.json',
+     './GameRoot',                                     'three-wizards',
+     '0.1.0', true,
+     '{"hud":true,"sse":true}'::jsonb),
+    ('games-dodecahedron',  'Dodecahedron Demo',              'remote-game',
+     'http://games-dodecahedron:8080/remoteEntry.json',
+     './GameRoot',                                     'dodecahedron',
+     '0.1.0', true,
+     '{"hud":false,"sse":false,"chromeless":true}'::jsonb),
+    ('wasm-fragment',       'Shared WASM Fragment',           'fragment',
+     'http://wasm-fragment:8080/fragment',             NULL,             NULL,
+     '0.1.0', true,
+     '{"accepts":["slug","level"],"note":"parent game remotes pass slug+level via query string"}'::jsonb)
+ON CONFLICT (slug) DO NOTHING;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

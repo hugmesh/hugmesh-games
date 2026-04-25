@@ -10,40 +10,87 @@
 
 The current portal mounts each Godot WASM bundle inside an Angular `<iframe>`, ships a single Spring Boot fat-JAR, hand-edits per-game export presets, and has no in-product way to upload a new title. We're moving to:
 
-1. **Iframe-free game canvases** — host Godot WASM directly in Angular via Module Federation remotes.
-2. **Godot editor plugin** — one-click "Export to Snapdragon" that produces a deploy-ready zip.
+1. **Three-tier federated topology** — host shell → per-game remote modules (each its own nginx container, holding HUD + SSE) → shared parametrised WASM fragment (separate nginx, takes `?slug=` query string).
+2. **Godot editor plugin** — one-click "Export to Snapdragon" that produces a deploy-ready zip + `register.sql`.
 3. **Hot upload API + admin UI** — drag a zip, get a new game (or in-place replacement) without disturbing live sessions.
 4. **GraalVM native-image build** of the BFF — sub-second cold start, smaller container.
+5. **JWT roles + per-game access policy** — Casdoor stores role assignments + permissions; Postgres stores which game is visible to whom (all / role / individual user). Admin console flips visibility.
+6. **DB-backed federation discovery + Admin/Login as their own remotes** — the host shell fetches `GET /api/federation/manifest` from PostgreSQL on bootstrap; admin console + login UI ship as their own remote modules so they can be rotated independently.
 
-These reinforce each other: (1) gives us a clean per-game module boundary, (2) produces the artefact (3) accepts, and (4) makes the upload server responsive enough that a swap is cheap.
+These reinforce each other: (1) gives the per-game module boundary, (2) produces the artefact (3) accepts, (4) makes the upload server responsive enough that a swap is cheap, (5) keeps the role catalog in Casdoor (single source of truth) while letting admins gate visibility from the portal, (6) means new remotes appear without redeploying the host.
+
+---
+
+## Target topology
+
+Three nginx tiers, one per concern:
+
+```
+                                                  ┌──── Casdoor (auth, role catalog) ────┐
+                                                  │  • role definitions                  │
+                                                  │  • role assignments per user         │
+                                                  │  • permission tab                    │
+                                                  │  • JWT signing                       │
+                                                  └──────────────────────────────────────┘
+                                                                  ▲
+                                                                  │ JWT roles claim
+                                                                  │
+  Browser ─────► [nginx#1: HOST shell] ──────────────────────────►│
+   loads          • Angular host shell                            │ /api/federation/manifest
+   /              • module-federation runtime                     │   (DB-backed)
+                  • route guards                                  │
+                       │                                          │
+                       │ initFederation(remotes from manifest)    │
+                       ▼                                          │
+              ┌──────────────────────────────┬────────────┬───────┴──────┐
+              │                              │            │              │
+              ▼                              ▼            ▼              ▼
+      [nginx#2: LOGIN remote]       [nginx#2: ADMIN]  [nginx#2:        [nginx#2:
+       • LoginComponent              • AdminShell      games-twiat]     games-dodecahedron]
+       • Casdoor RFC6749 flow        • role/access     • HUD + SSE      • chrome-less
+                                       management      • level UI       • no HUD
+                                                            │
+                                                            │ <iframe / fetch ?slug=...>
+                                                            ▼
+                                          [nginx#3: WASM FRAGMENT]
+                                          • parametrised by ?slug=&level=
+                                          • serves the Godot bundle (wasm/pck/js)
+                                          • cross-origin-isolated (COOP/COEP)
+                                          • the only place Godot's HTML shell runs
+```
+
+Why nginx-per-remote: each remote can scale, cache, and be replaced independently. A `make e2e` run does not need to rebuild the host to verify a single game's changes. Uploads (via `/api/admin/games/upload`) drop a fresh bundle into the wasm-fragment volume + register a new `federation_modules` row + flip a current-version pointer atomically.
+
+Why a SINGLE shared wasm-fragment instead of one per game: WASM bundles are large (37 MB+) and almost identical at the asset-resolution layer. Sharing one nginx that serves any bundle by `?slug=` keeps the per-remote container tiny (HUD + SSE only) while the WASM tier carries no Angular runtime.
 
 ---
 
 ## Order of operations (dependency-aware)
 
 ```
-┌─ A. Module Federation refactor ──────────────────────────────────────────┐
-│  Establishes the per-game-module boundary that everything else targets.  │
-│  Without this, "uploading a new game" still means rebuilding the whole   │
-│  monorepo. Do this FIRST.                                                │
-└──────────────────────────────────────────────────────────────────────────┘
-            │
-            ▼
-┌─ B. Godot editor plugin ────────────────────────┐    ┌─ D. GraalVM native-image ────────┐
-│  Produces the manifest+bundle zip the upload    │    │  Independent of A/B/C — can run  │
-│  endpoint expects. Depends on A only because    │    │  in parallel. Pin reflection /   │
-│  the manifest schema lives in the host shell.   │    │  resource hints early so they    │
-└─────────────────────────────────────────────────┘    │  don't block C's polish phase.   │
-            │                                          └──────────────────────────────────┘
-            ▼
-┌─ C. Hot upload API + admin UI ──────────────────────────────────────────┐
-│  Consumes B's zips, registers them as per A's module boundary, swaps    │
-│  asset_url atomically without disturbing live SSE streams. Depends on   │
-│  A (module path convention) and B (zip schema).                         │
-└─────────────────────────────────────────────────────────────────────────┘
+F1. Federation manifest in DB (BFF) ──┐    ┌── E. JWT roles + game_access (BFF) ──┐
+    Replaces static manifest.json.    │    │   Casdoor owns role catalog;         │
+    Required before any UI split.     │    │   BFF maps roles claim → authority   │
+└───────────────┬──────────────────────┘    │   + filters games by access policy. │
+                │                           └─────────────┬───────────────────────┘
+                ▼                                         ▼
+A. Frontend split into host + remotes  ◄────────  Auth gate works before
+   (login / admin / portal /                       remotes are split (CharacterController
+   games-* / wasm-fragment)                        keeps a single-arg legacy fallback).
+
+         │                                           ┌─ D. GraalVM native-image ────────┐
+         ├───── B. Godot plugin v2 (DONE) ───┐       │  Independent. Add reflection     │
+         │      manifest.json + register.sql │       │  hints as build failures surface.│
+         │      auto-emit on export.         │       └──────────────────────────────────┘
+         ▼
+C. Hot upload API + admin UI
+   • Validates manifest schema_version
+   • Runs register.sql in transaction
+   • Versioned dirs + atomic swap
+   • Live sessions pin to old version dir
 ```
 
-A and D are roughly equal size; B is small; C is the largest. A blocks B+C; D blocks nothing.
+E + F1 are foundational and **shipped in this branch** (see "Left off at" markers below). A is the largest remaining piece; B is done; C and D depend on A's split decisions but can scaffold in parallel.
 
 ---
 
@@ -97,11 +144,33 @@ Target: each game ships as an **Angular remote module** (built by Webpack 5 / na
 - `frontend/src/app/game-canvas/` — delete
 - `frontend/projects/games-three-wizards/` — new remote
 - `frontend/projects/games-dodecahedron/` — new remote
-- `frontend/nginx-tls.conf` + `frontend/nginx.conf` — add COOP/COEP headers (currently in `angular.json` `serve` only)
+- `frontend/nginx-tls.conf` + `frontend/nginx.conf` — add COOP/COEP headers (currently in `angular.json` `serve` only) ✓ **done**
 - Backend: `/api/assets/levels/{slug}/` is unchanged but `index.html` is no longer used by the host (the remote loads `index.js` directly)
 
 ### Left off at
-**Not started.**
+**Pre-conditions in place; main refactor not started.** Done in this branch:
+- COOP `same-origin` + COEP `require-corp` headers added to both
+  `frontend/nginx.conf` (HTTP) and `frontend/nginx-tls.conf` (HTTPS / e2e). This
+  unblocks SharedArrayBuffer + threaded WASM once we host Godot bundles directly
+  inside Angular instead of behind an iframe (the iframe shell currently sets these
+  itself; the SPA shell needs them once the iframe goes away).
+
+**Next session — concrete first slice:**
+1. `npm i @angular-architects/native-federation` and run its host installer (or
+   replicate manually: `federation.config.js`, `federation.manifest.json`, swap
+   `application` builder for `@angular-architects/native-federation:build` in
+   `angular.json`).
+2. Create a single demo remote (`games-dodecahedron`) under `frontend/projects/`.
+   It exposes one `DodecahedronGameComponent` that takes a slug input and mounts
+   the existing Godot bundle directly against an Angular-managed `<canvas>` (load
+   `/api/assets/levels/dodecahedron/index.js` at runtime, `new Engine({canvas, executable})`).
+3. Wire it into `home.component` only when `level.sceneType === 'dodecahedron'` so
+   the iframe path stays alive for the TWiaT levels until the second remote lands.
+4. Run `make e2e` — extend the spec to assert the dodecahedron canvas is in the
+   DOM (not the iframe) and `hud-layer` is still absent.
+
+Once that one remote works end-to-end, the second (`games-three-wizards`) follows
+the same pattern with the additional bridge for SSE / control routing.
 
 ---
 
@@ -183,12 +252,31 @@ Target: a Godot editor plugin (in `godot-project/addons/snapdragon_export/`) tha
 - `Makefile` — add `make test-godot-plugin` (optional; could be deferred)
 
 ### Left off at
-**Done in this branch.** Plugin scaffolds Project → Tools → Snapdragon menu, gathers
-metadata via the dialog, shells out to `OS.get_executable_path()` with
-`--export-release` to drive the chosen Web preset, and packs `manifest.json` +
-`bundle/` into a zip via `ZIPPacker`. Manifest schema is `schema_version: 1` —
-matching parser will land in C. The `make test-godot-plugin` target is **deferred**
-(headless plugin smoke needs a fixture preset; not blocking C).
+**Done in this branch (extended for v2).** Plugin scaffolds Project → Tools →
+Snapdragon menu, gathers metadata via the dialog, shells out to
+`OS.get_executable_path()` with `--export-release` to drive the chosen Web
+preset, and packs `manifest.json` + `bundle/` + **`register.sql`** into a zip
+via `ZIPPacker`.
+
+`manifest.json` is now `schema_version: 2`. New keys vs v1:
+- `federation` block — slug, kind (`remote-game`), `remote_entry_url`
+  (defaults to `http://games-<slug>:8080/remoteEntry.json` so docker-compose
+  can pick it up by service name), `exposed_module: './GameRoot'`, version,
+  metadata flags (`hud`, `sse`, `chromeless`).
+- `access.default_scope: 'all'` — registers the game open by default; admins
+  narrow this from the admin console afterwards.
+
+`manifest_builder.to_register_sql()` emits the parameterised SQL the BFF's
+upcoming GameUploadController will run inside the install transaction:
+- `INSERT INTO games … ON CONFLICT (slug) DO UPDATE`
+- `INSERT INTO levels … FROM games WHERE slug = …`
+- `INSERT INTO federation_modules … ON CONFLICT (slug) DO UPDATE` (so a
+  re-upload refreshes `remote_entry_url` + `version` without losing access
+  policy rows referencing the row's id)
+- `INSERT INTO game_access (scope='all') ON CONFLICT DO NOTHING`
+
+Single-quote escaping is at the GDScript layer; the BFF still validates
+`schema_version`, slug regex, and zip-slip-safe paths before executing.
 
 ---
 
@@ -395,10 +483,76 @@ Target: native binary built by Spring Boot's `native` profile, cold start <100 m
 
 ---
 
+## E. JWT roles + per-game access policy
+
+### What changes
+Today: `SecurityConfig.casdoorAuthoritiesConverter` reads only `isAdmin`. There's no per-game visibility control — every player sees every game.
+
+Target: Casdoor owns the role catalog (admin assigns via the Casdoor web UI). The JWT carries a `roles` array claim; the BFF maps each entry to a `ROLE_<UPPER>` authority. Postgres holds `game_access` rows describing who can see each game (all / role / individual user). `ProgressionService` intersects the catalog against the principal's authorities.
+
+### Boundary
+Casdoor is the single source of truth for roles + assignments. Postgres `scope_value` strings are *just* role names — no FK, no Postgres-side roles table. If the role is renamed in Casdoor, the corresponding `game_access` row goes stale until an admin updates it. That's the desired tradeoff: simpler join, fewer cross-system migrations.
+
+### Files this touches
+- `backend/src/main/java/com/threewizards/config/SecurityConfig.java` — `casdoorAuthoritiesConverter` reads `roles` (array) → `ROLE_<UPPER>` and `permissions` (array) → raw authority. Legacy `isAdmin` boolean still produces `ROLE_ADMIN` for backward-compat.
+- `casdoor/init_data.json.tpl` — seeds three Casdoor roles (`admin`, `player`, `uploader`) and one permission (`upload-games` bound to admin + uploader). Admins can add more from the Casdoor admin UI without touching this file.
+- `backend/src/main/resources/db/changelog/019-game-access.xml` — `game_access` table: `(game_id, scope, scope_value, granted_by, granted_at)` with a unique-on-triple constraint. Backfill row inserts `scope='all'` for every existing game so deploy is a no-op for current players.
+- `backend/src/main/java/com/threewizards/model/GameAccess.java` — entity.
+- `backend/src/main/java/com/threewizards/repository/GameAccessRepository.java` — adds `findVisibleGameIdsForPrincipal(roleNames[], userId)` returning the union of `scope='all'`, `scope='role' AND scope_value = ANY(:roles)`, and `scope='user' AND scope_value = :userId`.
+- `backend/src/main/java/com/threewizards/controller/GameAccessController.java` — `@PreAuthorize("hasRole('ADMIN')")` on GET / POST / DELETE under `/api/admin/games/{slug}/access`. Body: `{"scope":"all"}` | `{"scope":"role","value":"<roleName>"}` | `{"scope":"user","value":"<casdoorUserId>"}`.
+- `backend/src/main/java/com/threewizards/service/ProgressionService.java` — three-arg overload `availableGamesWithLevels(characterId, roleNames, userId)`. Single-arg overload kept for `CharacterController` dashboard until that endpoint is also gated.
+- `backend/src/main/java/com/threewizards/controller/GameController.java` — `/api/games/available/{characterId}` now plumbs the JWT through.
+
+### Left off at
+**Done in this branch.** `make test-backend` green after the refactor; the
+existing 1 unit test (`CharacterDtoTest`) still passes. Open follow-ups:
+1. Plumb the JWT through `CharacterController` dashboard so role-gated games
+   don't leak into the player's own progress view.
+2. Add an admin endpoint that lists Casdoor role names (so the admin UI's
+   "grant role" dropdown isn't a free-text input). Easiest path: proxy
+   Casdoor's `/api/get-roles?owner=threewizards` from the BFF.
+3. Add a unit test for `GameAccessController` (validation rules + idempotent
+   grant) once the e2e admin UI is in place.
+
+---
+
+## F. DB-backed federation discovery + Admin/Login as remotes
+
+### What changes
+Today: there is no federation manifest — the SPA is monolithic.
+
+Target:
+- `federation_modules` table holds one row per remote module (host, login, admin, per-game, wasm-fragment).
+- `GET /api/federation/manifest` returns the active rows; the Angular host bootstrap calls it before `bootstrapApplication` and feeds the result into `initFederation(...)`.
+- An uploaded game's `register.sql` (from the Godot plugin's v2 manifest) inserts its own `federation_modules` row, so a fresh upload becomes a discoverable remote on the next manifest fetch — no host redeploy.
+
+### Files this touches
+- `backend/src/main/resources/db/changelog/018-federation-modules.xml` — table + indexes + initial seed for `host`, `login`, `admin`, `games-three-wizards`, `games-dodecahedron`, `wasm-fragment`.
+- `backend/src/main/java/com/threewizards/model/FederationModule.java` + `repository/FederationModuleRepository.java` — entity + reactive repo.
+- `backend/src/main/java/com/threewizards/model/FederationManifestDto.java` — wire shape (record).
+- `backend/src/main/java/com/threewizards/controller/FederationController.java` — `GET /api/federation/manifest`. Public on purpose: the host shell needs the `login` remote URL before any user authenticates.
+
+### Left off at
+**Backend done in this branch.** The host SPA does not yet consume the
+manifest — that lands when section A's frontend split happens. Open before
+declaring F done:
+1. Frontend bootstrap calls `/api/federation/manifest` and feeds it into
+   `initFederation(...)`.
+2. Verification: hit `curl https://localhost:8080/api/federation/manifest`
+   from the e2e flow (admin only? probably keep public — the host can't load
+   without it). Update e2e spec to assert the response shape.
+3. `docker-compose.yml` adds the placeholder service stubs (`login`, `admin`,
+   `games-three-wizards`, `games-dodecahedron`, `wasm-fragment`) so the
+   seed URLs in 018-2 actually resolve once those services have content.
+   Until then the seed URLs are aspirational placeholders; manifest-fetched
+   remotes will fail at `initFederation` time without a backing service.
+
+---
+
 ## Cross-cutting hygiene
 
 - Bump unit test count alongside each refactor; never let test count regress.
 - Run `make e2e` after each major step; the spec already covers the critical flow.
 - Don't forget `frontend/karma.conf.js` if test infrastructure changes (federation might need its own test config).
 - Update `docs/GODOT_DEVELOPER_GUIDE.md` once B lands so the docs reflect the plugin workflow instead of "edit `export_presets.cfg`".
-- Remove this plan file (`docs/PLAN-module-federation-and-native.md`) only AFTER all four refactors are merged. Until then it's load-bearing for context recovery.
+- Remove this plan file (`docs/PLAN-module-federation-and-native.md`) only AFTER all six refactors are merged. Until then it's load-bearing for context recovery.

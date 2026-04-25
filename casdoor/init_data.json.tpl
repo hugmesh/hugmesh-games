@@ -71,5 +71,45 @@
       "score": 2000,
       "ranking": 1
     }
+  ],
+  "roles": [
+    {
+      "owner": "threewizards",
+      "name": "admin",
+      "displayName": "Administrator",
+      "description": "Full access to the Snapdragon Games admin console — game uploads, role assignment, federation manifest edits.",
+      "users": ["threewizards/admin"],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "player",
+      "displayName": "Player",
+      "description": "Standard player — can access the game portal and play any unlocked level.",
+      "users": ["threewizards/player"],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "uploader",
+      "displayName": "Game Uploader",
+      "description": "Can upload new game bundles and replace existing ones; cannot manage user roles.",
+      "users": [],
+      "isEnabled": true
+    }
+  ],
+  "permissions": [
+    {
+      "owner": "threewizards",
+      "name": "upload-games",
+      "displayName": "Upload games",
+      "description": "Permission to POST to /api/admin/games/upload and replace registered games.",
+      "users": [],
+      "roles": ["threewizards/admin", "threewizards/uploader"],
+      "resource": "/api/admin/games/upload",
+      "actions": ["Read", "Write"],
+      "effect": "Allow",
+      "isEnabled": true
+    }
   ]
 }
