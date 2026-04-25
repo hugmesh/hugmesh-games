@@ -60,9 +60,23 @@ public class SnapdragonRuntimeHints implements RuntimeHintsRegistrar {
                     MemberCategory.DECLARED_FIELDS);
         }
 
-        // Liquibase resolves the master changelog + every included file by
-        // classpath at runtime; native-image needs to know to bake them in.
-        hints.resources().registerPattern("db/changelog/*.xml");
+        // No Liquibase resource registration here: under native-image
+        // we run migrations from a SEPARATE non-native init container
+        // (see docker-compose.native.yml `liquibase` service) and set
+        // SPRING_LIQUIBASE_ENABLED=false on the api, so the native
+        // binary never loads Liquibase classes. The JVM build still
+        // runs Liquibase via Spring auto-config — this hint registry
+        // only takes effect under native-image.
+
+        // Per-level Godot bundles ship as classpath resources under
+        // `assets/levels/<slug>/`. native-image strips classpath
+        // resources by default; AssetController returns 404 without
+        // explicit registration. The bundles are big (~100 MB total)
+        // but we still need them in the binary so the legacy
+        // /api/assets/levels/<slug>/<file> path keeps working alongside
+        // the filesystem-pinned hot-upload path.
+        hints.resources().registerPattern("assets/levels/.*");
+        hints.resources().registerPattern("assets/.*");
 
         // Netty's jctools-shaded queues read field offsets via Unsafe at
         // class-init. Spring Boot's bundled GraalVM reachability metadata
@@ -80,33 +94,6 @@ public class SnapdragonRuntimeHints implements RuntimeHintsRegistrar {
             hints.reflection().registerTypeIfPresent(classLoader, cls,
                     h -> h.withMembers(MemberCategory.DECLARED_FIELDS,
                             MemberCategory.INVOKE_DECLARED_CONSTRUCTORS));
-        }
-
-        // Liquibase resolves UIService implementations by reflective
-        // constructor; ServiceLocator-style. Each implementation must
-        // expose its no-arg constructor to native-image.
-        for (String cls : new String[]{
-                "liquibase.ui.LoggerUIService",
-                "liquibase.ui.ConsoleUIService",
-                "liquibase.logging.core.JavaLogService",
-                "liquibase.logging.core.DefaultLoggerConfiguration",
-                "liquibase.executor.jvm.JdbcExecutor",
-                "liquibase.command.core.UpdateCommandStep",
-                "liquibase.changelog.StandardChangeLogHistoryService",
-                "liquibase.lockservice.StandardLockService",
-                "liquibase.snapshot.SnapshotGeneratorFactory",
-                "liquibase.parser.core.xml.XMLChangeLogSAXParser",
-                "liquibase.parser.core.yaml.YamlChangeLogParser",
-                "liquibase.parser.core.json.JsonChangeLogParser",
-                "liquibase.serializer.core.xml.XMLChangeLogSerializer",
-                "liquibase.serializer.core.yaml.YamlChangeLogSerializer",
-                "liquibase.serializer.core.json.JsonChangeLogSerializer",
-                "liquibase.database.core.PostgresDatabase",
-        }) {
-            hints.reflection().registerTypeIfPresent(classLoader, cls,
-                    h -> h.withMembers(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
-                            MemberCategory.INVOKE_DECLARED_METHODS,
-                            MemberCategory.DECLARED_FIELDS));
         }
 
         // Casdoor JWKS verification eventually loads the BouncyCastle-style

@@ -41,8 +41,12 @@ RUN ./mvnw -B -Pnative -DskipTests native:compile
 # debugging. Revisit once the native build is stable.
 FROM debian:bookworm-slim
 
+# `wget` is needed by the make e2e-native wait loop's health check
+# (`docker compose exec api sh -c 'wget -qO- http://localhost:8080/actuator/health'`).
+# ca-certificates so the binary can verify the Casdoor JWKS endpoint
+# over HTTPS once we move that off http://casdoor:8000.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

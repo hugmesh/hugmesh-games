@@ -165,6 +165,14 @@
                   Cassandra + R2DBC reactive stacks under native-image.
                 -->
                 <buildArg>--initialize-at-run-time=io.netty.util.internal.shaded.org.jctools</buildArg>
+                <!--
+                  Per-level Godot bundles ship as classpath resources
+                  under `assets/levels/<slug>/`. native-image strips
+                  classpath resources by default; AssetController returns
+                  404 without explicit inclusion. -H: pattern matches
+                  the FULL classpath path (no leading slash).
+                -->
+                <buildArg>-H:IncludeResources=assets/.*</buildArg>
                 <buildArg>-H:+ReportExceptionStackTraces</buildArg>
               </buildArgs>
             </configuration>
