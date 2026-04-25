@@ -119,18 +119,12 @@ func _process(delta: float) -> void:
 func _finish_loading() -> void:
 	_done = true
 
-	# Migration step (PLAN section G follow-up): prefer the Rust
-	# HostBridge node if the scene wired one up — `time_received` is the
-	# typed-channel equivalent of GameBridge.time_updated, just JSON-
-	# encoded so the bridge stays portable across gdext snapshots.
-	# Fall back to GameBridge for scenes that haven't been migrated.
+	# Time-of-day events come off the sibling HostBridge node; game_bridge.gd
+	# dispatches there directly via _dispatch. Sun rotation no-ops if the
+	# scene has no HostBridge wired up (a non-migrated scene).
 	var host_bridge: Node = get_parent().get_node_or_null("HostBridge")
 	if host_bridge != null:
 		host_bridge.time_received.connect(_on_time_received_json)
-	else:
-		var bridge: Node = get_parent().get_node_or_null("GameBridge")
-		if bridge and bridge.has_signal("time_updated"):
-			bridge.time_updated.connect(_on_time_updated)
 
 	var cam := get_parent().get_node_or_null("Player/CameraPivot")
 	if cam and cam.has_method("play_intro"):

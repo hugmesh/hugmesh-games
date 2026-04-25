@@ -1,21 +1,8 @@
 extends Node
 
-# Legacy GDScript signals — kept declared so any third-party code or older
-# scene file still subscribing receives nothing (silent no-op rather than
-# parse error). All TWiaT consumers (player_controller, scene_loader) now
-# read from the sibling HostBridge node's typed channels; this file
-# dispatches into HostBridge directly via _dispatch() instead of emitting
-# these signals. Remove the declarations once no scene references them.
-signal state_updated(state: Dictionary)
-signal movement_updated(data: Dictionary)
-signal world_updated(data: Dictionary)
-signal character_updated(data: Dictionary)
-signal time_updated(data: Dictionary)
-signal scene_updated(data: Dictionary)
-
 # Sibling HostBridge node (Rust GDExtension class). Resolved on _ready.
-# Null when the scene hasn't been migrated to include a HostBridge node;
-# in that case _dispatch falls back to legacy GDScript signal emission.
+# All TWiaT scenes (cave + field) wire one up; null = scene not migrated,
+# events drop silently.
 var _host_bridge: Node = null
 
 const KEY_ACTIONS := {
@@ -52,22 +39,12 @@ func _ready() -> void:
 		_dispatch("scene", stub_scene)
 
 
-# Dispatch a typed event into the sibling HostBridge node when present;
-# otherwise fall back to the legacy GDScript signal emission. Keeps
-# scenes that haven't yet wired up a HostBridge working as before.
+# Dispatch a typed event into the sibling HostBridge node. Drops the
+# event silently if no HostBridge is present (non-migrated scene) — TWiaT
+# scenes always wire one up, so in practice this never silently drops.
 func _dispatch(event_type: String, payload: Dictionary) -> void:
 	if _host_bridge != null:
 		_host_bridge.dispatch_event(event_type, JSON.stringify(payload))
-		return
-	# Legacy fallback — these emit() calls are no-ops once consumers
-	# migrate (PLAN section G). Kept so a scene without HostBridge
-	# isn't broken by this commit.
-	match event_type:
-		"movement":  movement_updated.emit(payload); state_updated.emit(payload)
-		"world":     world_updated.emit(payload)
-		"character": character_updated.emit(payload)
-		"time":      time_updated.emit(payload)
-		"scene":     scene_updated.emit(payload)
 
 func _fetch_game_config() -> void:
 	JavaScriptBridge.eval("""
