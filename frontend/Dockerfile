@@ -8,7 +8,10 @@ COPY . .
 RUN test -s openapi.json && npm run gen || echo "No openapi.json — skipping API client generation"
 RUN npm run build -- --configuration production
 
-FROM nginx:alpine
+# Real upstream nginx (Debian-based), pinned to a current stable release
+# rather than the alpine variant — we get the full module set + the
+# default conf layout the official docs assume.
+FROM nginx:1.27
 COPY --from=build /app/dist/three-wizards-frontend/browser /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 8080 8443

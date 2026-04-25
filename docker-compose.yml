@@ -73,8 +73,11 @@ services:
         condition: service_healthy
       cassandra:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+    # No host port — the web nginx terminates on :8080 and proxies /api
+    # to api:8080 internally. Keeping the api off the host avoids a port
+    # conflict with the web port and matches a real prod topology.
+    expose:
+      - "8080"
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
@@ -95,8 +98,10 @@ services:
     build: ./frontend
     depends_on:
       - api
+    # Web is on :8080 across compose / dev / e2e. nginx serves the Angular
+    # bundle and reverse-proxies /api/* to api:8080 internally.
     ports:
-      - "4200:80"
+      - "8080:8080"
 
 volumes:
   pgdata:

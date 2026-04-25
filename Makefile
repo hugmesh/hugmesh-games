@@ -10,7 +10,8 @@
 
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-godot patch-godot build-backend build-frontend \
-        dev-backend dev-frontend install deps-rust deps-frontend seed-db deploy gen-api
+        dev-backend dev-frontend install deps-rust deps-frontend seed-db deploy \
+        gen-certs e2e e2e-down e2e-logs gen-api
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -171,6 +172,59 @@ seed-db:
 # Rebuilds the Godot WASM bundle, patches HTML, then upserts DB game records.
 # Rebuilding the backend Docker image is required to pick up new classpath assets.
 deploy: build-godot seed-db
+	@echo "✓ deploy ready — rebuild api/frontend images to ship the new assets"
+
+# ── Cross-platform end-to-end test ────────────────────────────────────────────
+# `make e2e` runs the full stack with self-signed TLS + Java truststore mounted
+# in the api, then drives Playwright against https://localhost:8080 to assert
+# login, games list, and WASM/PCK loading on level click.
+#
+# Cross-platform: every dependency (openssl, JDK keytool, node, Chromium) runs
+# inside Docker. Host requirements: docker + make + a POSIX shell.
+#
+# Override `CERT_PATH=/abs/path/to/certs` to use your own certs (must contain
+# ca.crt, server.crt, server.key, keystore.p12, truststore.p12).
+# Override `E2E_PLAYER_PASSWORD=...` to set the Casdoor player password.
+
+E2E_FILES        = -f docker-compose.yml -f docker-compose.e2e.yml
+E2E_PLAYER_USER ?= player
+E2E_PLAYER_PASS ?= e2e-player-pass
+
+gen-certs:
+	@echo "→ Generating self-signed certs (or reusing CERT_PATH if set)…"
+	@sh scripts/gen-certs.sh
+
+e2e: gen-certs
+	@echo "→ Building images with TLS layer…"
+	docker compose $(E2E_FILES) build api frontend e2e
+	@echo "→ Starting stack with TLS…"
+	docker compose $(E2E_FILES) up -d postgres cassandra casdoor api frontend
+	@echo "→ Waiting for stack to become healthy (api → casdoor → frontend)…"
+	@for i in $$(seq 1 60); do \
+	  if docker compose $(E2E_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 \
+	     && curl -ksf https://localhost:8080/api/games >/dev/null 2>&1; then \
+	    echo "  ✓ stack ready"; break; \
+	  fi; \
+	  if [ $$i -eq 60 ]; then echo "  ✗ stack failed to come up in 5 minutes"; \
+	    docker compose $(E2E_FILES) logs --tail 100; exit 1; fi; \
+	  sleep 5; \
+	done
+	@echo "→ Running Playwright suite…"
+	-docker compose $(E2E_FILES) run --rm \
+	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
+	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  e2e
+	@status=$$?; \
+	echo "→ Tearing down…"; \
+	docker compose $(E2E_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	if [ $$status -eq 0 ]; then echo "✓ E2E PASSED"; \
+	else echo "✗ E2E FAILED (status $$status) — see e2e/results/"; exit $$status; fi
+
+e2e-down:
+	docker compose $(E2E_FILES) down -v --remove-orphans
+
+e2e-logs:
+	docker compose $(E2E_FILES) logs -f --tail 50
 	@echo "✓ Deploy done — rebuild and push the api container to serve new assets"
 
 # ── Dev servers ───────────────────────────────────────────────────────────────

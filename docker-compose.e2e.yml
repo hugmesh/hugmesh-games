@@ -1,0 +1,72 @@
+# Compose overlay for `make e2e` — adds TLS to the frontend, mounts the
+# Java truststore + keystore into the api, and adds a Playwright e2e service.
+#
+# Usage (from `make e2e`):
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d ...
+#
+# CERT_PATH=/abs/path skips cert generation (provide your own ca.crt + p12s).
+
+services:
+
+  frontend:
+    # nginx serves HTTPS on container:8443 with the self-signed server cert;
+    # api stays plain HTTP behind the proxy. The browser-facing TLS is what
+    # matters for the cross-stack E2E. Override the host:container mapping
+    # from base compose so :8080 routes to the TLS listener inside.
+    ports: !override
+      - "8080:8443"
+    volumes:
+      - ${CERT_PATH:-./e2e/certs}:/etc/nginx/certs:ro
+      - ./frontend/nginx-tls.conf:/etc/nginx/conf.d/default.conf:ro
+
+  api:
+    # Truststore mounted so the api can verify peer TLS (Casdoor, future
+    # Cassandra TLS, mTLS client certs). Keystore is available for when we
+    # flip on `server.ssl.enabled=true` to terminate HTTPS in-process.
+    volumes:
+      - ${CERT_PATH:-./e2e/certs}:/etc/api/certs:ro
+    environment:
+      # Pulled in by JdbcDataSourceConfig + the JWT decoder. Setting via
+      # JAVA_TOOL_OPTIONS makes the JVM honour them on every outbound TLS.
+      JAVA_TOOL_OPTIONS: >-
+        -Djavax.net.ssl.trustStore=/etc/api/certs/truststore.p12
+        -Djavax.net.ssl.trustStoreType=PKCS12
+        -Djavax.net.ssl.trustStorePassword=${KEYSTORE_PASSWORD:-threewizards}
+      KEYSTORE_PATH: /etc/api/certs/keystore.p12
+      KEYSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
+      TRUSTSTORE_PATH: /etc/api/certs/truststore.p12
+      TRUSTSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
+      # E2E player credentials — surfaced into Casdoor seeding so the
+      # Playwright spec knows what to log in with.
+      CASDOOR_PLAYER_PASS: ${E2E_PLAYER_PASSWORD:-e2e-player-pass}
+
+  casdoor:
+    environment:
+      CASDOOR_PLAYER_PASS: ${E2E_PLAYER_PASSWORD:-e2e-player-pass}
+
+  e2e:
+    build:
+      context: ./e2e
+    depends_on:
+      frontend:
+        condition: service_started
+      api:
+        condition: service_started
+    environment:
+      # Hits the host's published port through host.docker.internal so the
+      # test sees what a real browser sees — TLS, nginx routing, cache rules,
+      # everything.
+      E2E_BASE_URL: ${E2E_BASE_URL:-https://host.docker.internal:8080}
+      E2E_PLAYER_USERNAME: ${E2E_PLAYER_USERNAME:-player}
+      E2E_PLAYER_PASSWORD: ${E2E_PLAYER_PASSWORD:-e2e-player-pass}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./e2e/results:/work/results
+    profiles:
+      # `up` won't start this; only `compose run --rm e2e` does.
+      - e2e
+
+volumes:
+  pgdata:
+  cassandra_data:
