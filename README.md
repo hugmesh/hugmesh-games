@@ -1266,13 +1266,54 @@ Order: `cargo build --release` → `godot --export-release` → `patch-godot-htm
 ### Individual steps
 
 ```bash
-make build-rust      # Rust GDExtension → godot-project/rust_extension/bin/
-make build-godot     # Godot WebGL export + HTML patch → backend classpath assets
-make build-backend   # Spring Boot JAR (artifact: snapdragon-gaming-bff)
-make build-frontend  # Angular dist (project: snapdragon-games-frontend)
-make seed-db         # Upsert game records with asset_url in running Postgres
-make deploy          # build-godot + seed-db (then rebuild api image to serve new WASM)
+make build-rust            # Rust GDExtension → extensions/snapdragon-bridge/bin/
+make build-godot           # Godot WebGL export + HTML patch → backend classpath assets
+make build-backend         # Spring Boot JAR (artifact: snapdragon-gaming-bff)
+make build-backend-native  # GraalVM native-image of the BFF (~70s, ~335 MB image)
+make build-frontend        # Angular dist (project: snapdragon-games-frontend)
+make seed-db               # Upsert game records with asset_url in running Postgres
+make seed-roles            # Idempotent per-game Casdoor role create (post-deploy)
+make deploy                # build-godot + seed-db (rebuild api image afterwards)
 ```
+
+### GraalVM native-image build (BFF)
+
+The native build trades ~5–10× longer compile time for sub-second cold start
+and ~70 % smaller container. Flow:
+
+```bash
+make build-backend-native        # one-shot: docker build -f backend/Dockerfile.native
+make e2e-native                  # full Playwright suite against the native image
+```
+
+Implementation notes — gotchas surfaced and fixed during initial
+verification, all visible in [SnapdragonRuntimeHints.java](backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java) +
+[backend/pom.xml](backend/pom.xml) `native` profile:
+
+- **Liquibase moves to a separate init container** ([docker-compose.native.yml](docker-compose.native.yml)).
+  Spring's auto-Liquibase requires reflection metadata for ~30+ ServiceLocator
+  classes; running migrations from the official `liquibase/liquibase` image
+  (with `SPRING_LIQUIBASE_ENABLED=false` on the api) sidesteps the entire
+  reflection chain.
+- **Netty's jctools-shaded MPSC queues** read field offsets via `Unsafe` at
+  class-init. Spring Boot 3.4's bundled GraalVM reachability metadata pins
+  netty 4.1.80 but the runtime is 4.1.115 — the Producer/Consumer/Limit
+  index-field classes drift out of coverage. Fixed by deferring init of
+  `io.netty.util.internal.shaded.org.jctools` to runtime AND registering
+  the index-field classes for `DECLARED_FIELDS`.
+- **R2DBC ↔ Postgres `timestamptz`** returns `OffsetDateTime`; entities use
+  `Instant`. Spring auto-registers a converter on the JVM but the
+  reflection-based discovery skips it under native-image. Fixed by
+  registering an explicit `R2dbcCustomConversions` bean in
+  [R2dbcConvertersConfig.java](backend/src/main/java/com/threewizards/config/R2dbcConvertersConfig.java).
+- **Per-level WASM bundles** ship as classpath resources under
+  `assets/levels/<slug>/`. native-image strips classpath resources by default;
+  added `-H:IncludeResources=assets/.*` to the `native` profile build args.
+
+Cold-start measurement: 0.39 s on the test rig (vs ~3 s JVM). The image
+runtime base is `debian:bookworm-slim` with `wget` + `ca-certificates`
+added so the `make e2e-native` health-check loop and outbound HTTPS to
+Casdoor work.
 
 ### Testing
 
@@ -1281,7 +1322,7 @@ chains them sequentially.
 
 ```bash
 make test            # rust + backend + frontend (chains through all three)
-make test-rust       # cargo test in game/rust (host toolchain; needs cargo)
+make test-rust       # cargo test in extensions/snapdragon-bridge (host toolchain; needs cargo)
 make test-backend    # mvnw test in backend/ (host toolchain; needs JDK 21)
 make test-frontend   # ng test inside Docker (Chromium baked into the image,
                      # so the host doesn't need a browser installed)

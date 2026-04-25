@@ -119,9 +119,18 @@ func _process(delta: float) -> void:
 func _finish_loading() -> void:
 	_done = true
 
-	var bridge: Node = get_parent().get_node_or_null("GameBridge")
-	if bridge and bridge.has_signal("time_updated"):
-		bridge.time_updated.connect(_on_time_updated)
+	# Migration step (PLAN section G follow-up): prefer the Rust
+	# HostBridge node if the scene wired one up — `time_received` is the
+	# typed-channel equivalent of GameBridge.time_updated, just JSON-
+	# encoded so the bridge stays portable across gdext snapshots.
+	# Fall back to GameBridge for scenes that haven't been migrated.
+	var host_bridge: Node = get_parent().get_node_or_null("HostBridge")
+	if host_bridge != null:
+		host_bridge.time_received.connect(_on_time_received_json)
+	else:
+		var bridge: Node = get_parent().get_node_or_null("GameBridge")
+		if bridge and bridge.has_signal("time_updated"):
+			bridge.time_updated.connect(_on_time_updated)
 
 	var cam := get_parent().get_node_or_null("Player/CameraPivot")
 	if cam and cam.has_method("play_intro"):
@@ -139,6 +148,14 @@ func _finish_loading() -> void:
 
 func _swap_to_demo(scene_path: String) -> void:
 	get_tree().change_scene_to_file(scene_path)
+
+
+func _on_time_received_json(payload_json: String) -> void:
+	# HostBridge channels carry JSON-stringified payloads. Parse and
+	# delegate to the existing Dictionary-shaped handler.
+	var parsed: Variant = JSON.parse_string(payload_json)
+	if parsed is Dictionary:
+		_on_time_updated(parsed)
 
 
 func _on_time_updated(t: Dictionary) -> void:
