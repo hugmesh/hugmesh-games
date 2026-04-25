@@ -198,15 +198,21 @@ e2e: gen-certs
 	@echo "→ Building images with TLS layer…"
 	docker compose $(E2E_FILES) build api frontend e2e
 	@echo "→ Starting stack with TLS…"
-	docker compose $(E2E_FILES) up -d postgres cassandra casdoor api frontend
-	@echo "→ Waiting for stack to become healthy (api → casdoor → frontend)…"
+	docker compose $(E2E_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
+	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"
 	@for i in $$(seq 1 60); do \
-	  if docker compose $(E2E_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 \
-	     && curl -ksf https://localhost:8080/api/games >/dev/null 2>&1; then \
-	    echo "  ✓ stack ready"; break; \
+	  api_ok=0; web_ok=0; \
+	  docker compose $(E2E_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
+	  if [ $$((i % 6)) -eq 0 ]; then \
+	    echo "  … attempt $$i/60: api=$$api_ok web=$$web_ok"; \
+	    docker compose $(E2E_FILES) ps --format 'table {{.Service}}\t{{.Status}}' | tail -n +2 | sed 's/^/      /'; \
 	  fi; \
 	  if [ $$i -eq 60 ]; then echo "  ✗ stack failed to come up in 5 minutes"; \
-	    docker compose $(E2E_FILES) logs --tail 100; exit 1; fi; \
+	    echo "--- api log ---"; docker compose $(E2E_FILES) logs --tail 30 api; \
+	    echo "--- frontend log ---"; docker compose $(E2E_FILES) logs --tail 10 frontend; \
+	    exit 1; fi; \
 	  sleep 5; \
 	done
 	@echo "→ Running Playwright suite…"
