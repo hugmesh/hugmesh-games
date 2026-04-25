@@ -55,42 +55,6 @@ public class AssetController {
     }
 
     @Operation(
-        summary = "Serve a game-scoped asset",
-        description = """
-            Serves a file from `classpath:assets/games/{slug}/{filename}`.
-            The Godot WASM bundle lives at `assets/games/cave/` and is served here.
-
-            Supported extensions and content-types:
-
-            | ext | type |
-            |---|---|
-            | `html` | `text/html` |
-            | `js` | `application/javascript` |
-            | `wasm` | `application/wasm` |
-            | `pck` | `application/octet-stream` |
-            | `png` / `jpg` | `image/png` / `image/jpeg` |
-            | `glb` / `gltf` | `model/gltf-binary` / `model/gltf+json` |
-
-            ```
-            ──request──► Mono.fromCallable(() ->
-                            ClassPathResource("assets/games/" + slug + "/" + filename))
-                               │
-                     ┌─────────┴──────────┐
-                     │ exists             │ missing
-                     ▼                    ▼
-              .contentType(mediaType)   ──✗  404
-              .body(resource)
-              ──────●─|
-            ```
-            """)
-    @GetMapping("/games/{slug}/{filename:.+}")
-    public Mono<ResponseEntity<Resource>> getGameAsset(
-            @PathVariable String slug,
-            @PathVariable String filename) {
-        return serveFile("assets/games/" + slug + "/" + filename);
-    }
-
-    @Operation(
         summary = "Serve a level-scoped asset (compiled WASM bundle or registered asset)",
         description = """
             Primary path for the per-level Godot WASM bundle.

@@ -158,8 +158,8 @@ Up to 3 players may be connected simultaneously; exactly one holds the **control
   │                                                                          │
   │  AssetController                                                         │
   │    GET /api/assets/levels/{slug}/{file} → ClassPathResource             │
-  │         (primary WASM bundle path — per-level)                           │
-  │    GET /api/assets/games/{slug}/{file}  → legacy fallback                │
+  │         (per-level Godot WASM bundle)                                    │
+  │    GET /api/assets/{filename}            → root-level static asset       │
   │                                                                          │
   └──────────────────────────────────────────────────────────────────────────┘
                     │ internal Docker network only
@@ -529,9 +529,9 @@ body: {label, assetType, filePath, contentType, sizeBytes}
 `classpath:assets/levels/{slug}/`. The Angular iframe mounts `index.html` from here
 and Godot fetches its `.wasm`/`.pck` from the same directory.
 
-#### `GET /api/assets/{filename}` · `GET /api/assets/games/{slug}/{filename}`
+#### `GET /api/assets/{filename}`
 
-Legacy / root-level static assets. The `games/{slug}/` form is kept for
+Root-level static assets fetched directly from the classpath. Reserved for
 backward-compat with content that hasn't been moved to the `levels/` hierarchy yet.
 
 ```
