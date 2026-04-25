@@ -1,9 +1,10 @@
-[gd_scene load_steps=15 format=3 uid="uid://cave_main_scene"]
+[gd_scene load_steps=16 format=3 uid="uid://cave_main_scene"]
 
 [ext_resource type="Script" path="res://scripts/game_bridge.gd" id="1_bridge"]
 [ext_resource type="Script" path="res://scripts/player_controller.gd" id="2_player"]
 [ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3_camera"]
 [ext_resource type="Script" path="res://scripts/scene_loader.gd" id="4_loader"]
+[ext_resource type="Script" path="res://scripts/bridge_glue.gd" id="5_glue"]
 
 [sub_resource type="StandardMaterial3D" id="mat_cave"]
 albedo_color = Color(0.18, 0.14, 0.12, 1)
@@ -57,6 +58,11 @@ ambient_light_energy = 1.5
 
 [node name="GameBridge" type="Node" parent="."]
 script = ExtResource("1_bridge")
+
+[node name="HostBridge" type="HostBridge" parent="."]
+
+[node name="BridgeGlue" type="Node" parent="GameBridge"]
+script = ExtResource("5_glue")
 
 [node name="SceneLoader" type="Node" parent="."]
 script = ExtResource("4_loader")
