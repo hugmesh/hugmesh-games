@@ -23,4 +23,5 @@
     <include file="db/changelog/017-snapdragon-catalog.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/018-federation-modules.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/019-game-access.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/020-game-launches.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

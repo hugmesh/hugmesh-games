@@ -181,12 +181,24 @@ public class CharacterController {
             ```
             """)
     @GetMapping("/{id}/dashboard")
-    public Mono<DashboardDto> dashboard(@PathVariable Long id) {
+    public Mono<DashboardDto> dashboard(
+            @PathVariable Long id,
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            org.springframework.security.oauth2.jwt.Jwt jwt) {
         Mono<CharacterDto> character = characters.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
                 .map(CharacterDto::from);
 
-        Mono<List<GameWithLevelsDto>> games = progression.availableGamesWithLevels(id).collectList();
+        // Honour the per-game access policy: a player whose roles + user id
+        // don't match any game_access row for a given game won't see it on
+        // the dashboard either. Anonymous (no JWT) falls through to
+        // scope='all' games only.
+        java.util.List<String> roles = jwt == null
+                ? java.util.List.of()
+                : extractRoles(jwt);
+        String userId = jwt == null ? null : jwt.getSubject();
+        Mono<List<GameWithLevelsDto>> games = progression
+                .availableGamesWithLevels(id, roles, userId).collectList();
 
         Mono<List<QuestDto>> quests = charQuests.findByCharacterId(id)
                 .flatMap(cq -> questRepo.findById(cq.getQuestId())
@@ -321,5 +333,14 @@ public class CharacterController {
         while (end < json.length() && (Character.isDigit(json.charAt(end)) || json.charAt(end) == '-')) end++;
         try { return Integer.parseInt(json.substring(start, end)); }
         catch (NumberFormatException e) { return fallback; }
+    }
+
+    private static java.util.List<String> extractRoles(org.springframework.security.oauth2.jwt.Jwt jwt) {
+        Object claim = jwt.getClaim("roles");
+        if (claim instanceof java.util.List<?> list) {
+            return list.stream().filter(java.util.Objects::nonNull)
+                    .map(Object::toString).toList();
+        }
+        return java.util.List.of();
     }
 }

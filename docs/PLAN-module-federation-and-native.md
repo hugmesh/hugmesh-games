@@ -549,6 +549,122 @@ declaring F done:
 
 ---
 
+## G. Per-game project layout + canonical Rust bridge
+
+### What changed
+The monorepo's single `godot-project/` was hosting all three scenes (cave +
+field + dodecahedron) under one project, and `game/rust/` held three Rust
+classes — two of which (`CaveScene`, `PlayerController`) were placeholders
+duplicating GDScript work. The Rust crate was named `three_wizards`.
+
+Target reached this branch:
+- `extensions/snapdragon-bridge/` — reusable Rust bridge crate. Just one
+  class (`HostBridge`) that emits typed signals (`movement_received`,
+  `world_received`, `character_received`, `time_received`,
+  `scene_received`, `scene_ready`, `input_egress`) carrying stringly-typed
+  JSON payloads. A `streaming` flag (set by the GDScript glue once it
+  detects `window._twSceneEvents`) switches between Streaming and
+  Standalone modes; Standalone fakes a `scene_ready` from `_ready` and
+  echoes `send_input` back through `movement_received` so the Godot
+  editor's F5 path drives the player without any of the BFF / Casdoor /
+  SSE infrastructure running.
+- `games/three-wizards-in-a-trenchcoat/` — flagship JRPG project with
+  `cave.tscn` + `field.tscn` + 6 GDScript files + a `Cave/Field` export
+  preset pair.
+- `games/dodecahedron-demo/` — chrome-less demo project with
+  `dodecahedron.tscn` + `dodecahedron_spinner.gd` + a single `Dodecahedron`
+  export preset.
+- Each game project carries its own copy of the bridge `.gdextension`
+  manifest, the `addons/snapdragon_export/` plugin, and a `bin/` dir the
+  Makefile populates with the freshly-built bridge binary at every
+  `make build-rust`. That keeps each project openable standalone in the
+  Godot editor, so a level designer can clone, open, hit F5, and drive
+  the player without spinning up the rest of the stack.
+
+### Files this touches
+- `extensions/snapdragon-bridge/{Cargo.toml,Cargo.lock,src/{lib,host_bridge}.rs,bin/.gitkeep,snapdragon_bridge.gdextension}`
+- `games/three-wizards-in-a-trenchcoat/{project.godot,export_presets.cfg,scenes/,scripts/,addons/,bin/,snapdragon_bridge.gdextension}`
+- `games/dodecahedron-demo/{project.godot,export_presets.cfg,scenes/,scripts/,addons/,bin/,snapdragon_bridge.gdextension}`
+- `Makefile` — per-project iteration via shell `case` (bash variable names
+  can't have dashes, so the original `$(PRESETS_$(GAME))` lookup didn't
+  resolve); `make build-rust` now copies the binary into every game's
+  `bin/` so each project opens standalone in the editor.
+- `.vscode/{launch.json,settings.json}` and `.gitignore` swept onto the
+  new paths.
+
+### Left off at
+**Done in this branch.** Open follow-ups:
+1. Each game project still uses the legacy `game_bridge.gd` directly
+   (raw `JavaScriptBridge.eval` calls). The new `HostBridge` Rust node
+   isn't yet adopted in scenes — that migration happens game-by-game
+   alongside the section-A federated remote split.
+2. Web target for the Rust bridge: the WASM cargo target falls through
+   with a warning if emscripten isn't installed; per-export-preset
+   `extensions_support` stays false to suppress "no library matching
+   this platform" boot warnings. Light-weight; fix when emscripten
+   tooling is set up.
+
+---
+
+## H. Cryptographic launch UIDs + per-game roles + JWT through dashboard
+
+### What changed
+- `POST /api/games/{slug}/launch` (auth required) mints a 256-bit URL-safe
+  uid, persists a row in `game_launches` (migration 020) with a 15-minute
+  TTL, returns `{uid, expiresAt, gameSlug}`. The federated remote holds
+  the uid and uses it as a path component when fetching the bundle:
+  `GET /api/assets/levels/{slug}/{uid}/index.{wasm,pck,html,js}`. The
+  AssetController validates against active rows and 404s on mismatch /
+  expired / wrong-slug. A feature flag
+  (`app.assets.require-launch-uid`, default `false`) enforces the gated
+  path globally once the federated client is in place.
+- `DELETE /api/games/launches/{uid}` lets the player terminate their own
+  launch (owner-checked via `casdoorId == jwt.sub`).
+- Per-game Casdoor roles seeded: `play-three-wizards`, `play-dodecahedron`
+  in `casdoor/init_data.json.tpl` (assigned to admin + player by default).
+  `make seed-roles` provides an idempotent post-deploy way to add roles
+  for newly uploaded games (curls Casdoor's `add-role` admin API with a
+  client_credentials token).
+- `GameController.available()` and `CharacterController.dashboard()` both
+  plumb the JWT through and call the three-arg
+  `ProgressionService.availableGamesWithLevels(charId, roles, userId)` so
+  per-game `game_access` policy applies on every catalog response.
+- `RoleProxyController` (`GET /api/admin/roles`, ROLE_ADMIN only) proxies
+  Casdoor's role catalog so the upcoming admin UI's "grant role" dropdown
+  has a known set to choose from. Casdoor stays the source of truth — no
+  caching on the BFF side.
+- Frontend: `FederationService` fetches `/api/federation/manifest` once
+  per page load (cached via `shareReplay(1)`), exposes `remoteForGame(slug)`
+  and `firstByKind(kind)` resolvers. 4 unit tests cover happy-path,
+  cache, lookup-miss, and HTTP-error fallback. Bootstrap consumption
+  lands when section A's federation runtime is wired in.
+
+### Files this touches
+- `backend/src/main/resources/db/changelog/020-game-launches.xml`
+- `backend/src/main/java/com/threewizards/model/GameLaunch.java`
+- `backend/src/main/java/com/threewizards/repository/GameLaunchRepository.java`
+- `backend/src/main/java/com/threewizards/controller/{GameLaunchController,RoleProxyController}.java`
+- `backend/src/main/java/com/threewizards/controller/{AssetController,CharacterController,GameController}.java` — UID gate + JWT plumb-through
+- `backend/src/main/java/com/threewizards/service/ProgressionService.java` — three-arg overload (already present from previous slice)
+- `backend/src/test/java/com/threewizards/controller/GameAccessControllerTest.java` — 4 validation-rule tests
+- `casdoor/init_data.json.tpl` — `play-three-wizards`, `play-dodecahedron` roles
+- `Makefile` — `make seed-roles` (curl + jq based)
+- `frontend/src/app/services/federation.service.{ts,spec.ts}` — manifest service + 4 unit tests
+
+### Left off at
+**Done in this branch.** Open follow-ups:
+1. Flip `app.assets.require-launch-uid=true` once the federated remote
+   actually mints + uses a uid. Today the iframe-based SPA still hits the
+   legacy non-uid path, so flipping early would 403 every game card.
+2. Admin endpoint that revokes someone else's launch
+   (`/api/admin/launches/{uid}` with ROLE_ADMIN). Stub: today only
+   self-termination works.
+3. Cron / scheduled cleanup of `game_launches` rows past their
+   `expires_at` to keep the table bounded. Cassandra TTL would do the same
+   if we move launch state there later.
+
+---
+
 ## Cross-cutting hygiene
 
 - Bump unit test count alongside each refactor; never let test count regress.

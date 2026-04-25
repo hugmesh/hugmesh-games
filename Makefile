@@ -10,7 +10,7 @@
 
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-godot patch-godot build-backend build-backend-native build-frontend \
-        dev-backend dev-frontend install deps-rust deps-frontend seed-db deploy \
+        dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend
 
@@ -199,6 +199,44 @@ install:
 # Against compose directly:   docker compose exec -T postgres \
 #                               psql -U threewizards -d threewizards \
 #                               -f /dev/stdin < scripts/seed-games.sql
+
+# ── Per-game Casdoor roles ────────────────────────────────────────────────────
+# Idempotently creates one `play-<slug>` role per game slug in Casdoor. The
+# GameAccess admin endpoint can then narrow a game to that role
+# (scope='role', scope_value='play-<slug>') so the available-games API
+# only surfaces it to permitted users. Initial seed for the bundled games
+# is in casdoor/init_data.json.tpl; this target is for games added AFTER
+# first deploy (e.g. uploaded via the admin console).
+#
+# Requires: jq + curl on the host. Reads CASDOOR_ENDPOINT (default
+# http://localhost:8000) and an admin password from CASDOOR_ADMIN_PASS.
+
+CASDOOR_ENDPOINT ?= http://localhost:8000
+
+seed-roles:
+	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found"; exit 1; }
+	@command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found — install jq for JSON shaping"; exit 1; }
+	@if [ -z "$$CASDOOR_ADMIN_PASS" ]; then \
+	  echo "ERROR: CASDOOR_ADMIN_PASS not set — copy from 'docker logs <casdoor-container>' line 'Admin user : admin / …'"; \
+	  exit 1; \
+	fi
+	@echo "→ Seeding per-game Casdoor roles via $(CASDOOR_ENDPOINT)…"
+	@token=$$(curl -ksf -X POST $(CASDOOR_ENDPOINT)/api/login/oauth/access_token \
+	    -d "grant_type=password" -d "client_id=$${CASDOOR_CLIENT_ID:-twclient001}" \
+	    -d "client_secret=$${CASDOOR_CLIENT_SECRET:-}" \
+	    -d "username=admin" -d "password=$$CASDOOR_ADMIN_PASS" 2>/dev/null \
+	  | jq -r '.access_token // empty'); \
+	if [ -z "$$token" ]; then echo "ERROR: Casdoor admin login failed"; exit 1; fi; \
+	for slug in $(GAME_SLUGS); do \
+	  role_name="play-$$slug"; \
+	  echo "  - upsert role $$role_name"; \
+	  curl -ksf -X POST "$(CASDOOR_ENDPOINT)/api/add-role" \
+	    -H "Authorization: Bearer $$token" \
+	    -H "Content-Type: application/json" \
+	    -d "{\"owner\":\"threewizards\",\"name\":\"$$role_name\",\"displayName\":\"Play: $$slug\",\"description\":\"Auto-seeded by make seed-roles\",\"isEnabled\":true}" \
+	    >/dev/null 2>&1 || true; \
+	done
+	@echo "✓ Per-game roles seeded"
 
 seed-db:
 	@echo "→ Seeding game records into $(DB_HOST):$(DB_PORT)/$(DB_NAME)..."

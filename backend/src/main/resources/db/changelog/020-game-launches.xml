@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Cryptographic launch UIDs.
+
+        When a player clicks a game card the federated remote calls
+        `POST /api/games/{slug}/launch`; the BFF mints a 256-bit URL-safe
+        token, persists it here, and returns `{uid, expiresAt}`. The
+        remote then loads its WASM bundle from
+        `/api/assets/levels/<slug>/<uid>/index.{wasm,pck,html,js}` —
+        the AssetController validates the uid against active rows in
+        this table before serving any byte. Bookmarking / sharing a
+        bundle URL leaks nothing, since the uid is one-shot per session
+        and dies on logout or after the configured TTL.
+
+        Fields
+          uid              — base64url-encoded random bytes; URL-safe
+                             so it slots into the asset path without
+                             escaping
+          game_slug        — joined to games.slug, NOT FK'd, since
+                             games can be deleted while a launch row
+                             lingers (terminated_at flip)
+          casdoor_user_id  — JWT `sub` claim of the player
+          started_at       — NOW() at launch
+          expires_at       — started_at + TTL (15 min by default; the
+                             federated remote re-launches when expired)
+          terminated_at    — non-null when the player closes the game
+                             OR an admin force-revokes the launch
+    -->
+
+    <changeSet id="020-1-game-launches" author="nin">
+        <createTable tableName="game_launches">
+            <column name="id" type="bigserial">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="uid" type="varchar(64)">
+                <constraints unique="true" nullable="false"/>
+            </column>
+            <column name="game_slug" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="casdoor_user_id" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="started_at" type="timestamptz" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="expires_at" type="timestamptz">
+                <constraints nullable="false"/>
+            </column>
+            <column name="terminated_at" type="timestamptz"/>
+        </createTable>
+
+        <createIndex tableName="game_launches" indexName="idx_game_launches_uid_active">
+            <column name="uid"/>
+            <column name="terminated_at"/>
+        </createIndex>
+
+        <createIndex tableName="game_launches" indexName="idx_game_launches_user_active">
+            <column name="casdoor_user_id"/>
+            <column name="terminated_at"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

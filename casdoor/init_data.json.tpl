@@ -96,6 +96,22 @@
       "description": "Can upload + replace game bundles; cannot manage roles.",
       "users": [],
       "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "play-three-wizards",
+      "displayName": "Play: Three Wizards",
+      "description": "Permits launching the Three Wizards in a Trenchcoat game.",
+      "users": ["threewizards/admin", "threewizards/player"],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "play-dodecahedron",
+      "displayName": "Play: Dodecahedron Demo",
+      "description": "Permits launching the Dodecahedron Demo game.",
+      "users": ["threewizards/admin", "threewizards/player"],
+      "isEnabled": true
     }
   ],
   "permissions": [
