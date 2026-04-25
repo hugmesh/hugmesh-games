@@ -1,13 +1,11 @@
 import { inject, Injectable } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { AuthService } from './auth.service';
+import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Subject } from 'rxjs';
 import { ControlEvent, GameAction } from '../models/game-state.model';
 
 @Injectable({ providedIn: 'root' })
 export class ControlService {
   private readonly http = inject(HttpClient);
-  private readonly auth = inject(AuthService);
 
   private _characterId = 1;
   readonly controlPressed$ = new Subject<ControlEvent>();
@@ -31,11 +29,11 @@ export class ControlService {
     const event: ControlEvent = { action, pressed, timestamp: Date.now() };
     this.controlPressed$.next(event);
 
-    const claims = this.auth.getClaims() as { sub?: string } | null;
-    const casdoorId = claims?.sub ?? '';
-    const headers = new HttpHeaders({ 'X-Casdoor-Id': casdoorId });
-
-    this.http.post(`/api/controls/${this._characterId}`, event, { headers }).subscribe({
+    // No manual X-Casdoor-Id header anymore — that was a custom-trust
+    // channel any client could spoof. http-auth.interceptor adds
+    // `Authorization: Bearer <jwt>` for every /api/* request, and the
+    // BFF's ControlController reads `sub` from the verified JWT.
+    this.http.post(`/api/controls/${this._characterId}`, event).subscribe({
       error: err => console.warn('Control event failed:', err),
     });
   }
