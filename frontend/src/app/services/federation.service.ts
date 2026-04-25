@@ -43,17 +43,27 @@ export class FederationService {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiBase;
 
-  /** Cached manifest stream (replays the latest value to late subscribers). */
-  private readonly manifest$: Observable<FederationManifest> = this.http
-    .get<FederationManifest>(`${this.base}/api/federation/manifest`)
-    .pipe(
-      tap(m => console.log(`[Federation] manifest with ${m.remotes.length} remotes`)),
-      catchError(err => {
-        console.warn('[Federation] manifest fetch failed; falling back to empty', err);
-        return of<FederationManifest>({ generatedAt: new Date().toISOString(), remotes: [] });
-      }),
-      shareReplay(1),
-    );
+  /**
+   * Cached manifest stream. If `main.ts` preloaded the manifest into
+   * `window.__SNAPDRAGON_FEDERATION_MANIFEST__`, use that — saves a
+   * duplicate HTTP roundtrip on first paint. Otherwise lazy-fetch.
+   */
+  private readonly manifest$: Observable<FederationManifest> = (() => {
+    const preloaded = (globalThis as any).__SNAPDRAGON_FEDERATION_MANIFEST__;
+    if (preloaded && Array.isArray(preloaded.remotes)) {
+      return of<FederationManifest>(preloaded).pipe(shareReplay(1));
+    }
+    return this.http
+      .get<FederationManifest>(`${this.base}/api/federation/manifest`)
+      .pipe(
+        tap(m => console.log(`[Federation] manifest with ${m.remotes.length} remotes`)),
+        catchError(err => {
+          console.warn('[Federation] manifest fetch failed; falling back to empty', err);
+          return of<FederationManifest>({ generatedAt: new Date().toISOString(), remotes: [] });
+        }),
+        shareReplay(1),
+      );
+  })();
 
   /** Fire-and-cache: the manifest is fetched on first subscription. */
   load(): Observable<FederationManifest> {
