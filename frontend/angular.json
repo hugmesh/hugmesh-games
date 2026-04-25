@@ -3,6 +3,42 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
+    "games-dodecahedron": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/games-dodecahedron",
+      "sourceRoot": "projects/games-dodecahedron/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/games-dodecahedron",
+            "index": "projects/games-dodecahedron/src/index.html",
+            "browser": "projects/games-dodecahedron/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/games-dodecahedron/tsconfig.app.json",
+            "assets": [],
+            "styles": [],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                { "type": "initial", "maximumWarning": "500kb", "maximumError": "2mb" }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
     "snapdragon-games-frontend": {
       "projectType": "application",
       "schematics": {},

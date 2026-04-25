@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Federation manifest URL rewrite.
+
+        Migration 018 seeded `remote_entry_url` with absolute internal
+        compose hostnames (e.g. http://games-dodecahedron:8080/remoteEntry.json).
+        Those resolve from the e2e Playwright container (it's on the
+        compose network) but a real user's browser at
+        https://localhost:8080 can't reach internal compose hostnames.
+
+        Fix: rewrite to `/_remotes/<slug>/remoteEntry.json` paths the
+        frontend nginx proxies through to the matching internal service.
+        Single origin keeps COOP/COEP + CORS straightforward and works
+        identically for e2e + production.
+    -->
+
+    <changeSet id="022-1-federation-relative-urls" author="nin">
+        <sql>
+UPDATE federation_modules SET remote_entry_url = '/_remotes/login/remoteEntry.json'
+ WHERE slug = 'login';
+UPDATE federation_modules SET remote_entry_url = '/_remotes/admin/remoteEntry.json'
+ WHERE slug = 'admin';
+UPDATE federation_modules SET remote_entry_url = '/_remotes/games-three-wizards/remoteEntry.json'
+ WHERE slug = 'games-three-wizards';
+UPDATE federation_modules SET remote_entry_url = '/_remotes/games-dodecahedron/remoteEntry.json'
+ WHERE slug = 'games-dodecahedron';
+UPDATE federation_modules SET remote_entry_url = '/_remotes/wasm-fragment/fragment'
+ WHERE slug = 'wasm-fragment';
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

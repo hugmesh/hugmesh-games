@@ -21,10 +21,11 @@ static func build(inputs: Dictionary) -> Dictionary:
 	var remote_kind: String = inputs.get("remote_kind", "remote-game")
 	var remote_entry_url: String = inputs.get(
 		"remote_entry_url",
-		# Default convention: each game remote runs in its own nginx
-		# container reachable as `games-<slug>` on the compose network.
-		# The BFF rewrites this to a public URL when serving the manifest.
-		"http://games-%s:8080/remoteEntry.json" % slug,
+		# Default convention: relative path the frontend nginx proxies
+		# through to the matching games-<slug> compose service. Single
+		# origin keeps COOP/COEP + CORS simple and works for both
+		# host-browser and in-network e2e clients.
+		"/_remotes/games-%s/remoteEntry.json" % slug,
 	)
 
 	return {
