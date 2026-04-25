@@ -1,44 +1,48 @@
-import { bootstrapApplication } from '@angular/platform-browser';
+// Federation runtime + bootstrap entry. NOTHING in this file may
+// statically import @angular/* (or any other dep that goes through
+// the import map) — those bare specifiers can only be resolved AFTER
+// initFederation() writes the map. The Angular bootstrap is dynamic-
+// imported below once initFederation completes; that's native-
+// federation's documented "break-the-chicken-and-egg" pattern.
 
-import { AppComponent } from './app/app.component';
-import { appConfig } from './app/app.config';
+import { initFederation } from '@angular-architects/native-federation';
 import { environment } from './environments/environment';
 
-/**
- * Bootstrap order:
- *   1. Fetch the DB-backed federation manifest from the BFF (a single
- *      HTTP call, ~kB of JSON). The manifest tells the shell which
- *      remote modules exist (login, admin, per-game, wasm-fragment),
- *      what kind they are, and where to load them.
- *   2. Cache the result on `window.__SNAPDRAGON_FEDERATION_MANIFEST__`
- *      so the host's federation runtime — once we wire in
- *      native-federation's `initFederation(...)` — has it ready and
- *      doesn't refetch.
- *   3. Bootstrap the Angular shell. Routes that depend on remote
- *      modules read the manifest via `FederationService` (which uses
- *      the cached observable, not a fresh HTTP call).
- *
- * Why pre-bootstrap the fetch instead of eager-load inside `main.ts`'s
- * Angular boot: native-federation expects the manifest to be available
- * BEFORE component bootstrap so it can resolve remote import URLs.
- */
-async function preloadFederationManifest(): Promise<void> {
-  const url = `${environment.apiBase}/api/federation/manifest`;
-  try {
-    const resp = await fetch(url, { credentials: 'omit' });
-    if (resp.ok) {
-      const manifest = await resp.json();
-      (globalThis as any).__SNAPDRAGON_FEDERATION_MANIFEST__ = manifest;
-      console.log(`[bootstrap] federation manifest preloaded — ${manifest.remotes?.length ?? 0} remotes`);
-    } else {
-      console.warn('[bootstrap] federation manifest preload returned', resp.status);
-    }
-  } catch (err) {
-    console.warn('[bootstrap] federation manifest preload failed; falling back to lazy fetch', err);
-  }
+interface BffManifest {
+  generatedAt?: string;
+  remotes: Array<{ slug: string; remoteEntryUrl: string; kind: string }>;
 }
 
 (async () => {
-  await preloadFederationManifest();
-  await bootstrapApplication(AppComponent, appConfig).catch(err => console.error(err));
+  // Pull the BFF-shaped manifest first so we can shape it for
+  // initFederation. Cache the BFF shape on window for FederationService.
+  const fedMap: Record<string, string> = {};
+  try {
+    const resp = await fetch(`${environment.apiBase}/api/federation/manifest`,
+                             { credentials: 'omit' });
+    if (resp.ok) {
+      const bffManifest: BffManifest = await resp.json();
+      (globalThis as any).__SNAPDRAGON_FEDERATION_MANIFEST__ = bffManifest;
+      for (const r of bffManifest.remotes ?? []) {
+        if (r.kind === 'remote-game' || r.kind === 'remote-shell') {
+          fedMap[r.slug] = r.remoteEntryUrl;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[bootstrap] manifest preload failed; remotes unavailable', err);
+  }
+
+  try {
+    await initFederation(fedMap);
+    console.log(`[bootstrap] initFederation() ok — ${Object.keys(fedMap).length} remotes wired`);
+  } catch (err) {
+    console.warn('[bootstrap] initFederation failed; continuing without remotes', err);
+  }
+
+  // Dynamic import of bootstrap.ts AFTER the import map exists.
+  // Webpack/esbuild treat `import('./bootstrap')` as a code-split
+  // point; the resulting chunk is loaded only here, by which time
+  // the federation runtime has hydrated bare-specifier resolution.
+  await import('./bootstrap');
 })();

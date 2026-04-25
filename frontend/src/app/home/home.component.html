@@ -76,16 +76,17 @@
       </div>
       <div class="canvas-container" #canvasContainer>
         <!--
-          Federation render path is currently bypassed — the
-          per-remote Angular sub-project (frontend/projects/games-
-          dodecahedron/), the federation.config.js scaffolding, the
-          dodecahedron-remote.component.ts exposed surface, and the
-          RemoteLoaderService all stay committed for a focused
-          follow-up session. The native-federation builder swap on
-          the host blocks bootstrap on a modulepreload+importmap
-          ordering issue we couldn't crack in this session; see
-          docs/PLAN-module-federation-and-native.md (section A).
-          Today every level renders through the legacy iframe path.
+          Host shell now bootstraps under @angular-architects/native-
+          federation:build (post-process strips modulepreload + flips
+          polyfills script type to module-shim; main/bootstrap split
+          breaks the import-map chicken-and-egg). Per-remote integration
+          (loadRemoteModule + createCustomElement) is wired in
+          RemoteLoaderService and the federation manifest, but the
+          remote's own dist still needs polish — its bundles load but
+          the registered <app-<slug>-remote> doesn't yet render its
+          inner WASM iframe. Until that closes, every level renders
+          through <app-game-canvas>; the federation runtime is live in
+          the background ready for the cutover.
         -->
         <app-game-canvas
           [game]="activeLevel"
