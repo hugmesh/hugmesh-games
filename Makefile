@@ -20,17 +20,26 @@ DB_PORT      ?= 5432
 DB_NAME      ?= threewizards
 DB_USER      ?= threewizards
 PSQL         ?= psql
-RUST_DIR      = game/rust
-GODOT_DIR     = godot-project
+RUST_DIR      = extensions/snapdragon-bridge
+GAMES_DIR     = games
 FRONTEND_DIR  = frontend
 BACKEND_DIR   = backend
 
-RUST_TARGET_NATIVE  = target/release/libthree_wizards.so
-RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/three_wizards.wasm
+RUST_TARGET_NATIVE  = target/release/libsnapdragon_bridge.so
+RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/snapdragon_bridge.wasm
 GODOT_EXPORT_ROOT   = $(BACKEND_DIR)/src/main/resources/assets/levels
-# Space-separated list of level slugs that map to export preset names.
-# Add new levels here AND in godot-project/export_presets.cfg.
-GODOT_LEVELS        = Cave Field Dodecahedron
+
+# Per-game project layout. Each row maps:
+#   <game-slug-dir-under-games/> : <space-separated export preset names>
+# `make build-godot` iterates this list, runs each preset, and writes the
+# resulting bundle to backend/.../assets/levels/<lower-preset>/. Adding a
+# new game = drop a new project under games/<slug>/ + append a row here.
+GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo
+PRESETS_three-wizards-in-a-trenchcoat = Cave Field
+PRESETS_dodecahedron-demo             = Dodecahedron
+# Flat slug list used by `make seed-roles` and other per-game iteration.
+GAME_SLUGS          = three-wizards dodecahedron
+
 BACKEND_JAR         = $(BACKEND_DIR)/target/snapdragon-gaming-bff-0.1.0-SNAPSHOT.jar
 FRONTEND_DIST       = $(FRONTEND_DIR)/dist/snapdragon-games-frontend
 
@@ -44,11 +53,17 @@ build: build-rust build-godot build-backend build-frontend
 # ── Rust GDExtension ──────────────────────────────────────────────────────────
 
 build-rust: deps-rust
-	@echo "→ Building Rust GDExtension (native)..."
+	@echo "→ Building Snapdragon Bridge GDExtension (native)..."
 	cd $(RUST_DIR) && cargo build --release
-	mkdir -p $(GODOT_DIR)/rust_extension/bin
-	cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(GODOT_DIR)/rust_extension/bin/libthree_wizards.so
-	@echo "→ Building Rust GDExtension (WASM for web export)..."
+	@# One canonical binary in the extension dir; copy into every game project's
+	@# bin/ so each project opens standalone in the Godot editor.
+	mkdir -p $(RUST_DIR)/bin
+	cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(RUST_DIR)/bin/libsnapdragon_bridge.so
+	@for game in $(GAME_PROJECTS); do \
+	  mkdir -p $(GAMES_DIR)/$$game/bin; \
+	  cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(GAMES_DIR)/$$game/bin/libsnapdragon_bridge.so; \
+	done
+	@echo "→ Building Snapdragon Bridge (WASM for web export)..."
 	cd $(RUST_DIR) && cargo build --release --target wasm32-unknown-emscripten 2>/dev/null || \
 	  echo "  ⚠ WASM target skipped — install emscripten to enable web-native Rust"
 	@echo "✓ Rust build done"
@@ -60,26 +75,32 @@ deps-rust:
 # ── Godot Web Export ──────────────────────────────────────────────────────────
 
 build-godot: build-rust
-	@echo "→ Exporting Godot project — one WASM bundle per level..."
+	@echo "→ Exporting per-game Web bundles..."
 	@command -v $(GODOT) >/dev/null 2>&1 || { echo "ERROR: godot not found in PATH"; exit 1; }
-	@for preset in $(GODOT_LEVELS); do \
-	  slug=$$(echo $$preset | tr '[:upper:]' '[:lower:]'); \
-	  out_dir=$(GODOT_EXPORT_ROOT)/$$slug; \
-	  mkdir -p $$out_dir; \
-	  echo "→ Exporting preset '$$preset' → $$out_dir/"; \
-	  cd $(GODOT_DIR) && $(GODOT) --headless --export-release "$$preset" \
-	    "../$$out_dir/index.html"; \
-	  status=$$?; cd - >/dev/null; \
-	  if [ $$status -ne 0 ]; then \
-	    echo ""; \
-	    echo "ERROR: Godot export of preset '$$preset' failed (exit $$status)."; \
-	    echo "  Common cause: export templates not installed for your Godot version."; \
-	    echo "  Fix: Godot → Editor → Manage Export Templates → download."; \
-	    exit $$status; \
-	  fi; \
-	  python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	@for game in $(GAME_PROJECTS); do \
+	  case "$$game" in \
+	    three-wizards-in-a-trenchcoat) presets="Cave Field";; \
+	    dodecahedron-demo)             presets="Dodecahedron";; \
+	    *)                             presets="";; \
+	  esac; \
+	  for preset in $$presets; do \
+	    slug=$$(echo $$preset | tr '[:upper:]' '[:lower:]'); \
+	    out_dir=$(GODOT_EXPORT_ROOT)/$$slug; \
+	    mkdir -p $$out_dir; \
+	    echo "→ [$$game] preset '$$preset' → $$out_dir/"; \
+	    cd $(GAMES_DIR)/$$game && $(GODOT) --headless --export-release "$$preset" \
+	      "../../$$out_dir/index.html"; \
+	    status=$$?; cd - >/dev/null; \
+	    if [ $$status -ne 0 ]; then \
+	      echo "ERROR: Godot export of preset '$$preset' failed (exit $$status)."; \
+	      echo "  Common cause: export templates not installed for your Godot version."; \
+	      echo "  Fix: Godot → Editor → Manage Export Templates → download."; \
+	      exit $$status; \
+	    fi; \
+	    python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	  done; \
 	done
-	@echo "✓ All levels exported under $(GODOT_EXPORT_ROOT)/"
+	@echo "✓ All bundles exported under $(GODOT_EXPORT_ROOT)/"
 
 # ── Post-export index.html patches ───────────────────────────────────────────
 # Godot regenerates index.html on every export. This target re-applies custom
@@ -87,12 +108,19 @@ build-godot: build-rust
 
 patch-godot:
 	@echo "→ Patching exported index.html files..."
-	@for preset in $(GODOT_LEVELS); do \
-	  slug=$$(echo $$preset | tr '[:upper:]' '[:lower:]'); \
-	  out_dir=$(GODOT_EXPORT_ROOT)/$$slug; \
-	  if [ -f $$out_dir/index.html ]; then \
-	    python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
-	  fi; \
+	@for game in $(GAME_PROJECTS); do \
+	  case "$$game" in \
+	    three-wizards-in-a-trenchcoat) presets="Cave Field";; \
+	    dodecahedron-demo)             presets="Dodecahedron";; \
+	    *)                             presets="";; \
+	  esac; \
+	  for preset in $$presets; do \
+	    slug=$$(echo $$preset | tr '[:upper:]' '[:lower:]'); \
+	    out_dir=$(GODOT_EXPORT_ROOT)/$$slug; \
+	    if [ -f $$out_dir/index.html ]; then \
+	      python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	    fi; \
+	  done; \
 	done
 
 # ── Spring Boot Backend ───────────────────────────────────────────────────────
@@ -256,7 +284,7 @@ e2e-logs:
 # Each subproject runs its own native test framework. `make test` runs them
 # all sequentially. Each one is also runnable in isolation (CI fan-out).
 #
-#   test-rust      → cargo test in game/rust (host toolchain; needs cargo)
+#   test-rust      → cargo test in extensions/snapdragon-bridge (host toolchain; needs cargo)
 #   test-backend   → mvnw test in backend/   (host toolchain; needs JDK 21)
 #   test-frontend  → ng test in a Docker container (Chromium baked in,
 #                    so the host doesn't need a browser)

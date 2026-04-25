@@ -1,7 +1,8 @@
 [package]
-name = "three_wizards"
+name = "snapdragon_bridge"
 version = "0.1.0"
 edition = "2021"
+description = "Reusable Godot GDExtension that translates host-module SSE events into Godot signals (Streaming mode) and falls back to local-input echo (Standalone mode) so Godot IDE local-play works without the BFF running."
 
 [lib]
 crate-type = ["cdylib"]

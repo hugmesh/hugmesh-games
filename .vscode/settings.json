@@ -8,7 +8,7 @@
   "spring-boot.ls.java.home": "",
   // ── Rust ─────────────────────────────────────────────────────────────────
   "rust-analyzer.linkedProjects": [
-    "game/rust/Cargo.toml"
+    "extensions/snapdragon-bridge/Cargo.toml"
   ],
   "rust-analyzer.checkOnSave.command": "clippy",
   // ── Godot ─────────────────────────────────────────────────────────────────
@@ -44,14 +44,14 @@
   "files.exclude": {
     "**/node_modules": true,
     "**/target": true,
-    "game/rust/target": true,
+    "extensions/snapdragon-bridge/target": true,
     "**/.godot": true,
     "**/dist": true
   },
   "search.exclude": {
     "**/node_modules": true,
     "**/target": true,
-    "game/rust/target": true,
+    "extensions/snapdragon-bridge/target": true,
     "**/.godot": true,
     "**/dist": true
   },
