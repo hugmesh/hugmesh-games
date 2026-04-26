@@ -217,6 +217,15 @@ build-frontend: deps-frontend gen-api
 	cd $(FRONTEND_DIR) && npm run build:prod
 	@echo "✓ Frontend build done → $(FRONTEND_DIST)/"
 
+# Build the host shell + every federated remote bundle (login, admin,
+# games-three-wizards, games-dodecahedron). Useful for catching
+# per-remote build breakage locally — `docker compose build` would
+# also catch it, but at the cost of spinning up an image per project.
+build-frontend-all: deps-frontend gen-api
+	@echo "→ Building Angular host + 4 remote bundles..."
+	cd $(FRONTEND_DIR) && npm run build:all
+	@echo "✓ Full frontend build done (host + remotes) → $(FRONTEND_DIR)/dist/"
+
 deps-frontend:
 	@command -v node >/dev/null 2>&1 || { echo "ERROR: node not found"; exit 1; }
 	@[ -d $(FRONTEND_DIR)/node_modules ] || (cd $(FRONTEND_DIR) && npm install)
