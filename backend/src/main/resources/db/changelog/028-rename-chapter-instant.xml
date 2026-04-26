@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Domain rename pass:
+      level   → chapter   (game stage; the player_characters.level XP
+                            field stays as-is — that's experience level)
+      spell   → instant   (skills.skill_type and the cast action verb)
+
+    The migration only touches schema names + the small set of seed
+    string-literal values that flip (skill_type='spell' → 'instant').
+    Per-character XP `level` columns stay; "log level" stays.
+  -->
+
+  <changeSet id="028-1-rename-levels-table" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <tableExists tableName="levels"/>
+    </preConditions>
+    <renameTable oldTableName="levels" newTableName="chapters"/>
+  </changeSet>
+
+  <changeSet id="028-2-rename-level-assets-table" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <tableExists tableName="level_assets"/>
+    </preConditions>
+    <renameTable oldTableName="level_assets" newTableName="chapter_assets"/>
+  </changeSet>
+
+  <changeSet id="028-3-rename-level-id-on-chapter-assets" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="chapter_assets" columnName="level_id"/>
+    </preConditions>
+    <renameColumn tableName="chapter_assets"
+                  oldColumnName="level_id" newColumnName="chapter_id"/>
+  </changeSet>
+
+  <changeSet id="028-4-rename-current-level-id-on-characters" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="player_characters" columnName="current_level_id"/>
+    </preConditions>
+    <renameColumn tableName="player_characters"
+                  oldColumnName="current_level_id" newColumnName="current_chapter_id"/>
+  </changeSet>
+
+  <!-- Liquibase 027 already named the column level_id; flip it to
+       chapter_id for the post-rename naming. -->
+  <changeSet id="028-5-rename-level-id-on-positions" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="player_positions" columnName="level_id"/>
+    </preConditions>
+    <renameColumn tableName="player_positions"
+                  oldColumnName="level_id" newColumnName="chapter_id"/>
+  </changeSet>
+
+  <changeSet id="028-6-flip-spell-to-instant-in-skills" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <tableExists tableName="skills"/>
+      <columnExists tableName="skills" columnName="skill_type"/>
+    </preConditions>
+    <update tableName="skills">
+      <column name="skill_type" value="instant"/>
+      <where>skill_type = 'spell'</where>
+    </update>
+  </changeSet>
+
+  <!-- Update game.features default + seeds: spell_loadout flag → instant_loadout. -->
+  <changeSet id="028-7-flip-features-spell-loadout-key" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="games" columnName="features"/>
+    </preConditions>
+    <sql>
+      UPDATE games
+      SET features = (features - 'spell_loadout')
+                     || jsonb_build_object('instant_loadout', features->'spell_loadout')
+      WHERE features ? 'spell_loadout';
+    </sql>
+  </changeSet>
+
+  <!-- Rename composite-unique constraint on chapter_assets — Liquibase
+       auto-named the original on the (level_id, label) tuple. Drop +
+       re-add under the chapter_-prefixed name to keep introspection
+       readable. -->
+  <changeSet id="028-8-rename-chapter-assets-unique" author="nin">
+    <preConditions onFail="MARK_RAN" onFailMessage="legacy unique already renamed">
+      <sqlCheck expectedResult="1">
+        SELECT COUNT(*) FROM information_schema.table_constraints
+        WHERE table_name = 'chapter_assets'
+          AND constraint_name = 'uq_level_assets_label'
+          AND constraint_type = 'UNIQUE'
+      </sqlCheck>
+    </preConditions>
+    <sql>ALTER TABLE chapter_assets RENAME CONSTRAINT uq_level_assets_label TO uq_chapter_assets_label</sql>
+  </changeSet>
+
+</databaseChangeLog>
