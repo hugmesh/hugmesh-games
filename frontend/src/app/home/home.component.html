@@ -91,15 +91,21 @@
         @if (isFederated(activeLevel)) {
           @switch (activeRemoteSlug) {
             @case ('dodecahedron') {
-              <app-dodecahedron-remote class="remote-mount"></app-dodecahedron-remote>
+              <app-dodecahedron-remote
+                class="remote-mount"
+                [launchUid]="activeLaunchUid"></app-dodecahedron-remote>
             }
             @case ('three-wizards') {
               <!-- The custom element tag matches what RemoteLoaderService
-                   registers: app-${remote.gameSlug}-remote. -->
+                   registers: app-${remote.gameSlug}-remote.
+                   launchUid is set after `POST /api/games/three-wizards/launch`
+                   resolves; until then the remote falls back to a
+                   blank uid (no enforcement, just an audit-trail value). -->
               <app-three-wizards-remote
                 class="remote-mount"
                 [levelSlug]="activeLevel.sceneType"
-                [levelId]="activeLevel.id"></app-three-wizards-remote>
+                [levelId]="activeLevel.id"
+                [launchUid]="activeLaunchUid"></app-three-wizards-remote>
             }
           }
         } @else {

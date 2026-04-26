@@ -2,6 +2,7 @@ import {
   Component, CUSTOM_ELEMENTS_SCHEMA, ElementRef, HostListener, OnInit, ViewChild, inject
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { GameLibraryService } from '../services/game-library.service';
 import { CharacterService } from '../services/character.service';
 import { RemoteLoaderService } from '../services/remote-loader.service';
@@ -12,6 +13,13 @@ import { GameHudComponent } from '../game-hud/game-hud.component';
 import { GameControlsComponent } from '../game-controls/game-controls.component';
 import { Observable, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
+
+/** Minted by `POST /api/games/{slug}/launch` — see GameLaunchController. */
+interface LaunchResponse {
+  uid: string;
+  expiresAt: string;
+  gameSlug: string;
+}
 
 const SCENE_ICONS: Record<string, string> = {
   cave:         '🏔',
@@ -58,6 +66,7 @@ export class HomeComponent implements OnInit {
   private readonly characterSvc = inject(CharacterService);
   private readonly remoteLoader = inject(RemoteLoaderService);
   private readonly session = inject(SessionService);
+  private readonly http = inject(HttpClient);
 
   characterId = 1;
   levels$: Observable<AvailableGame[]> = of([]);
@@ -66,6 +75,13 @@ export class HomeComponent implements OnInit {
   /** Set when the chosen level is served by a federated remote. Maps
    *  sceneType → federation gameSlug via SCENE_TYPE_TO_GAME_SLUG. */
   activeRemoteSlug: string | null = null;
+  /** Set when the player picks a federated game and the BFF mints a
+   *  launch UID. The UID lands in the iframe URL as `?launch_uid=...`
+   *  for traceability — wasm-fragment doesn't enforce it (Godot bundles
+   *  are public under federation), but the launch row creates the audit
+   *  trail GameLaunchSweeper / admin revoke / GameLaunchController.list
+   *  all key off. Null when no federated game is active. */
+  activeLaunchUid: string | null = null;
 
   sceneIcon(level: AvailableGame): string {
     return SCENE_ICONS[level.sceneType] ?? '⚔';
@@ -151,6 +167,7 @@ export class HomeComponent implements OnInit {
   selectLevel(level: AvailableGame): void {
     if (!level.unlocked) return;
     this.activeLevel = level;
+    this.activeLaunchUid = null;
     if (this.isFederated(level)) {
       // sceneType keys SCENE_TYPE_TO_GAME_SLUG which yields the
       // federation_modules.gameSlug — for cave/field that's
@@ -161,6 +178,21 @@ export class HomeComponent implements OnInit {
         next: r => console.log(`[home] federated remote loaded: ${r.slug}`),
         error: e => console.warn('[home] federated remote load failed; falling back to iframe', e),
       });
+      // Mint a launch UID so the session shows up in the admin's
+      // active-launches list, gets aged out by GameLaunchSweeper when
+      // the 15-minute TTL expires, and can be force-revoked via
+      // DELETE /api/admin/launches/{uid}. The federated render path
+      // doesn't gate asset access on the UID (Godot bundles are public
+      // under wasm-fragment) — the value here is operational visibility
+      // + audit trail, not access control.
+      this.http.post<LaunchResponse>(`/api/games/${gameSlug}/launch`, {})
+        .subscribe({
+          next: r => {
+            this.activeLaunchUid = r.uid;
+            console.log(`[home] launch minted uid=${r.uid.substring(0, 8)}… expires=${r.expiresAt}`);
+          },
+          error: e => console.warn('[home] /launch failed; continuing without uid', e),
+        });
     } else {
       this.activeRemoteSlug = null;
     }
@@ -171,8 +203,18 @@ export class HomeComponent implements OnInit {
 
   closeLevel(): void {
     if (this.isFullscreen) document.exitFullscreen();
+    // Best-effort terminate the launch on close so the admin's active
+    // list reflects reality faster than the 15-minute sweeper. Silent
+    // failure: the sweeper picks it up either way.
+    if (this.activeLaunchUid) {
+      const uid = this.activeLaunchUid;
+      this.http.delete<void>(`/api/games/launches/${uid}`).pipe(
+        catchError(() => of(null)),
+      ).subscribe();
+    }
     this.activeLevel = null;
     this.activeRemoteSlug = null;
+    this.activeLaunchUid = null;
     this.isFullscreen = false;
   }
 

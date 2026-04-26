@@ -56,27 +56,45 @@ describe('ThreeWizardsRemoteComponent', () => {
     expect(url).toContain('/_remotes/wasm-fragment/cave/index.html?');
   });
 
-  it('omits level_id value when the input is null (host hasn\'t set it yet)', () => {
+  it('omits level_id from the URL when the input is null', () => {
     component.levelSlug = 'cave';
     component.levelId = null;
     const url = lastUrl();
-    // With no levelId, the param is empty rather than undefined-stringified.
-    expect(url).toContain('level_id=&');
+    // With no levelId, the URLSearchParams build skips the param
+    // entirely (rather than emitting level_id=undefined or
+    // level_id=&). Just t= remains as the cache-buster.
+    expect(url).not.toContain('level_id=');
+    expect(url).toMatch(/[?&]t=\d+/);
+  });
+
+  it('threads launchUid into the launch_uid query for audit traceability', () => {
+    component.levelSlug = 'cave';
+    component.levelId = 1;
+    component.launchUid = 'fake-launch-uid-43chars';
+    const url = lastUrl();
+    expect(url).toContain('launch_uid=fake-launch-uid-43chars');
+  });
+
+  it('omits launch_uid when the input is null', () => {
+    component.levelSlug = 'cave';
+    component.launchUid = null;
+    const url = lastUrl();
+    expect(url).not.toContain('launch_uid');
   });
 
   it('cache-busts every refresh so the iframe remounts cleanly', () => {
     component.levelSlug = 'cave';
     const first = lastUrl();
-    // Force the timestamp to advance — modern browsers do this naturally
-    // but karma's Date is real, so wait one tick by triggering another
-    // setter invocation. Each call is wallclock-stamped via Date.now().
     jasmine.clock().install();
     jasmine.clock().mockDate(new Date(Date.now() + 50));
     component.levelSlug = 'field';
     jasmine.clock().uninstall();
     const second = lastUrl();
     expect(first).not.toBe(second);
-    expect(first).toMatch(/&t=\d+$/);
-    expect(second).toMatch(/&t=\d+$/);
+    // Both URLs carry a t= cache-buster regardless of param ordering.
+    // URLSearchParams emits the first param after `?` (no leading `&`),
+    // so the regex tolerates either separator.
+    expect(first).toMatch(/[?&]t=\d+$/);
+    expect(second).toMatch(/[?&]t=\d+$/);
   });
 });

@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 
 /**
@@ -38,10 +38,31 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 })
 export class DodecahedronRemoteComponent {
   private readonly sanitizer = inject(DomSanitizer);
+
+  /** Launch UID minted by `POST /api/games/dodecahedron/launch`.
+   *  Threaded through as a query param for audit/traceability —
+   *  wasm-fragment doesn't validate it (Godot bundles are public
+   *  under federation; see PLAN section H.1's architectural close). */
+  @Input()
+  set launchUid(value: string | null | undefined) {
+    this._launchUid = value ?? null;
+    this._refresh();
+  }
+  get launchUid(): string | null { return this._launchUid; }
+  private _launchUid: string | null = null;
+
   // Asset bytes come from the federated wasm-fragment service — the
   // host's nginx proxies /_remotes/wasm-fragment/ to that container,
   // which serves the Godot bundles directly (no api round-trip).
-  readonly safeUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
+  safeUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
     '/_remotes/wasm-fragment/dodecahedron/index.html',
   );
+
+  private _refresh(): void {
+    const base = '/_remotes/wasm-fragment/dodecahedron/index.html';
+    const url = this._launchUid
+      ? `${base}?launch_uid=${encodeURIComponent(this._launchUid)}`
+      : base;
+    this.safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+  }
 }

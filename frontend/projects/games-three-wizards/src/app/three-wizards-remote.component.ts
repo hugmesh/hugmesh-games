@@ -78,6 +78,18 @@ export class ThreeWizardsRemoteComponent {
   get levelId(): number | null { return this._levelId; }
   private _levelId: number | null = null;
 
+  /** Launch UID minted by `POST /api/games/three-wizards/launch`.
+   *  Threaded through as a query param for audit/traceability —
+   *  wasm-fragment doesn't validate it (Godot bundles are public
+   *  under federation; see PLAN section H.1's architectural close). */
+  @Input()
+  set launchUid(value: string | null | undefined) {
+    this._launchUid = value ?? null;
+    this._refresh();
+  }
+  get launchUid(): string | null { return this._launchUid; }
+  private _launchUid: string | null = null;
+
   safeUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
     '/_remotes/wasm-fragment/cave/index.html',
   );
@@ -89,7 +101,11 @@ export class ThreeWizardsRemoteComponent {
     // container, which serves the Godot bundles directly (no api
     // round-trip). Cache-bust on every (slug,id) change so the
     // iframe remounts cleanly across cave→field transitions.
-    const url = `/_remotes/wasm-fragment/${this._levelSlug}/index.html?level_id=${id}&t=${Date.now()}`;
+    const params = new URLSearchParams();
+    if (id !== '') params.set('level_id', String(id));
+    if (this._launchUid) params.set('launch_uid', this._launchUid);
+    params.set('t', String(Date.now()));
+    const url = `/_remotes/wasm-fragment/${this._levelSlug}/index.html?${params}`;
     this.safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
   }
 }
