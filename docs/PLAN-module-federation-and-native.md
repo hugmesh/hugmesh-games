@@ -245,12 +245,21 @@ Now done in this branch:
     - cave + field    → `<app-three-wizards-remote>` Web Component
     - dodecahedron    → `<app-dodecahedron-remote>` Web Component
     - any other type  → legacy `<app-game-canvas>` iframe
-- Test coverage: backend 26 · frontend 54 · rust 1 · e2e green (5.3 s).
+- Test coverage: backend 26 · frontend 71 · rust 1 · e2e green (6.0 s).
   Federated remotes have unit specs covering BFF wiring + error paths
-  (admin/login/upload + the loadRemote helper + authGuard + interceptor).
+  (admin/login/upload + the loadRemote helper + authGuard + interceptor
+  + three-wizards URL shape + onWindowMessage predicate + AppComponent's
+  NavigationError banner).
 - `federation-base.js` consolidates `shareAll` + `skip` lists across
   the host and four remote bundles so the federation surface can't
   silently drift between them.
+- Federation NavigationError UX: AppComponent subscribes to
+  `Router.events`; a `loadComponent()` rejection on a federated route
+  surfaces a top-level retry banner ("Couldn't reach <Login | Admin
+  console | Game uploads> — the federated module didn't load") instead
+  of silently leaving the user on the previous URL. NavigationStart
+  on the next nav clears the banner so a manual refresh / retry
+  auto-recovers.
 
 **Next session — only asset-tier work remains:**
 1. `wasm-fragment` could grow to actually serve Godot bundles from a
