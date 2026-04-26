@@ -1,0 +1,43 @@
+% Compose-network topology.
+\begin{tikzpicture}[
+  node distance=8mm and 12mm,
+  every node/.style={font=\sffamily\footnotesize},
+]
+  % Tier 1: browser
+  \node[snapdarknode] (browser) {Browser\\ \tiny(Angular host shell)};
+
+  % Tier 2: per-remote nginx fleet
+  \node[snapnode, below=14mm of browser, xshift=-44mm] (host)
+    {host\\ \tiny nginx + ng-host};
+  \node[snapnode, right=of host]              (login)   {login\\ \tiny nginx};
+  \node[snapnode, right=of login]             (admin)   {admin\\ \tiny nginx};
+  \node[snapnode, right=of admin]             (gtw)     {games-three-\\wizards};
+  \node[snapnode, right=of gtw]               (gdo)     {games-\\dodecahedron};
+  \node[snapnode, right=of gdo]               (frag)    {wasm-\\fragment};
+
+  % Tier 3: BFF + persistence
+  \node[snapaccent, below=14mm of admin] (bff)
+    {Spring Boot BFF\\ \tiny(WebFlux + R2DBC + JDBC)};
+  \node[snapnode, below=of host]    (cas) {Casdoor\\ \tiny OAuth2/OIDC};
+  \node[snapnode, below=of gtw]     (pg)  {PostgreSQL\\ \tiny(R2DBC + Liquibase)};
+  \node[snapnode, below=of frag]    (cs)  {Cassandra\\ \tiny(audit + cache)};
+
+  \draw[snapedge] (browser.south) -- (host.north);
+  \draw[snapedge,dashed] (host) -- node[snaplabel,sloped,above]{/\_remotes/login} (login);
+  \draw[snapedge,dashed] (host) to[bend left=8] node[snaplabel,sloped,above]{/\_remotes/admin} (admin);
+  \draw[snapedge,dashed] (host) to[bend left=18] node[snaplabel,sloped,above]{/\_remotes/games-three-wizards} (gtw);
+  \draw[snapedge,dashed] (host) to[bend left=24] node[snaplabel,sloped,above]{/\_remotes/games-dodecahedron} (gdo);
+  \draw[snapedge,dashed] (host) to[bend left=28] node[snaplabel,sloped,above]{/\_remotes/wasm-fragment} (frag);
+
+  \draw[snapedge] (host.south) -- node[snaplabel,sloped,above]{/api/*} (bff.north);
+  \draw[snapedge] (bff) -- (cas);
+  \draw[snapedge] (bff) -- (pg);
+  \draw[snapedge] (bff) -- (cs);
+
+  \begin{scope}[on background layer]
+    \node[fit=(host)(login)(admin)(gtw)(gdo)(frag),
+          fill=snapAccent!4,rounded corners=6pt,inner sep=10pt,label={[font=\sffamily\bfseries\small\color{snapAccent}]above:Per-remote nginx fleet}] {};
+    \node[fit=(bff)(cas)(pg)(cs),
+          fill=snapAccentTwo!8,rounded corners=6pt,inner sep=10pt,label={[font=\sffamily\bfseries\small\color{snapAccent}]below:BFF + persistence}] {};
+  \end{scope}
+\end{tikzpicture}

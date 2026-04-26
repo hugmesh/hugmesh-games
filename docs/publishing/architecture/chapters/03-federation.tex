@@ -1,0 +1,169 @@
+\chapter{Module Federation}
+
+The host shell loads \emph{everything} above the WASM iframe through
+\texttt{@angular-architects/native-federation}. Adding a new
+route-bearing remote means adding a row to \texttt{federation\_modules},
+shipping a per-remote bundle, and pointing \texttt{loadComponent} at the
+exposed module. Adding a new game means the same plus an
+\texttt{<app-game>-remote>} Web Component the host can place in its
+template.
+
+\section{The two ordering rules}
+
+\begin{enumerate}
+  \item \textbf{\texttt{initFederation} before \texttt{bootstrapApplication}.}
+        \snapfile{frontend/src/main.ts} dynamic-imports
+        \snapfile{bootstrap.ts} after the federation runtime resolves.
+        Static imports of \texttt{@angular/*} from \texttt{main.ts} would
+        be evaluated before the import map is installed and would
+        therefore fail to resolve.
+  \item \textbf{Remote-loader access through \texttt{globalThis}.}
+        Route handlers reach the federation runtime through
+        \texttt{globalThis.\_\_SNAPDRAGON\_LOAD\_REMOTE\_MODULE\_\_}, set
+        by \texttt{main.ts} once \texttt{initFederation} resolves. This
+        keeps \texttt{@angular-architects/native-federation} out of
+        karma's static graph and out of every route-handler bundle.
+\end{enumerate}
+
+\section{The manifest}
+
+\begin{figure}[!h]
+\centering
+\input{diagrams/federation-bootstrap.tex}
+\caption{Federation bootstrap. The host fetches the manifest from the BFF
+\emph{before} \texttt{bootstrapApplication}, then constructs the import
+map, then mounts the host \texttt{AppComponent}. New remotes appear by
+inserting rows into \texttt{federation\_modules} — no host redeploy
+required.}
+\end{figure}
+
+The manifest endpoint is
+\texttt{GET /api/federation/manifest} — DB-backed, public on purpose
+because the host needs the \texttt{login} remote URL before any user has
+authenticated. It returns the active rows of \texttt{federation\_modules}
+ordered by \texttt{kind, slug}:
+
+\begin{lstlisting}[language=json]
+{
+  "generatedAt": "2026-04-26T05:30:11Z",
+  "remotes": [
+    { "slug": "login",  "kind": "remote-shell",
+      "remoteEntryUrl": "/_remotes/login/remoteEntry.json",
+      "exposedModule": "./LoginComponent",
+      "displayName": "Login",  "version": "1.0.0", "metadata": {} },
+    { "slug": "admin",  "kind": "remote-shell",
+      "remoteEntryUrl": "/_remotes/admin/remoteEntry.json",
+      "exposedModule": "./AdminShell",
+      "displayName": "Admin",  "version": "1.0.0", "metadata": {} },
+    /* ...games-three-wizards, games-dodecahedron, wasm-fragment... */
+  ]
+}
+\end{lstlisting}
+
+\section{Shared dependencies}
+
+\snapfile{frontend/federation-base.js} consolidates the shared-package
+configuration so the host and all four remotes ship the same Angular
+version:
+
+\begin{lstlisting}[language=javascript]
+// One source of truth for shareAll + skip helpers.
+const STD_SHARED = ['@angular/core','@angular/common','@angular/forms',
+                    '@angular/router','rxjs','zone.js'];
+const STD_SKIP   = ['@angular/compiler','@angular-architects/native-federation'];
+
+module.exports = {
+  snapdragonHost:   () => snapdragonShared({singleton:true,strictVersion:true}),
+  snapdragonRemote: () => snapdragonShared({singleton:true,requiredVersion:'auto'}),
+};
+\end{lstlisting}
+
+The angular-architects builder enforces that \texttt{@angular/core} and
+the rest of the standard set are loaded \emph{exactly once} per page;
+mismatched versions across remotes produce the
+\texttt{NG0203 inject() must be called from an injection context} runtime
+error, which is the federation-shaped variant of the more familiar
+\texttt{NullInjectorError}.
+
+\section{Routing into a remote}
+
+The \texttt{loadRemote<T>} helper in \snapfile{frontend/src/app/app.routes.ts}
+is what every federated route reaches for:
+
+\begin{lstlisting}[language=javascript]
+export function loadRemote<T>(
+  remoteName: string, exposedModule: string, exportName: string,
+): () => Promise<T> {
+  return async () => {
+    const loadRemoteModule = (globalThis as any)
+      .__SNAPDRAGON_LOAD_REMOTE_MODULE__;
+    if (!loadRemoteModule) throw new Error('federation runtime missing');
+    const m = await loadRemoteModule({ remoteName, exposedModule });
+    return m[exportName];
+  };
+}
+\end{lstlisting}
+
+The exported factory is plugged into \texttt{loadComponent} for every
+federated route:
+
+\begin{lstlisting}[language=javascript]
+{ path: 'login',       loadComponent: loadRemote('login', './LoginComponent', 'LoginComponent') },
+{ path: 'admin',       loadComponent: loadRemote('admin', './AdminShell',     'AdminShell')     },
+{ path: 'admin/games', loadComponent: loadRemote('admin', './UploadShell',    'UploadShell')    },
+\end{lstlisting}
+
+\section{Per-game federation}
+
+A game remote exposes a \emph{Web Component} (built with
+\texttt{createCustomElement} and registered with
+\texttt{customElements.define}). The host places it as a normal element:
+
+\begin{lstlisting}[language=html]
+@switch (activeRemoteSlug()) {
+  @case ('three-wizards') {
+    <app-three-wizards-remote
+      [levelSlug]="activeLevelSlug()"
+      [levelId]="activeLevelId()"
+      [launchUid]="activeLaunchUid()" />
+  }
+  @case ('dodecahedron') {
+    <app-dodecahedron-remote [launchUid]="activeLaunchUid()" />
+  }
+}
+\end{lstlisting}
+
+The remote internally builds an iframe URL that points at the
+\texttt{wasm-fragment} remote:
+
+\begin{lstlisting}[language=javascript]
+this.iframeUrl = `/_remotes/wasm-fragment/${this.levelSlug}/index.html` +
+                 `?level_id=${this.levelId}&launch_uid=${this.launchUid}` +
+                 `&t=${Date.now()}`;
+\end{lstlisting}
+
+The cache-busting \texttt{\&t=...} parameter is intentional — the iframe
+HTML itself is small and cheap, but the browser is otherwise prone to
+caching it across rebuilds and showing a stale Godot bundle.
+
+\section{Error handling}
+
+When a federated chunk fails to load (host nginx down, remote returned
+500, network drop), the host's
+\snapfile{AppComponent} subscribes to \texttt{Router.events} and shows a
+banner with the human-readable label of the broken route, plus a
+\textit{Retry} button. The label lookup uses
+\texttt{FEDERATED\_ROUTE\_LABELS} (longest-prefix-first, so
+\texttt{/admin/games} resolves before \texttt{/admin}).
+
+\begin{snapcaution}[title={CORP saves WASM iframes}]
+WASM games loading inside the federated iframe need
+\texttt{Cross-Origin-Resource-Policy: cross-origin} on the
+\texttt{wasm-fragment} response \emph{and} the host nginx must strip any
+duplicate COOP/COEP headers from the upstream and re-emit a single
+canonical set. Missing CORP shows up as
+\texttt{net::ERR\_BLOCKED\_BY\_RESPONSE}; duplicates show up as
+\texttt{NotSameOriginAfterDefaultedToSameOriginByCoep}. Both are silent
+in DevTools' \emph{Console} but show clearly in \emph{Network}'s
+\textit{Cross-origin isolation} column.
+\end{snapcaution}

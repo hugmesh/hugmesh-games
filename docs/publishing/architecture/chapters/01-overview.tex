@@ -1,0 +1,70 @@
+\chapter{Overview}
+
+\textbf{Snapdragon Games} is a browser-native multi-game portal: a single
+Angular shell loads multiple Godot 4 WebAssembly titles on demand, with a
+Spring Boot BFF streaming game state and controls over Server-Sent Events.
+Authentication runs through Casdoor (OAuth2/OIDC) behind a federated login
+remote.
+
+\section{Three sentences}
+
+The host shell is a \textbf{native-federation} Angular host that loads its
+\texttt{login}, \texttt{admin}, and per-game routes from sibling bundles
+served by per-remote nginx containers on the compose network. The BFF
+compiles to either a fat JAR or a \textbf{GraalVM native image}, exposes
+the SSE stream, the federation manifest, the upload pipeline, and the
+per-game launch / access endpoints, and persists state in PostgreSQL with
+a Cassandra cross-pod cache. Each Godot game lives in its own project
+under \snapfile{games/<slug>/}, exports a self-contained WASM bundle, and
+is delivered to the browser either through the BFF asset path or through
+the dedicated \texttt{wasm-fragment} nginx remote with the
+COOP/COEP/CORP headers WASM games need.
+
+\section{What's in the box}
+
+\begin{itemize}
+  \item \textbf{Angular host} (\reposrc{frontend/}) — federation host plus
+        four sibling remotes (\texttt{login}, \texttt{admin},
+        \texttt{games-three-wizards}, \texttt{games-dodecahedron}) and
+        the asset-tier \texttt{wasm-fragment}.
+  \item \textbf{Spring Boot BFF} (\reposrc{backend/}) — WebFlux + R2DBC,
+        Liquibase via JDBC, Casdoor JWT verification, GraalVM-ready.
+  \item \textbf{Per-game Godot projects} (\reposrc{games/}) — currently
+        \texttt{three-wizards-in-a-trenchcoat} (cave + field) and
+        \texttt{dodecahedron-demo} (chrome-less single-scene tech demo).
+  \item \textbf{Reusable Rust GDExtension} (\reposrc{extensions/snapdragon-bridge/})
+        — native \texttt{.so} for the editor, \texttt{wasm32-unknown-emscripten}
+        for the web build, with a typed signal bus that any new game can
+        consume.
+  \item \textbf{wasm-fragment nginx} (\reposrc{wasm-fragment/}) — bakes
+        \snapfile{backend/src/main/resources/assets/levels/} and serves
+        Godot bundles at \texttt{/\_remotes/wasm-fragment/<slug>/index.html}
+        with COOP \texttt{same-origin}, COEP \texttt{require-corp}, and
+        CORP \texttt{cross-origin}.
+  \item \textbf{Casdoor} (\reposrc{casdoor/}) — never exposed to the host;
+        the BFF reverse-proxies the login flow so the admin UI stays
+        internal.
+  \item \textbf{PostgreSQL + Cassandra} — Postgres holds the canonical
+        relational state; Cassandra is the cross-pod movement / session
+        cache and a write-through audit log.
+\end{itemize}
+
+\section{The plan that produced this shape}
+
+The post-federation topology landed under
+\reposrc{docs/PLAN-module-federation-and-native.md}, an eight-section plan
+spanning module federation (A), Godot editor plugin (B), hot upload (C),
+GraalVM native-image (D), JWT roles + per-game access (E), DB-backed
+federation discovery (F), per-game project layout (G), and cryptographic
+launch UIDs (H). Every section is at a deliberate end state at the head
+of the \reposrc{feature/module-federation-and-native} branch; this
+document is the printed companion that explains why each piece exists and
+how they fit.
+
+\begin{snapnote}[title={Audience}]
+This reference is for engineers who need to extend, deploy, or debug the
+portal. The administrator manual, the entry-level tour, and the Godot
+developer walkthrough are separate slide decks under
+\reposrc{docs/publishing/slides/} and target their respective audiences
+without overlap.
+\end{snapnote}

@@ -12,7 +12,8 @@ SHELL := /bin/bash
 .PHONY: all clean build build-rust build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
-        test test-rust test-backend test-frontend
+        test test-rust test-backend test-frontend \
+        docs-pdf docs-slides docs-javadocs docs-all docs-clean docs-install-hooks
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -419,6 +420,29 @@ dev-backend:
 dev-frontend:
 	@echo "→ Starting Angular dev server on :4200 (proxy → :8080)..."
 	cd $(FRONTEND_DIR) && npm start
+
+# ── Publishing pipeline ───────────────────────────────────────────────────────
+# All output (PDF, .pptx, themed Javadoc HTML) is git-ignored. Run any of
+# these targets to regenerate from source. See docs/publishing/README.md
+# for the full description and the per-deck content layout.
+
+docs-pdf:
+	@$(MAKE) -C docs/publishing pdf
+
+docs-slides:
+	@$(MAKE) -C docs/publishing slides
+
+docs-javadocs:
+	@$(MAKE) -C docs/publishing javadocs
+
+docs-all:
+	@$(MAKE) -C docs/publishing all
+
+docs-clean:
+	@$(MAKE) -C docs/publishing clean
+
+docs-install-hooks:
+	@bash docs/publishing/scripts/install-hooks.sh
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

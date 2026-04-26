@@ -139,6 +139,67 @@
           <mainClass>com.threewizards.ThreeWizardsApplication</mainClass>
         </configuration>
       </plugin>
+      <!--
+        Themed Javadoc generation. Driven by `make docs-javadocs` from the
+        repo root, which sets `additionalparam` to override the doclet's
+        stylesheet and header/footer with the Snapdragon brand assets under
+        docs/publishing/javadoc-theme/. The plugin stays bound to no phase
+        on purpose — the Make target invokes `mvn javadoc:javadoc` directly
+        so the regular `mvn package` build doesn't pay the Javadoc cost.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.11.2</version>
+        <configuration>
+          <doctitle>Snapdragon Games &mdash; Snapdragon Gaming BFF API</doctitle>
+          <windowtitle>Snapdragon Gaming BFF</windowtitle>
+          <bottom><![CDATA[
+            <div class="snap-footer">
+              <strong>Snapdragon Games</strong> &middot;
+              <a href="https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat">repository</a>
+              &middot;
+              <a href="https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/docs/publishing/architecture/architecture.tex">architecture (PDF)</a>
+              &middot;
+              <a href="https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/README.md">README</a>
+            </div>
+          ]]></bottom>
+          <header><![CDATA[
+            <div class="snap-brand-strip">
+              <div class="snap-mark">
+                <strong>Snapdragon Games</strong>
+                <span>API Reference</span>
+              </div>
+              <div class="snap-meta">
+                Three Wizards In A Trenchcoat &middot;
+                <a href="https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat">github</a>
+              </div>
+            </div>
+          ]]></header>
+          <!--
+            Snapdragon Games stylesheet. The maven-javadoc-plugin's
+            addStylesheets element resolves paths against src/main/javadoc/,
+            but the canonical theme lives under docs/publishing/javadoc-theme/.
+            We pass the raw javadoc tool flag below (add-stylesheet) so we
+            can use an absolute path; the Make target copies the file into
+            the output dir alongside the generated HTML so the link works.
+          -->
+          <failOnError>false</failOnError>
+          <failOnWarnings>false</failOnWarnings>
+          <quiet>true</quiet>
+          <doclint>none</doclint>
+          <additionalOptions>
+            <additionalOption>--allow-script-in-comments</additionalOption>
+            <additionalOption>--add-stylesheet</additionalOption>
+            <additionalOption>${project.basedir}/../docs/publishing/javadoc-theme/snapdragon.css</additionalOption>
+          </additionalOptions>
+          <links>
+            <link>https://docs.spring.io/spring-framework/docs/current/javadoc-api/</link>
+            <link>https://docs.spring.io/spring-boot/docs/current/api/</link>
+            <link>https://projectreactor.io/docs/core/release/api/</link>
+          </links>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 

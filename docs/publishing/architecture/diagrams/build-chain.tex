@@ -1,0 +1,49 @@
+% Make build chain.
+\begin{tikzpicture}[
+  node distance=7mm and 12mm,
+  every node/.style={font=\sffamily\footnotesize},
+]
+  \node[snapnode] (rust)     {make build-rust};
+  \node[snapnode, below=of rust]      (godot) {make build-godot};
+  \node[snapnode, below=of godot]     (be)    {make build-backend};
+  \node[snapnode, below=of be]        (fe)    {make build-frontend};
+  \node[snapaccent, right=18mm of godot] (build) {make build};
+
+  \node[snapnode, right=24mm of be]   (compose) {docker compose up -d};
+  \node[snapnode, right=of compose]   (e2e)     {make e2e};
+  \node[snapnode, below=of compose]   (native)  {make build-backend-native};
+  \node[snapnode, right=of native]    (e2en)    {make e2e-native};
+
+  \node[snapdarknode, right=of fe]    (docs)    {Publishing pipeline};
+  \node[snapnode, right=of docs]      (pdf)     {make docs-pdf};
+  \node[snapnode, below=of pdf]       (slides)  {make docs-slides};
+  \node[snapnode, above=of pdf]       (jdoc)    {make docs-javadocs};
+
+  \draw[snapedge] (rust) -- (build);
+  \draw[snapedge] (godot) -- (build);
+  \draw[snapedge] (be)   -- (build);
+  \draw[snapedge] (fe)   -- (build);
+
+  \draw[snapedge] (build) -- (compose);
+  \draw[snapedge] (compose) -- (e2e);
+  \draw[snapedge,dashed] (be) -- (native);
+  \draw[snapedge] (native) -- (e2en);
+
+  \draw[snapedge,dashed] (fe) to[bend right=8] (docs);
+  \draw[snapedge,dashed] (be) to[bend right=4] (docs);
+  \draw[snapedge] (docs) -- (jdoc);
+  \draw[snapedge] (docs) -- (pdf);
+  \draw[snapedge] (docs) -- (slides);
+
+  \begin{scope}[on background layer]
+    \node[fit=(rust)(godot)(be)(fe)(build),
+          fill=snapAccent!4,rounded corners=6pt,inner sep=8pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent}]above:Source build}] {};
+    \node[fit=(compose)(e2e)(native)(e2en),
+          fill=snapAccentTwo!8,rounded corners=6pt,inner sep=8pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent}]above:Deploy \& test}] {};
+    \node[fit=(docs)(jdoc)(pdf)(slides),
+          fill=snapAccent!10,rounded corners=6pt,inner sep=8pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent}]above:Publishing}] {};
+  \end{scope}
+\end{tikzpicture}

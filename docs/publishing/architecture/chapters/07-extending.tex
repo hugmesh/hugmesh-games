@@ -1,0 +1,161 @@
+\chapter{Extending the portal}
+
+This chapter is the load-bearing summary of the three slide decks under
+\reposrc{docs/publishing/slides/}: how to add a new game, a new role, a
+new federated route, or a new admin view. The slides have screenshots
+and click-by-click walkthroughs; this chapter is the canonical
+\emph{contract} those walkthroughs follow.
+
+\section{Adding a new game}
+
+There are two paths.
+
+\subsection{Path A — upload at runtime}
+
+Every supported game ships an editor plugin
+(\snapfile{addons/snapdragon\_export/}) under
+\reposrc{games/three-wizards-in-a-trenchcoat/} that produces a deploy-ready
+zip with a v2 \texttt{manifest.json}, a \texttt{register.sql} insert
+script, and the \texttt{bundle/} contents:
+
+\begin{enumerate}
+  \item In the Godot editor, \emph{Project~$\rightarrow$~Tools~$\rightarrow$~Snapdragon~$\rightarrow$~Export\dots}.
+  \item Fill in slug, display name, description, scene type. The plugin
+        defaults the federation \texttt{remote\_entry\_url} to
+        \texttt{/\_remotes/games-<slug>/remoteEntry.json}; if you don't
+        plan to ship a per-game frontend remote, change it to
+        \texttt{/\_remotes/wasm-fragment/remoteEntry.json} so the host
+        loads the bundle through the shared fragment.
+  \item Click \emph{Export}. The plugin writes a zip to your chosen
+        path.
+  \item Hit \texttt{POST /api/admin/games/upload} with the zip — the
+        admin UI's \emph{Upload game bundle} card does this for you.
+        The install transaction validates, hashes, atomically moves the
+        bundle, and runs \texttt{register.sql} which inserts into
+        \texttt{games}, \texttt{federation\_modules}, and
+        \texttt{game\_access} all in one Postgres transaction.
+\end{enumerate}
+
+The host shell discovers the new game on the next federation manifest
+fetch (currently every 60s; see \snapfile{FederationService}). No host
+redeploy is required.
+
+\subsection{Path B — commit the game}
+
+For a game you want to ship in the repository:
+
+\begin{enumerate}
+  \item Drop the Godot project under
+        \snapfile{games/<game-dir>/project.godot}, with its own
+        \snapfile{export\_presets.cfg} and
+        \snapfile{addons/snapdragon\_export/}.
+  \item Add the directory to \texttt{GAME\_PROJECTS} and define
+        \texttt{PRESETS\_<dir>} in the root \snapfile{Makefile}.
+  \item Add a Liquibase changeset that inserts the \texttt{games} +
+        \texttt{federation\_modules} + \texttt{game\_access} rows. See
+        \reposrc{backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml}
+        for the canonical pattern.
+  \item Optionally add a \texttt{games-<slug>} service to
+        \snapfile{docker-compose.yml} if the game ships its own
+        Module Federation remote (separate Angular project under
+        \snapfile{frontend/projects/games-<slug>/}).
+  \item Run \texttt{make build} and \texttt{docker compose up -d}.
+\end{enumerate}
+
+\section{Adding a new federated route}
+
+\begin{enumerate}
+  \item Build the route's component as a standalone Angular project
+        under \snapfile{frontend/projects/<remote-name>/}, with its own
+        \snapfile{federation.config.js} extending
+        \snapfile{frontend/federation-base.js}.
+  \item Expose the entry component in
+        \snapfile{frontend/projects/<remote-name>/federation.config.js}'s
+        \texttt{exposes} map.
+  \item Add a row to \texttt{federation\_modules} (Liquibase changeset
+        recommended). Set \texttt{kind} to \texttt{remote-shell} for a
+        full route component.
+  \item In \snapfile{frontend/src/app/app.routes.ts}, plug
+        \texttt{loadRemote('<remote-name>', './<ExposedSymbol>',
+        '<ExposedSymbol>')} into a \texttt{loadComponent} entry.
+  \item Add an nginx \texttt{location /\_remotes/<remote-name>/} block
+        in \snapfile{frontend/nginx.conf} pointing at the per-remote
+        compose service.
+  \item Add the per-remote service to \snapfile{docker-compose.yml}.
+\end{enumerate}
+
+\section{Adding a new admin view}
+
+The admin remote (\reposrc{frontend/projects/admin/}) exposes any
+top-level standalone component listed in its \texttt{exposes} map. To
+add a view:
+
+\begin{enumerate}
+  \item Add a standalone component under
+        \snapfile{frontend/projects/admin/src/app/}.
+  \item Add it to the \texttt{exposes} map in
+        \snapfile{frontend/projects/admin/federation.config.js}.
+  \item Wire a route in the host's
+        \snapfile{frontend/src/app/app.routes.ts} pointing at the
+        exposed name.
+\end{enumerate}
+
+DTOs cannot be shared across the federation boundary at runtime
+(TypeScript types erase). Redeclare interfaces inside the remote — see
+the existing pattern in
+\reposrc{frontend/projects/admin/src/app/upload-remote.component.ts}.
+
+\section{Adding a new role}
+
+Casdoor is the source of truth for the role catalog. The portal
+enforces visibility through two layers:
+
+\begin{enumerate}
+  \item Create the role in Casdoor (\texttt{ROLE\_PLAY\_<GAME>} for game
+        access, \texttt{ROLE\_ADMIN} for admin). The
+        \snapfile{scripts/seed-roles.sh} script creates the per-game
+        \texttt{ROLE\_PLAY\_*} roles idempotently; run it after
+        deploying a new game.
+  \item Insert a \texttt{game\_access} row with
+        \texttt{(scope='role', value='ROLE\_PLAY\_<GAME>')} via the
+        admin UI's \emph{Per-game access} card or by direct SQL.
+\end{enumerate}
+
+The admin dashboard's \emph{Grant role} dropdown reads the live Casdoor
+catalog through \texttt{GET /api/admin/roles}; new roles appear as soon
+as Casdoor's catalog has them.
+
+\section{Adding a new SSE channel}
+
+\begin{enumerate}
+  \item Add a \texttt{Sinks.Many} field to \snapfile{GameStateService}
+        with \texttt{autoCancel=false} (see the warning in
+        chapter~\ref{ch:datamodel}).
+  \item Add a \texttt{ServerSentEvent}-builder method that wraps the
+        sink as a typed \texttt{Flux} with an \texttt{event:} field.
+  \item Merge it into the \texttt{Flux.merge(...)} call inside
+        \snapfile{GameStreamController} alongside the existing four
+        channels and the keepalive.
+  \item Register a per-type listener on the frontend by calling
+        \texttt{eventSource.addEventListener('<event-name>', cb)} from
+        \snapfile{GameStateService} or wherever the new channel is
+        consumed.
+\end{enumerate}
+
+\section{Adding a new database column}
+
+\begin{enumerate}
+  \item Write a Liquibase changeset under
+        \snapfile{backend/src/main/resources/db/changelog/} with the
+        next sequential number. Postgres-only — Cassandra schemas live
+        in \snapfile{infra/cassandra/cassandra-init.cql}.
+  \item Include the changeset in \snapfile{db.changelog-master.xml}.
+  \item Add the field to the matching R2DBC entity. The R2DBC mapping
+        is reflective; \snapfile{R2dbcConvertersConfig} only needs new
+        entries when adding a new entity, not a new column.
+  \item For GraalVM native-image builds, run \texttt{make
+        build-backend-native} and verify the reflection hints still
+        resolve. If a new entity, regenerate the hints with the
+        \texttt{native-image-agent} per the
+        \reposrc{README.md} \emph{GraalVM native-image build} section.
+\end{enumerate}

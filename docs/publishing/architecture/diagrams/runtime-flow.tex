@@ -1,0 +1,49 @@
+% Runtime data flow: home page click → iframe rendered.
+\begin{tikzpicture}[
+  node distance=10mm and 14mm,
+  every node/.style={font=\sffamily\footnotesize},
+]
+  \node[snapnode] (home) {HomeComponent\\ (host)};
+  \node[snapnode, right=of home] (sceneMap)
+    {SCENE\_TYPE\_TO\_GAME\_SLUG};
+  \node[snapaccent, right=of sceneMap] (launch)
+    {POST /api/games/\{slug\}/launch};
+
+  \node[snapnode, below=of sceneMap, yshift=-3mm] (remote)
+    {RemoteLoaderService\\ \texttt{loadGameRemote(slug)}};
+  \node[snapnode, right=of remote] (webcomp)
+    {Web Component\\ \texttt{<app-...-remote>}};
+  \node[snapdarknode, right=of webcomp] (iframe)
+    {iframe src=\\ /\_remotes/wasm-fragment/\\ \{slug\}/index.html};
+
+  \node[snapnode, below=of remote, yshift=-3mm] (manifest)
+    {GET /api/federation/manifest};
+  \node[snapnode, right=of manifest] (init)
+    {initFederation(...)};
+  \node[snapaccent, right=of init] (boot)
+    {bootstrapApplication\\ AppComponent};
+
+  \draw[snapedge] (home) -- node[snaplabel,above]{sceneType} (sceneMap);
+  \draw[snapedge] (sceneMap) -- node[snaplabel,above]{slug} (launch);
+  \draw[snapedge] (launch.south) -- ++(0,-4mm) -|
+                  node[snaplabel,pos=0.25,above]{launch\_uid} (remote.north);
+  \draw[snapedge] (remote) -- (webcomp);
+  \draw[snapedge] (webcomp) -- node[snaplabel,above]{?level\_id+launch\_uid} (iframe);
+
+  \draw[snapedge,dashed] (manifest) -- (init);
+  \draw[snapedge,dashed] (init) -- (boot);
+
+  \node[font=\sffamily\bfseries\color{snapAccent},
+        anchor=west] at ([yshift=-7mm]manifest.south west)
+    {Pre-bootstrap (host load):};
+  \node[font=\sffamily\bfseries\color{snapAccent},
+        anchor=west] at ([yshift=4mm]home.north west)
+    {Click flow (per game start):};
+
+  \begin{scope}[on background layer]
+    \node[fit=(home)(sceneMap)(launch)(remote)(webcomp)(iframe),
+          fill=snapAccent!4,rounded corners=6pt,inner sep=8pt] {};
+    \node[fit=(manifest)(init)(boot),
+          fill=snapAccentTwo!10,rounded corners=6pt,inner sep=8pt] {};
+  \end{scope}
+\end{tikzpicture}

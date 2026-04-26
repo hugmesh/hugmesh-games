@@ -1,0 +1,149 @@
+% Snapdragon Games — Architecture Reference
+%
+% Build:
+%   make -C docs/publishing pdf
+%   ./docs/publishing/scripts/build-pdf.sh
+%
+% Output: docs/publishing/architecture/build/architecture.pdf
+% Cleaned + ignored — see docs/publishing/.gitignore.
+
+\documentclass[11pt,a4paper,openany]{book}
+
+\usepackage{snapdragon-theme}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{datetime}
+
+\hypersetup{
+  pdftitle={Snapdragon Games — Architecture Reference},
+  pdfauthor={Snapdragon Systems},
+  pdfsubject={Architecture, build pipeline, and API reference for the
+              Three Wizards In A Trenchcoat / Snapdragon Games portal},
+  pdfkeywords={Angular, Spring Boot, Godot, WebAssembly, Module Federation,
+               GraalVM, Casdoor, JWT, R2DBC, PostgreSQL, Cassandra,
+               docker-compose, Snapdragon Games},
+}
+
+\begin{document}
+
+% ── Cover page ────────────────────────────────────────────────────────────
+\begin{titlepage}
+\thispagestyle{empty}
+\noindent
+\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \node[anchor=north west,inner sep=0pt] at ($(current page.north west)+(0,-0.0\paperheight)$) {
+    \begin{tikzpicture}
+      \fill[snapAccent,opacity=0.18]
+        (0,0) circle (8cm);
+      \fill[snapAccentTwo,opacity=0.10]
+        (4,-2) circle (5cm);
+    \end{tikzpicture}
+  };
+  \node[anchor=south east,inner sep=0pt] at ($(current page.south east)+(0,0.05\paperheight)$) {
+    \begin{tikzpicture}
+      \fill[snapAccent,opacity=0.12]
+        (0,0) circle (6cm);
+    \end{tikzpicture}
+  };
+\end{tikzpicture}
+
+\vspace*{4cm}
+\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Architecture}\\[2mm]
+  {\color{white}\fontsize{42}{50}\selectfont Reference}\par}
+
+\vspace{1.5cm}
+\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+
+\vspace{0.8cm}
+\noindent
+{\sffamily\color{white!85}\large
+The federated Angular host, the Spring Boot BFF compiled to a GraalVM
+native image, the per-game Godot WebAssembly bundles, and the hot-upload
+pipeline that links them.}
+
+\vfill
+\noindent
+{\sffamily\color{white!70}\small
+Three Wizards In A Trenchcoat — Snapdragon Games portal\\
+Branch: \texttt{feature/architecture-publishing}\\
+Generated: \today}
+
+\end{titlepage}
+
+% ── Front matter ──────────────────────────────────────────────────────────
+\frontmatter
+\pagestyle{empty}
+
+\noindent
+\begin{snapnote}[title={About this document}]
+This is a typeset companion to the canonical
+\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat}{repository
+\texttt{README.md}} and the
+\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/docs/PLAN-module-federation-and-native.md}{post-federation
+\texttt{PLAN}} document. Where it disagrees with the source tree, the source
+tree wins — every diagram, table, and snippet here is generated from a
+specific commit and may drift between rebuilds.
+
+To rebuild it from a fresh checkout:
+\begin{lstlisting}[language=bash]
+make docs-pdf       # or: make -C docs/publishing pdf
+\end{lstlisting}
+The build script (\reposrc{docs/publishing/scripts/build-pdf.sh}) runs
+\texttt{pdflatex} twice to resolve cross-references and the table of
+contents. The build is idempotent and produces no committed artefacts —
+all output lives in \texttt{docs/publishing/architecture/build/} which is
+git-ignored.
+\end{snapnote}
+
+\vspace{1em}
+\tableofcontents
+\clearpage
+
+% ── Main matter ───────────────────────────────────────────────────────────
+\mainmatter
+\pagestyle{fancy}
+
+\input{chapters/01-overview.tex}
+\input{chapters/02-runtime-architecture.tex}
+\input{chapters/03-federation.tex}
+\input{chapters/04-data-model.tex}
+\input{chapters/05-api-reference.tex}
+\input{chapters/06-build-and-deploy.tex}
+\input{chapters/07-extending.tex}
+
+% ── Back matter ───────────────────────────────────────────────────────────
+\backmatter
+
+\chapter{Where to next}
+
+This reference covers the system as it exists at the head of the
+\reposrc{feature/architecture-publishing} branch. For deeper dives:
+
+\begin{itemize}
+  \item \reposrc{README.md} — the canonical setup and operations guide.
+  \item \reposrc{docs/PLAN-module-federation-and-native.md} — the
+        eight-section plan that produced the federated topology.
+  \item \reposrc{docs/GODOT\_DEVELOPER\_GUIDE.md} — game-developer-facing
+        contract for slugs, presets, and uploads.
+  \item Generated Javadoc HTML at
+        \reposrc{docs/publishing/javadoc-output/index.html} after running
+        \snapcommand{make docs-javadocs}. The same HTML is published as a
+        GitHub Pages artefact when CI runs.
+  \item PowerPoint walkthroughs under
+        \reposrc{docs/publishing/slides/build/} after running
+        \snapcommand{make docs-slides}.
+\end{itemize}
+
+\noindent
+The shortest path back to live code is
+\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat}{github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat}.
+
+\end{document}

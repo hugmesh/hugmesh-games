@@ -1,0 +1,153 @@
+\chapter{API reference}\label{ch:api}
+
+This chapter is the printed companion to the generated Javadoc HTML at
+\reposrc{docs/publishing/javadoc-output/index.html}. Every controller is
+listed once with its endpoints, auth posture, and a one-line description
+of the contract; the Javadoc has the per-method signatures, parameter
+descriptions, and full HTTP examples. The Javadoc is rebuilt by
+\snapcommand{make docs-javadocs} and is themed to match this document
+(see \snapfile{docs/publishing/javadoc-theme/snapdragon.css}).
+
+\section{Public surface}
+
+\subsection{\texttt{AuthController} — \texttt{/api/auth}}
+Public reverse-proxy of the Casdoor login flow.
+
+\begin{itemize}
+  \item \texttt{POST /api/auth/token} — exchanges a Casdoor authorization
+        code for an access token; the federated \texttt{login} remote
+        calls this directly.
+  \item \texttt{GET /api/auth/me} — returns the resolved Casdoor user
+        from the bearer token.
+\end{itemize}
+
+\subsection{\texttt{GameStreamController} — \texttt{/api/game}}
+Public SSE merge stream.
+
+\begin{itemize}
+  \item \texttt{GET /api/game/stream} — returns five typed event channels
+        (\texttt{movement}, \texttt{world}, \texttt{character},
+        \texttt{time}, \texttt{scene}) plus a 15-second keepalive.
+\end{itemize}
+
+\subsection{\texttt{GameController} — \texttt{/api/games}}
+Public game catalog (filtered by \texttt{game\_access} when a JWT is
+present).
+
+\begin{itemize}
+  \item \texttt{GET /api/games} — list of visible games.
+  \item \texttt{GET /api/games/\{slug\}} — one game by slug.
+\end{itemize}
+
+\subsection{\texttt{LevelController} — \texttt{/api/levels}}
+Public per-level metadata and scene DTOs.
+
+\begin{itemize}
+  \item \texttt{GET /api/levels/\{id\}} — level row including
+        \texttt{asset\_url}.
+  \item \texttt{GET /api/levels/\{id\}/scene} — typed
+        \texttt{SceneDto} that \snapfile{scene\_loader.gd} consumes.
+\end{itemize}
+
+\subsection{\texttt{LevelAssetController} — \texttt{/api/levels/\{id\}/assets}}
+Public per-level asset registry — \texttt{POST} to register, \texttt{GET}
+to list, \texttt{GET /\{label\}} to resolve.
+
+\subsection{\texttt{AssetController} — \texttt{/api/assets}}
+Public legacy classpath asset serving (\texttt{/api/assets/levels/<slug>/*}).
+Honours \texttt{app.assets.require-launch-uid=true} for defense in depth.
+
+\subsection{\texttt{ControlController} — \texttt{/api/controls}}
+Session-validated control event ingestion. The session check is enforced
+through the JWT subject; the legacy \texttt{X-Casdoor-Id} header path is
+gone.
+
+\subsection{\texttt{FederationController} — \texttt{/api/federation}}
+Public federation manifest.
+
+\begin{itemize}
+  \item \texttt{GET /api/federation/manifest} — DB-backed manifest read
+        from \texttt{federation\_modules}, ordered by
+        \texttt{kind}/\texttt{slug}.
+\end{itemize}
+
+\section{Authenticated surface}
+
+\subsection{\texttt{SessionController} — \texttt{/api/sessions}}
+Session connect/disconnect; \texttt{POST /api/sessions/connect} claims
+the controller role if no one else holds it.
+
+\subsection{\texttt{CharacterController} — \texttt{/api/characters}}
+Character read/update including \texttt{POST /api/characters/\{id\}/move}
+which emits a \texttt{movement} SSE event after persisting.
+
+\subsection{\texttt{SkillController} — \texttt{/api/skills}}
+Skill catalog and per-character unlock state.
+
+\subsection{\texttt{ItemController} — \texttt{/api/items}}
+Inventory + per-character item state.
+
+\subsection{\texttt{QuestController} — \texttt{/api/quests}}
+Quest catalog and per-character progress.
+
+\subsection{\texttt{GameTimeController} — \texttt{/api/time}}
+Authenticated game-time read; the public SSE stream emits the same data
+on the \texttt{time} channel.
+
+\subsection{\texttt{GameLaunchController} — \texttt{/api/games}, \texttt{/api/admin/launches}}
+
+\begin{itemize}
+  \item \texttt{POST /api/games/\{slug\}/launch} — mints a
+        \texttt{launch\_uid}, snapshots
+        \texttt{games.current\_version\_dir}, returns
+        \texttt{\{uid, expiresAt, gameSlug\}}.
+  \item \texttt{DELETE /api/games/launches/\{uid\}} — owner
+        self-terminate.
+  \item \texttt{DELETE /api/admin/launches/\{uid\}} — admin
+        force-terminate.
+\end{itemize}
+
+\section{Admin-only surface}
+
+\subsection{\texttt{AdminController} — \texttt{/api/admin}}
+Admin dashboard data: per-user stats, active sessions, recent uploads.
+
+\subsection{\texttt{GameUploadController} — \texttt{/api/admin/games}}
+
+\begin{itemize}
+  \item \texttt{POST /api/admin/games/upload} — multipart bundle zip;
+        the install pipeline validates manifest schema v2 + slug regex +
+        zip-slip-safe paths, hashes the bundle, atomically moves into
+        \texttt{<gamesDir>/<slug>/<sha-prefix>}, runs the bundle's
+        \texttt{register.sql} inside a single R2DBC transaction, and
+        supersedes prior uploads. Returns
+        \texttt{\{slug, contentHash, versionDir, uploadedAt\}}.
+  \item \texttt{GET /api/admin/games/\{slug\}/uploads} — rollback history,
+        newest first; \texttt{supersededAt = NULL} marks the current.
+\end{itemize}
+
+\subsection{\texttt{GameAccessController} — \texttt{/api/admin/games}}
+
+\begin{itemize}
+  \item \texttt{POST /api/admin/games/\{slug\}/access} — body
+        \texttt{\{scope, value?\}}; absorbs duplicates via
+        \texttt{uq\_game\_access\_triple}.
+  \item \texttt{DELETE /api/admin/games/\{slug\}/access?scope=\&value=}
+        — removes a row.
+  \item \texttt{GET /api/admin/games/\{slug\}/access} — additive list of
+        active rows.
+\end{itemize}
+
+\subsection{\texttt{RoleProxyController} — \texttt{/api/admin/roles}}
+Server-side proxy of \texttt{/api/get-roles?owner=threewizards} so the
+admin UI's \enquote{grant role} dropdown loads from the live Casdoor
+catalog without exposing the Casdoor admin client secret to the browser.
+
+\section{Where to find more detail}
+
+The full Javadoc is published to
+\reposrc{docs/publishing/javadoc-output/} when \snapcommand{make docs-javadocs}
+runs. The CSS at \reposrc{docs/publishing/javadoc-theme/snapdragon.css}
+themes the output to match this document — same accent purple, same
+\texttt{Inter}/\texttt{Segoe UI} type stack, same code-block treatment.
+The Javadoc HTML is git-ignored.
