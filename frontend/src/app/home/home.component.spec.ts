@@ -87,4 +87,45 @@ describe('HomeComponent helpers', () => {
       expect(component.isFederated(null)).toBeFalse();
     });
   });
+
+  describe('onWindowMessage', () => {
+    // The federation cutover put TW_LEVEL_TRANSITION at the window
+    // level on HomeComponent so it fires regardless of which renderer
+    // mounts the iframe. Pinning the predicate keeps stray window
+    // messages (extension chatter, dev-tools messages) from reaching
+    // onLevelTransition.
+    it('forwards a well-formed TW_LEVEL_TRANSITION to onLevelTransition', () => {
+      const spy = spyOn(component, 'onLevelTransition');
+      const ev = new MessageEvent('message', {
+        data: { type: 'TW_LEVEL_TRANSITION', slug: 'field', levelId: 2 },
+      });
+      component.onWindowMessage(ev);
+      expect(spy).toHaveBeenCalledWith({ slug: 'field', levelId: 2 });
+    });
+
+    it('ignores messages with the wrong type', () => {
+      const spy = spyOn(component, 'onLevelTransition');
+      component.onWindowMessage(new MessageEvent('message', {
+        data: { type: 'GAME_STATE', slug: 'field', levelId: 2 },
+      }));
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('ignores messages with missing or wrong-typed slug/levelId', () => {
+      const spy = spyOn(component, 'onLevelTransition');
+      // levelId is a string, not a number
+      component.onWindowMessage(new MessageEvent('message', {
+        data: { type: 'TW_LEVEL_TRANSITION', slug: 'field', levelId: '2' },
+      }));
+      // missing slug
+      component.onWindowMessage(new MessageEvent('message', {
+        data: { type: 'TW_LEVEL_TRANSITION', levelId: 2 },
+      }));
+      // null payload (chrome extension noise)
+      component.onWindowMessage(new MessageEvent('message', { data: null }));
+      // primitive payload (someone postMessage'd a string)
+      component.onWindowMessage(new MessageEvent('message', { data: 'hello' }));
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
 });
