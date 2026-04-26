@@ -24,7 +24,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient, provideHttpClient, withFetch } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { ApiExplorerComponent } from './api-explorer.component';
 import { ApiReferenceComponent } from './api-reference.component';
 
@@ -50,7 +50,6 @@ const SPEC_FALLBACK = '/v3/api-docs';
   selector: 'app-docs-shell',
   standalone: true,
   imports: [CommonModule, ApiExplorerComponent, ApiReferenceComponent],
-  providers: [provideHttpClient(withFetch())],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     :host {
