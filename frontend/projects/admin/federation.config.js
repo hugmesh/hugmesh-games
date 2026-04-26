@@ -1,18 +1,15 @@
 // Federation config for the admin console remote-shell.
 //
 // `name`     — federation_modules.slug = 'admin'.
-// `exposes`  — './AdminShell' is what the host's loadRemoteModule key
-//              resolves to. The admin route in the host loads this
-//              behind the ROLE_ADMIN guard.
-// `shared`   — admin and host both share Angular runtime so the
-//              host's HTTP interceptor (Bearer JWT) survives across
-//              the federation seam without two competing copies.
+// `exposes`  — two modules ship from this single nginx image:
+//              ./AdminShell  → /admin landing dashboard
+//              ./UploadShell → /admin/games hot-upload + access policy
+// shareAll + skip list comes from federation-base.js.
 
-const { withNativeFederation, shareAll } = require('@angular-architects/native-federation/config');
+const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = withNativeFederation({
+module.exports = snapdragonRemote({
   name: 'admin',
-
   exposes: {
     './AdminShell':  './projects/admin/src/app/admin-remote.component.ts',
     // Game-bundle hot-upload + per-game access policy. Sits under
@@ -20,15 +17,4 @@ module.exports = withNativeFederation({
     // admin pod ships both the dashboard and the upload tooling.
     './UploadShell': './projects/admin/src/app/upload-remote.component.ts',
   },
-
-  shared: {
-    ...shareAll({ singleton: true, strictVersion: true, requiredVersion: 'auto' }),
-  },
-
-  skip: [
-    'rxjs/ajax',
-    'rxjs/fetch',
-    'rxjs/testing',
-    'rxjs/webSocket',
-  ],
 });

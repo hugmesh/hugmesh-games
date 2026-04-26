@@ -7,7 +7,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --silent --no-audit --no-fund
-COPY angular.json tsconfig.json ./
+COPY angular.json tsconfig.json federation-base.js ./
 COPY projects/games-three-wizards projects/games-three-wizards
 RUN npx ng build games-three-wizards --configuration production
 

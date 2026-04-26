@@ -13,7 +13,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --silent --no-audit --no-fund
-COPY angular.json tsconfig.json ./
+COPY angular.json tsconfig.json federation-base.js ./
 COPY projects/login projects/login
 RUN npx ng build login --configuration production
 

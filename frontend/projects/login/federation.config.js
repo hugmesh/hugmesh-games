@@ -3,28 +3,14 @@
 // `name`     — federation_modules.slug for the login remote.
 // `exposes`  — './LoginComponent' is the host's loadRemoteModule key.
 //              The host's routing config dynamic-imports it under /login.
-// `shared`   — host + remote both pull @angular/* via shareAll so the
-//              auth flow (interceptors, RouterModule state, FormsModule)
-//              can move data across the federation seam without two
-//              competing copies of Angular's runtime.
+// shareAll + skip list comes from federation-base.js so all remotes
+// share one surface; specific remotes pass `extraSkip` if needed.
 
-const { withNativeFederation, shareAll } = require('@angular-architects/native-federation/config');
+const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = withNativeFederation({
+module.exports = snapdragonRemote({
   name: 'login',
-
   exposes: {
     './LoginComponent': './projects/login/src/app/login-remote.component.ts',
   },
-
-  shared: {
-    ...shareAll({ singleton: true, strictVersion: true, requiredVersion: 'auto' }),
-  },
-
-  skip: [
-    'rxjs/ajax',
-    'rxjs/fetch',
-    'rxjs/testing',
-    'rxjs/webSocket',
-  ],
 });
