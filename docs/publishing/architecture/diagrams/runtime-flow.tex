@@ -1,49 +1,71 @@
 % Runtime data flow: home page click → iframe rendered.
+%
+% Layout (top → bottom):
+%   Pre-bootstrap (host load):     manifest → init → boot
+%   ───────────────────────────────────────────────────
+%   Click flow row 1:              home → sceneMap → launch
+%                                                        │
+%   Click flow row 2:              remote ← webcomp ← iframe
+%                                  (fed game cards mint a launch_uid first
+%                                   then load the per-game remote)
 \begin{tikzpicture}[
-  node distance=10mm and 14mm,
+  node distance=10mm and 12mm,
   every node/.style={font=\sffamily\footnotesize},
 ]
-  \node[snapnode] (home) {HomeComponent\\ (host)};
-  \node[snapnode, right=of home] (sceneMap)
-    {SCENE\_TYPE\_TO\_GAME\_SLUG};
-  \node[snapaccent, right=of sceneMap] (launch)
-    {POST /api/games/\{slug\}/launch};
-
-  \node[snapnode, below=of sceneMap, yshift=-3mm] (remote)
-    {RemoteLoaderService\\ \texttt{loadGameRemote(slug)}};
-  \node[snapnode, right=of remote] (webcomp)
-    {Web Component\\ \texttt{<app-...-remote>}};
-  \node[snapdarknode, right=of webcomp] (iframe)
-    {iframe src=\\ /\_remotes/wasm-fragment/\\ \{slug\}/index.html};
-
-  \node[snapnode, below=of remote, yshift=-3mm] (manifest)
+  % ── Pre-bootstrap row (host page load) ────────────────────────────
+  \node[snapnode,minimum width=46mm] (manifest)
     {GET /api/federation/manifest};
-  \node[snapnode, right=of manifest] (init)
+  \node[snapnode,minimum width=36mm,right=of manifest] (init)
     {initFederation(...)};
-  \node[snapaccent, right=of init] (boot)
+  \node[snapaccent,minimum width=42mm,right=of init] (boot)
     {bootstrapApplication\\ AppComponent};
-
-  \draw[snapedge] (home) -- node[snaplabel,above]{sceneType} (sceneMap);
-  \draw[snapedge] (sceneMap) -- node[snaplabel,above]{slug} (launch);
-  \draw[snapedge] (launch.south) -- ++(0,-4mm) -|
-                  node[snaplabel,pos=0.25,above]{launch\_uid} (remote.north);
-  \draw[snapedge] (remote) -- (webcomp);
-  \draw[snapedge] (webcomp) -- node[snaplabel,above]{?level\_id+launch\_uid} (iframe);
 
   \draw[snapedge,dashed] (manifest) -- (init);
   \draw[snapedge,dashed] (init) -- (boot);
 
-  \node[font=\sffamily\bfseries\color{snapAccent},
-        anchor=west] at ([yshift=-7mm]manifest.south west)
-    {Pre-bootstrap (host load):};
-  \node[font=\sffamily\bfseries\color{snapAccent},
-        anchor=west] at ([yshift=4mm]home.north west)
-    {Click flow (per game start):};
+  % ── Click-flow row 1 ──────────────────────────────────────────────
+  \node[snapnode,minimum width=36mm,below=22mm of manifest,xshift=4mm] (home)
+    {HomeComponent\\ (host)};
+  \node[snapnode,minimum width=46mm,right=of home] (sceneMap)
+    {SCENE\_TYPE\_TO\_GAME\_SLUG};
+  \node[snapaccent,minimum width=46mm,right=of sceneMap] (launch)
+    {POST /api/games/\\\{slug\}/launch};
 
+  \draw[snapedge] (home) -- node[snaplabel,above]{sceneType} (sceneMap);
+  \draw[snapedge] (sceneMap) -- node[snaplabel,above]{slug} (launch);
+
+  % ── Click-flow row 2 ──────────────────────────────────────────────
+  % Wider gaps between row-2 nodes than row-1 because the row-2 edges
+  % carry inline labels that need breathing room (the row-1 labels do
+  % too but shorter).
+  \node[snapnode,minimum width=42mm,below=16mm of home] (remote)
+    {RemoteLoaderService\\ \texttt{loadGameRemote(slug)}};
+  \node[snapnode,minimum width=38mm,right=18mm of remote] (webcomp)
+    {Web Component\\ \texttt{<app-...-remote>}};
+  \node[snapdarknode,minimum width=48mm,right=22mm of webcomp] (iframe)
+    {iframe src=\\ /\_remotes/wasm-fragment/\\ \{slug\}/index.html};
+
+  % launch (top right) → remote (bottom left): route around sceneMap
+  % via the right edge so we don't cross the row-1 nodes.
+  \draw[snapedge] (launch.south) -- ++(0,-6mm)
+    node[snaplabel,fill=white,inner sep=2pt,pos=0.5]{launch\_uid}
+    -| (remote.north);
+
+  \draw[snapedge] (remote)  -- (webcomp);
+  % The query-string label sits BELOW the arrow with explicit white
+  % background so it can't visually run into either box's border.
+  \draw[snapedge] (webcomp) -- node[snaplabel,below,fill=white,inner sep=3pt]
+                                  {?level\_id + launch\_uid} (iframe);
+
+  % Section-cluster backgrounds (no overlapping labels)
   \begin{scope}[on background layer]
-    \node[fit=(home)(sceneMap)(launch)(remote)(webcomp)(iframe),
-          fill=snapAccent!4,rounded corners=6pt,inner sep=8pt] {};
     \node[fit=(manifest)(init)(boot),
-          fill=snapAccentTwo!10,rounded corners=6pt,inner sep=8pt] {};
+          fill=snapAccentTwo!10,rounded corners=6pt,inner sep=8pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=2pt]above:Pre-bootstrap (host page load)}] {};
+    \node[fit=(home)(sceneMap)(launch)(remote)(webcomp)(iframe),
+          fill=snapAccent!4,rounded corners=6pt,inner sep=8pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=-2pt]below:Click flow (per game start)}] {};
   \end{scope}
 \end{tikzpicture}

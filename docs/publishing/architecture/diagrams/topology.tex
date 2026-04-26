@@ -1,43 +1,85 @@
 % Compose-network topology.
+%
+% Three vertical tiers with a per-remote fleet in tier 2. Box content
+% drops the redundant "games-" prefix because the cluster label already
+% calls them remotes; that buys the room to fit five non-overlapping
+% boxes inside the page width.
 \begin{tikzpicture}[
-  node distance=8mm and 12mm,
   every node/.style={font=\sffamily\footnotesize},
 ]
   % Tier 1: browser
-  \node[snapdarknode] (browser) {Browser\\ \tiny(Angular host shell)};
+  \node[snapdarknode,minimum width=46mm,minimum height=11mm] (browser)
+    {Browser\\ \tiny(Angular host shell)};
 
-  % Tier 2: per-remote nginx fleet
-  \node[snapnode, below=14mm of browser, xshift=-44mm] (host)
-    {host\\ \tiny nginx + ng-host};
-  \node[snapnode, right=of host]              (login)   {login\\ \tiny nginx};
-  \node[snapnode, right=of login]             (admin)   {admin\\ \tiny nginx};
-  \node[snapnode, right=of admin]             (gtw)     {games-three-\\wizards};
-  \node[snapnode, right=of gtw]               (gdo)     {games-\\dodecahedron};
-  \node[snapnode, right=of gdo]               (frag)    {wasm-\\fragment};
+  % Tier 2a: host nginx (centred under browser)
+  \node[snapnode,minimum width=46mm,minimum height=12mm,below=12mm of browser] (host)
+    {host\\ \tiny nginx + Angular host bundle};
 
-  % Tier 3: BFF + persistence
-  \node[snapaccent, below=14mm of admin] (bff)
-    {Spring Boot BFF\\ \tiny(WebFlux + R2DBC + JDBC)};
-  \node[snapnode, below=of host]    (cas) {Casdoor\\ \tiny OAuth2/OIDC};
-  \node[snapnode, below=of gtw]     (pg)  {PostgreSQL\\ \tiny(R2DBC + Liquibase)};
-  \node[snapnode, below=of frag]    (cs)  {Cassandra\\ \tiny(audit + cache)};
+  % Tier 2b: per-remote nginx fleet — 5 evenly-spaced columns. The
+  % cluster label is rendered AFTER all the remote nodes so we know
+  % their bounding box exactly; we then lift it above with a fixed
+  % yshift. node distance handles horizontal gaps; vertical gap between
+  % host and the fleet is wide enough for the bus + label.
+  \node[snapnode,minimum width=26mm,minimum height=11mm,below=20mm of host,xshift=-60mm] (login)
+    {login\\ \tiny nginx};
+  \node[snapnode,minimum width=26mm,minimum height=11mm,right=4mm of login] (admin)
+    {admin\\ \tiny nginx};
+  \node[snapnode,minimum width=26mm,minimum height=11mm,right=4mm of admin] (gtw)
+    {three-\\wizards};
+  \node[snapnode,minimum width=26mm,minimum height=11mm,right=4mm of gtw] (gdo)
+    {dodec.-\\demo};
+  \node[snapnode,minimum width=26mm,minimum height=11mm,right=4mm of gdo] (frag)
+    {wasm-\\fragment};
 
-  \draw[snapedge] (browser.south) -- (host.north);
-  \draw[snapedge,dashed] (host) -- node[snaplabel,sloped,above]{/\_remotes/login} (login);
-  \draw[snapedge,dashed] (host) to[bend left=8] node[snaplabel,sloped,above]{/\_remotes/admin} (admin);
-  \draw[snapedge,dashed] (host) to[bend left=18] node[snaplabel,sloped,above]{/\_remotes/games-three-wizards} (gtw);
-  \draw[snapedge,dashed] (host) to[bend left=24] node[snaplabel,sloped,above]{/\_remotes/games-dodecahedron} (gdo);
-  \draw[snapedge,dashed] (host) to[bend left=28] node[snaplabel,sloped,above]{/\_remotes/wasm-fragment} (frag);
+  % Tier 3: BFF + persistence (centred under host, well below the fleet)
+  \node[snapaccent,minimum width=64mm,minimum height=12mm,below=18mm of admin,xshift=46mm] (bff)
+    {Spring Boot BFF\\ \tiny WebFlux + R2DBC + JDBC};
+  \node[snapnode,minimum width=28mm,minimum height=11mm,below=12mm of bff,xshift=-44mm] (cas)
+    {Casdoor\\ \tiny OAuth2/OIDC};
+  \node[snapnode,minimum width=32mm,minimum height=11mm,below=12mm of bff] (pg)
+    {PostgreSQL\\ \tiny R2DBC + Liquibase};
+  \node[snapnode,minimum width=28mm,minimum height=11mm,below=12mm of bff,xshift=44mm] (cs)
+    {Cassandra\\ \tiny audit + cache};
 
-  \draw[snapedge] (host.south) -- node[snaplabel,sloped,above]{/api/*} (bff.north);
+  % ── Edges ────────────────────────────────────────────────────────────
+  \draw[snapedge] (browser) -- (host);
+
+  % Bus from host.south to a horizontal rail just above the fleet, then
+  % drop into each remote's north face. The rail anchors the single
+  % "/_remotes/<slug>/" label well above the cluster (no overlap).
+  \coordinate (railL)   at ($(login.north)+(0,7mm)$);
+  \coordinate (railR)   at ($(frag.north) +(0,7mm)$);
+  \coordinate (railMid) at ($(host.south) +(0,-7mm)$);
+  \draw[snapedge,dashed] (host.south) -- (railMid);
+  \draw[snapedge,dashed] (railMid) -- (railL);
+  \draw[snapedge,dashed] (railMid) -- (railR);
+  \draw[snapedge,dashed] (railL)    -- (login.north);
+  \draw[snapedge,dashed] ($(admin.north)+(0,7mm)$) -- (admin.north);
+  \draw[snapedge,dashed] ($(gtw.north)  +(0,7mm)$) -- (gtw.north);
+  \draw[snapedge,dashed] ($(gdo.north)  +(0,7mm)$) -- (gdo.north);
+  \draw[snapedge,dashed] (railR)    -- (frag.north);
+  \node[snaplabel,above=2pt of railMid,xshift=22mm] {/\_remotes/<slug>/};
+
+  % /api/* — leaves host's east face, routes around the cluster's right
+  % edge, drops onto BFF's east face. No node crossings.
+  \draw[snapedge] (host.east) -- ++(40mm,0)
+    node[snaplabel,fill=white,inner sep=2pt,pos=0.5]{/api/*}
+    |- (bff.east);
+
+  % BFF → persistence (straight verticals)
   \draw[snapedge] (bff) -- (cas);
   \draw[snapedge] (bff) -- (pg);
   \draw[snapedge] (bff) -- (cs);
 
+  % Cluster backgrounds — fit AFTER all nodes are placed.
   \begin{scope}[on background layer]
-    \node[fit=(host)(login)(admin)(gtw)(gdo)(frag),
-          fill=snapAccent!4,rounded corners=6pt,inner sep=10pt,label={[font=\sffamily\bfseries\small\color{snapAccent}]above:Per-remote nginx fleet}] {};
+    \node[fit=(login)(admin)(gtw)(gdo)(frag),
+          fill=snapAccent!4,rounded corners=6pt,inner sep=8pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=4pt]below:Per-remote nginx fleet}] {};
     \node[fit=(bff)(cas)(pg)(cs),
-          fill=snapAccentTwo!8,rounded corners=6pt,inner sep=10pt,label={[font=\sffamily\bfseries\small\color{snapAccent}]below:BFF + persistence}] {};
+          fill=snapAccentTwo!10,rounded corners=6pt,inner sep=8pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=-2pt]below:BFF \& persistence}] {};
   \end{scope}
 \end{tikzpicture}

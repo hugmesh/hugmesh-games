@@ -11,7 +11,7 @@ behind Casdoor for authentication.
 
 \begin{figure}[!h]
 \centering
-\input{diagrams/runtime-flow.tex}
+\snapdiagram{diagrams/runtime-flow.tex}
 \caption{Runtime data flow from a click on the home page to a frame
 rendered inside the Godot iframe. \texttt{SCENE\_TYPE\_TO\_GAME\_SLUG}
 forks the renderer; federated games mint a \texttt{launch\_uid} for
@@ -44,7 +44,7 @@ karma's static graph and out of every route bundle that doesn't need it.
 
 \begin{figure}[!h]
 \centering
-\input{diagrams/topology.tex}
+\snapdiagram{diagrams/topology.tex}
 \caption{Compose-network view. Each box is a Docker container; arrows are
 HTTP routes proxied by the host nginx at \snapfile{frontend/nginx.conf}.
 The BFF is the only container that talks to Postgres / Cassandra /

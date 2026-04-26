@@ -1,52 +1,71 @@
 % Core relational schema clusters.
+%
+% Three columns, equal width, fixed gap so cluster background rectangles
+% never collide. Cross-cluster arrows enter only the games column on the
+% left and the federation cluster on the right; inner-cluster FK arrows
+% stay vertical so nothing crosses through another cluster.
 \begin{tikzpicture}[
-  node distance=8mm and 10mm,
   every node/.style={font=\sffamily\footnotesize},
+  node distance=6mm and 14mm,
 ]
-  % games / levels cluster
-  \node[snapnode] (games)        {games\\ \tiny slug PK,\\ \tiny current\_version\_dir};
-  \node[snapnode, below=of games] (levels) {levels\\ \tiny game\_id FK,\\ \tiny asset\_url};
-  \node[snapnode, below=of levels] (scene)  {scene\_elements\\ \tiny level\_id FK};
-  \node[snapnode, right=of levels] (lassets) {level\_assets\\ \tiny level\_id FK};
-  \node[snapnode, right=of scene]  (lprereq) {level\_prerequisites};
+  % Column 1: catalog (games + levels)
+  \node[snapnode,minimum width=36mm]                    (games)   {games\\ \tiny slug PK,\\ \tiny current\_version\_dir};
+  \node[snapnode,minimum width=36mm,below=of games]     (levels)  {levels\\ \tiny game\_id FK,\\ \tiny asset\_url};
+  \node[snapnode,minimum width=36mm,below=of levels]    (scene)   {scene\_elements\\ \tiny level\_id FK};
+  \node[snapnode,minimum width=36mm,below=of scene]     (lassets) {level\_assets\\ \tiny level\_id FK};
+  \node[snapnode,minimum width=36mm,below=of lassets]   (lprereq) {level\_prerequisites};
 
-  % federation / access cluster
-  \node[snapaccent, right=22mm of games] (fed)    {federation\_modules\\ \tiny slug=games.slug,\\ \tiny remote\_entry\_url};
-  \node[snapaccent, below=of fed]        (access) {game\_access\\ \tiny scope, scope\_value};
-  \node[snapaccent, below=of access]     (launch) {game\_launches\\ \tiny launch\_uid,\\ \tiny version\_dir};
-  \node[snapaccent, below=of launch]     (uploads){game\_uploads\\ \tiny manifest, hash,\\ \tiny superseded\_at};
+  % Column 2: federation, access, uploads (post-federation 018-024)
+  \node[snapaccent,minimum width=42mm,right=20mm of games]   (fed)    {federation\_modules\\ \tiny slug=games.slug,\\ \tiny remote\_entry\_url};
+  \node[snapaccent,minimum width=42mm,below=of fed]          (access) {game\_access\\ \tiny scope, scope\_value};
+  \node[snapaccent,minimum width=42mm,below=of access]       (launch) {game\_launches\\ \tiny launch\_uid,\\ \tiny version\_dir};
+  \node[snapaccent,minimum width=42mm,below=of launch]       (uploads){game\_uploads\\ \tiny manifest, hash,\\ \tiny superseded\_at};
 
-  % progression cluster
-  \node[snapnode, right=22mm of fed]    (chars)  {characters\\ \tiny casdoor\_user\_id};
-  \node[snapnode, below=of chars]       (loadout){spell\_loadout};
-  \node[snapnode, below=of loadout]     (quests) {character\_quests};
-  \node[snapnode, below=of quests]      (items)  {character\_items};
-  \node[snapnode, below=of items]       (ctrls)  {controls};
+  % Column 3: players + progression
+  \node[snapnode,minimum width=36mm,right=20mm of fed]    (chars)   {characters\\ \tiny casdoor\_user\_id};
+  \node[snapnode,minimum width=36mm,below=of chars]       (loadout) {spell\_loadout};
+  \node[snapnode,minimum width=36mm,below=of loadout]     (quests)  {character\_quests};
+  \node[snapnode,minimum width=36mm,below=of quests]      (items)   {character\_items};
+  \node[snapnode,minimum width=36mm,below=of items]       (ctrls)   {controls};
 
-  \draw[snapedge] (games) -- (levels);
-  \draw[snapedge] (levels) -- (scene);
-  \draw[snapedge] (levels) -- (lassets);
-  \draw[snapedge] (levels) -- (lprereq);
+  % Vertical FKs in column 1
+  \draw[snapedge] (games)   -- (levels);
+  \draw[snapedge] (levels)  -- (scene);
+  \draw[snapedge] (levels)  -- (lassets);
+  \draw[snapedge] (lassets) -- (lprereq);
 
-  \draw[snapedge,dashed] (games) -- node[snaplabel,sloped]{slug} (fed);
-  \draw[snapedge] (games) -- node[snaplabel,sloped,below]{game\_id} (access);
-  \draw[snapedge] (games) to[bend right=24] node[snaplabel,sloped,below]{game\_slug} (launch);
-  \draw[snapedge] (games) to[bend right=18] node[snaplabel,sloped,below]{slug} (uploads);
+  % Vertical FKs in column 3
+  \draw[snapedge] (chars)   -- (loadout);
+  \draw[snapedge] (loadout) -- (quests);
+  \draw[snapedge] (quests)  -- (items);
+  \draw[snapedge] (items)   -- (ctrls);
 
-  \draw[snapedge] (chars) -- (loadout);
-  \draw[snapedge] (chars) -- (quests);
-  \draw[snapedge] (chars) -- (items);
-  \draw[snapedge] (chars) -- (ctrls);
+  % Cross-cluster: games.slug fans out to fed/access/launch/uploads.
+  % All four arrows leave games' east face and enter the federation
+  % column's west face — no crossings through another cluster.
+  \draw[snapedge,dashed] (games.east) -- node[snaplabel,above]{slug} (fed.west);
+  \draw[snapedge]        (games.east) to[bend right=8]
+    node[snaplabel,sloped,below]{game\_id} (access.west);
+  \draw[snapedge]        (games.east) to[bend right=18]
+    node[snaplabel,sloped,below,pos=0.85]{game\_slug} (launch.west);
+  \draw[snapedge]        (games.east) to[bend right=26]
+    node[snaplabel,sloped,below,pos=0.9]{slug} (uploads.west);
 
+  % Cluster backgrounds + labels (above each cluster, no overlap because
+  % the columns have a 20mm gap and labels are anchored to the column
+  % top-edges only).
   \begin{scope}[on background layer]
     \node[fit=(games)(levels)(scene)(lassets)(lprereq),
-          fill=snapAccent!4,rounded corners=6pt,inner sep=8pt,
-          label={[font=\sffamily\bfseries\small\color{snapAccent}]above:Catalog (games + levels)}] {};
+          fill=snapAccent!4,rounded corners=6pt,inner sep=10pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=2pt]above:Catalog (games + levels)}] {};
     \node[fit=(fed)(access)(launch)(uploads),
-          fill=snapAccentTwo!10,rounded corners=6pt,inner sep=8pt,
-          label={[font=\sffamily\bfseries\small\color{snapAccent}]above:Federation \& access (018–024)}] {};
+          fill=snapAccentTwo!10,rounded corners=6pt,inner sep=10pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=2pt]above:Federation \& access (018--024)}] {};
     \node[fit=(chars)(loadout)(quests)(items)(ctrls),
-          fill=snapAccent!4,rounded corners=6pt,inner sep=8pt,
-          label={[font=\sffamily\bfseries\small\color{snapAccent}]above:Players \& progression}] {};
+          fill=snapAccent!4,rounded corners=6pt,inner sep=10pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=2pt]above:Players \& progression}] {};
   \end{scope}
 \end{tikzpicture}

@@ -220,4 +220,28 @@
 \newcommand{\repolink}[2]{\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/#1}{#2}}
 \newcommand{\reposrc}[1]{\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/#1}{\snapfile{#1}}}
 
+% \snapdiagram{path/to/figure.tex}
+%
+% Wrap a TikZ figure include so it always fits the text width without
+% manual tuning per diagram. The natural diagram size is whatever the
+% TikZ source produces; \resizebox scales uniformly, capping at
+% 0.95\textwidth so the figure breathes in the margin and capping the
+% height at 0.7\textheight so a tall diagram doesn't push its caption
+% off the page. Diagrams that are already narrow are *not* enlarged
+% (the second branch of the conditional renders the natural size).
+\newlength{\snap@diagwd}
+\newcommand{\snapdiagram}[1]{%
+  \par\vspace{2pt}%
+  \begingroup
+    \sbox0{\input{#1}}%
+    \setlength{\snap@diagwd}{\wd0}%
+    \ifdim\snap@diagwd>0.95\textwidth
+      \resizebox{0.95\textwidth}{!}{\usebox0}%
+    \else
+      \usebox0
+    \fi
+  \endgroup
+  \par
+}
+
 \endinput
