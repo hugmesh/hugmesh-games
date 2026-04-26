@@ -16,7 +16,11 @@ import { authGuard } from './auth.guard';
 // degraded fallback is deferred until we wire a global error
 // boundary that can swap the route at runtime.
 type LoadRemoteModuleFn = (opts: { remoteName: string; exposedModule: string }) => Promise<Record<string, unknown>>;
-function loadRemote<T>(remoteName: string, exposedModule: string, exportName: string): Promise<Type<T>> {
+// Exported for the unit spec — the helper is the single
+// integration point with the federation runtime, so its error paths
+// (missing global, missing class export) deserve direct coverage.
+// Routes below are the only production callers.
+export function loadRemote<T>(remoteName: string, exposedModule: string, exportName: string): Promise<Type<T>> {
   const fn = (globalThis as { __SNAPDRAGON_LOAD_REMOTE_MODULE__?: LoadRemoteModuleFn }).__SNAPDRAGON_LOAD_REMOTE_MODULE__;
   if (!fn) return Promise.reject(new Error(`[routes] loadRemoteModule missing — initFederation didn't run`));
   return fn({ remoteName, exposedModule }).then(mod => {
