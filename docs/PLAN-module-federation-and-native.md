@@ -222,31 +222,50 @@ Now done in this branch:
   second module.
 - `wasm-fragment` `/fragment?slug=` rewrites to
   `/api/assets/levels/<slug>/index.html` (727ca3a).
+- Cave + field migrated to the federated `<app-three-wizards-remote>`
+  via `SCENE_TYPE_TO_GAME_SLUG` mapping in `home.component.ts`. The
+  wrapper-vs-shared-tokens decision resolved as **neither**: the
+  responsibilities the wrapper would have crossed turned out to be
+  deletable or hostable above the renderer fork.
+    - SessionService.connect/claimControl moved from
+      GameCanvasComponent.ngOnInit to HomeComponent.ngOnInit (so the
+      role bind fires regardless of which renderer mounts).
+    - `window:message` HostListener for `TW_LEVEL_TRANSITION` lifted
+      to HomeComponent (window-level — bubbles from any iframe, no
+      forwarding needed).
+    - `GameStateService.state$ → frame.postMessage('GAME_STATE')` was
+      dead code (grep across `games/` + `assets/levels/` confirms no
+      listener), removed entirely.
+  GameCanvasComponent shrank by ~60% and stays as the legacy fallback
+  for any future sceneType not in `SCENE_TYPE_TO_GAME_SLUG`.
+- Federation surface end-state:
+    - `/login`        → loadComponent('login', LoginRemoteComponent)
+    - `/admin`        → loadComponent('admin', AdminRemoteComponent)
+    - `/admin/games`  → loadComponent('admin', UploadRemoteComponent)
+    - cave + field    → `<app-three-wizards-remote>` Web Component
+    - dodecahedron    → `<app-dodecahedron-remote>` Web Component
+    - any other type  → legacy `<app-game-canvas>` iframe
+- Test coverage: backend 26 · frontend 54 · rust 1 · e2e green (5.3 s).
+  Federated remotes have unit specs covering BFF wiring + error paths
+  (admin/login/upload + the loadRemote helper + authGuard + interceptor).
+- `federation-base.js` consolidates `shareAll` + `skip` lists across
+  the host and four remote bundles so the federation surface can't
+  silently drift between them.
 
-**Next session — finish the federated cutover:**
-1. Add `'cave'` and `'field'` (or the umbrella games-table slug
-   `'three-wizards'`) to `FEDERATED_GAME_SLUGS` in `home.component.ts`
-   and let `<app-games-three-wizards-remote>` take over cave + field.
-   This is harder than dodecahedron: the legacy `<app-game-canvas>`
-   listens for `TW_LEVEL_TRANSITION` postMessage from Godot, calls
-   `library.getLevel()` for the next level, and remounts the iframe;
-   it also drives `GameStateService.state$ → frame.postMessage('GAME_STATE')`.
-   Two paths to land that:
-     a. **Wrapper**: keep the postMessage / SessionService /
-        GameStateService logic on the host in a thin wrapper component
-        that renders `<app-games-three-wizards-remote>` for the iframe
-        and forwards events. Almost no value over `<app-game-canvas>`,
-        but unblocks the cutover with no shared package.
-     b. **Token-based DI**: define injection tokens for
-        `LEVEL_LIBRARY`, `GAME_STATE`, `SESSION_HANDLE` in a small
-        `@snapdragon/host-tokens` package; both host and remote depend
-        on it. Remote `inject(LEVEL_LIBRARY)` gets the host's wrapper.
-        Cleaner long-term, but requires the shared package layer that
-        federation otherwise dodges.
-2. Delete `src/app/game-canvas/` once (1) lands.
-3. `wasm-fragment` could grow to actually serve Godot bundles from a
+**Next session — only asset-tier work remains:**
+1. `wasm-fragment` could grow to actually serve Godot bundles from a
    per-game volume so the api service stops being on the asset path
-   for those URLs; asset-tier work, parked.
+   for those URLs. Requires nginx to replicate the BFF's
+   `serveLevelFile` fallback (DB-backed `current_version_dir` + classpath
+   default), which is non-trivial — the assets live inside the api
+   image's classpath today, so they aren't on a volume. Unblocking
+   this is gated on the asset-tier extraction the GameUploadService
+   was the first half of.
+2. (Optional) Delete `src/app/game-canvas/` if the catalog gets a
+   hard guarantee that every level type is covered by a federated
+   remote. Today the fallback path documents the contract; once
+   `SCENE_TYPE_TO_GAME_SLUG` becomes total, the renderer fork can
+   collapse to a single `@switch (gameSlug)` with no else branch.
 
 ---
 

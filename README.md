@@ -218,9 +218,11 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 |---|---|---|---|
 | `login` | `remote-shell` | `./LoginComponent` | `loadComponent` for `/login` |
 | `admin` | `remote-shell` | `./AdminShell` + `./UploadShell` | `loadComponent` for `/admin` and `/admin/games` |
-| `games-three-wizards` | `remote-game` | `./GameRoot` | (built; iframe path still serves cave + field) |
-| `games-dodecahedron` | `remote-game` | `./GameRoot` | `<app-dodecahedron-remote>` registered as a Web Component, mounted from the home grid |
+| `games-three-wizards` | `remote-game` | `./GameRoot` | `<app-three-wizards-remote>` Web Component (cave + field) |
+| `games-dodecahedron` | `remote-game` | `./GameRoot` | `<app-dodecahedron-remote>` Web Component (chrome-less demo) |
 | `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
+
+`HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` (cave/field → `three-wizards`, dodecahedron → `dodecahedron`); levels with sceneTypes outside that map fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_LEVEL_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.
 
 The host's `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (split into `bootstrap.ts` because `@angular/*` imports can't resolve before the import map exists). Federated route components reach the federation runtime via `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`, which `main.ts` stashes after `initFederation` resolves — keeps the federation package out of karma's static graph and out of route-handler bundles. The federation manifest is fetched from `GET /api/federation/manifest` (DB-backed, see migration `018-federation-modules.xml`) so a new remote can come online without redeploying the host.
 
