@@ -4,14 +4,11 @@ import com.threewizards.repository.FederationModuleRepository;
 import com.threewizards.repository.GameAccessRepository;
 import com.threewizards.repository.GameRepository;
 import com.threewizards.repository.GameUploadRepository;
-import com.threewizards.service.GameTimeService;
 import com.threewizards.service.GameUploadService;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -52,15 +49,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       container alongside Postgres is overkill for upload paths.</li>
  * </ol>
  */
-@Disabled("""
-    Disabled at class level so PostgresLifecycle.beforeAll doesn't start
-    a Testcontainers container during normal `make test-backend` runs
-    (Testcontainers fails fast on Docker daemon API mismatches without
-    -Dapi.version=1.44). Re-enable for the dedicated session that lands
-    @DependsOn("liquibase") on the racing services — see the per-method
-    @Disabled note for the full reasoning.
-    """)
 @SpringBootTest(properties = {
+    // No pre-allocated R2DBC connections so the pool starts empty;
+    // every connection is opened AFTER Liquibase commits, so MVCC
+    // snapshots see the migrated schema.
+    "spring.r2dbc.pool.initial-size=0",
     "spring.cassandra.contact-points=",
     "spring.autoconfigure.exclude="
             + "org.springframework.boot.autoconfigure.cassandra.CassandraAutoConfiguration,"
@@ -101,13 +94,6 @@ class GameUploadIntegrationTest {
                 () -> System.getProperty("java.io.tmpdir") + "/snapdragon-test-" + System.nanoTime());
     }
 
-    // GameTimeService.@PostConstruct races Liquibase against the test
-    // container — it queries game_time_state at startup before the
-    // table exists. @MockBean replaces the real bean with a no-op
-    // Mockito mock; the upload pipeline this test exercises doesn't
-    // touch GameTimeService at all, so a no-op is fine.
-    @MockBean private GameTimeService gameTimeService;
-
     @Autowired private GameUploadService uploadService;
     @Autowired private GameRepository gameRepo;
     @Autowired private GameUploadRepository uploadRepo;
@@ -115,38 +101,6 @@ class GameUploadIntegrationTest {
     @Autowired private GameAccessRepository accessRepo;
 
     @Test
-    @Disabled("""
-        Disabled until the Spring/Liquibase startup race gets resolved at the
-        production level. The test reaches the upload pipeline correctly
-        (zip validates, staging dir created, transaction starts) but fails
-        on the first R2DBC INSERT into game_uploads with
-        BadSqlGrammarException → 'relation does not exist'. Liquibase
-        creates the table before the test method runs (logs confirm
-        ChangeSet 021-1-game-uploads ran successfully) but R2DBC
-        connections opened during Spring boot's @PostConstruct phase
-        — by GameTimeService, GameStateService, and any other reactive
-        service that touches the DB at startup — capture an MVCC
-        snapshot from before Liquibase finished. Postgres then rejects
-        subsequent reads/writes through those connections as if the
-        tables don't exist.
-
-        The clean fix wants @DependsOn("liquibase") on every service
-        with a DB-touching @PostConstruct (or restructuring those to
-        use lazy initialisation that fires on first request). That's
-        production-code surface, not a test-only change, so it warrants
-        a deliberate session — same conclusion the PLAN's C.1 follow-up
-        already reached.
-
-        What this commit DOES verify (as of attempt this round):
-          - Testcontainers + Postgres 15 starts under buildx-equipped Docker
-          - Liquibase migrates the schema against the ephemeral container
-          - GameUploadService.install(...) reaches the staging-dir step
-          - the games-dir property override works (no /var/snapdragon writes)
-          - ByteBuddy.experimental=true unblocks Mockito on Java 25
-
-        Remove the @Disabled and add @DependsOn("liquibase") to the
-        racing services to land C.1 fully.
-        """)
     void uploadInstallsBundleAndRegistersAllFourTables() throws IOException {
         byte[] zip = buildFixtureZip("test-fixture",
                 "Test Fixture",

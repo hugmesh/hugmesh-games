@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        game_uploads.manifest_json: jsonb → text.
+
+        Spring Data R2DBC sends Java String fields as varchar/text on
+        write; Postgres rejects the implicit cast to jsonb with
+        '[42804] column ... is of type jsonb but expression is of type
+        character varying'. The integration test for the upload
+        pipeline (GameUploadIntegrationTest) caught it after C.1's
+        deferred follow-up was finally exercised against a real
+        Postgres container. In production the legacy iframe path never
+        actually exercised the upload INSERT, so the bug shipped
+        latent.
+
+        manifest_json is opaque storage — nothing in the codebase
+        queries inside it (no `->`, no `@>`, no GIN index), so the
+        type narrows to text at zero functional cost. Postgres casts
+        existing rows from jsonb to text directly via the USING clause.
+    -->
+
+    <changeSet id="024-1-manifest-json-text" author="nin">
+        <sql>
+            ALTER TABLE game_uploads
+            ALTER COLUMN manifest_json TYPE text USING manifest_json::text;
+        </sql>
+    </changeSet>
+
+    <!--
+        Re-sync games_id_seq with MAX(id). Migration 017-1 inserted the
+        dodecahedron row with an explicit id=2 but didn't bump the
+        sequence; subsequent INSERTs that omit `id` (the upload
+        pipeline's register.sql does this) collide with the existing
+        rows on games_pkey. The integration test caught it once the
+        manifest_json fix above let it reach the register-SQL step.
+        Idempotent — safe to re-run.
+    -->
+    <changeSet id="024-2-bump-games-sequence" author="nin">
+        <sql>
+            SELECT setval(
+                pg_get_serial_sequence('games','id'),
+                GREATEST((SELECT COALESCE(MAX(id), 1) FROM games), 1)
+            );
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

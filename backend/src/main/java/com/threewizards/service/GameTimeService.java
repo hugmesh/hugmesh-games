@@ -6,6 +6,7 @@ import com.threewizards.repository.GameTimeRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -16,7 +17,17 @@ import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * @DependsOn("liquibase") makes the @PostConstruct game_time_state
+ * lookup wait until migrations finish. In production this is a no-op
+ * (Spring Boot's LiquibaseAutoConfiguration already runs first), but
+ * @SpringBootTest brings beans up in parallel — without the explicit
+ * dependency, the R2DBC connection pool opens connections before
+ * Liquibase commits and Postgres MVCC pins those connections to a
+ * pre-migration snapshot. Same reason GameStateService carries it.
+ */
 @Service
+@DependsOn("liquibase")
 public class GameTimeService {
 
     private static final Logger log = LoggerFactory.getLogger(GameTimeService.class);

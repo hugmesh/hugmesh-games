@@ -27,4 +27,5 @@
     <include file="db/changelog/021-game-uploads.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/022-federation-relative-urls.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/023-launch-version-pin.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/024-game-uploads-manifest-text.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

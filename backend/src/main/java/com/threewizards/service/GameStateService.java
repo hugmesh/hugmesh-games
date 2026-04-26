@@ -6,6 +6,7 @@ import com.threewizards.repository.PlayerPositionRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -19,7 +20,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * @DependsOn("liquibase") gates the @PostConstruct character lookup
+ * on Liquibase finishing — see GameTimeService for the longer note
+ * about why this matters for @SpringBootTest's parallel bean init
+ * (and why it's a no-op under the production startup ordering).
+ */
 @Service
+@DependsOn("liquibase")
 public class GameStateService {
 
     private static final Logger log = LoggerFactory.getLogger(GameStateService.class);
