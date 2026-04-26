@@ -20,7 +20,9 @@ export interface AvailableGame {
   completedQuests: number;
 }
 
-/** Umbrella game with its levels nested — returned by /api/games/available/{charId}. */
+/** Umbrella game with its chapters nested — returned by
+ *  /api/games/available/{characterId}. The home grid shows one card
+ *  per game; clicking opens a modal listing the embedded chapters. */
 export interface GameWithChapters {
   id: number;
   name: string;
@@ -28,5 +30,5 @@ export interface GameWithChapters {
   slug: string;
   thumbnailUrl: string | null;
   sortOrder: number;
-  levels: AvailableGame[];
+  chapters: AvailableGame[];
 }

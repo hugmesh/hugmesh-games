@@ -7,7 +7,7 @@ import { GameLibraryService } from '../services/game-library.service';
 import { CharacterService } from '../services/character.service';
 import { RemoteLoaderService } from '../services/remote-loader.service';
 import { SessionService } from '../services/session.service';
-import { AvailableGame } from '../models/available-game.model';
+import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { GameCanvasComponent } from '../game-canvas/game-canvas.component';
 import { GameHudComponent } from '../game-hud/game-hud.component';
 import { GameControlsComponent } from '../game-controls/game-controls.component';
@@ -27,13 +27,18 @@ const SCENE_ICONS: Record<string, string> = {
   dodecahedron: '⬡',
 };
 
+const GAME_ICONS: Record<string, string> = {
+  'three-wizards': '🧙',
+  'dodecahedron':  '⬡',
+};
+
 // Scene types that are pure visual demos — no character, no HUD, no
 // movement controls overlay. Add new chrome-less games here.
 const CHROMELESS_SCENE_TYPES = new Set(['dodecahedron']);
 
-// Maps level.sceneType → federation_modules.gameSlug. Cave + field
+// Maps chapter.sceneType → federation_modules.gameSlug. Cave + field
 // both belong to the Three Wizards umbrella game, so they share the
-// 'three-wizards' remote bundle. Levels whose sceneType isn't a key
+// 'three-wizards' remote bundle. Chapters whose sceneType isn't a key
 // here stay on the legacy <app-game-canvas> iframe path.
 const SCENE_TYPE_TO_GAME_SLUG: Record<string, string> = {
   cave:         'three-wizards',
@@ -41,9 +46,9 @@ const SCENE_TYPE_TO_GAME_SLUG: Record<string, string> = {
   dodecahedron: 'dodecahedron',
 };
 
-// Game slugs whose level rendering is delegated to a federated remote
+// Game slugs whose chapter rendering is delegated to a federated remote
 // module instead of the legacy iframe. The host loads the remote's
-// bundle via RemoteLoaderService when the player picks the card.
+// bundle via RemoteLoaderService when the player picks the chapter.
 const FEDERATED_GAME_SLUGS = new Set(['dodecahedron', 'three-wizards']);
 
 @Component({
@@ -52,8 +57,6 @@ const FEDERATED_GAME_SLUGS = new Set(['dodecahedron', 'three-wizards']);
   imports: [CommonModule, GameCanvasComponent, GameHudComponent, GameControlsComponent],
   // Federated remote elements (e.g. <app-dodecahedron-remote>) are
   // bootstrapped by their own bundle, not Angular's host compiler.
-  // CUSTOM_ELEMENTS_SCHEMA tells the host template to accept any
-  // element with a dash in its name as a web-component-style mount.
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   templateUrl: './home.component.html',
   styleUrl: './home.component.scss',
@@ -69,65 +72,74 @@ export class HomeComponent implements OnInit {
   private readonly http = inject(HttpClient);
 
   characterId = 1;
-  levels$: Observable<AvailableGame[]> = of([]);
+  /** Game-level cards on the home page. Each carries its embedded
+   *  chapters; click → modal shows the chapter list for that game. */
+  games$: Observable<GameWithChapters[]> = of([]);
   activeLevel: AvailableGame | null = null;
+  /** Game whose chapter modal is open. Null when no modal is shown. */
+  modalGame: GameWithChapters | null = null;
   isFullscreen = false;
-  /** Set when the chosen level is served by a federated remote. Maps
-   *  sceneType → federation gameSlug via SCENE_TYPE_TO_GAME_SLUG. */
   activeRemoteSlug: string | null = null;
-  /** Set when the player picks a federated game and the BFF mints a
-   *  launch UID. The UID lands in the iframe URL as `?launch_uid=...`
-   *  for traceability — wasm-fragment doesn't enforce it (Godot bundles
-   *  are public under federation), but the launch row creates the audit
-   *  trail GameLaunchSweeper / admin revoke / GameLaunchController.list
-   *  all key off. Null when no federated game is active. */
   activeLaunchUid: string | null = null;
 
-  sceneIcon(level: AvailableGame): string {
-    return SCENE_ICONS[level.sceneType] ?? '⚔';
+  sceneIcon(chapter: AvailableGame): string {
+    return SCENE_ICONS[chapter.sceneType] ?? '⚔';
+  }
+
+  gameIcon(game: GameWithChapters): string {
+    return GAME_ICONS[game.slug] ?? '🎮';
+  }
+
+  /** Game-level summary: how many of the embedded chapters are unlocked. */
+  unlockedChapterCount(game: GameWithChapters): number {
+    return game.chapters.filter(c => c.unlocked).length;
   }
 
   /** Pure visual demos suppress the HUD + control overlays. */
-  isChromeless(level: AvailableGame | null): boolean {
-    return !!level && CHROMELESS_SCENE_TYPES.has(level.sceneType);
+  isChromeless(chapter: AvailableGame | null): boolean {
+    return !!chapter && CHROMELESS_SCENE_TYPES.has(chapter.sceneType);
   }
 
-  /** Federated render path: the matching <app-...-remote> custom element renders inline. */
-  isFederated(level: AvailableGame | null): boolean {
-    if (!level) return false;
-    const gameSlug = SCENE_TYPE_TO_GAME_SLUG[level.sceneType];
+  isFederated(chapter: AvailableGame | null): boolean {
+    if (!chapter) return false;
+    const gameSlug = SCENE_TYPE_TO_GAME_SLUG[chapter.sceneType];
     return !!gameSlug && FEDERATED_GAME_SLUGS.has(gameSlug);
   }
 
   ngOnInit(): void {
-    this.levels$ = this.library.listAvailableLevels(this.characterId).pipe(
-      map(levels => [...levels].sort((a, b) => a.sortOrder - b.sortOrder)),
+    this.games$ = this.library.listAvailable(this.characterId).pipe(
+      map(games => [...games].sort((a, b) => a.sortOrder - b.sortOrder)),
       catchError(() => of([]))
     );
     this.characterSvc.load(this.characterId).pipe(catchError(() => of(null))).subscribe();
 
-    // Auto-claim the controller role when the player lands on home —
-    // every /api/controls/* POST carries X-Casdoor-Id and the server
-    // rejects it with 403 unless that user holds the role. This lived
-    // in GameCanvasComponent.ngOnInit before, but with the federated
-    // three-wizards remote replacing GameCanvas for cave + field the
-    // session bind has to happen at the level above the renderer fork
-    // so it fires regardless of which path mounts.
     this.session.connect(this.characterId).pipe(
       switchMap(r => r?.isController ? of(r) : this.session.claimControl()),
       catchError(() => of(null)),
     ).subscribe();
   }
 
-  /**
-   * Window-level listener for level transitions. Godot's game_bridge.gd
-   * posts {type:'TW_LEVEL_TRANSITION',slug,chapterId} via
-   * window.parent.postMessage; the message bubbles to the top window
-   * regardless of whether the iframe is rendered directly by
-   * GameCanvasComponent or nested inside a federated remote (they're
-   * sibling frames at the window level), so catching it here decouples
-   * transition handling from the renderer.
-   */
+  /** Open the chapter modal for the clicked game. Disabled for
+   *  games with zero unlocked chapters. */
+  openGame(game: GameWithChapters): void {
+    if (this.unlockedChapterCount(game) === 0) return;
+    this.modalGame = game;
+  }
+
+  closeModal(): void {
+    this.modalGame = null;
+  }
+
+  /** Modal click outside the inner card closes the modal. */
+  onModalBackdrop(ev: MouseEvent): void {
+    if (ev.target === ev.currentTarget) this.closeModal();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.modalGame) this.closeModal();
+  }
+
   @HostListener('window:message', ['$event'])
   onWindowMessage(ev: MessageEvent): void {
     const data = ev.data as { type?: string; slug?: string; chapterId?: number } | null;
@@ -136,25 +148,22 @@ export class HomeComponent implements OnInit {
     this.onLevelTransition({ slug: data.slug, chapterId: data.chapterId });
   }
 
-  /** Called when Godot requests a mid-game level transition via postMessage. */
   onLevelTransition(e: { slug: string; chapterId: number }): void {
-    // Reload the levels list so unlock state refreshes after the transition.
-    this.levels$ = this.library.listAvailableLevels(this.characterId).pipe(
-      map(levels => [...levels].sort((a, b) => a.sortOrder - b.sortOrder)),
+    this.games$ = this.library.listAvailable(this.characterId).pipe(
+      map(games => [...games].sort((a, b) => a.sortOrder - b.sortOrder)),
       catchError(() => of([]))
     );
-    // The GameCanvas swaps the iframe src itself; we just track which level is active.
-    this.library.getLevel(e.chapterId).subscribe(level => {
+    this.library.getLevel(e.chapterId).subscribe(chapter => {
       this.activeLevel = {
-        id: level.id,
-        gameId: level.gameId,
-        name: level.name,
-        description: level.description,
-        slug: level.slug,
-        sceneType: level.sceneType,
-        assetUrl: level.assetUrl,
-        thumbnailUrl: level.thumbnailUrl,
-        sortOrder: level.sortOrder,
+        id: chapter.id,
+        gameId: chapter.gameId,
+        name: chapter.name,
+        description: chapter.description,
+        slug: chapter.slug,
+        sceneType: chapter.sceneType,
+        assetUrl: chapter.assetUrl,
+        thumbnailUrl: chapter.thumbnailUrl,
+        sortOrder: chapter.sortOrder,
         unlocked: true,
         requiredQuestIds: [],
         completedQuestIds: [],
@@ -164,27 +173,19 @@ export class HomeComponent implements OnInit {
     });
   }
 
-  selectLevel(level: AvailableGame): void {
-    if (!level.unlocked) return;
-    this.activeLevel = level;
+  /** Launch the chosen chapter. Closes the modal in the process. */
+  selectChapter(chapter: AvailableGame): void {
+    if (!chapter.unlocked) return;
+    this.modalGame = null;
+    this.activeLevel = chapter;
     this.activeLaunchUid = null;
-    if (this.isFederated(level)) {
-      // sceneType keys SCENE_TYPE_TO_GAME_SLUG which yields the
-      // federation_modules.gameSlug — for cave/field that's
-      // 'three-wizards', for dodecahedron it's 'dodecahedron'.
-      const gameSlug = SCENE_TYPE_TO_GAME_SLUG[level.sceneType];
+    if (this.isFederated(chapter)) {
+      const gameSlug = SCENE_TYPE_TO_GAME_SLUG[chapter.sceneType];
       this.activeRemoteSlug = gameSlug;
       this.remoteLoader.loadGameRemote(gameSlug).subscribe({
         next: r => console.log(`[home] federated remote loaded: ${r.slug}`),
         error: e => console.warn('[home] federated remote load failed; falling back to iframe', e),
       });
-      // Mint a launch UID so the session shows up in the admin's
-      // active-launches list, gets aged out by GameLaunchSweeper when
-      // the 15-minute TTL expires, and can be force-revoked via
-      // DELETE /api/admin/launches/{uid}. The federated render path
-      // doesn't gate asset access on the UID (Godot bundles are public
-      // under wasm-fragment) — the value here is operational visibility
-      // + audit trail, not access control.
       this.http.post<LaunchResponse>(`/api/games/${gameSlug}/launch`, {})
         .subscribe({
           next: r => {
@@ -203,9 +204,6 @@ export class HomeComponent implements OnInit {
 
   closeLevel(): void {
     if (this.isFullscreen) document.exitFullscreen();
-    // Best-effort terminate the launch on close so the admin's active
-    // list reflects reality faster than the 15-minute sweeper. Silent
-    // failure: the sweeper picks it up either way.
     if (this.activeLaunchUid) {
       const uid = this.activeLaunchUid;
       this.http.delete<void>(`/api/games/launches/${uid}`).pipe(

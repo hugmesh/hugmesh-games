@@ -42,10 +42,13 @@ export class GameLibraryService {
     );
   }
 
-  /** Convenience: flatten available games → flat list of levels (used by home view). */
+  /** Convenience: flatten available games → flat list of chapters
+   *  (used by older flat-list views; the new home view uses
+   *  {@link listAvailable} directly to render game cards then a
+   *  per-game chapter modal). */
   listAvailableLevels(characterId: number): Observable<AvailableGame[]> {
     return this.listAvailable(characterId).pipe(
-      map(games => games.flatMap(g => g.levels))
+      map(games => games.flatMap(g => g.chapters))
     );
   }
 }
