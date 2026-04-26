@@ -81,6 +81,18 @@ public class GameStreamController {
         Flux<ServerSentEvent<Object>> scene = gameStateService.sceneStream()
                 .map(e -> sse(sseId, "scene", e));
 
+        // Generalised input + audio + WASM-console channels.
+        // Subscribers can opt into just one via the EventSource
+        // event-listener model (`source.addEventListener('input', cb)`).
+        // Merging onto a single connection keeps the host page from
+        // needing N EventSources to see everything.
+        Flux<ServerSentEvent<Object>> input = gameStateService.inputStream()
+                .map(i -> sse(sseId, "input", i));
+        Flux<ServerSentEvent<Object>> audio = gameStateService.audioStream()
+                .map(a -> sse(sseId, "audio", a));
+        Flux<ServerSentEvent<Object>> wasmConsole = gameStateService.wasmConsoleStream()
+                .map(c -> sse(sseId, "wasm-console", c));
+
         // First keepalive at t=0 so response headers flush immediately —
         // browser EventSource only fires onopen once headers arrive, and the
         // Angular HUD's connected$ stays false until then ("API offline").
@@ -88,7 +100,8 @@ public class GameStreamController {
         Flux<ServerSentEvent<Object>> keepalive = Flux.interval(Duration.ZERO, Duration.ofSeconds(15))
                 .map(i -> ServerSentEvent.<Object>builder().comment("keepalive").build());
 
-        return Flux.merge(movement, world, stats, time, scene, keepalive);
+        return Flux.merge(movement, world, stats, time, scene,
+                          input, audio, wasmConsole, keepalive);
     }
 
     @Operation(

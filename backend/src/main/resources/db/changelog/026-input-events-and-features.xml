@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Generalised input + audio event surface.
+
+        Five changes:
+
+        1. games.features (jsonb) — per-game feature flags. JRPG-only
+           subsystems (spell loadout, quests, items, character
+           progression) flip on per game so the BFF can refuse routes
+           non-JRPG games don't use.
+
+        2. input_event_kinds — reference table. The canonical taxonomy
+           of input categories: gamepad / mouse / keyboard / touch /
+           audio / world. Other tables FK into this. Seeded once.
+
+        3. input_event_types — reference table. Composite key on
+           (kind, type) so 'gamepad'+'button_down' is distinct from
+           'mouse'+'button_down'. Carries an example payload + an
+           optional JSON schema fragment so the upload pipeline can
+           validate game-emitted events.
+
+        4. game_event_support — a join table on a composite
+           (game_slug, event_kind, event_type) primary key telling
+           the BFF which events each game declares it consumes /
+           emits. Wrote via register.sql in the Snapdragon Export
+           bundle; queried by the BFF on every input emit so a
+           non-JRPG game can't accidentally write spell-loadout
+           updates against a game whose feature flag says no.
+
+        5. input_events — append-only audit. Composite FK into
+           input_event_types so a row can't reference an event type
+           the schema doesn't know about. Indices on
+           (character_id, occurred_at) for replay queries and on
+           (event_kind, occurred_at) for cross-game analytics.
+
+        All changesets idempotent; safe to re-run.
+    -->
+
+    <changeSet id="026-1-games-features" author="nin">
+        <sql>
+            ALTER TABLE games
+                ADD COLUMN IF NOT EXISTS features jsonb
+                NOT NULL DEFAULT '{
+                    "spell_loadout": true,
+                    "quests": true,
+                    "items": true,
+                    "char_progression": true,
+                    "audio": true,
+                    "gamepad": true,
+                    "mouse": true,
+                    "keyboard": true,
+                    "touch": true
+                }'::jsonb;
+        </sql>
+    </changeSet>
+
+    <changeSet id="026-2-dodec-features-narrow" author="nin">
+        <sql>
+            UPDATE games
+               SET features = features
+                   || '{"spell_loadout": false,
+                        "quests": false,
+                        "items": false,
+                        "char_progression": false}'::jsonb
+             WHERE slug = 'dodecahedron';
+        </sql>
+    </changeSet>
+
+    <changeSet id="026-3-input-event-kinds-table" author="nin">
+        <createTable tableName="input_event_kinds">
+            <column name="kind" type="varchar(24)"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="description" type="text"/>
+        </createTable>
+        <sql>
+            INSERT INTO input_event_kinds (kind, description) VALUES
+                ('gamepad',  'USB / Bluetooth gamepad — buttons, axes, hat-pad, vibration ack.'),
+                ('mouse',    'Pointer device — motion, buttons, wheel.'),
+                ('keyboard', 'Physical keyboard — keydown / keyup with modifier mask.'),
+                ('touch',    'Touch surface — gesture phases (down / move / up / cancel).'),
+                ('audio',    'Audio playback events — start / stop / volume / device-change.'),
+                ('world',    'Game-emitted world events — spawn / despawn / state-change.'),
+                ('control',  'Legacy JRPG controller commands (movement / cast / interact).')
+            ON CONFLICT (kind) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <changeSet id="026-4-input-event-types-table" author="nin">
+        <createTable tableName="input_event_types">
+            <column name="kind" type="varchar(24)"><constraints nullable="false"/></column>
+            <column name="type" type="varchar(48)"><constraints nullable="false"/></column>
+            <column name="description"     type="text"/>
+            <column name="example_payload" type="jsonb"/>
+            <column name="payload_schema"  type="jsonb"/>
+        </createTable>
+        <addPrimaryKey tableName="input_event_types"
+                       columnNames="kind, type"
+                       constraintName="pk_input_event_types"/>
+        <addForeignKeyConstraint
+            baseTableName="input_event_types"   baseColumnNames="kind"
+            referencedTableName="input_event_kinds" referencedColumnNames="kind"
+            constraintName="fk_input_event_types__kinds"
+            onDelete="RESTRICT"/>
+        <sql>
+            INSERT INTO input_event_types (kind, type, description, example_payload) VALUES
+                -- gamepad
+                ('gamepad', 'connected',     'Gamepad enumerated by navigator.getGamepads().',
+                  '{"controllerId":0,"name":"Pro Controller (STANDARD GAMEPAD)","mapping":"standard","buttons":17,"axes":4}'::jsonb),
+                ('gamepad', 'disconnected',  'Browser fired gamepaddisconnected.',
+                  '{"controllerId":0}'::jsonb),
+                ('gamepad', 'button_down',   'Button transitioned 0→1.',
+                  '{"controllerId":0,"button":0,"value":1.0}'::jsonb),
+                ('gamepad', 'button_up',     'Button transitioned 1→0.',
+                  '{"controllerId":0,"button":0}'::jsonb),
+                ('gamepad', 'axis',          'Stick / trigger axis update (debounced).',
+                  '{"controllerId":0,"axis":0,"value":-0.42}'::jsonb),
+                ('gamepad', 'rumble_ack',    'Vibration request acknowledged by the host.',
+                  '{"controllerId":0,"durationMs":120,"strongMagnitude":0.5,"weakMagnitude":0.0}'::jsonb),
+
+                -- mouse
+                ('mouse', 'motion',          'pointermove with relative + absolute coordinates.',
+                  '{"x":612,"y":348,"dx":2,"dy":-1,"buttons":0}'::jsonb),
+                ('mouse', 'button_down',     'pointerdown.',
+                  '{"button":0,"x":612,"y":348}'::jsonb),
+                ('mouse', 'button_up',       'pointerup.',
+                  '{"button":0,"x":612,"y":348}'::jsonb),
+                ('mouse', 'wheel',           'Vertical / horizontal wheel delta.',
+                  '{"dx":0,"dy":120}'::jsonb),
+
+                -- keyboard
+                ('keyboard', 'key_down',     'Physical keydown with modifier mask.',
+                  '{"code":"KeyW","key":"w","modifiers":0}'::jsonb),
+                ('keyboard', 'key_up',       'Physical keyup.',
+                  '{"code":"KeyW","key":"w","modifiers":0}'::jsonb),
+
+                -- touch
+                ('touch', 'down',            'Finger down on the touch surface.',
+                  '{"id":1,"x":120,"y":480}'::jsonb),
+                ('touch', 'move',            'Finger drag.',
+                  '{"id":1,"x":124,"y":482}'::jsonb),
+                ('touch', 'up',              'Finger lifted.',
+                  '{"id":1,"x":126,"y":484}'::jsonb),
+                ('touch', 'cancel',          'Touch interrupted by OS gesture.',
+                  '{"id":1}'::jsonb),
+
+                -- audio
+                ('audio', 'play',            'AudioStreamPlayer started a clip.',
+                  '{"sourceId":"music.battle","loop":true,"volumeDb":-6}'::jsonb),
+                ('audio', 'stop',            'AudioStreamPlayer stopped.',
+                  '{"sourceId":"music.battle"}'::jsonb),
+                ('audio', 'volume',          'Volume changed on a bus.',
+                  '{"bus":"sfx","volumeDb":-3}'::jsonb),
+                ('audio', 'device_change',   'OS audio output device changed under the page.',
+                  '{"name":"Speakers (USB)","sampleRate":48000}'::jsonb),
+
+                -- world (Godot → host)
+                ('world', 'spawn',           'Scene element spawned at runtime.',
+                  '{"elementType":"fairy","name":"Whisper","x":4.2,"y":1.0,"z":-2.4}'::jsonb),
+                ('world', 'despawn',         'Scene element removed.',
+                  '{"name":"Whisper"}'::jsonb),
+                ('world', 'transition',      'Level transition request — picked up by HomeComponent.',
+                  '{"slug":"forest-glade","levelId":3}'::jsonb),
+                ('world', 'cutscene',        'Cutscene start / end notification.',
+                  '{"name":"opening","phase":"end"}'::jsonb),
+
+                -- control (legacy JRPG)
+                ('control', 'move',          'Movement vector + action key state.',
+                  '{"x":12.4,"y":0,"z":-3.1,"action":"walk","pressed":true,"tick":4421}'::jsonb),
+                ('control', 'cast',          'Spell-slot fire.',
+                  '{"spellSlot":2,"pressed":true}'::jsonb),
+                ('control', 'interact',      'Interact / use button.',
+                  '{"x":12.4,"y":0,"target":"door-3"}'::jsonb)
+            ON CONFLICT (kind, type) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <changeSet id="026-5-game-event-support" author="nin">
+        <createTable tableName="game_event_support">
+            <column name="game_slug"  type="varchar(64)"><constraints nullable="false"/></column>
+            <column name="event_kind" type="varchar(24)"><constraints nullable="false"/></column>
+            <column name="event_type" type="varchar(48)"><constraints nullable="false"/></column>
+            <column name="direction" type="varchar(8)" defaultValue="both"><constraints nullable="false"/></column>
+            <column name="enabled"   type="boolean" defaultValueBoolean="true"><constraints nullable="false"/></column>
+        </createTable>
+        <addPrimaryKey tableName="game_event_support"
+                       columnNames="game_slug, event_kind, event_type"
+                       constraintName="pk_game_event_support"/>
+        <addForeignKeyConstraint
+            baseTableName="game_event_support" baseColumnNames="event_kind, event_type"
+            referencedTableName="input_event_types" referencedColumnNames="kind, type"
+            constraintName="fk_game_event_support__type"
+            onDelete="RESTRICT"/>
+
+        <!-- Seed the existing two games. JRPG-shaped TWiaT consumes the
+             whole input vocabulary; the dodecahedron demo only consumes
+             gamepad + keyboard + mouse + audio (no character → no
+             control:* needed). -->
+        <sql>
+            INSERT INTO game_event_support (game_slug, event_kind, event_type, direction)
+            SELECT 'three-wizards', kind, type, 'both' FROM input_event_types
+            ON CONFLICT (game_slug, event_kind, event_type) DO NOTHING;
+
+            INSERT INTO game_event_support (game_slug, event_kind, event_type, direction)
+            SELECT 'dodecahedron', kind, type, 'both'
+              FROM input_event_types
+             WHERE kind IN ('gamepad','mouse','keyboard','touch','audio','world')
+            ON CONFLICT (game_slug, event_kind, event_type) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <changeSet id="026-6-input-events-table" author="nin">
+        <createTable tableName="input_events">
+            <column name="id" type="bigserial">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="game_slug"   type="varchar(64)"><constraints nullable="false"/></column>
+            <column name="character_id" type="bigint"/>
+            <column name="session_id"  type="varchar(64)"><constraints nullable="false"/></column>
+            <column name="casdoor_user_id" type="varchar(64)"/>
+            <column name="event_kind"  type="varchar(24)"><constraints nullable="false"/></column>
+            <column name="event_type"  type="varchar(48)"><constraints nullable="false"/></column>
+            <column name="payload"     type="jsonb"><constraints nullable="false"/></column>
+            <column name="occurred_at" type="timestamptz" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint
+            baseTableName="input_events" baseColumnNames="event_kind, event_type"
+            referencedTableName="input_event_types" referencedColumnNames="kind, type"
+            constraintName="fk_input_events__type"
+            onDelete="RESTRICT"/>
+        <createIndex tableName="input_events" indexName="ix_input_events_char_time">
+            <column name="character_id"/>
+            <column name="occurred_at"/>
+        </createIndex>
+        <createIndex tableName="input_events" indexName="ix_input_events_session_time">
+            <column name="session_id"/>
+            <column name="occurred_at"/>
+        </createIndex>
+        <createIndex tableName="input_events" indexName="ix_input_events_kind_time">
+            <column name="event_kind"/>
+            <column name="occurred_at"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

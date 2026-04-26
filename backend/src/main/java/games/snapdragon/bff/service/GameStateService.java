@@ -61,6 +61,11 @@ public class GameStateService {
     private final Sinks.Many<WorldState>      worldSink    = Sinks.many().multicast().onBackpressureBuffer(64, false);
     private final Sinks.Many<CharacterDto>    charStatSink = Sinks.many().multicast().onBackpressureBuffer(16, false);
     private final Sinks.Many<SceneEvent>      sceneSink    = Sinks.many().multicast().onBackpressureBuffer(16, false);
+    // Generalised event channels. autoCancel=false — same rationale.
+    private final Sinks.Many<InputEvent>      inputSink    = Sinks.many().multicast().onBackpressureBuffer(128, false);
+    private final Sinks.Many<InputEvent>      audioSink    = Sinks.many().multicast().onBackpressureBuffer(64, false);
+    /** Forwarded console.error / window.onerror lines from the WASM iframe. */
+    private final Sinks.Many<WasmConsoleLine> wasmConsoleSink = Sinks.many().multicast().onBackpressureBuffer(64, false);
 
     private final String sessionId = UUID.randomUUID().toString();
 
@@ -151,6 +156,26 @@ public class GameStateService {
     public Flux<WorldState>      worldStream()    { return worldSink.asFlux(); }
     public Flux<CharacterDto>    charStatStream() { return charStatSink.asFlux(); }
     public Flux<SceneEvent>      sceneStream()    { return sceneSink.asFlux(); }
+    public Flux<InputEvent>      inputStream()    { return inputSink.asFlux(); }
+    public Flux<InputEvent>      audioStream()    { return audioSink.asFlux(); }
+    public Flux<WasmConsoleLine> wasmConsoleStream() { return wasmConsoleSink.asFlux(); }
+
+    /** Push a generalised input event onto the SSE channel. The audio
+     *  kind also fan-outs to the audio sink so a subscriber can opt
+     *  into just the audio surface without filtering the full input
+     *  firehose. */
+    public void emitInput(InputEvent ev) {
+        inputSink.tryEmitNext(ev);
+        if (InputEventKinds.AUDIO.equals(ev.kind())) {
+            audioSink.tryEmitNext(ev);
+        }
+    }
+
+    /** Forward one console line from the WASM iframe to the host's
+     *  devtools subscribers. */
+    public void emitWasmConsole(WasmConsoleLine line) {
+        wasmConsoleSink.tryEmitNext(line);
+    }
 
     public GameState currentState() {
         AtomicReference<PlayerState> ref = characterStates.computeIfAbsent(
