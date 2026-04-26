@@ -33,13 +33,16 @@ PDF           := $(BUILD_DIR)/architecture.pdf
 #   make all SNAPDRAGON_PROJECT_NAME='Snapdragon Games (RC1)'
 SNAPDRAGON_PROJECT_NAME  ?= Snapdragon Games
 SNAPDRAGON_BUILD_DATE    := $(shell date -u +%Y-%m-%d)
+SNAPDRAGON_BUILD_TIMESTAMP := $(shell date -u +%Y-%m-%dT%H%M%SZ)
 SNAPDRAGON_BUILD_DATETIME := $(shell date -u +'%Y-%m-%d %H:%M UTC')
 
-# `bundle` writes the archive into the repo root with the build date
-# in the filename. Override BUNDLE_NAME on the command line if you
-# need a custom suffix (e.g. release tag).
-BUNDLE_NAME ?= snapdragon-docs-$(SNAPDRAGON_BUILD_DATE).zip
-BUNDLE_PATH := $(REPO_ROOT)/$(BUNDLE_NAME)
+# `bundle` writes the archive under docs/ (NOT the repo root) with a
+# UTC timestamp suffix so multiple bundles per day don't collide.
+# Override BUNDLE_NAME on the command line if you need a custom suffix
+# (e.g. release tag).
+DOCS_DIR    := $(REPO_ROOT)/docs
+BUNDLE_NAME ?= snapdragon-design-docs-$(SNAPDRAGON_BUILD_TIMESTAMP).zip
+BUNDLE_PATH := $(DOCS_DIR)/$(BUNDLE_NAME)
 
 # Export so deck scripts (python-pptx) and shell helpers see the same
 # stamp without each having to re-derive `date`.
@@ -68,7 +71,8 @@ help:
 	@echo "  make userguides  — six user-guide PDFs (one per deck)"
 	@echo "  make javadocs    — themed Javadoc HTML for the BFF"
 	@echo "  make bundle      — zip every produced doc into"
-	@echo "                     $(BUNDLE_NAME) at the repo root"
+	@echo "                     docs/$(BUNDLE_NAME) (an all-docs/"
+	@echo "                     subdir holds every PDF + .pptx flat)"
 	@echo "  make all         — everything above + bundle, in dependency order"
 	@echo "  make clean       — remove every produced artefact (incl. zips)"
 	@echo ""
@@ -238,22 +242,37 @@ userguides: diagrams build-stamp
 # a partial-collect step too — e.g. running it after `make pdf slides`
 # without having the BFF up to generate Javadoc.
 bundle:
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(DOCS_DIR)
 	@echo "→ assembling $(BUNDLE_NAME)"
 	@# Stage every artefact under a single top-level prefix inside the
 	@# zip so unzipping anywhere creates a tidy <prefix>/ directory tree.
+	@# Inside the prefix:
+	@#   all-docs/      — flat dir with every PDF + .pptx for easy copy.
+	@#                    Filenames carry the section to avoid collisions
+	@#                    (architecture-architecture.pdf etc.).
+	@#   architecture/, userguides/, slides/, javadoc/, openapi/,
+	@#   diagrams/, screenshots/ — structured subdirs for the full set.
+	@#   MANIFEST.txt   — provenance + file listing.
 	@STAGE=$$(mktemp -d -t snap-docs-XXXXXX); \
-	  PREFIX=$$STAGE/snapdragon-docs-$(SNAPDRAGON_BUILD_DATE); \
-	  mkdir -p $$PREFIX; \
+	  PREFIX_NAME="snapdragon-design-docs-$(SNAPDRAGON_BUILD_TIMESTAMP)"; \
+	  PREFIX=$$STAGE/$$PREFIX_NAME; \
+	  mkdir -p $$PREFIX $$PREFIX/all-docs; \
 	  if [ -f $(PDF) ]; then \
 	    mkdir -p $$PREFIX/architecture && cp $(PDF) $$PREFIX/architecture/; \
+	    cp $(PDF) $$PREFIX/all-docs/architecture-reference.pdf; \
 	  fi; \
 	  if compgen -G "$(SLIDES_BUILD)/*.pptx" >/dev/null 2>&1; then \
 	    mkdir -p $$PREFIX/slides && cp $(SLIDES_BUILD)/*.pptx $$PREFIX/slides/; \
+	    for f in $(SLIDES_BUILD)/*.pptx; do \
+	      cp $$f $$PREFIX/all-docs/$$(basename $$f); \
+	    done; \
 	  fi; \
 	  if compgen -G "$(ROOT)/userguides/*/build/*.pdf" >/dev/null 2>&1; then \
 	    mkdir -p $$PREFIX/userguides; \
-	    for f in $(ROOT)/userguides/*/build/*.pdf; do cp $$f $$PREFIX/userguides/; done; \
+	    for f in $(ROOT)/userguides/*/build/*.pdf; do \
+	      cp $$f $$PREFIX/userguides/; \
+	      cp $$f $$PREFIX/all-docs/$$(basename $$f); \
+	    done; \
 	  fi; \
 	  if [ -d $(JAVADOC_OUT) ] && [ -f $(JAVADOC_OUT)/index.html ]; then \
 	    mkdir -p $$PREFIX/javadoc && cp -R $(JAVADOC_OUT)/. $$PREFIX/javadoc/; \
@@ -267,15 +286,21 @@ bundle:
 	  if compgen -G "$(ROOT)/screenshots/build/*.png" >/dev/null 2>&1; then \
 	    mkdir -p $$PREFIX/screenshots && cp $(ROOT)/screenshots/build/*.png $$PREFIX/screenshots/; \
 	  fi; \
-	  printf '%s\n' "Snapdragon Games — documentation bundle" \
+	  printf '%s\n' "Snapdragon Games — design docs bundle" \
 	                "Built: $(SNAPDRAGON_BUILD_DATETIME)" \
+	                "Timestamp: $(SNAPDRAGON_BUILD_TIMESTAMP)" \
 	                "Project: $(SNAPDRAGON_PROJECT_NAME)" \
 	                "Repo: github.com/Snapdragon-Systems/snapdragon.games" \
+	                "" \
+	                "Layout:" \
+	                "  all-docs/   - every PDF + .pptx flat for easy copy-paste" \
+	                "  architecture/, userguides/, slides/, javadoc/," \
+	                "  openapi/, diagrams/, screenshots/  - structured set" \
 	                "" \
 	                "Contents:" > $$PREFIX/MANIFEST.txt; \
 	  ( cd $$PREFIX && find . -type f -printf '  %p (%s bytes)\n' | sort >> $$PREFIX/MANIFEST.txt ); \
 	  rm -f $(BUNDLE_PATH); \
-	  ( cd $$STAGE && zip -qr $(BUNDLE_PATH) "snapdragon-docs-$(SNAPDRAGON_BUILD_DATE)" ); \
+	  ( cd $$STAGE && zip -qr $(BUNDLE_PATH) "$$PREFIX_NAME" ); \
 	  rm -rf $$STAGE
 	@echo "✓ $(BUNDLE_PATH)"
 	@du -h $(BUNDLE_PATH) | awk '{printf "  size: %s\n", $$1}'
@@ -288,6 +313,8 @@ clean:
 	       $(ROOT)/userguides/*/build \
 	       $(ROOT)/openapi/build \
 	       $(ARCH_DIR)/openapi-summary.tex
-	@# Also remove any previously-built zip bundles at the repo root.
-	rm -f $(REPO_ROOT)/snapdragon-docs-*.zip
+	@# Also remove zip bundles. Cover both the new docs-design-docs
+	@# location (under docs/) AND the legacy snapdragon-docs-* path
+	@# at the repo root, so a clean check is exhaustive.
+	rm -f $(DOCS_DIR)/snapdragon-design-docs-*.zip $(REPO_ROOT)/snapdragon-docs-*.zip
 	@echo "✓ removed publishing artefacts"
