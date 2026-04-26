@@ -154,3 +154,80 @@ The Cassandra keyspace holds:
 
 A nightly \snapfile{CassandraSyncService} reconciles audit-log totals
 back into Postgres counters so dashboards stay consistent across reboots.
+
+\section{Generalised input event surface (Liquibase 026)}
+
+The five legacy game tables (\texttt{characters}, \texttt{controls},
+\texttt{spell\_loadout}, ...) cover JRPG-shaped gameplay; the input
+surface added in changeset 026 covers \emph{everything Godot can
+consume}: gamepad button / axis, mouse motion / button / wheel,
+keyboard up / down, touch gestures, audio cues, world events,
+plus the legacy control commands as one kind among many.
+
+Three reference tables anchor the schema; an append-only audit
+table writes against them.
+
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Table} & \textbf{Purpose} \\
+\midrule
+\texttt{input\_event\_kinds} & Reference. Primary key on
+\texttt{kind}. Closed vocabulary of input categories: \texttt{gamepad},
+\texttt{mouse}, \texttt{keyboard}, \texttt{touch}, \texttt{audio},
+\texttt{world}, \texttt{control}. Seeded by Liquibase 026. \\
+
+\texttt{input\_event\_types} & Reference. \textbf{Composite}
+primary key \texttt{(kind, type)}. Per-kind type vocabulary
+(\texttt{gamepad: button\_down / button\_up / axis / connected /
+disconnected / rumble\_ack}, \texttt{mouse: motion / button\_down /
+button\_up / wheel}, ...) plus an \texttt{example\_payload} (jsonb)
+used by the upload-time validator and the OpenAPI explorer's sample
+generator. \\
+
+\texttt{game\_event\_support} & Per-game opt-in. \textbf{Composite}
+primary key \texttt{(game\_slug, event\_kind, event\_type)}, FK to
+\texttt{input\_event\_types(kind, type)}. The Snapdragon Export
+plugin writes one row per declared event during upload; the BFF
+refuses any input emit whose triple isn't enabled here, regardless
+of what the client sends. \\
+
+\texttt{input\_events} & Append-only audit log. FK on
+\texttt{(event\_kind, event\_type)} into
+\texttt{input\_event\_types} so a row can never reference an
+unknown type. Indexed on \texttt{(character\_id, occurred\_at)},
+\texttt{(session\_id, occurred\_at)}, and
+\texttt{(event\_kind, occurred\_at)} for replay + analytics. \\
+
+\texttt{games.features} & New \texttt{jsonb} column. Per-game
+feature flags: \texttt{spell\_loadout}, \texttt{quests},
+\texttt{items}, \texttt{char\_progression} (the JRPG subsystems —
+non-JRPG games turn these off and the matching endpoints return
+\texttt{405}); \texttt{audio}, \texttt{gamepad}, \texttt{mouse},
+\texttt{keyboard}, \texttt{touch} (input-kind gates — a game with
+\texttt{gamepad: false} can't accidentally write gamepad rows). \\
+\bottomrule
+\end{tabularx}
+
+\bigskip
+
+The validation flow on every input emit is three gates:
+\begin{enumerate}
+  \item \texttt{(kind, type)} must exist in
+        \texttt{input\_event\_types} (400 if not).
+  \item \texttt{games.features.<kind>} must be true
+        for the active game (405 if not).
+  \item \texttt{(game\_slug, kind, type)} must be present in
+        \texttt{game\_event\_support} (405 if not).
+\end{enumerate}
+
+Same surface persists every browser-tier gamepad poll, every
+WASM-iframe console line forwarded by the host shell, every
+audio cue the Godot bundle emits. The Rust GDExtension's
+\texttt{HostBridge} ships matching typed signals
+(\texttt{gamepad\_received}, \texttt{mouse\_received},
+\texttt{keyboard\_received}, \texttt{touch\_received},
+\texttt{audio\_received}, plus outbound \texttt{audio\_egress} and
+\texttt{console\_egress}) so a Godot developer wires gameplay to
+named signals without caring whether the source was a player's
+USB Pro Controller, a \texttt{<kbd>W</kbd>} keypress, or an SSE
+emit from a cross-tab subscriber.

@@ -1473,6 +1473,33 @@ Each app service is tagged `snapdragon-games/<svc>:${SNAPDRAGON_TAG:-dev}` in th
 
 **Casdoor public URL.** Both overlays set `CASDOOR_PUBLIC_BASE_URL` to the matching environment's Casdoor host (`login.staging.snapdragon.games` / `login.snapdragon.games`) so OAuth2 redirect URIs match the public DNS.
 
+**Large-file upload + storage.** Game bundle zips can run into the gigabyte range. The relevant Spring + compose env vars (default in parens):
+
+| Var | Default | Purpose |
+|---|---|---|
+| `APP_MAX_IN_MEMORY` | `1MB` (dev), `2MB` (prod) | Heap-buffered prefix of each multipart part. |
+| `APP_MAX_PART_SIZE` | `1024MB` (dev), `2048MB` (staging), `4096MB` (prod) | Per-part on-disk cap; spilling above this aborts the request. |
+| `APP_MAX_PARTS` | `32` | Max parts per request. |
+| `APP_CODEC_MAX` | `16MB` | WebFlux codec in-memory ceiling for non-multipart bodies. |
+| `APP_UPLOADS_GAMES_DIR` | `/var/snapdragon/games` | In-container path the BFF writes installed bundles into. |
+| `APP_GAMES_UPLOAD_HOST_DIR` | (named volume in dev; required in prod) | **Host** path the in-container `/var/snapdragon/games` is bind-mounted from. Set to a fast SSD / NFS / managed volume in staging+prod. |
+
+Production refuses to start without `APP_GAMES_UPLOAD_HOST_DIR` set — `compose.prod.yml` declares it required so a misconfigured deploy fails fast instead of silently writing into ephemeral storage.
+
+### Gamepad / generalised input / WASM error capture
+
+Liquibase changeset 026 added a generalised input surface covering everything Godot can consume — gamepad button / axis, mouse motion / button / wheel, keyboard up / down, touch gestures, audio cues, world events, plus the legacy JRPG control commands as one kind among many. Three reference tables anchor it:
+
+- `input_event_kinds` — closed vocabulary (`gamepad`, `mouse`, `keyboard`, `touch`, `audio`, `world`, `control`).
+- `input_event_types` — **composite** primary key on `(kind, type)`. Per-kind type vocabulary + example payloads.
+- `game_event_support` — per-game opt-in. **Composite** key `(game_slug, event_kind, event_type)`. The Snapdragon Export plugin writes this on upload; the BFF refuses input emits whose triple isn't enabled.
+
+Plus a `games.features` JSONB column with per-game feature flags so JRPG-only subsystems (spell loadout / quests / items / character progression) and per-input-kind flags can be flipped off for non-JRPG games.
+
+The browser-tier [`GamepadService`](frontend/src/app/services/gamepad.service.ts) polls `navigator.getGamepads()` every animation frame, diffs, and forwards canonical input events both into the active game iframe (via `postMessage` for Godot) and to the BFF (`POST /api/input/{characterId}`). A connected Nintendo Pro Controller (or any standard-mapped gamepad) drives gameplay without any per-game JS — [`wasm-fragment/snapdragon-shim.js`](wasm-fragment/snapdragon-shim.js) is injected via `nginx sub_filter` into every Godot bundle's `index.html` and exposes the inputs through `window._sdInputQueue`, which the GDScript glue drains every frame and dispatches through `HostBridge` so the Rust extension's typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`) fire in-game.
+
+The same shim wraps `console.error` / `window.onerror` / `unhandledrejection` and forwards captures to `POST /api/diagnostics/wasm-console`, fanning out on the new `wasm-console` SSE channel so admin devtools mirror crashes from inside the WASM iframe.
+
 ---
 
 ## Building the project

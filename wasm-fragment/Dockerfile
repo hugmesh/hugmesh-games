@@ -24,6 +24,13 @@ FROM nginx:1.27-alpine
 # without per-level COPY lines that drift.
 COPY backend/src/main/resources/assets/levels /usr/share/nginx/html
 
+# Shim that the host shell injects into every Godot bundle's
+# index.html via the nginx sub_filter below. Captures console / error
+# output and forwards it to the parent shell, plus drains incoming
+# SD_INPUT_EVENT postMessages onto a window queue the GDScript bridge
+# polls every frame.
+COPY wasm-fragment/snapdragon-shim.js /usr/share/nginx/html/snapdragon-shim.js
+
 COPY wasm-fragment/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8080

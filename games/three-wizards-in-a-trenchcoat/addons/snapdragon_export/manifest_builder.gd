@@ -12,9 +12,66 @@ extends RefCounted
 const SCHEMA_VERSION := 2
 
 
+# Default per-feature flag set declared by a vanilla game upload.
+# JRPG-shaped titles flip everything on; chrome-less demos override
+# specific flags via inputs["features"]. Keys MUST match the BFF's
+# games.features jsonb vocabulary (see Liquibase 026 + GameFeatures.java).
+const _DEFAULT_FEATURES := {
+	"spell_loadout": true,
+	"quests": true,
+	"items": true,
+	"char_progression": true,
+	"audio": true,
+	"gamepad": true,
+	"mouse": true,
+	"keyboard": true,
+	"touch": true,
+}
+
+
+# Default supported_events list. The Snapdragon Export plugin emits
+# this in the manifest so the upload pipeline can populate the
+# game_event_support table — every (game_slug, event_kind, event_type)
+# triple a game declares it consumes / emits. Add more by passing
+# inputs["supported_events"] from the editor dialog; the BFF rejects
+# events whose triple isn't present here.
+const _DEFAULT_SUPPORTED_EVENTS := [
+	# Universal — every game gets these
+	{"kind": "world",   "type": "spawn",          "direction": "out"},
+	{"kind": "world",   "type": "despawn",        "direction": "out"},
+	{"kind": "world",   "type": "transition",     "direction": "out"},
+	{"kind": "world",   "type": "cutscene",       "direction": "out"},
+	# Input devices — host-tier polls forward these via postMessage
+	{"kind": "gamepad", "type": "connected",      "direction": "in"},
+	{"kind": "gamepad", "type": "disconnected",   "direction": "in"},
+	{"kind": "gamepad", "type": "button_down",    "direction": "in"},
+	{"kind": "gamepad", "type": "button_up",      "direction": "in"},
+	{"kind": "gamepad", "type": "axis",           "direction": "in"},
+	{"kind": "mouse",   "type": "motion",         "direction": "in"},
+	{"kind": "mouse",   "type": "button_down",    "direction": "in"},
+	{"kind": "mouse",   "type": "button_up",      "direction": "in"},
+	{"kind": "mouse",   "type": "wheel",          "direction": "in"},
+	{"kind": "keyboard","type": "key_down",       "direction": "in"},
+	{"kind": "keyboard","type": "key_up",         "direction": "in"},
+	{"kind": "touch",   "type": "down",           "direction": "in"},
+	{"kind": "touch",   "type": "move",           "direction": "in"},
+	{"kind": "touch",   "type": "up",             "direction": "in"},
+	{"kind": "touch",   "type": "cancel",         "direction": "in"},
+	# Audio — bidirectional (game emits cues; host can mirror back)
+	{"kind": "audio",   "type": "play",           "direction": "out"},
+	{"kind": "audio",   "type": "stop",           "direction": "out"},
+	{"kind": "audio",   "type": "volume",         "direction": "both"},
+	{"kind": "audio",   "type": "device_change",  "direction": "in"},
+]
+
+
 # `inputs` keys: schema_version, slug, name, description, scene_type,
 # chromeless (bool), godot_version, optional remote_entry_url + remote_kind
-# (default kind='remote-game') for the federation row.
+# (default kind='remote-game') for the federation row, optional
+# features (Dictionary; merged into _DEFAULT_FEATURES — keys present
+# here override the JRPG defaults), and optional supported_events
+# (Array of {kind, type, direction} dicts; replaces the default list
+# entirely — set to a narrow subset for chrome-less demos).
 static func build(inputs: Dictionary) -> Dictionary:
 	var slug: String = inputs.get("slug", "")
 	var asset_url := "/api/assets/levels/%s/index" % slug
@@ -72,9 +129,20 @@ static func build(inputs: Dictionary) -> Dictionary:
 			# admin console afterwards.
 			"default_scope": "all",
 		},
-		"godot_version": inputs.get("godot_version", "unknown"),
-		"exported_at":   Time.get_datetime_string_from_system(true),
+		"features":         _merged_features(inputs.get("features", {})),
+		"supported_events": inputs.get("supported_events", _DEFAULT_SUPPORTED_EVENTS),
+		"godot_version":    inputs.get("godot_version", "unknown"),
+		"exported_at":      Time.get_datetime_string_from_system(true),
 	}
+
+
+static func _merged_features(overrides: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for k in _DEFAULT_FEATURES.keys():
+		out[k] = _DEFAULT_FEATURES[k]
+	for k in overrides.keys():
+		out[k] = overrides[k]
+	return out
 
 
 # Generates the parameterised SQL the upload endpoint runs inside its
@@ -139,7 +207,35 @@ static func to_register_sql(manifest: Dictionary) -> String:
 	# Open-access default — admins can revoke + replace via the admin UI.
 	sql += "INSERT INTO game_access (game_id, scope, scope_value, granted_by, granted_at)\n"
 	sql += "SELECT g.id, 'all', NULL, 'system:upload', NOW() FROM games g WHERE g.slug = '%s'\n" % slug
-	sql += "ON CONFLICT (game_id, scope, scope_value) DO NOTHING;\n"
+	sql += "ON CONFLICT (game_id, scope, scope_value) DO NOTHING;\n\n"
+
+	# Per-game feature flags — UPDATE the row register.sql just
+	# upserted above. Liquibase 026 added the column with a JRPG-default
+	# fallback, so games that don't declare features keep the default.
+	var features: Dictionary = manifest.get("features", {})
+	if not features.is_empty():
+		sql += "UPDATE games SET features = '%s'::jsonb WHERE slug = '%s';\n\n" % [
+			_esc(JSON.stringify(features)),
+			slug,
+		]
+
+	# Per-game event-support whitelist. game_event_support is composite-
+	# keyed on (game_slug, event_kind, event_type) and FKs to
+	# input_event_types. The BFF refuses input emits whose triple
+	# isn't present here, so an unsupported event from a malicious
+	# client (or a misconfigured plugin) bounces with 405.
+	var supported: Array = manifest.get("supported_events", [])
+	for ev in supported:
+		if ev is Dictionary:
+			var kind: String = _esc(ev.get("kind", ""))
+			var type: String = _esc(ev.get("type", ""))
+			var direction: String = _esc(ev.get("direction", "both"))
+			if kind == "" or type == "":
+				continue
+			sql += "INSERT INTO game_event_support (game_slug, event_kind, event_type, direction)\n"
+			sql += "VALUES ('%s', '%s', '%s', '%s')\n" % [slug, kind, type, direction]
+			sql += "ON CONFLICT (game_slug, event_kind, event_type) DO UPDATE\n"
+			sql += "  SET direction = EXCLUDED.direction, enabled = true;\n"
 
 	return sql
 

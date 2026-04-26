@@ -20,7 +20,9 @@
     { "name": "Game launches" },
     { "name": "Game uploads" },
     { "name": "Game access" },
-    { "name": "Roles" }
+    { "name": "Roles" },
+    { "name": "Input events" },
+    { "name": "Diagnostics" }
   ],
   "paths": {
     "/api/auth/token": {
@@ -246,6 +248,56 @@
         "summary": "Proxy Casdoor's role catalog (live).",
         "responses": { "200": { "description": "OK" } }
       }
+    },
+    "/api/input/{characterId}": {
+      "post": {
+        "tags": ["Input events"],
+        "summary": "Submit a generalised input event (gamepad/mouse/keyboard/touch/audio/world/control).",
+        "parameters": [
+          { "name": "characterId", "in": "path", "required": true,
+            "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/InputEvent" }}
+        }},
+        "responses": { "202": { "description": "Accepted" }, "400": { "description": "Unknown (kind, type)" }, "405": { "description": "Game refuses this kind" } }
+      }
+    },
+    "/api/input/character/{characterId}": {
+      "get": {
+        "tags": ["Input events"],
+        "summary": "Recent events for a character (newest first).",
+        "parameters": [
+          { "name": "characterId", "in": "path", "required": true,
+            "schema": { "type": "integer", "format": "int64" } },
+          { "name": "limit", "in": "query", "required": false,
+            "schema": { "type": "integer", "default": 100, "maximum": 1000 } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/input/session/{sessionId}": {
+      "get": {
+        "tags": ["Input events"],
+        "summary": "Recent events for a session (newest first).",
+        "parameters": [
+          { "name": "sessionId", "in": "path", "required": true,
+            "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "required": false,
+            "schema": { "type": "integer", "default": 100, "maximum": 1000 } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/diagnostics/wasm-console": {
+      "post": {
+        "tags": ["Diagnostics"],
+        "summary": "Forward one WASM iframe console line to the SSE wasm-console channel.",
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/WasmConsoleLine" }}
+        }},
+        "responses": { "202": { "description": "Accepted" } }
+      }
     }
   },
   "components": {
@@ -285,6 +337,32 @@
           "value": { "type": "string", "nullable": true }
         },
         "required": ["scope"]
+      },
+      "InputEvent": {
+        "type": "object",
+        "properties": {
+          "gameSlug":     { "type": "string" },
+          "characterId":  { "type": "integer", "format": "int64", "nullable": true },
+          "sessionId":    { "type": "string" },
+          "kind":         { "type": "string", "enum": ["gamepad","mouse","keyboard","touch","audio","world","control"] },
+          "type":         { "type": "string", "description": "Per-kind type — see input_event_types reference table." },
+          "payload":      { "type": "object", "additionalProperties": true }
+        },
+        "required": ["gameSlug","sessionId","kind","type","payload"]
+      },
+      "WasmConsoleLine": {
+        "type": "object",
+        "properties": {
+          "level":     { "type": "string", "enum": ["error","warn","info","log"] },
+          "gameSlug":  { "type": "string", "nullable": true },
+          "levelSlug": { "type": "string", "nullable": true },
+          "message":   { "type": "string" },
+          "source":    { "type": "string", "nullable": true },
+          "line":      { "type": "integer", "nullable": true },
+          "column":    { "type": "integer", "nullable": true },
+          "stack":     { "type": "string", "nullable": true }
+        },
+        "required": ["level","message"]
       }
     }
   }

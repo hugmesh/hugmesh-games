@@ -45,7 +45,21 @@ services:
       APP_PUBLIC_HOST: snapdragon.games
       APP_PUBLIC_SCHEME: https
       CASDOOR_PUBLIC_BASE_URL: https://login.snapdragon.games
+      # Production upload limits — bigger ceiling than staging since
+      # a real shipped game bundle (full audio + textures) can hit a
+      # gigabyte. APP_GAMES_UPLOAD_HOST_DIR MUST be set in prod;
+      # default points at a known-bad tmpfs path so a misconfigured
+      # deploy fails fast instead of silently writing into ephemeral
+      # storage.
+      APP_MAX_IN_MEMORY:    ${APP_MAX_IN_MEMORY:-2MB}
+      APP_MAX_PART_SIZE:    ${APP_MAX_PART_SIZE:-4096MB}
+      APP_MAX_PARTS:        ${APP_MAX_PARTS:-32}
+      APP_CODEC_MAX:        ${APP_CODEC_MAX:-16MB}
+      APP_UPLOADS_GAMES_DIR: /var/snapdragon/games
     expose: ["8080"]
+    volumes:
+      - !reset null
+      - ${APP_GAMES_UPLOAD_HOST_DIR:?APP_GAMES_UPLOAD_HOST_DIR must be set on prod (path to a durable host volume)}:/var/snapdragon/games
 
   frontend:
     image: snapdragon-games/portal-host:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}

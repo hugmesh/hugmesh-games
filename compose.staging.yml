@@ -52,7 +52,22 @@ services:
       APP_PUBLIC_HOST: staging.snapdragon.games
       APP_PUBLIC_SCHEME: https
       CASDOOR_PUBLIC_BASE_URL: https://login.staging.snapdragon.games
+      # Per-environment upload limits. Staging accepts the same
+      # large bundles as prod so dev → staging → prod parity is
+      # preserved; tune via env overrides if a particular staging
+      # cluster has tighter disk.
+      APP_MAX_IN_MEMORY:    ${APP_MAX_IN_MEMORY:-1MB}
+      APP_MAX_PART_SIZE:    ${APP_MAX_PART_SIZE:-2048MB}
+      APP_MAX_PARTS:        ${APP_MAX_PARTS:-32}
+      APP_CODEC_MAX:        ${APP_CODEC_MAX:-16MB}
+      APP_UPLOADS_GAMES_DIR: /var/snapdragon/games
     expose: ["8080"]
+    volumes:
+      # Bind to a real host directory in staging so a `docker volume
+      # rm` can't accidentally take the upload tree with it. Override
+      # APP_GAMES_UPLOAD_HOST_DIR for managed-storage targets.
+      - !reset null
+      - ${APP_GAMES_UPLOAD_HOST_DIR:-/srv/snapdragon/staging/games-uploads}:/var/snapdragon/games
 
   frontend:
     image: snapdragon-games/portal-host:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}

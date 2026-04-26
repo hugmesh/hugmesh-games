@@ -70,6 +70,14 @@
     "Roles": {
       "blurb": "Server-side proxy of Casdoor's role catalog so the admin UI's grant-role dropdown stays live.",
       "chapter": "5.3.4"
+    },
+    "Input events": {
+      "blurb": "Generalised input + audio + world event ingestion. One discriminated endpoint covers gamepad / mouse / keyboard / touch / audio / world / control.",
+      "chapter": "5.4.1"
+    },
+    "Diagnostics": {
+      "blurb": "Forwarded WASM iframe console + future telemetry channels.",
+      "chapter": "5.4.2"
     }
   },
 
@@ -165,6 +173,39 @@
         "x": 12.4, "y": 0.0,
         "pressed": true,
         "spellSlot": 2
+      }
+    },
+
+    "POST /api/input/{characterId}": {
+      "longDescription": "Generalised input ingestion. Same endpoint accepts every event kind the BFF understands — gamepad button / axis, mouse motion / button / wheel, keyboard up / down, touch gestures, audio cues, world events, legacy control commands. Validation runs in three gates: (1) (kind, type) must exist in the input_event_types reference table; (2) the active game's games.features flag must accept this kind; (3) the (game_slug, kind, type) triple must be present in game_event_support. Refused at 400 / 405. Persisted into input_events; fanned out on the SSE input + audio channels.",
+      "sampleRequest": {
+        "gameSlug": "three-wizards",
+        "sessionId": "sess_8f3c1a",
+        "kind": "gamepad",
+        "type": "button_down",
+        "payload": {"controllerId": 0, "button": 0, "value": 1.0}
+      }
+    },
+
+    "GET /api/input/character/{characterId}": {
+      "longDescription": "Recent events for one character — newest first. Bounded by the limit query (default 100, max 1000)."
+    },
+
+    "GET /api/input/session/{sessionId}": {
+      "longDescription": "Recent events for one session — newest first. Useful for replay UIs."
+    },
+
+    "POST /api/diagnostics/wasm-console": {
+      "longDescription": "Forwarded WASM-iframe console line. The wasm-fragment shim wraps console.error / console.warn / window.onerror / unhandledrejection in the Godot bundle and posts each capture to the parent host shell, which forwards here. The BFF stamps a server timestamp and fans out on the wasm-console SSE channel so the admin docs explorer's terminal panel can mirror crashes live.",
+      "sampleRequest": {
+        "level": "error",
+        "gameSlug": "three-wizards",
+        "levelSlug": "cave",
+        "message": "RangeError: Maximum call stack size exceeded",
+        "source": "/cave/index.js",
+        "line": 1428,
+        "column": 17,
+        "stack": "RangeError: Maximum call stack size exceeded\n    at recursive(... )"
       }
     }
   }

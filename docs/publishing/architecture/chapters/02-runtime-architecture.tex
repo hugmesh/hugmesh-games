@@ -106,13 +106,24 @@ table — see chapter~\ref{ch:datamodel}.
 
 \section{Server-sent events}
 
-\snapfile{GameStreamController} merges five SSE channels onto a single
-\texttt{Flux<ServerSentEvent>}: four \texttt{Sinks.Many} from
-\snapfile{GameStateService} (movement, world, character, scene) plus one
-from \snapfile{GameTimeService} (time), with a 15-second
-\texttt{Flux.interval} keepalive that fires immediately on subscribe so
-the response headers flush at connect time and the browser
-\texttt{EventSource.onopen} fires in milliseconds.
+\snapfile{GameStreamController} merges \emph{eight} SSE channels onto a
+single \texttt{Flux<ServerSentEvent>}: seven \texttt{Sinks.Many} from
+\snapfile{GameStateService} (\texttt{movement}, \texttt{world},
+\texttt{character}, \texttt{scene}, \texttt{input}, \texttt{audio},
+\texttt{wasm-console}) plus one from \snapfile{GameTimeService}
+(\texttt{time}), with a 15-second \texttt{Flux.interval} keepalive
+that fires immediately on subscribe so the response headers flush at
+connect time and the browser \texttt{EventSource.onopen} fires in
+milliseconds.
+
+The latter three channels are part of the generalised input surface
+introduced for gamepad / mouse / keyboard / touch / audio support
+(see chapter~\ref{ch:datamodel}'s reference-table description and
+chapter~\ref{ch:api}'s \emph{Input events} + \emph{Diagnostics} tags).
+Subscribers opt into individual channels via the EventSource
+event-listener model (\texttt{source.addEventListener('input', cb)});
+merging onto the single connection keeps the host page from needing
+N EventSources to see everything.
 
 \begin{snapcaution}[title={The \texttt{autoCancel} trap}]
 \texttt{Sinks.many().multicast().onBackpressureBuffer(N)} defaults to

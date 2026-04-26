@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { Router, RouterOutlet, RouterLink, RouterLinkActive,
          NavigationError, NavigationStart } from '@angular/router';
 import { AuthService } from './services/auth.service';
+import { GamepadService } from './services/gamepad.service';
+import { WasmConsoleForwarderService } from './services/wasm-console-forwarder.service';
 
 // Routes whose component is fetched at runtime via loadRemoteModule.
 // A NavigationError on one of these is almost always a federation
@@ -29,6 +31,8 @@ const FEDERATED_ROUTE_LABELS: ReadonlyArray<{ prefix: string; label: string }> =
 export class AppComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly gamepads = inject(GamepadService);
+  private readonly wasmConsoleForwarder = inject(WasmConsoleForwarderService);
 
   /**
    * Set when the router fails to activate a federated route — the
@@ -44,6 +48,17 @@ export class AppComponent implements OnInit {
   get displayName(): string | null { return this.auth.displayName(); }
 
   ngOnInit(): void {
+    // Browser-tier services that should run as long as the host shell
+    // is mounted. Both are idempotent — re-calling start() is a no-op.
+    //   - GamepadService polls navigator.getGamepads() every animation
+    //     frame, diffs, and emits canonical input-events to the active
+    //     game iframe + the BFF.
+    //   - WasmConsoleForwarderService catches SD_WASM_CONSOLE
+    //     postMessages from the WASM iframe, mirrors to host devtools,
+    //     and forwards to /api/diagnostics/wasm-console.
+    this.gamepads.start();
+    this.wasmConsoleForwarder.start();
+
     this.router.events.subscribe(ev => {
       if (ev instanceof NavigationError) {
         const label = this.federatedRouteLabel(ev.url);
