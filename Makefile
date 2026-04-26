@@ -221,24 +221,34 @@ e2e-native: gen-certs build-backend-native
 
 gen-api: deps-frontend
 	@echo "→ Generating Angular API models from OpenAPI spec..."
-	@# Write to a temp file first; only replace openapi.json if we got a non-empty payload.
+	@# Write to a temp file first; only replace openapi.json if we got a
+	@# non-empty payload that ALSO parses as JSON. The host nginx is at
+	@# the same :8080 port and serves Angular's index.html for unknown
+	@# paths, so a naive `curl -sf /v3/api-docs` against the host can
+	@# happily return 200 with a 1.5 KB HTML payload that then poisons
+	@# openapi.json — `npm run gen` later fails with "end of stream"
+	@# parser errors deep into the build. Reject anything that isn't
+	@# JSON before letting it overwrite the committed spec.
 	@tmpfile=$$(mktemp); \
-	if curl -sf http://localhost:8080/v3/api-docs -o $$tmpfile 2>/dev/null && [ -s $$tmpfile ]; then \
+	is_json() { python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$$1" >/dev/null 2>&1; }; \
+	if curl -sf -H 'Accept: application/json' http://localhost:8080/v3/api-docs -o $$tmpfile 2>/dev/null \
+	     && [ -s $$tmpfile ] && is_json $$tmpfile; then \
 	  mv $$tmpfile $(FRONTEND_DIR)/openapi.json; \
-	  echo "  Fetched spec from http://localhost:8080"; \
+	  echo "  Fetched spec from http://localhost:8080 (validated JSON)"; \
 	elif docker compose ps api 2>/dev/null | grep -qE "running|Up" && \
 	     docker compose exec -T api sh -c 'wget -qO- http://localhost:8080/v3/api-docs' > $$tmpfile 2>/dev/null && \
-	     [ -s $$tmpfile ]; then \
+	     [ -s $$tmpfile ] && is_json $$tmpfile; then \
 	  mv $$tmpfile $(FRONTEND_DIR)/openapi.json; \
-	  echo "  Fetched spec from compose api container"; \
+	  echo "  Fetched spec from compose api container (validated JSON)"; \
 	else \
 	  rm -f $$tmpfile; \
-	  echo "  Backend not reachable — using existing openapi.json (run make gen-api with backend up to refresh)"; \
+	  echo "  Backend not reachable or response wasn't JSON — keeping committed openapi.json"; \
 	fi
-	@if [ -s $(FRONTEND_DIR)/openapi.json ]; then \
+	@if [ -s $(FRONTEND_DIR)/openapi.json ] && python3 -c "import json,sys; json.load(open(sys.argv[1]))" $(FRONTEND_DIR)/openapi.json >/dev/null 2>&1; then \
 	  cd $(FRONTEND_DIR) && npm run gen && echo "✓ API models generated → $(FRONTEND_DIR)/src/app/api/"; \
 	else \
-	  echo "  Skipped generation — no non-empty openapi.json available"; \
+	  echo "  ⚠ openapi.json is missing or not valid JSON — skipping ng-openapi-gen."; \
+	  echo "    Run 'make gen-api' with the BFF reachable at :8080 to refresh."; \
 	fi
 
 # ── Angular Frontend ──────────────────────────────────────────────────────────

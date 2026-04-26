@@ -113,7 +113,7 @@ public class ProgressionService {
     }
 
     private Mono<AvailableChapterDto> buildLevelDto(Chapter level, Set<Long> completedQuestIds) {
-        Mono<List<Long>> required = prereqs.findByLevelId(level.getId())
+        Mono<List<Long>> required = prereqs.findByChapterId(level.getId())
                 .map(ChapterPrerequisite::getRequiredQuestId)
                 .collectList();
 

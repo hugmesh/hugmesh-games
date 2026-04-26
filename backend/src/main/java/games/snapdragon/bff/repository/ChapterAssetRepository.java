@@ -6,6 +6,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 public interface ChapterAssetRepository extends ReactiveCrudRepository<ChapterAsset, Long> {
-    Flux<ChapterAsset> findByLevelId(Long chapterId);
-    Mono<ChapterAsset> findByLevelIdAndLabel(Long chapterId, String label);
+    Flux<ChapterAsset> findByChapterId(Long chapterId);
+    Mono<ChapterAsset> findByChapterIdAndLabel(Long chapterId, String label);
 }

@@ -67,7 +67,13 @@
     </update>
   </changeSet>
 
-  <!-- Update game.features default + seeds: spell_loadout flag → instant_loadout. -->
+  <!-- Update game.features default + seeds: spell_loadout flag → instant_loadout.
+       Liquibase routes <sql> through the JDBC PreparedStatement layer,
+       which treats `?` as a parameter placeholder and reports
+       "syntax error at or near $1" the moment it sees the JSONB
+       key-exists operator (`features ? 'spell_loadout'`).
+       Use `jsonb_exists(features, 'spell_loadout')` instead — same
+       semantics, no `?` to confuse the binder. -->
   <changeSet id="028-7-flip-features-spell-loadout-key" author="nin">
     <preConditions onFail="MARK_RAN">
       <columnExists tableName="games" columnName="features"/>
@@ -76,7 +82,7 @@
       UPDATE games
       SET features = (features - 'spell_loadout')
                      || jsonb_build_object('instant_loadout', features->'spell_loadout')
-      WHERE features ? 'spell_loadout';
+      WHERE jsonb_exists(features, 'spell_loadout');
     </sql>
   </changeSet>
 
