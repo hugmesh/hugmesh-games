@@ -260,21 +260,41 @@ Now done in this branch:
   of silently leaving the user on the previous URL. NavigationStart
   on the next nav clears the banner so a manual refresh / retry
   auto-recovers.
+- wasm-fragment direct-serves the seed Godot bundles (cave, field,
+  dodecahedron) from its own nginx image — `wasm-fragment/Dockerfile`
+  bakes `backend/src/main/resources/assets/levels` into
+  `/usr/share/nginx/html/<slug>/`. Federated remote components point
+  their iframes at `/_remotes/wasm-fragment/<slug>/index.html` so the
+  binary asset path no longer flows through Spring's
+  AssetController. Two non-obvious gotchas the implementation hit:
+  (1) the iframe response needs `Cross-Origin-Resource-Policy:
+  cross-origin` under the host's `COEP: require-corp` page or
+  Chromium blocks with `ERR_BLOCKED_BY_RESPONSE`; (2) duplicate
+  COOP/COEP headers (one set from the host nginx server-block
+  add_header, one from the proxied upstream) also trigger the same
+  block — the host's `/_remotes/wasm-fragment/` location now hides
+  the upstream's pair and re-emits its own canonical set.
+  `/api/assets/levels/*` stays as a fallback for the legacy
+  `<app-game-canvas>` path and for hot-uploaded games (version-dir
+  resolution would need DB access in nginx — deferred).
 
-**Next session — only asset-tier work remains:**
-1. `wasm-fragment` could grow to actually serve Godot bundles from a
-   per-game volume so the api service stops being on the asset path
-   for those URLs. Requires nginx to replicate the BFF's
-   `serveLevelFile` fallback (DB-backed `current_version_dir` + classpath
-   default), which is non-trivial — the assets live inside the api
-   image's classpath today, so they aren't on a volume. Unblocking
-   this is gated on the asset-tier extraction the GameUploadService
-   was the first half of.
-2. (Optional) Delete `src/app/game-canvas/` if the catalog gets a
-   hard guarantee that every level type is covered by a federated
-   remote. Today the fallback path documents the contract; once
-   `SCENE_TYPE_TO_GAME_SLUG` becomes total, the renderer fork can
-   collapse to a single `@switch (gameSlug)` with no else branch.
+**Section A is complete.** The seed catalog runs entirely off
+federation-served bundles; the api stays on the asset path only as a
+fallback for hot-uploaded games (which need DB-backed version-dir
+resolution that nginx can't do without a sidecar) and for the legacy
+`<app-game-canvas>` path.
+
+Optional future cleanup, not blocking anything:
+1. Hot-uploaded games (the `GameUploadService` filesystem volume) could
+   also be served by wasm-fragment if either (a) GameUploadService
+   maintains a `<slug>/latest` symlink that nginx serves under
+   `try_files`, or (b) a sidecar resolves DB version-dir → filesystem
+   path. Both add infrastructure complexity for a feature that's
+   currently unused (no production hot-uploads yet). Park.
+2. Delete `src/app/game-canvas/` if `SCENE_TYPE_TO_GAME_SLUG` is
+   guaranteed total. The legacy fallback path documents the contract
+   today; collapsing it would simplify `home.component.html`'s
+   renderer fork to a single `@switch (gameSlug)`.
 
 ---
 
