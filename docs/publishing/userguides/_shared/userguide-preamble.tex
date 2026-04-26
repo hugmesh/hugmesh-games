@@ -11,6 +11,7 @@
 % the build script (build-userguides.sh) so \usepackage finds it
 % without copying the file into every guide directory.
 
+\usepackage{datetime}
 \usepackage{snapdragon-theme}
 \usepackage{microtype}
 \usepackage[hidelinks]{hyperref}
@@ -20,3 +21,10 @@
 % Override the chapter heading to read "PART" — user guides aren't
 % chapters of one book, they're standalone parts under a per-guide title.
 \renewcommand{\chaptermark}[1]{\markboth{#1}{}}
+
+% Footer: project name + build timestamp on every page so each user
+% guide carries the same provenance line as the architecture PDF.
+% The theme already sets a footer; override here to point at the
+% per-guide subtitle (\leftmark) instead of the fixed Architecture
+% Reference label, while keeping the project-name + datetime block.
+\fancyfoot[C]{\small\color{snapMuted}\snapbuildstamp}

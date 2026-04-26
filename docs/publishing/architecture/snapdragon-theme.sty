@@ -14,6 +14,44 @@
 \NeedsTeXFormat{LaTeX2e}
 \ProvidesPackage{snapdragon-theme}[2026/04/26 Snapdragon Games print theme]
 
+% ── Project name + build datetime ─────────────────────────────────────────
+% Every generated artefact (architecture PDF, user-guide PDFs, slide
+% decks, Javadoc, the ZIP bundle) carries the same project label and
+% build timestamp so a reader can pair a printed copy back to the
+% commit it came from.
+%
+% \snapprojectname  — fixed brand label.
+% \snapbuilddate    — ISO date (\today, locale-stable via the `datetime`
+%                     package's \yyyymmdddate format).
+% \snapbuildtime    — HH:MM time-of-build (resolved at typeset time).
+% \snapbuildstamp   — composed "<project> · <date> <time>" used by
+%                     covers and footers.
+%
+% The Makefile passes through the BUILD_DATETIME env var so the BFF /
+% Maven / python-pptx artefacts can inject the same string. LaTeX
+% builds default to \today / \currenttime when BUILD_DATETIME isn't
+% surfaced.
+% Pull in the per-build stamp file the Makefile regenerates on each
+% run; this is what keeps the LaTeX builds in sync with the slide
+% decks and Javadoc HTML. \IfFileExists is silent when the file isn't
+% present, so the standalone PNG renders (which don't go through Make)
+% still compile with the \today / \currenttime fallback below.
+\IfFileExists{build-stamp.tex}{\input{build-stamp.tex}}{}
+
+\providecommand{\snapprojectname}{Snapdragon Games}
+\AtBeginDocument{%
+  \@ifpackageloaded{datetime}{%
+    \yyyymmdddate%
+    \renewcommand{\dateseparator}{-}%
+    \settimeformat{xxivtime}%
+  }{}%
+}
+\providecommand{\snapbuilddate}{\today}
+\providecommand{\snapbuildtime}{%
+  \@ifundefined{currenttime}{}{\currenttime}%
+}
+\providecommand{\snapbuildstamp}{\snapprojectname{} \textperiodcentered{} \snapbuilddate{} \snapbuildtime}
+
 % ── Required packages ──────────────────────────────────────────────────────
 \RequirePackage{xcolor}
 \RequirePackage[T1]{fontenc}
@@ -65,7 +103,9 @@
   \renewcommand{\footrulewidth}{0pt}
   \fancyhead[LE,RO]{\small\color{snapMuted}\thepage}
   \fancyhead[RE,LO]{\small\color{snapMuted}\nouppercase{\leftmark}}
-  \fancyfoot[C]{\small\color{snapMuted}Snapdragon Games --- Architecture Reference}
+  % Footer: project name + build timestamp on every page so a
+  % printed copy is always traceable to a build.
+  \fancyfoot[C]{\small\color{snapMuted}\snapbuildstamp}
 
   \renewcommand{\chaptermark}[1]{\markboth{#1}{}}
   \renewcommand{\sectionmark}[1]{\markright{#1}{}}

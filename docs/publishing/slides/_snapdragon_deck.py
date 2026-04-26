@@ -23,6 +23,8 @@ and docs/publishing/javadoc-theme/snapdragon.css so the three artefact
 families look like one product.
 """
 
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pptx import Presentation
@@ -37,6 +39,18 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 PUBLISHING_DIR = Path(__file__).resolve().parent.parent
 DIAGRAMS_DIR   = PUBLISHING_DIR / "diagrams-rendered" / "build"
 SCREENSHOTS_DIR = PUBLISHING_DIR / "screenshots" / "build"
+
+
+# Brand label + per-build timestamp shown on every cover and on every
+# slide footer. The Makefile passes BUILD_DATETIME so all artefacts in
+# one bundle ship the same string; we fall back to UTC `now()` when the
+# script is invoked directly.
+PROJECT_NAME = os.environ.get("SNAPDRAGON_PROJECT_NAME", "Snapdragon Games")
+BUILD_DATETIME = (
+    os.environ.get("SNAPDRAGON_BUILD_DATETIME")
+    or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+)
+BUILD_STAMP = f"{PROJECT_NAME} · {BUILD_DATETIME}"
 
 
 def resolve_image(spec):
@@ -189,12 +203,15 @@ def _make_cover(pres, title, subtitle, kicker, audience):
     _accent_rule(slide, Inches(0.8), Inches(5.7), Inches(4))
 
     # Footer audience block.
-    _add_textbox(slide, Inches(0.8), Inches(6.4), Inches(11), Inches(0.8),
+    _add_textbox(slide, Inches(0.8), Inches(6.1), Inches(11), Inches(0.4),
                  text=f"Audience: {audience}",
                  size=12, color=MUTED, font="Calibri")
-    _add_textbox(slide, Inches(0.8), Inches(6.7), Inches(11), Inches(0.5),
-                 text="Snapdragon Games  |  github.com/Snapdragon-Systems/snapdragon.games",
-                 size=12, color=MUTED, font="Calibri")
+    _add_textbox(slide, Inches(0.8), Inches(6.5), Inches(11), Inches(0.4),
+                 text=BUILD_STAMP,
+                 size=12, color=ACCENT2, font="Calibri")
+    _add_textbox(slide, Inches(0.8), Inches(6.9), Inches(11), Inches(0.4),
+                 text="github.com/Snapdragon-Systems/snapdragon.games",
+                 size=11, color=MUTED, font="Calibri")
     return slide
 
 
@@ -272,10 +289,10 @@ def _make_section_header(slide, title, body_lines, footer_n, footer_total,
             text=code, size=14, color=ACCENT2 if dark else WHITE,
             font="Consolas")
 
-    # Footer.
-    _add_textbox(slide, Inches(0.6), Inches(7.05), Inches(8), Inches(0.3),
-                 text="Snapdragon Games  ·  Architecture & Operations",
-                 size=10, color=MUTED if dark else MUTED, font="Calibri")
+    # Footer: project name + build datetime (left), slide number (right).
+    _add_textbox(slide, Inches(0.6), Inches(7.05), Inches(10), Inches(0.3),
+                 text=BUILD_STAMP,
+                 size=10, color=MUTED, font="Calibri")
     _add_textbox(slide, Inches(11.5), Inches(7.05), Inches(1.5), Inches(0.3),
                  text=f"{footer_n} / {footer_total}",
                  size=10, color=MUTED, font="Calibri",
