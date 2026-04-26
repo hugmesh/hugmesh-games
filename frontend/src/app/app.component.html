@@ -20,4 +20,13 @@
     }
   </div>
 </nav>
+@if (federationLoadError(); as err) {
+  <div class="federation-error" role="alert">
+    <span class="federation-error-icon">⚠</span>
+    <span class="federation-error-msg">
+      Couldn't reach <strong>{{ err.label }}</strong> — the federated module didn't load.
+    </span>
+    <button class="federation-error-retry" (click)="retryFederationLoad()">Retry</button>
+  </div>
+}
 <router-outlet></router-outlet>
