@@ -9,7 +9,7 @@
 #   node        (v20+)
 
 SHELL := /bin/bash
-.PHONY: all clean build build-rust build-godot patch-godot build-backend build-backend-native build-frontend \
+.PHONY: all clean build build-rust build-rust-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend \
@@ -54,7 +54,7 @@ build: build-rust build-godot build-backend build-frontend
 
 # ── Rust GDExtension ──────────────────────────────────────────────────────────
 
-build-rust: deps-rust
+build-rust: deps-rust build-rust-wasm
 	@echo "→ Building Snapdragon Bridge GDExtension (native)..."
 	cd $(RUST_DIR) && cargo build --release
 	@# One canonical binary in the extension dir; copy into every game project's
@@ -64,15 +64,44 @@ build-rust: deps-rust
 	@for game in $(GAME_PROJECTS); do \
 	  mkdir -p $(GAMES_DIR)/$$game/bin; \
 	  cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(GAMES_DIR)/$$game/bin/libsnapdragon_bridge.so; \
+	  cp $(RUST_DIR)/bin/snapdragon_bridge.wasm $(GAMES_DIR)/$$game/bin/snapdragon_bridge.wasm 2>/dev/null || true; \
 	done
-	@echo "→ Building Snapdragon Bridge (WASM for web export)..."
-	cd $(RUST_DIR) && cargo build --release --target wasm32-unknown-emscripten 2>/dev/null || \
-	  echo "  ⚠ WASM target skipped — install emscripten to enable web-native Rust"
 	@echo "✓ Rust build done"
 
+# WASM build runs inside a Docker image (rust + emsdk pinned) so the
+# host doesn't need emscripten installed — the Gentoo / system Rust
+# packages don't ship the wasm32-unknown-emscripten std-lib, and
+# emsdk's curl|sh installer is the kind of thing CI shouldn't run on
+# every box. The image is built once and cached.
+RUST_WASM_IMAGE = snapdragon-rust-wasm
+RUST_WASM_DOCKERFILE = tools/build-rust-wasm/Dockerfile
+
+build-rust-wasm: $(RUST_WASM_DOCKERFILE)
+	@echo "→ Building Snapdragon Bridge (WASM via dockerised emsdk)..."
+	@if ! docker image inspect $(RUST_WASM_IMAGE) >/dev/null 2>&1; then \
+	  echo "  → docker image $(RUST_WASM_IMAGE) missing, building (~5 min one-time)"; \
+	  docker build -t $(RUST_WASM_IMAGE) tools/build-rust-wasm/ ; \
+	fi
+	@# IMPORTANT: cd into the extension dir BEFORE invoking cargo so
+	@# .cargo/config.toml's per-target rustflags are discovered. With
+	@# --manifest-path alone cargo's cwd stays at /work and the wasm
+	@# `-Cpanic=abort` override is silently dropped, producing a wasm
+	@# that imports __cpp_exception (Godot's web template can't satisfy
+	@# that and the bundle fails to instantiate at runtime).
+	docker run --rm -v "$(PWD):/work" -w /work/$(RUST_DIR) $(RUST_WASM_IMAGE) \
+	  cargo build --release --target wasm32-unknown-emscripten
+	@# Docker-built artefacts land owned by root; chown back to the
+	@# invoking user via a quick container so subsequent host-side
+	@# cargo / cp / rm commands work without sudo.
+	docker run --rm -v "$(PWD):/work" $(RUST_WASM_IMAGE) \
+	  chown -R "$(shell id -u):$(shell id -g)" /work/$(RUST_DIR)/target
+	mkdir -p $(RUST_DIR)/bin
+	cp $(RUST_DIR)/target/wasm32-unknown-emscripten/release/snapdragon_bridge.wasm \
+	   $(RUST_DIR)/bin/snapdragon_bridge.wasm
+
 deps-rust:
-	@command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found — install rustup"; exit 1; }
-	rustup target add wasm32-unknown-emscripten 2>/dev/null || true
+	@command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found — install rustup or your distro's rust package"; exit 1; }
+	@command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found — needed for the WASM build (rust + emsdk container)"; exit 1; }
 
 # ── Godot Web Export ──────────────────────────────────────────────────────────
 

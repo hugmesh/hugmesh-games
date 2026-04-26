@@ -23,6 +23,14 @@ godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
 opt-level = 3
 lto = true
 codegen-units = 1
+# Native target (Linux/Windows/macOS) uses the default panic=unwind so
+# godot-rust's master-branch compatibility panics on Godot 4.6 are
+# CAUGHT by the runtime — the .so loads with reduced functionality
+# instead of aborting the whole godot process during export. The
+# wasm32-unknown-emscripten target NEEDS panic=abort to avoid emitting
+# the `__cpp_exception` tag (Godot's web template doesn't supply it);
+# that override lives in `.cargo/config.toml` as a target-specific
+# rustflag.
 
 [profile.dev]
 opt-level = 0

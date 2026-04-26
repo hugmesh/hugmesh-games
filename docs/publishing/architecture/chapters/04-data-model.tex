@@ -89,6 +89,16 @@ per-character progress. \\
 \texttt{controls} & Sessionised input state — at most one row per
 \texttt{(character\_id, session\_id)}; only the holder of the controller
 role for a session may POST. \\
+\texttt{player\_positions} & One row per
+\texttt{(character\_id, level\_id)} — Liquibase 027 promoted the
+legacy single-row-per-character layout into a per-level layout so a
+character traversing cave $\rightarrow$ field $\rightarrow$ cave
+returns to the cave coordinates they last had on re-entry instead of
+clobbering them across levels. Cassandra's
+\texttt{character\_position\_cache} (composite partition
+\texttt{(character\_id, level\_id)}) is the cross-pod read cache that
+lets pod B see a position pod A wrote within one SSE round-trip;
+Postgres backs the cache when the 5-minute TTL drops a row. \\
 \bottomrule
 \end{tabularx}
 

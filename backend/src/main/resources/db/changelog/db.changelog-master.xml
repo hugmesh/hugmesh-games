@@ -30,4 +30,5 @@
     <include file="db/changelog/024-game-uploads-manifest-text.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/025-api-docs-federation.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/026-input-events-and-features.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/027-per-level-positions.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

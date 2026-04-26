@@ -1,0 +1,42 @@
+% Per-level position sync (Liquibase 027 + Cassandra cache).
+% Two pods, one player, two levels. Pod-A serves player A's iframe;
+% pod-B serves player B's iframe. They share the same Cassandra +
+% Postgres tier.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{ctrl}{4.4}{POST /controls (lvl=1)}{0}{12.6}
+  \node[marbleSig] (u1) at (1.4,4.4) {w};
+  \node[marbletype,above=1pt of u1] {ControlEvent\{lvl:1, MOVE\_FORWARD\}};
+
+  \node[marbleop] (api) at (4.6,3.0) {applyControl\\ \scriptsize key=(charId, lvl)};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]api.west);
+
+  \snapmarbleline{tx}{1.6}{Postgres tx}{0}{12.6}
+  \node[marbleTx] (pg) at (5.4,1.6) {p};
+  \node[marbletype,above=1pt of pg] {player\_positions(lvl=1)};
+  \draw[marbleline] ([yshift=-2pt]api.south) -| (pg.north);
+
+  \snapmarbleline{cas}{0.2}{Cassandra cache}{0}{12.6}
+  \node[marbleTx] (c1) at (5.4,0.2) {c};
+  \node[marbletype,above=1pt of c1] {character\_position\_cache(charId,lvl=1)};
+  \draw[marbleline,dashed] ([yshift=-2pt]api.south) to[bend right=10] (c1.north);
+
+  \snapmarbleline{sse1}{-1.4}{SSE world (lvl=1)}{0}{12.6}
+  \node[marbleSSE] at (6.6,-1.4) {w};
+  \node[marbleSSE] at (8.0,-1.4) {w};
+  \node[marbletype,above=1pt of (6.6,-1.4)] {WorldState\{lvl:1, [A,B,...]\}};
+
+  % Pod B's subscriber (same level)
+  \node[marbleop, fill=snapAccent!8] (subB) at (10.4,-1.4) {subscriberB\\ \scriptsize lvl==1 → render};
+  \draw[marbleline,dashed] (sse1-end) -- (subB.west);
+
+  % Subscriber on a DIFFERENT level — ignores
+  \snapmarbleline{sse2}{-3.0}{SSE world (lvl=2)}{0}{12.6}
+  \node[marbleErr] (drop) at (10.4,-3.0) {!};
+  \node[marbletype,below=1pt of drop] {lvl != 1 → ignore};
+
+  \node[marbleop, fill=red!6, draw=red!70!black] (filter) at (4.6,-3.0)
+    {emitWorldStateForLevel\\ \scriptsize ONLY lvl==1};
+  \draw[marbleline,red!70!black,dashed] (api.south) to[bend right=20] (filter.north);
+  \draw[marbleline,red!70!black,dashed] (filter.east) -- (drop.west);
+\end{tikzpicture}

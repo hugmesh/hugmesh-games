@@ -54,3 +54,45 @@ CREATE TABLE IF NOT EXISTS pod_heartbeats (
     version        text,
     PRIMARY KEY (pod_id)
 ) WITH default_time_to_live = 30;
+
+-- Per-(character, level) position cache. Postgres remains the source of
+-- truth (player_positions) for durability + analytics; this Cassandra
+-- table is the cross-pod read cache that lets pod B see a position
+-- updated on pod A within the round-trip of the SSE fan-out.
+--
+-- Composite partition key (character_id, level_id) so a player walking
+-- cave → field → cave finds their cave coordinates exactly where they
+-- left them (the prior single-row schema overwrote across levels).
+--
+-- 5-minute TTL so a long-idle character doesn't pin a row that the
+-- player abandoned; durable storage in Postgres backs the cache when
+-- it expires.
+CREATE TABLE IF NOT EXISTS character_position_cache (
+    character_id   bigint,
+    level_id       bigint,
+    pos_x          double,
+    pos_y          double,
+    pos_z          double,
+    rotation_y     double,
+    last_action    text,
+    last_pressed   boolean,
+    pod_id         text,
+    updated_at     timestamp,
+    tick           bigint,
+    PRIMARY KEY ((character_id, level_id))
+) WITH default_time_to_live = 300;
+
+-- Per-level membership index: which characters are currently present
+-- in a given level. Used by GameStateService.emitWorldState to scope
+-- broadcasts so a player in cave doesn't see a player in field. The
+-- TTL is shorter than the position cache because membership is more
+-- volatile (a character rapidly traversing levels needs prompt
+-- invalidation), and a single missed write reverses on the next
+-- movement tick.
+CREATE TABLE IF NOT EXISTS level_membership (
+    level_id       bigint,
+    character_id   bigint,
+    pod_id         text,
+    last_seen      timestamp,
+    PRIMARY KEY (level_id, character_id)
+) WITH default_time_to_live = 60;
