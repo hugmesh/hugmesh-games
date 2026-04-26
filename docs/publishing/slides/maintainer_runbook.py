@@ -181,7 +181,7 @@ CLOSING = {
         "After every fire, propose a code-level fix so the next on-call doesn't see the same symptom.",
     ],
     "links": [
-        "Repo: github.com/snapdragon-games/portal",
+        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
         "Administration deck: docs/publishing/slides/build/administration-manual.pptx",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
     ],

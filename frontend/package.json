@@ -5,7 +5,7 @@
   "homepage": "https://snapdragon.games",
   "repository": {
     "type": "git",
-    "url": "https://github.com/snapdragon-games/portal.git",
+    "url": "https://github.com/Snapdragon-Systems/snapdragon.games.git",
     "directory": "frontend"
   },
   "license": "UNLICENSED",

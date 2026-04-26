@@ -12,8 +12,8 @@ The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cav
 
 | Resource | Link |
 |---|---|
-| Issue Tracker | [snapdragon-games/portal/issues](https://github.com/snapdragon-games/portal/issues) |
-| Pull Requests | [snapdragon-games/portal/pulls](https://github.com/snapdragon-games/portal/pulls) |
+| Issue Tracker | [Snapdragon-Systems/snapdragon.games/issues](https://github.com/Snapdragon-Systems/snapdragon.games/issues) |
+| Pull Requests | [Snapdragon-Systems/snapdragon.games/pulls](https://github.com/Snapdragon-Systems/snapdragon.games/pulls) |
 | Godot developer guide | [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md) |
 
 ---

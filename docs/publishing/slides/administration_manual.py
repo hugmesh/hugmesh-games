@@ -192,7 +192,7 @@ CLOSING = {
         "When something breaks, read the BFF logs first — most paths emit a single descriptive line on failure.",
     ],
     "links": [
-        "Repo: github.com/snapdragon-games/portal",
+        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
         "Architecture PDF: make docs-pdf",
         "Javadoc: make docs-javadocs",
     ],
