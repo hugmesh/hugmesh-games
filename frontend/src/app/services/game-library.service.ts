@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { GameListing } from '../models/game-listing.model';
 import { Level } from '../models/level.model';
-import { AvailableGame, GameWithLevels } from '../models/available-game.model';
+import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { environment } from '../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
@@ -32,12 +32,12 @@ export class GameLibraryService {
 
   /** One level (WASM bundle metadata). */
   getLevel(id: number): Observable<Level> {
-    return this.http.get<Level>(`${this.base}/api/levels/${id}`);
+    return this.http.get<Level>(`${this.base}/api/chapters/${id}`);
   }
 
   /** Games with nested unlocked levels for a character. */
-  listAvailable(characterId: number): Observable<GameWithLevels[]> {
-    return this.http.get<GameWithLevels[]>(
+  listAvailable(characterId: number): Observable<GameWithChapters[]> {
+    return this.http.get<GameWithChapters[]>(
       `${this.base}/api/games/available/${characterId}`
     );
   }

@@ -10,7 +10,7 @@ import java.util.List;
 public record DashboardDto(
         CharacterDto character,
         GameTimeDto gameTime,
-        List<GameWithLevelsDto> games,
+        List<GameWithChaptersDto> games,
         List<QuestDto> quests,
         int totalPlayMinutes,
         int totalSessions

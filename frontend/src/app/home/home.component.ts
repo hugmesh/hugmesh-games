@@ -121,7 +121,7 @@ export class HomeComponent implements OnInit {
 
   /**
    * Window-level listener for level transitions. Godot's game_bridge.gd
-   * posts {type:'TW_LEVEL_TRANSITION',slug,levelId} via
+   * posts {type:'TW_LEVEL_TRANSITION',slug,chapterId} via
    * window.parent.postMessage; the message bubbles to the top window
    * regardless of whether the iframe is rendered directly by
    * GameCanvasComponent or nested inside a federated remote (they're
@@ -130,21 +130,21 @@ export class HomeComponent implements OnInit {
    */
   @HostListener('window:message', ['$event'])
   onWindowMessage(ev: MessageEvent): void {
-    const data = ev.data as { type?: string; slug?: string; levelId?: number } | null;
+    const data = ev.data as { type?: string; slug?: string; chapterId?: number } | null;
     if (!data || data.type !== 'TW_LEVEL_TRANSITION') return;
-    if (typeof data.slug !== 'string' || typeof data.levelId !== 'number') return;
-    this.onLevelTransition({ slug: data.slug, levelId: data.levelId });
+    if (typeof data.slug !== 'string' || typeof data.chapterId !== 'number') return;
+    this.onLevelTransition({ slug: data.slug, chapterId: data.chapterId });
   }
 
   /** Called when Godot requests a mid-game level transition via postMessage. */
-  onLevelTransition(e: { slug: string; levelId: number }): void {
+  onLevelTransition(e: { slug: string; chapterId: number }): void {
     // Reload the levels list so unlock state refreshes after the transition.
     this.levels$ = this.library.listAvailableLevels(this.characterId).pipe(
       map(levels => [...levels].sort((a, b) => a.sortOrder - b.sortOrder)),
       catchError(() => of([]))
     );
     // The GameCanvas swaps the iframe src itself; we just track which level is active.
-    this.library.getLevel(e.levelId).subscribe(level => {
+    this.library.getLevel(e.chapterId).subscribe(level => {
       this.activeLevel = {
         id: level.id,
         gameId: level.gameId,

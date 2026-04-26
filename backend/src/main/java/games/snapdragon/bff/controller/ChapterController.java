@@ -1,7 +1,7 @@
 package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.model.*;
-import games.snapdragon.bff.repository.LevelRepository;
+import games.snapdragon.bff.repository.ChapterRepository;
 import games.snapdragon.bff.repository.SceneElementRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,26 +14,26 @@ import reactor.core.publisher.Mono;
 @Tag(name = "Levels",
      description = "Individual playable levels — each level is its own compiled Godot WASM bundle served from /api/assets/levels/{slug}/.")
 @RestController
-@RequestMapping("/api/levels")
-public class LevelController {
+@RequestMapping("/api/chapters")
+public class ChapterController {
 
-    private final LevelRepository levels;
+    private final ChapterRepository levels;
     private final SceneElementRepository sceneElements;
 
-    public LevelController(LevelRepository levels, SceneElementRepository sceneElements) {
+    public ChapterController(ChapterRepository levels, SceneElementRepository sceneElements) {
         this.levels        = levels;
         this.sceneElements = sceneElements;
     }
 
     @Operation(summary = "List all levels across all games")
     @GetMapping
-    public Flux<Level> list() {
+    public Flux<Chapter> list() {
         return levels.findAllByOrderBySortOrderAsc();
     }
 
     @Operation(summary = "Get one level (WASM bundle metadata)")
     @GetMapping("/{id}")
-    public Mono<Level> get(@PathVariable Long id) {
+    public Mono<Chapter> get(@PathVariable Long id) {
         return levels.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }

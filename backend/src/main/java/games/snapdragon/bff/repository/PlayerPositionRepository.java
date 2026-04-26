@@ -12,7 +12,7 @@ public interface PlayerPositionRepository extends ReactiveCrudRepository<PlayerP
      * uq_position_character_level constraint so this returns at most
      * one row.
      */
-    Mono<PlayerPosition> findByCharacterIdAndLevelId(Long characterId, Long levelId);
+    Mono<PlayerPosition> findByCharacterIdAndChapterId(Long characterId, Long chapterId);
 
     /**
      * All persisted positions for one character — used on session
@@ -26,5 +26,5 @@ public interface PlayerPositionRepository extends ReactiveCrudRepository<PlayerP
      * to broadcast the full set of characters present in a level when
      * a session member connects (cross-pod cold-start).
      */
-    Flux<PlayerPosition> findAllByLevelId(Long levelId);
+    Flux<PlayerPosition> findAllByChapterId(Long chapterId);
 }

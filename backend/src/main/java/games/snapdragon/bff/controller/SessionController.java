@@ -66,8 +66,8 @@ public class SessionController {
                 // map is populated lazily on first applyControl).
                 .flatMap(token -> characterRepo.findById(characterId)
                         .flatMap(c -> {
-                            long levelId = c.getCurrentLevelId() != null ? c.getCurrentLevelId() : 1L;
-                            return gameStateService.hydrate(characterId, levelId)
+                            long chapterId = c.getCurrentChapterId() != null ? c.getCurrentChapterId() : 1L;
+                            return gameStateService.hydrate(characterId, chapterId)
                                     .thenReturn(token);
                         })
                         .defaultIfEmpty(token))

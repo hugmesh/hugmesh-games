@@ -25,15 +25,15 @@ import java.util.*;
 public class ProgressionService {
 
     private final GameRepository games;
-    private final LevelRepository levels;
-    private final LevelPrerequisiteRepository prereqs;
+    private final ChapterRepository levels;
+    private final ChapterPrerequisiteRepository prereqs;
     private final QuestRepository quests;
     private final CharacterQuestRepository charQuests;
     private final GameAccessRepository access;
 
     public ProgressionService(GameRepository games,
-                              LevelRepository levels,
-                              LevelPrerequisiteRepository prereqs,
+                              ChapterRepository levels,
+                              ChapterPrerequisiteRepository prereqs,
                               QuestRepository quests,
                               CharacterQuestRepository charQuests,
                               GameAccessRepository access) {
@@ -49,7 +49,7 @@ public class ProgressionService {
      * Returns every level for a character, annotated with unlock state + quest progress.
      * Legacy helper kept for the dashboard which wants a flat list.
      */
-    public Flux<AvailableLevelDto> availableLevels(Long characterId) {
+    public Flux<AvailableChapterDto> availableChapters(Long characterId) {
         return charQuests.findByCharacterId(characterId)
                 .collectList()
                 .flatMapMany(myQuests -> {
@@ -64,7 +64,7 @@ public class ProgressionService {
      * JWT through (e.g. {@code /api/characters/{id}/dashboard}). Returns
      * games whose access policy includes {@code scope='all'} only.
      */
-    public Flux<GameWithLevelsDto> availableGamesWithLevels(Long characterId) {
+    public Flux<GameWithChaptersDto> availableGamesWithLevels(Long characterId) {
         return availableGamesWithLevels(characterId, List.of(), null);
     }
 
@@ -76,7 +76,7 @@ public class ProgressionService {
      * {@code game_access}. Pass empty {@code roleNames} + null {@code userId}
      * to fall back to "scope='all' only" (anonymous / legacy behavior).
      */
-    public Flux<GameWithLevelsDto> availableGamesWithLevels(Long characterId,
+    public Flux<GameWithChaptersDto> availableGamesWithLevels(Long characterId,
                                                             List<String> roleNames,
                                                             String userId) {
         String[] roles = roleNames == null ? new String[0] : roleNames.toArray(String[]::new);
@@ -95,7 +95,7 @@ public class ProgressionService {
                             levels.findByGameIdOrderBySortOrderAsc(game.getId())
                                     .flatMap(level -> buildLevelDto(level, completedIds))
                                     .collectList()
-                                    .map(levelList -> new GameWithLevelsDto(
+                                    .map(levelList -> new GameWithChaptersDto(
                                             game.getId(), game.getName(), game.getDescription(),
                                             game.getSlug(), game.getThumbnailUrl(),
                                             game.getSortOrder(), levelList)));
@@ -112,13 +112,13 @@ public class ProgressionService {
         return s;
     }
 
-    private Mono<AvailableLevelDto> buildLevelDto(Level level, Set<Long> completedQuestIds) {
+    private Mono<AvailableChapterDto> buildLevelDto(Chapter level, Set<Long> completedQuestIds) {
         Mono<List<Long>> required = prereqs.findByLevelId(level.getId())
-                .map(LevelPrerequisite::getRequiredQuestId)
+                .map(ChapterPrerequisite::getRequiredQuestId)
                 .collectList();
 
         Mono<List<Long>> inLevel = quests.findAll()
-                .filter(q -> Objects.equals(q.getLevelId(), level.getId()))
+                .filter(q -> Objects.equals(q.getChapterId(), level.getId()))
                 .map(Quest::getId)
                 .collectList();
 
@@ -130,7 +130,7 @@ public class ProgressionService {
                     .toList();
             boolean unlocked = req.isEmpty() || completedQuestIds.containsAll(req);
 
-            return new AvailableLevelDto(
+            return new AvailableChapterDto(
                     level.getId(), level.getGameId(),
                     level.getName(), level.getDescription(),
                     level.getSlug(), level.getSceneType(), level.getAssetUrl(),

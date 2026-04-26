@@ -45,7 +45,7 @@ public record GameFeatures(
     public static GameFeatures fromMap(Map<String, Object> m) {
         if (m == null) return JRPG_DEFAULT;
         return new GameFeatures(
-                bool(m, "spell_loadout",   true),
+                bool(m, "instant_loadout",   true),
                 bool(m, "quests",          true),
                 bool(m, "items",           true),
                 bool(m, "char_progression", true),

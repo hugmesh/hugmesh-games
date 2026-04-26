@@ -65,10 +65,10 @@ describe('ControlService', () => {
     let emitted = 0;
     svc.controlPressed$.subscribe(e => {
       emitted++;
-      expect(e.action).toBe('CAST_SPELL_1');
+      expect(e.action).toBe('CAST_INSTANT_1');
       done();
     });
-    svc.sendControl('CAST_SPELL_1' as GameAction, true);
+    svc.sendControl('CAST_INSTANT_1' as GameAction, true);
     expect(emitted).toBe(1);
     httpMock.expectOne(r => r.url.endsWith('/api/controls/1'))
             .flush(null, { status: 204, statusText: 'No Content' });

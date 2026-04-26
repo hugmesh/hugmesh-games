@@ -47,15 +47,15 @@ public class PositionCacheService {
         this.cql       = cql;
     }
 
-    /** Write-through: persist the position for (characterId, levelId). */
-    public Mono<Void> upsert(long characterId, long levelId,
+    /** Write-through: persist the position for (characterId, chapterId). */
+    public Mono<Void> upsert(long characterId, long chapterId,
                              double x, double y, double z, double rotationY,
                              String lastAction, Boolean lastPressed, long tick) {
         CharacterPositionCache row = new CharacterPositionCache(
-                characterId, levelId, x, y, z, rotationY,
+                characterId, chapterId, x, y, z, rotationY,
                 lastAction, lastPressed, podId, Instant.now(), tick);
         return cassandra.insert(row)
-                .doOnNext(r -> markPresent(characterId, levelId).subscribe())
+                .doOnNext(r -> markPresent(characterId, chapterId).subscribe())
                 .onErrorResume(err -> {
                     // Don't poison the SSE / control chain when Cassandra
                     // hiccups. Log at debug; the next write retries.
@@ -65,10 +65,10 @@ public class PositionCacheService {
                 .then();
     }
 
-    /** Read the cached position for (characterId, levelId). Returns
+    /** Read the cached position for (characterId, chapterId). Returns
      *  empty when no row exists OR Cassandra is unreachable — the
      *  caller falls through to the durable Postgres lookup. */
-    public Mono<CharacterPositionCache> findOne(long characterId, long levelId) {
+    public Mono<CharacterPositionCache> findOne(long characterId, long chapterId) {
         return cql.queryForObject(
                 "SELECT character_id, level_id, pos_x, pos_y, pos_z, rotation_y, " +
                 "       last_action, last_pressed, pod_id, updated_at, tick " +
@@ -76,7 +76,7 @@ public class PositionCacheService {
                 (row, idx) -> {
                     CharacterPositionCache c = new CharacterPositionCache();
                     c.setCharacterId(row.getLong("character_id"));
-                    c.setLevelId(row.getLong("level_id"));
+                    c.setChapterId(row.getLong("chapter_id"));
                     c.setPosX(row.getDouble("pos_x"));
                     c.setPosY(row.getDouble("pos_y"));
                     c.setPosZ(row.getDouble("pos_z"));
@@ -90,22 +90,22 @@ public class PositionCacheService {
                     c.setTick(row.getLong("tick"));
                     return c;
                 },
-                characterId, levelId)
+                characterId, chapterId)
                 .onErrorResume(err -> {
                     log.debug("[position-cache] findOne failed: {}", err.toString());
                     return Mono.empty();
                 });
     }
 
-    /** All characters known to be present in {@code levelId} — used by
+    /** All characters known to be present in {@code chapterId} — used by
      *  emitWorldState to fan out a snapshot of every co-player on the
      *  active level when a new SSE subscriber connects. Membership is
      *  TTL'd at 60s so a player who disconnected from a previous pod
      *  drops off membership without needing an explicit DELETE. */
-    public Flux<Long> charactersInLevel(long levelId) {
+    public Flux<Long> charactersInLevel(long chapterId) {
         return cql.queryForFlux(
                 "SELECT character_id FROM level_membership WHERE level_id = ?",
-                Long.class, levelId)
+                Long.class, chapterId)
                 .onErrorResume(err -> {
                     log.debug("[position-cache] charactersInLevel failed: {}", err.toString());
                     return Flux.empty();
@@ -114,11 +114,11 @@ public class PositionCacheService {
 
     /** Mark a (level, character) tuple as present. Called once per
      *  movement tick so a TTL'd row stays alive for active players. */
-    private Mono<Void> markPresent(long characterId, long levelId) {
+    private Mono<Void> markPresent(long characterId, long chapterId) {
         return cql.execute(
                 "INSERT INTO level_membership (level_id, character_id, pod_id, last_seen) " +
                 "VALUES (?, ?, ?, ?) USING TTL 60",
-                levelId, characterId, podId, Instant.now())
+                chapterId, characterId, podId, Instant.now())
                 .onErrorResume(err -> {
                     log.debug("[position-cache] markPresent failed: {}", err.toString());
                     return Mono.empty();
@@ -129,10 +129,10 @@ public class PositionCacheService {
     /** Explicitly drop membership for a (level, character) tuple — used
      *  when a player intentionally leaves a level (level-transition
      *  postMessage handler). The TTL fallback handles missed deletes. */
-    public Mono<Void> markDeparted(long characterId, long levelId) {
+    public Mono<Void> markDeparted(long characterId, long chapterId) {
         return cql.execute(
                 "DELETE FROM level_membership WHERE level_id = ? AND character_id = ?",
-                levelId, characterId)
+                chapterId, characterId)
                 .onErrorResume(err -> {
                     log.debug("[position-cache] markDeparted failed: {}", err.toString());
                     return Mono.empty();

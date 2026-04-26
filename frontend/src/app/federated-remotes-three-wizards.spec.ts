@@ -34,21 +34,21 @@ describe('ThreeWizardsRemoteComponent', () => {
     expect(lastUrl()).toBe('/_remotes/wasm-fragment/cave/index.html');
   });
 
-  it('updates the iframe URL when levelSlug input changes', () => {
-    component.levelSlug = 'field';
+  it('updates the iframe URL when chapterSlug input changes', () => {
+    component.chapterSlug = 'field';
     const url = lastUrl();
     expect(url).toMatch(/^\/_remotes\/wasm-fragment\/field\/index\.html\?/);
   });
 
-  it('falls back to cave when levelSlug is empty (handles unset host input)', () => {
-    component.levelSlug = '';
+  it('falls back to cave when chapterSlug is empty (handles unset host input)', () => {
+    component.chapterSlug = '';
     const url = lastUrl();
     expect(url).toMatch(/^\/_remotes\/wasm-fragment\/cave\/index\.html\?/);
   });
 
-  it('threads levelId into the level_id query so the prefetch script picks it up', () => {
-    component.levelSlug = 'cave';
-    component.levelId = 7;
+  it('threads chapterId into the level_id query so the prefetch script picks it up', () => {
+    component.chapterSlug = 'cave';
+    component.chapterId = 7;
     const url = lastUrl();
     // The patched Godot index.html reads URLSearchParams.get('level_id')
     // — without this query, scene prefetch defaults to level 1.
@@ -57,10 +57,10 @@ describe('ThreeWizardsRemoteComponent', () => {
   });
 
   it('omits level_id from the URL when the input is null', () => {
-    component.levelSlug = 'cave';
-    component.levelId = null;
+    component.chapterSlug = 'cave';
+    component.chapterId = null;
     const url = lastUrl();
-    // With no levelId, the URLSearchParams build skips the param
+    // With no chapterId, the URLSearchParams build skips the param
     // entirely (rather than emitting level_id=undefined or
     // level_id=&). Just t= remains as the cache-buster.
     expect(url).not.toContain('level_id=');
@@ -68,26 +68,26 @@ describe('ThreeWizardsRemoteComponent', () => {
   });
 
   it('threads launchUid into the launch_uid query for audit traceability', () => {
-    component.levelSlug = 'cave';
-    component.levelId = 1;
+    component.chapterSlug = 'cave';
+    component.chapterId = 1;
     component.launchUid = 'fake-launch-uid-43chars';
     const url = lastUrl();
     expect(url).toContain('launch_uid=fake-launch-uid-43chars');
   });
 
   it('omits launch_uid when the input is null', () => {
-    component.levelSlug = 'cave';
+    component.chapterSlug = 'cave';
     component.launchUid = null;
     const url = lastUrl();
     expect(url).not.toContain('launch_uid');
   });
 
   it('cache-busts every refresh so the iframe remounts cleanly', () => {
-    component.levelSlug = 'cave';
+    component.chapterSlug = 'cave';
     const first = lastUrl();
     jasmine.clock().install();
     jasmine.clock().mockDate(new Date(Date.now() + 50));
-    component.levelSlug = 'field';
+    component.chapterSlug = 'field';
     jasmine.clock().uninstall();
     const second = lastUrl();
     expect(first).not.toBe(second);

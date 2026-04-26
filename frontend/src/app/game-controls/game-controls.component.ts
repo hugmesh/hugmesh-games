@@ -72,8 +72,8 @@ export class GameControlsComponent implements OnInit, OnDestroy {
 
   private readonly _keyMap = new Map<string, ControlButton>();
   private readonly _spellAction: Record<number, GameAction> = {
-    1: 'CAST_SPELL_1', 2: 'CAST_SPELL_2', 3: 'CAST_SPELL_3',
-    4: 'CAST_SPELL_4', 5: 'CAST_SPELL_5',
+    1: 'CAST_INSTANT_1', 2: 'CAST_INSTANT_2', 3: 'CAST_INSTANT_3',
+    4: 'CAST_INSTANT_4', 5: 'CAST_INSTANT_5',
   };
 
   constructor(private controls: ControlService) {

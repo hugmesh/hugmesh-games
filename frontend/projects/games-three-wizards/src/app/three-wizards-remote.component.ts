@@ -11,12 +11,12 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
  * row in the levels table with sceneType=cave|field|… and the right
  * SCENE_TYPE_TO_GAME_SLUG mapping in home.component.ts).
  *
- * The `levelSlug` and `levelId` inputs are set by the host's home
+ * The `chapterSlug` and `chapterId` inputs are set by the host's home
  * template:
  *
  *   <app-three-wizards-remote
- *     [levelSlug]="activeLevel.sceneType"
- *     [levelId]="activeLevel.id"></app-three-wizards-remote>
+ *     [chapterSlug]="activeLevel.sceneType"
+ *     [chapterId]="activeLevel.id"></app-three-wizards-remote>
  *
  * The selector is `app-three-wizards-remote` to match the tag
  * RemoteLoaderService registers via createCustomElement
@@ -26,7 +26,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
  * `level_id=<id>` query goes onto the iframe URL because the patched
  * Godot index.html inside each bundle reads
  * `URLSearchParams.get('level_id')` to prefetch
- * `/api/levels/{id}/scene` before the WASM finishes compiling. Without
+ * `/api/chapters/{id}/scene` before the WASM finishes compiling. Without
  * the param the prefetch defaults to level 1 — fine for cave but
  * wrong for field.
  */
@@ -39,7 +39,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
       <p class="hint">
         Loaded as a federated remote module from
         <code>games-three-wizards</code>. Active level:
-        <code>{{ levelSlug }}</code>.
+        <code>{{ chapterSlug }}</code>.
       </p>
       <div class="frame-wrap">
         <iframe
@@ -145,21 +145,21 @@ export class ThreeWizardsRemoteComponent {
 
   /** Set by the host on initial mount and on level transition. */
   @Input()
-  set levelSlug(value: string) {
+  set chapterSlug(value: string) {
     this._levelSlug = value || 'cave';
     this._refresh();
   }
-  get levelSlug(): string { return this._levelSlug; }
+  get chapterSlug(): string { return this._levelSlug; }
   private _levelSlug = 'cave';
 
   /** Mirrors the level row id; fed into the iframe URL so the patched
-   *  Godot index.html can prefetch /api/levels/{id}/scene. */
+   *  Godot index.html can prefetch /api/chapters/{id}/scene. */
   @Input()
-  set levelId(value: number | null | undefined) {
+  set chapterId(value: number | null | undefined) {
     this._levelId = value ?? null;
     this._refresh();
   }
-  get levelId(): number | null { return this._levelId; }
+  get chapterId(): number | null { return this._levelId; }
   private _levelId: number | null = null;
 
   /** Launch UID minted by `POST /api/games/three-wizards/launch`.

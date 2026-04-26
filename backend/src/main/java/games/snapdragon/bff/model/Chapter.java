@@ -10,8 +10,8 @@ import java.time.Instant;
  * Transitions between levels unload the current iframe and mount the next level's
  * WASM in the Angular game-canvas.
  */
-@Table("levels")
-public class Level {
+@Table("chapters")
+public class Chapter {
 
     @Id
     private Long id;

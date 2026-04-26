@@ -1,13 +1,13 @@
 package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.Game;
-import games.snapdragon.bff.model.GameWithLevelsDto;
-import games.snapdragon.bff.model.Level;
+import games.snapdragon.bff.model.GameWithChaptersDto;
+import games.snapdragon.bff.model.Chapter;
 import games.snapdragon.bff.repository.CharacterQuestRepository;
 import games.snapdragon.bff.repository.GameAccessRepository;
 import games.snapdragon.bff.repository.GameRepository;
-import games.snapdragon.bff.repository.LevelPrerequisiteRepository;
-import games.snapdragon.bff.repository.LevelRepository;
+import games.snapdragon.bff.repository.ChapterPrerequisiteRepository;
+import games.snapdragon.bff.repository.ChapterRepository;
 import games.snapdragon.bff.repository.QuestRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,8 +39,8 @@ import static org.mockito.Mockito.when;
 class ProgressionServiceTest {
 
     private GameRepository games;
-    private LevelRepository levels;
-    private LevelPrerequisiteRepository prereqs;
+    private ChapterRepository levels;
+    private ChapterPrerequisiteRepository prereqs;
     private QuestRepository quests;
     private CharacterQuestRepository charQuests;
     private GameAccessRepository access;
@@ -49,8 +49,8 @@ class ProgressionServiceTest {
     @BeforeEach
     void setUp() {
         games      = mock(GameRepository.class);
-        levels     = mock(LevelRepository.class);
-        prereqs    = mock(LevelPrerequisiteRepository.class);
+        levels     = mock(ChapterRepository.class);
+        prereqs    = mock(ChapterPrerequisiteRepository.class);
         quests     = mock(QuestRepository.class);
         charQuests = mock(CharacterQuestRepository.class);
         access     = mock(GameAccessRepository.class);
@@ -93,7 +93,7 @@ class ProgressionServiceTest {
         when(levels.findByGameIdOrderBySortOrderAsc(anyLong())).thenReturn(Flux.empty());
 
         StepVerifier.create(
-                service.availableGamesWithLevels(1L, List.of(), "user-x").<List<GameWithLevelsDto>>collectList())
+                service.availableGamesWithLevels(1L, List.of(), "user-x").<List<GameWithChaptersDto>>collectList())
                 .assertNext(list -> assertThat(list).isEmpty())
                 .verifyComplete();
     }
@@ -132,11 +132,11 @@ class ProgressionServiceTest {
     }
 
     @SuppressWarnings("unused")
-    private static Level levelStub(long id, long gameId, String slug, String sceneType) {
+    private static Chapter levelStub(long id, long gameId, String slug, String sceneType) {
         // Reserved for future tests that need to assert level rendering.
         // Kept here so adding an assert later doesn't require re-deriving
         // the reflection helper.
-        Level l = new Level();
+        Chapter l = new Chapter();
         try {
             setField(l, "id", id);
             setField(l, "gameId", gameId);

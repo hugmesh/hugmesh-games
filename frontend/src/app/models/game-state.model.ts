@@ -6,11 +6,11 @@ export type GameAction =
   | 'MOVE_LEFT'
   | 'MOVE_RIGHT'
   | 'JUMP'
-  | 'CAST_SPELL_1'
-  | 'CAST_SPELL_2'
-  | 'CAST_SPELL_3'
-  | 'CAST_SPELL_4'
-  | 'CAST_SPELL_5'
+  | 'CAST_INSTANT_1'
+  | 'CAST_INSTANT_2'
+  | 'CAST_INSTANT_3'
+  | 'CAST_INSTANT_4'
+  | 'CAST_INSTANT_5'
   | 'INTERACT';
 
 export interface ControlEvent {

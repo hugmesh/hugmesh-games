@@ -8,7 +8,7 @@ public class SceneElement {
 
     @Id
     private Long id;
-    private Long levelId;
+    private Long chapterId;
     private String elementType;
     private String name;
     private Float positionX;
@@ -21,7 +21,7 @@ public class SceneElement {
     private Integer sortOrder;
 
     public Long getId() { return id; }
-    public Long getLevelId() { return levelId; }
+    public Long getChapterId() { return chapterId; }
     public String getElementType() { return elementType; }
     public String getName() { return name; }
     public Float getPositionX() { return positionX; }

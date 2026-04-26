@@ -21,7 +21,7 @@ public class PlayerCharacter {
     private int defense;
     private int speed;
     private int magicPower;
-    private Long currentLevelId;
+    private Long currentChapterId;
     private String casdoorId;
     private Instant createdAt;
 
@@ -38,7 +38,7 @@ public class PlayerCharacter {
     public int getDefense() { return defense; }
     public int getSpeed() { return speed; }
     public int getMagicPower() { return magicPower; }
-    public Long getCurrentLevelId() { return currentLevelId; }
+    public Long getCurrentChapterId() { return currentChapterId; }
     public String getCasdoorId() { return casdoorId; }
     public Instant getCreatedAt() { return createdAt; }
 
@@ -53,6 +53,6 @@ public class PlayerCharacter {
     public void setDefense(int defense) { this.defense = defense; }
     public void setSpeed(int speed) { this.speed = speed; }
     public void setMagicPower(int magicPower) { this.magicPower = magicPower; }
-    public void setCurrentLevelId(Long currentLevelId) { this.currentLevelId = currentLevelId; }
+    public void setCurrentChapterId(Long currentChapterId) { this.currentChapterId = currentChapterId; }
     public void setCasdoorId(String casdoorId) { this.casdoorId = casdoorId; }
 }

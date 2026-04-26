@@ -2,7 +2,7 @@ package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.model.*;
 import games.snapdragon.bff.repository.GameRepository;
-import games.snapdragon.bff.repository.LevelRepository;
+import games.snapdragon.bff.repository.ChapterRepository;
 import games.snapdragon.bff.service.ProgressionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,10 +19,10 @@ import reactor.core.publisher.Mono;
 public class GameController {
 
     private final GameRepository games;
-    private final LevelRepository levels;
+    private final ChapterRepository levels;
     private final ProgressionService progression;
 
-    public GameController(GameRepository games, LevelRepository levels,
+    public GameController(GameRepository games, ChapterRepository levels,
                           ProgressionService progression) {
         this.games       = games;
         this.levels      = levels;
@@ -61,11 +61,11 @@ public class GameController {
             ```
             ──request──► levelRepo.findByGameIdOrderBySortOrderAsc(id)
              ──────────────●──●──|
-                           Level{id, slug, assetUrl, sceneType, …}…
+                           Chapter{id, slug, assetUrl, sceneType, …}…
             ```
             """)
     @GetMapping("/{id}/levels")
-    public Flux<Level> listLevels(@PathVariable Long id) {
+    public Flux<Chapter> listLevels(@PathVariable Long id) {
         return levels.findByGameIdOrderBySortOrderAsc(id);
     }
 
@@ -79,15 +79,15 @@ public class GameController {
             ──request──► charQuests.findByCharacterId.collectList
                           → games.findAll().flatMap(g ->
                               levels.findByGameId(g.id)
-                                .flatMap(l -> build AvailableLevelDto)
+                                .flatMap(l -> build AvailableChapterDto)
                                 .collectList()
-                              .map(ls -> GameWithLevelsDto))
+                              .map(ls -> GameWithChaptersDto))
              ──────────────●──●──|
-                           GameWithLevelsDto…
+                           GameWithChaptersDto…
             ```
             """)
     @GetMapping("/available/{characterId}")
-    public Flux<GameWithLevelsDto> available(@PathVariable Long characterId,
+    public Flux<GameWithChaptersDto> available(@PathVariable Long characterId,
                                              @org.springframework.security.core.annotation.AuthenticationPrincipal
                                              org.springframework.security.oauth2.jwt.Jwt jwt) {
         // Casdoor-side roles + user id come from the JWT. The progression

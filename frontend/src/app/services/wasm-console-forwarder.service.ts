@@ -18,7 +18,7 @@ import { Injectable, NgZone, inject } from '@angular/core';
  *   </ul>
  * and posts each captured message to its parent window with
  *   {@code postMessage({ type: 'SD_WASM_CONSOLE', level, message,
- *                        source, line, column, stack, gameSlug, levelSlug }, '*')}.
+ *                        source, line, column, stack, gameSlug, chapterSlug }, '*')}.
  *
  * <p>This service listens for that envelope, mirrors locally, and
  * fires a fire-and-forget POST to /api/diagnostics/wasm-console so
@@ -46,7 +46,7 @@ export class WasmConsoleForwarderService {
     const data = e.data;
     if (!data || data.type !== 'SD_WASM_CONSOLE') return;
     const { level, message, source, line, column, stack,
-            gameSlug, levelSlug } = data;
+            gameSlug, chapterSlug } = data;
     // Mirror to host console so devtools shows the line.
     const tag = `[wasm:${level || 'log'}]${gameSlug ? ' ' + gameSlug : ''}`;
     const args = [tag, message, source, line, column, stack].filter(x => x !== undefined);
@@ -63,7 +63,7 @@ export class WasmConsoleForwarderService {
       body: JSON.stringify({
         level: typeof level === 'string' ? level : 'log',
         gameSlug: gameSlug ?? null,
-        levelSlug: levelSlug ?? null,
+        chapterSlug: chapterSlug ?? null,
         message: typeof message === 'string' ? message : String(message ?? ''),
         source: typeof source === 'string' ? source : null,
         line:   typeof line   === 'number' ? line   : null,

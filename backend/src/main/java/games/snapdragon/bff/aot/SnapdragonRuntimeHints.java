@@ -1,11 +1,11 @@
 package games.snapdragon.bff.aot;
 
 import games.snapdragon.bff.model.AdminStatsDto;
-import games.snapdragon.bff.model.AvailableLevelDto;
+import games.snapdragon.bff.model.AvailableChapterDto;
 import games.snapdragon.bff.model.CharacterDto;
 import games.snapdragon.bff.model.DashboardDto;
 import games.snapdragon.bff.model.GameTimeDto;
-import games.snapdragon.bff.model.GameWithLevelsDto;
+import games.snapdragon.bff.model.GameWithChaptersDto;
 import games.snapdragon.bff.model.ItemDto;
 import games.snapdragon.bff.model.QuestDto;
 import games.snapdragon.bff.model.SceneDto;
@@ -34,11 +34,11 @@ public class SnapdragonRuntimeHints implements RuntimeHintsRegistrar {
 
     private static final Class<?>[] JSON_BOUNDARY_DTOS = {
             AdminStatsDto.class,
-            AvailableLevelDto.class,
+            AvailableChapterDto.class,
             CharacterDto.class,
             DashboardDto.class,
             GameTimeDto.class,
-            GameWithLevelsDto.class,
+            GameWithChaptersDto.class,
             ItemDto.class,
             QuestDto.class,
             SceneDto.class,
