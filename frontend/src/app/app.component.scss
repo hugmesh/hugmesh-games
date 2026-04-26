@@ -113,3 +113,42 @@ body, :host {
     &:hover { background: rgba(255, 107, 107, 0.28); }
   }
 }
+
+/* ── A11y: skip-to-content link ──────────────────────────────────────
+   Hidden off-screen until focused; first focusable on the page so a
+   keyboard user can jump past the persistent top nav. ─────────────── */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 0;
+  background: #7c4dff;
+  color: white;
+  padding: 10px 16px;
+  text-decoration: none;
+  border-radius: 0 0 6px 0;
+  z-index: 9999;
+  font-weight: 600;
+  &:focus {
+    top: 0;
+    outline: 3px solid #b388ff;
+    outline-offset: 2px;
+  }
+}
+
+/* ── Focus-visible default for every interactive element ──────────── */
+:focus-visible {
+  outline: 3px solid #b388ff;
+  outline-offset: 2px;
+}
+
+/* ── Reduced-motion override (WCAG 2.3.3) ─────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+main#main-content { outline: none; }
