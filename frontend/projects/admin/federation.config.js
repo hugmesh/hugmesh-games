@@ -14,7 +14,11 @@ module.exports = withNativeFederation({
   name: 'admin',
 
   exposes: {
-    './AdminShell': './projects/admin/src/app/admin-remote.component.ts',
+    './AdminShell':  './projects/admin/src/app/admin-remote.component.ts',
+    // Game-bundle hot-upload + per-game access policy. Sits under
+    // /admin/games in the host. Same image as AdminShell so a single
+    // admin pod ships both the dashboard and the upload tooling.
+    './UploadShell': './projects/admin/src/app/upload-remote.component.ts',
   },
 
   shared: {
