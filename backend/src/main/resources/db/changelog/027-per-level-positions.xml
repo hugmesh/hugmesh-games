@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Per-level player positions. The original 008-3 schema put position on
+    a single row per character (UNIQUE on character_id, scene_id pointed
+    at games.id), so a player walking from cave → field overwrote their
+    cave coordinates. We now want one row per (character_id, level_id) so
+    the position survives level transitions, and so a player who was
+    last in the cave at (4.2, 1.0, -2.4) returns there at exactly that
+    spot when they re-enter the cave.
+
+    27-1 — drop the legacy uq_position_character constraint and rename
+           scene_id → level_id (the rest of the schema migrated to
+           levels in 012-levels-tier; player_positions never followed).
+    27-2 — add a composite unique constraint on (character_id, level_id).
+    27-3 — add an index on (character_id, level_id) so the hot
+           `findByCharacterIdAndLevelId` lookup stays single-row.
+  -->
+
+  <changeSet id="027-1-rename-scene-to-level" author="nin">
+    <renameColumn tableName="player_positions"
+                  oldColumnName="scene_id" newColumnName="level_id"/>
+  </changeSet>
+
+  <changeSet id="027-2a-drop-legacy-unique" author="nin">
+    <!-- The 008-3 unique constraint was created with the auto-name
+         `player_positions_character_id_key` (Postgres's default for an
+         unnamed UNIQUE column). Drop by that exact name; if a previous
+         Liquibase run already dropped or renamed it, the precondition
+         skips the changeset. -->
+    <preConditions onFail="MARK_RAN" onFailMessage="legacy unique already removed">
+      <sqlCheck expectedResult="1">
+        SELECT COUNT(*) FROM information_schema.table_constraints
+        WHERE table_name = 'player_positions'
+          AND constraint_name = 'player_positions_character_id_key'
+          AND constraint_type = 'UNIQUE'
+      </sqlCheck>
+    </preConditions>
+    <sql>ALTER TABLE player_positions DROP CONSTRAINT player_positions_character_id_key</sql>
+  </changeSet>
+
+  <changeSet id="027-2b-add-composite-unique" author="nin">
+    <preConditions onFail="MARK_RAN" onFailMessage="composite unique already exists">
+      <not>
+        <sqlCheck expectedResult="1">
+          SELECT COUNT(*) FROM information_schema.table_constraints
+          WHERE table_name = 'player_positions'
+            AND constraint_name = 'uq_position_character_level'
+        </sqlCheck>
+      </not>
+    </preConditions>
+    <addUniqueConstraint
+        tableName="player_positions"
+        columnNames="character_id, level_id"
+        constraintName="uq_position_character_level"/>
+  </changeSet>
+
+  <changeSet id="027-3-index" author="nin">
+    <createIndex tableName="player_positions" indexName="idx_position_character_level">
+      <column name="character_id"/>
+      <column name="level_id"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

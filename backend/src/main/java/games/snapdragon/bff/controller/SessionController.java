@@ -1,6 +1,8 @@
 package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.model.SessionHistoryDto;
+import games.snapdragon.bff.repository.PlayerCharacterRepository;
+import games.snapdragon.bff.service.GameStateService;
 import games.snapdragon.bff.service.SessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,9 +20,15 @@ import java.util.Map;
 public class SessionController {
 
     private final SessionService sessionService;
+    private final GameStateService gameStateService;
+    private final PlayerCharacterRepository characterRepo;
 
-    public SessionController(SessionService sessionService) {
+    public SessionController(SessionService sessionService,
+                             GameStateService gameStateService,
+                             PlayerCharacterRepository characterRepo) {
         this.sessionService = sessionService;
+        this.gameStateService = gameStateService;
+        this.characterRepo = characterRepo;
     }
 
     @Operation(
@@ -50,6 +58,19 @@ public class SessionController {
 
         String casdoorId = jwt.getSubject();
         return sessionService.tryConnect(casdoorId, characterId)
+                // Hydrate the connecting character's per-level state into
+                // GameStateService so the next world-state SSE includes
+                // them in the roster — without this hop, a player who
+                // hasn't pressed any keys yet is invisible to the other
+                // session members until they move (the in-memory state
+                // map is populated lazily on first applyControl).
+                .flatMap(token -> characterRepo.findById(characterId)
+                        .flatMap(c -> {
+                            long levelId = c.getCurrentLevelId() != null ? c.getCurrentLevelId() : 1L;
+                            return gameStateService.hydrate(characterId, levelId)
+                                    .thenReturn(token);
+                        })
+                        .defaultIfEmpty(token))
                 .map(token -> Map.of(
                         "sessionToken", token,
                         "isController", sessionService.isController(casdoorId),

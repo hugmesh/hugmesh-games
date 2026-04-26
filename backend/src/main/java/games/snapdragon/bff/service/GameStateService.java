@@ -6,6 +6,7 @@ import games.snapdragon.bff.repository.PlayerPositionRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -13,18 +14,45 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * @DependsOn("liquibase") gates the @PostConstruct character lookup
- * on Liquibase finishing — see GameTimeService for the longer note
- * about why this matters for @SpringBootTest's parallel bean init
- * (and why it's a no-op under the production startup ordering).
+ * <p>Per-level position state, keyed by (characterId, levelId). A
+ * character traversing cave → field → cave is restored to the cave
+ * coordinates they last had on re-entry — the prior single-row
+ * layout clobbered position across levels and lost the per-level
+ * pose every transition.
+ *
+ * <p>Three storage tiers, ordered by hotness:
+ * <ol>
+ *   <li>In-memory {@link #characterStates} keyed by {@code Key}.
+ *       Hot path, single-pod authority while a session holds the
+ *       controller role.</li>
+ *   <li>Cassandra {@link PositionCacheService} — cross-pod read
+ *       cache, populated on every move via write-through. Pod B can
+ *       see a position updated on pod A inside one round-trip.</li>
+ *   <li>Postgres {@code player_positions} (Liquibase 027) — durable
+ *       source of truth. Every move persists here too so a cold
+ *       restart with empty Cassandra still hydrates correctly.</li>
+ * </ol>
+ *
+ * <p>SSE fan-out is per level: when a character moves in level L,
+ * the {@link WorldState} carries {@code levelId=L} and the full
+ * roster of characters currently active at L. Subscribers in level
+ * M ignore the event because their renderer keys off the matching
+ * level id.
+ *
+ * <p>{@code @DependsOn("liquibase")} gates the {@code @PostConstruct}
+ * character lookup on Liquibase finishing — see GameTimeService for
+ * the longer note about why this matters under the @SpringBootTest
+ * parallel bean init (and why it's a no-op under production startup).
  */
 @Service
 @DependsOn("liquibase")
@@ -35,75 +63,113 @@ public class GameStateService {
     private static final double MOVE_STEP = 0.1;
     private static final double JUMP_STEP = 1.0;
 
-    private final PlayerCharacterRepository characterRepo;
-    private final PlayerPositionRepository positionRepo;
-    private final GameTimeService gameTimeService;
-    private final PgNotificationService pgNotify;
+    /** Default level id used when a control arrives without an
+     *  explicit level and the character has no current_level_id
+     *  populated yet. Matches the cave row in 002-seed-data. */
+    private static final long DEFAULT_LEVEL_ID = 1L;
 
-    // Per-character state — keyed by character DB id
-    private final ConcurrentHashMap<Long, AtomicReference<PlayerState>> characterStates = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, String> lastActions = new ConcurrentHashMap<>();
-    // Tracks the last pressed-state for the action above so we can detect key
-    // releases even when neither the position nor the action label changes —
-    // critical because the Godot player only stops moving when it receives a
-    // pressed=false event, and without this map keyups on a held direction
-    // get swallowed and the character walks forever.
-    private final ConcurrentHashMap<Long, Boolean> lastPressed = new ConcurrentHashMap<>();
+    private final PlayerCharacterRepository characterRepo;
+    private final PlayerPositionRepository  positionRepo;
+    private final GameTimeService           gameTimeService;
+    private final PgNotificationService     pgNotify;
+
+    /** Cassandra cross-pod cache. Optional (null under Postgres-only
+     *  test configs); the service degrades to PG-only when absent. */
+    private final PositionCacheService      positionCache;
+
+    /** Per-(characterId, levelId) in-memory state. Map of map so the
+     *  outer key gives O(1) lookup on the hot movement path; the
+     *  inner map's small size (one entry per level the character has
+     *  visited this session) keeps overhead negligible. */
+    private final ConcurrentHashMap<Long, ConcurrentHashMap<Long, AtomicReference<PlayerState>>> characterStates =
+            new ConcurrentHashMap<>();
+
+    /** Last action label per (characterId, levelId). Holds the prior
+     *  action so the state-change predicate can spot a release event
+     *  even when neither the position nor the action label changes. */
+    private final ConcurrentHashMap<Key, String>  lastActions  = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Key, Boolean> lastPressed  = new ConcurrentHashMap<>();
+    /** Last level id observed for each character — used as the
+     *  fallback when a control event arrives without an explicit
+     *  levelId. Updated on every move and on every TW_LEVEL_TRANSITION
+     *  hook (see {@link #onLevelEnter}). */
+    private final ConcurrentHashMap<Long, Long> activeLevel = new ConcurrentHashMap<>();
+
     private final AtomicLong tick = new AtomicLong(0);
 
-    // Typed event sinks — emit only when content actually changes
-    // autoCancel=false — without it, multicast sinks terminate the moment all
-    // subscribers disconnect. A single SSE reconnect (iframe remount, browser
-    // nav, etc.) would kill the sink permanently; subsequent tryEmitNext calls
-    // silently drop and no new subscriber ever sees another event. That's the
-    // "first spell works, second doesn't, movement dies" symptom.
-    private final Sinks.Many<PlayerMovement> movementSink = Sinks.many().multicast().onBackpressureBuffer(64, false);
-    private final Sinks.Many<WorldState>      worldSink    = Sinks.many().multicast().onBackpressureBuffer(64, false);
-    private final Sinks.Many<CharacterDto>    charStatSink = Sinks.many().multicast().onBackpressureBuffer(16, false);
-    private final Sinks.Many<SceneEvent>      sceneSink    = Sinks.many().multicast().onBackpressureBuffer(16, false);
-    // Generalised event channels. autoCancel=false — same rationale.
-    private final Sinks.Many<InputEvent>      inputSink    = Sinks.many().multicast().onBackpressureBuffer(128, false);
-    private final Sinks.Many<InputEvent>      audioSink    = Sinks.many().multicast().onBackpressureBuffer(64, false);
-    /** Forwarded console.error / window.onerror lines from the WASM iframe. */
+    // Typed event sinks — emit only when content actually changes.
+    // autoCancel=false on every Sink: see scenario-sse-disconnect for
+    // the failure mode the flag protects against.
+    private final Sinks.Many<PlayerMovement>  movementSink    = Sinks.many().multicast().onBackpressureBuffer(64, false);
+    private final Sinks.Many<WorldState>      worldSink       = Sinks.many().multicast().onBackpressureBuffer(64, false);
+    private final Sinks.Many<CharacterDto>    charStatSink    = Sinks.many().multicast().onBackpressureBuffer(16, false);
+    private final Sinks.Many<SceneEvent>      sceneSink       = Sinks.many().multicast().onBackpressureBuffer(16, false);
+    private final Sinks.Many<InputEvent>      inputSink       = Sinks.many().multicast().onBackpressureBuffer(128, false);
+    private final Sinks.Many<InputEvent>      audioSink       = Sinks.many().multicast().onBackpressureBuffer(64, false);
     private final Sinks.Many<WasmConsoleLine> wasmConsoleSink = Sinks.many().multicast().onBackpressureBuffer(64, false);
 
     private final String sessionId = UUID.randomUUID().toString();
 
+    /** {@code positionCacheProvider} is an ObjectProvider so the
+     *  Cassandra-backed cache stays optional — under Postgres-only
+     *  test slices the bean isn't in the context, getIfAvailable()
+     *  returns null, and the service degrades to PG + in-memory only. */
     public GameStateService(PlayerCharacterRepository characterRepo,
-                            PlayerPositionRepository positionRepo,
-                            GameTimeService gameTimeService,
-                            PgNotificationService pgNotify) {
-        this.characterRepo = characterRepo;
-        this.positionRepo  = positionRepo;
+                            PlayerPositionRepository  positionRepo,
+                            GameTimeService           gameTimeService,
+                            PgNotificationService     pgNotify,
+                            ObjectProvider<PositionCacheService> positionCacheProvider) {
+        this.characterRepo  = characterRepo;
+        this.positionRepo   = positionRepo;
         this.gameTimeService = gameTimeService;
-        this.pgNotify = pgNotify;
+        this.pgNotify       = pgNotify;
+        this.positionCache  = positionCacheProvider.getIfAvailable();
     }
 
     @PostConstruct
     public void init() {
+        // Seed the default character on the default level so the
+        // single-player local-play case has state from the moment the
+        // first SSE subscriber connects. Multi-player connects hydrate
+        // additional characters lazily via applyControl / hydrate(...).
         characterRepo.findById(1L)
-                .flatMap(c -> positionRepo.findByCharacterId(c.getId())
-                        .map(pos -> PlayerState.defaults().fromCharacter(c).withPosition(pos.getPosX(), pos.getPosY(), pos.getPosZ()))
-                        .switchIfEmpty(Mono.just(PlayerState.defaults().fromCharacter(c)))
-                        .doOnNext(state -> log.info("Loaded character '{}' lv{} at ({},{},{})",
-                                c.getName(), c.getLevel(),
-                                String.format("%.1f", state.x()),
-                                String.format("%.1f", state.y()),
-                                String.format("%.1f", state.z()))))
-                .switchIfEmpty(Mono.fromSupplier(PlayerState::defaults)
-                        .doOnNext(s -> log.warn("Character 1 not found, using defaults")))
-                .doOnNext(state -> characterStates.put(1L, new AtomicReference<>(state)))
+                .flatMap(c -> {
+                    long levelId = c.getCurrentLevelId() != null ? c.getCurrentLevelId() : DEFAULT_LEVEL_ID;
+                    activeLevel.put(c.getId(), levelId);
+                    return positionRepo.findByCharacterIdAndLevelId(c.getId(), levelId)
+                            .map(pos -> PlayerState.defaults().fromCharacter(c)
+                                    .withPosition(pos.getPosX(), pos.getPosY(), pos.getPosZ()))
+                            .switchIfEmpty(Mono.just(PlayerState.defaults().fromCharacter(c)))
+                            .doOnNext(state -> {
+                                putState(c.getId(), levelId, state);
+                                log.info("Loaded character '{}' lv{} at lvId={} ({},{},{})",
+                                        c.getName(), c.getLevel(), levelId,
+                                        String.format("%.1f", state.x()),
+                                        String.format("%.1f", state.y()),
+                                        String.format("%.1f", state.z()));
+                            });
+                })
+                .switchIfEmpty(Mono.fromRunnable(() ->
+                        log.warn("Character 1 not found, lazy-init will populate state on first control event")))
                 .subscribe();
-        // lastActions is lazily populated by applyControl; ConcurrentHashMap rejects
-        // null values, and downstream code treats an absent key the same as "no
-        // previous action", so we don't seed it here.
     }
 
+    /**
+     * Apply a control event for {@code characterId}, resolving its
+     * level via (in priority order):
+     *   1) {@code event.levelId()} — the iframe's URL has a level_id
+     *      query param the patched Godot bundle threads through;
+     *   2) {@link #activeLevel} — last level observed for this
+     *      character;
+     *   3) {@link #DEFAULT_LEVEL_ID}.
+     */
     public void applyControl(ControlEvent event, Long characterId) {
-        AtomicReference<PlayerState> ref = characterStates.computeIfAbsent(
-                characterId, id -> new AtomicReference<>(PlayerState.defaults()));
-        String prevAction = lastActions.get(characterId);
-        Boolean prevPressed = lastPressed.get(characterId);
+        Long levelId = resolveLevelId(characterId, event.levelId());
+        AtomicReference<PlayerState> ref = ensureState(characterId, levelId);
+        Key key = new Key(characterId, levelId);
+
+        String prevAction = lastActions.get(key);
+        Boolean prevPressed = lastPressed.get(key);
 
         PlayerState before = ref.get();
         PlayerState after = switch (event.action()) {
@@ -121,26 +187,63 @@ public class GameStateService {
 
         if (posChanged || actionChanged || pressedChanged) {
             ref.set(after);
-            lastActions.put(characterId, event.action());
-            lastPressed.put(characterId, event.pressed());
+            lastActions.put(key, event.action());
+            lastPressed.put(key, event.pressed());
+            activeLevel.put(characterId, levelId);
             long t = tick.incrementAndGet();
 
             PlayerMovement movement = new PlayerMovement(
-                    characterId, after.x(), after.y(), after.z(),
-                    after.rotationY(), event.action(), event.pressed(), t);
+                    characterId, levelId,
+                    after.x(), after.y(), after.z(), after.rotationY(),
+                    event.action(), event.pressed(), t);
 
             movementSink.tryEmitNext(movement);
-            emitWorldState(t);
+            emitWorldStateForLevel(levelId, t);
 
             if (posChanged) {
-                persistPositionAsync(characterId, after);
+                persistPositionAsync(characterId, levelId, after);
+                if (positionCache != null) {
+                    positionCache.upsert(
+                            characterId, levelId,
+                            after.x(), after.y(), after.z(), after.rotationY(),
+                            event.action(), event.pressed(), t)
+                            .subscribe();
+                }
             }
 
             pgNotify.publish("game_events",
-                    String.format("{\"type\":\"movement\",\"cid\":%d,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f}",
-                            characterId, after.x(), after.y(), after.z()))
+                    String.format("{\"type\":\"movement\",\"cid\":%d,\"levelId\":%d,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f}",
+                            characterId, levelId, after.x(), after.y(), after.z()))
                     .subscribe();
         }
+    }
+
+    /**
+     * Hydrate a character's state for {@code levelId} from cache
+     * (Cassandra → Postgres → defaults) so a session member who
+     * connects but hasn't moved yet still appears in the next world
+     * snapshot. Called from SessionController on session connect.
+     */
+    public Mono<PlayerState> hydrate(long characterId, long levelId) {
+        return loadState(characterId, levelId)
+                .doOnNext(state -> {
+                    putState(characterId, levelId, state);
+                    activeLevel.put(characterId, levelId);
+                    long t = tick.incrementAndGet();
+                    emitWorldStateForLevel(levelId, t);
+                });
+    }
+
+    /**
+     * Hook called by the host on a TW_LEVEL_TRANSITION — drops the
+     * character's previous-level membership and seeds the new level
+     * from cache. Idempotent; missing membership is a no-op.
+     */
+    public void onLevelEnter(long characterId, long fromLevel, long toLevel) {
+        if (positionCache != null && fromLevel != toLevel) {
+            positionCache.markDeparted(characterId, fromLevel).subscribe();
+        }
+        hydrate(characterId, toLevel).subscribe();
     }
 
     public void notifyCharacterStatChange(CharacterDto dto) {
@@ -151,13 +254,12 @@ public class GameStateService {
         sceneSink.tryEmitNext(event);
     }
 
-    // Streams — returned to controller for merging into the single unified SSE
-    public Flux<PlayerMovement> movementStream() { return movementSink.asFlux(); }
-    public Flux<WorldState>      worldStream()    { return worldSink.asFlux(); }
-    public Flux<CharacterDto>    charStatStream() { return charStatSink.asFlux(); }
-    public Flux<SceneEvent>      sceneStream()    { return sceneSink.asFlux(); }
-    public Flux<InputEvent>      inputStream()    { return inputSink.asFlux(); }
-    public Flux<InputEvent>      audioStream()    { return audioSink.asFlux(); }
+    public Flux<PlayerMovement>  movementStream()    { return movementSink.asFlux(); }
+    public Flux<WorldState>      worldStream()       { return worldSink.asFlux(); }
+    public Flux<CharacterDto>    charStatStream()    { return charStatSink.asFlux(); }
+    public Flux<SceneEvent>      sceneStream()       { return sceneSink.asFlux(); }
+    public Flux<InputEvent>      inputStream()       { return inputSink.asFlux(); }
+    public Flux<InputEvent>      audioStream()       { return audioSink.asFlux(); }
     public Flux<WasmConsoleLine> wasmConsoleStream() { return wasmConsoleSink.asFlux(); }
 
     /** Push a generalised input event onto the SSE channel. The audio
@@ -178,25 +280,109 @@ public class GameStateService {
     }
 
     public GameState currentState() {
-        AtomicReference<PlayerState> ref = characterStates.computeIfAbsent(
-                1L, id -> new AtomicReference<>(PlayerState.defaults()));
-        return new GameState(sessionId, ref.get(), lastActions.get(1L),
+        long levelId = activeLevel.getOrDefault(1L, DEFAULT_LEVEL_ID);
+        AtomicReference<PlayerState> ref = ensureState(1L, levelId);
+        Key key = new Key(1L, levelId);
+        return new GameState(sessionId, ref.get(), lastActions.get(key),
                 false, System.currentTimeMillis(), tick.get(), gameTimeService.currentTime());
     }
 
-    private void emitWorldState(long t) {
-        List<PlayerMovement> all = characterStates.entrySet().stream()
-                .map(e -> {
-                    PlayerState ps = e.getValue().get();
-                    return new PlayerMovement(e.getKey(), ps.x(), ps.y(), ps.z(),
-                            ps.rotationY(), lastActions.get(e.getKey()), false, t);
-                })
-                .toList();
-        worldSink.tryEmitNext(new WorldState(all, t));
+    // ── helpers ───────────────────────────────────────────────────
+
+    private Long resolveLevelId(long characterId, Long explicit) {
+        if (explicit != null) return explicit;
+        Long known = activeLevel.get(characterId);
+        return known != null ? known : DEFAULT_LEVEL_ID;
     }
 
-    private void persistPositionAsync(Long characterId, PlayerState state) {
-        positionRepo.findByCharacterId(characterId)
+    private AtomicReference<PlayerState> ensureState(long characterId, long levelId) {
+        return characterStates
+                .computeIfAbsent(characterId, id -> new ConcurrentHashMap<>())
+                .computeIfAbsent(levelId, id -> new AtomicReference<>(PlayerState.defaults()));
+    }
+
+    private void putState(long characterId, long levelId, PlayerState state) {
+        characterStates
+                .computeIfAbsent(characterId, id -> new ConcurrentHashMap<>())
+                .put(levelId, new AtomicReference<>(state));
+    }
+
+    /**
+     * Cassandra-first read with PG fallback. Returns defaults when
+     * neither tier has a row yet (first time this character touches
+     * this level).
+     */
+    private Mono<PlayerState> loadState(long characterId, long levelId) {
+        Mono<PlayerState> fromCache = positionCache != null
+                ? positionCache.findOne(characterId, levelId)
+                        .map(c -> PlayerState.defaults()
+                                .withPosition(c.getPosX(), c.getPosY(), c.getPosZ()))
+                : Mono.empty();
+        return fromCache
+                .switchIfEmpty(positionRepo.findByCharacterIdAndLevelId(characterId, levelId)
+                        .map(p -> PlayerState.defaults()
+                                .withPosition(p.getPosX(), p.getPosY(), p.getPosZ())))
+                .switchIfEmpty(Mono.just(PlayerState.defaults()));
+    }
+
+    /**
+     * Build the full roster of characters currently active in
+     * {@code levelId} and emit one {@link WorldState} on the world
+     * sink. Includes:
+     *   - every in-memory character keyed at {@code levelId},
+     *   - every character known to the Cassandra membership index
+     *     (so cross-pod players appear without local activity).
+     */
+    private void emitWorldStateForLevel(long levelId, long t) {
+        Set<Long> roster = new HashSet<>();
+        characterStates.forEach((cid, perLevel) -> {
+            if (perLevel.containsKey(levelId)) roster.add(cid);
+        });
+
+        // Add cross-pod characters from Cassandra membership. The Mono
+        // is fire-and-forget — if the cluster's slow we fall back to
+        // the local roster only for this tick, the next move catches
+        // the cross-pod member up.
+        Flux<Long> cassandraRoster = positionCache != null
+                ? positionCache.charactersInLevel(levelId)
+                : Flux.empty();
+
+        cassandraRoster.collectList()
+                .subscribe(remote -> {
+                    Set<Long> all = new HashSet<>(roster);
+                    all.addAll(remote);
+                    List<PlayerMovement> snapshot = all.stream()
+                            .map(cid -> snapshotFor(cid, levelId, t))
+                            .toList();
+                    worldSink.tryEmitNext(new WorldState(levelId, snapshot, t));
+                }, err -> {
+                    // Cassandra unreachable — emit local-only roster.
+                    List<PlayerMovement> snapshot = roster.stream()
+                            .map(cid -> snapshotFor(cid, levelId, t))
+                            .toList();
+                    worldSink.tryEmitNext(new WorldState(levelId, snapshot, t));
+                });
+    }
+
+    private PlayerMovement snapshotFor(long characterId, long levelId, long t) {
+        ConcurrentHashMap<Long, AtomicReference<PlayerState>> perLevel = characterStates.get(characterId);
+        AtomicReference<PlayerState> ref = perLevel != null ? perLevel.get(levelId) : null;
+        PlayerState ps = ref != null ? ref.get() : PlayerState.defaults();
+        Key key = new Key(characterId, levelId);
+        return new PlayerMovement(
+                characterId, levelId,
+                ps.x(), ps.y(), ps.z(), ps.rotationY(),
+                lastActions.get(key), false, t);
+    }
+
+    private void persistPositionAsync(long characterId, long levelId, PlayerState state) {
+        positionRepo.findByCharacterIdAndLevelId(characterId, levelId)
+                .switchIfEmpty(Mono.fromSupplier(() -> {
+                    PlayerPosition fresh = new PlayerPosition();
+                    fresh.setCharacterId(characterId);
+                    fresh.setLevelId(levelId);
+                    return fresh;
+                }))
                 .doOnNext(pos -> {
                     pos.setPosX(state.x());
                     pos.setPosY(state.y());
@@ -207,4 +393,7 @@ public class GameStateService {
                 .flatMap(positionRepo::save)
                 .subscribe();
     }
+
+    /** Composite key for the per-(character, level) maps. */
+    private record Key(long characterId, long levelId) {}
 }

@@ -173,11 +173,28 @@ func send_control(action: String, pressed: bool) -> void:
 	if not OS.has_feature("web"):
 		return
 	var ts: int = int(Time.get_unix_time_from_system() * 1000)
-	var body := '{"action":"%s","pressed":%s,"timestamp":%d}' % [
-		action,
-		"true" if pressed else "false",
-		ts
-	]
+	# Read level_id off the iframe URL so the BFF can scope the
+	# (character, level) position cache. Liquibase 027 made
+	# player_positions composite-keyed; without level_id the BFF
+	# falls back to the character's current_level_id from PG, but
+	# threading it through here keeps the read path inside one tier.
+	var level_id_js: String = JavaScriptBridge.eval(
+		"new URLSearchParams(window.location.search).get('level_id') || ''")
+	var level_id_str := str(level_id_js)
+	var body: String
+	if level_id_str.is_empty() or not level_id_str.is_valid_int():
+		body = '{"action":"%s","pressed":%s,"timestamp":%d}' % [
+			action,
+			"true" if pressed else "false",
+			ts
+		]
+	else:
+		body = '{"action":"%s","pressed":%s,"timestamp":%d,"levelId":%d}' % [
+			action,
+			"true" if pressed else "false",
+			ts,
+			int(level_id_str)
+		]
 	# Read the parent SPA's stored JWT (AuthService.STORAGE_KEY = 'tw_auth')
 	# and attach it as `Authorization: Bearer <token>` so the BFF can
 	# verify the caller via JWT instead of the legacy X-Casdoor-Id
