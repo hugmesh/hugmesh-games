@@ -211,6 +211,19 @@ The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WA
 **R2DBC + JDBC coexistence.**
 Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 3 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
 
+**Module Federation: host + four remotes + a fragment.**
+The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads four sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`:
+
+| Slug | Kind | Exposes | Where in the host |
+|---|---|---|---|
+| `login` | `remote-shell` | `./LoginComponent` | `loadComponent` for `/login` |
+| `admin` | `remote-shell` | `./AdminShell` + `./UploadShell` | `loadComponent` for `/admin` and `/admin/games` |
+| `games-three-wizards` | `remote-game` | `./GameRoot` | (built; iframe path still serves cave + field) |
+| `games-dodecahedron` | `remote-game` | `./GameRoot` | `<app-dodecahedron-remote>` registered as a Web Component, mounted from the home grid |
+| `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
+
+The host's `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (split into `bootstrap.ts` because `@angular/*` imports can't resolve before the import map exists). Federated route components reach the federation runtime via `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`, which `main.ts` stashes after `initFederation` resolves — keeps the federation package out of karma's static graph and out of route-handler bundles. The federation manifest is fetched from `GET /api/federation/manifest` (DB-backed, see migration `018-federation-modules.xml`) so a new remote can come online without redeploying the host.
+
 ---
 
 ## Data model
