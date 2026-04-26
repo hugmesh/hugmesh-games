@@ -1,0 +1,66 @@
+% GameStreamController.GET /api/game/stream
+% Five Sinks.Many merged onto one Flux<ServerSentEvent>.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{mv}{4.6}{movement}{0}{11.6}
+  \node[marbleFlux] at (1.4,4.6) {x};
+  \node[marbleFlux] at (3.0,4.6) {x};
+  \node[marbleFlux] at (5.0,4.6) {x};
+  \node[marbleFlux] at (7.4,4.6) {x};
+  \node[marbleFlux] at (9.6,4.6) {x};
+  \node[marbletype] at (1.4,5.05) {PlayerMovement};
+
+  \snapmarbleline{wd}{3.4}{world}{0}{11.6}
+  \node[marbleFlux] at (2.6,3.4) {w};
+  \node[marbleFlux] at (6.0,3.4) {w};
+  \node[marbleFlux] at (10.4,3.4) {w};
+  \node[marbletype] at (2.6,3.85) {WorldEvent};
+
+  \snapmarbleline{ch}{2.2}{character}{0}{11.6}
+  \node[marbleFlux] at (1.0,2.2) {c};
+  \node[marbleFlux] at (4.6,2.2) {c};
+  \node[marbleFlux] at (8.6,2.2) {c};
+  \node[marbletype] at (1.0,2.65) {CharacterEvent};
+
+  \snapmarbleline{tm}{1.0}{time}{0}{11.6}
+  \node[marbleFlux] at (3.6,1.0) {t};
+  \node[marbleFlux] at (7.0,1.0) {t};
+  \node[marbleFlux] at (10.4,1.0) {t};
+  \node[marbletype] at (3.6,1.45) {GameTimeTick};
+
+  \snapmarbleline{kp}{-0.2}{keepalive}{0}{11.6}
+  \node[marbleSig]  at (0.4,-0.2) {p};
+  \node[marbleSig]  at (3.4,-0.2) {p};
+  \node[marbleSig]  at (6.4,-0.2) {p};
+  \node[marbleSig]  at (9.4,-0.2) {p};
+  \node[marbletype] at (0.4,0.25) {ping (15s)};
+
+  \node[marbleop, minimum width=46mm, minimum height=10mm] (merge) at (5.8,-1.6)
+    {Flux.merge( ... )\\ \scriptsize map(.event(name))};
+
+  \draw[marbleline,dashed] (mv-end) |- ([yshift=3pt]merge.east);
+  \draw[marbleline,dashed] (wd-end) |- ([yshift=1pt]merge.east);
+  \draw[marbleline,dashed] (ch-end) |- ([yshift=-1pt]merge.east);
+  \draw[marbleline,dashed] (tm-end) |- ([yshift=-3pt]merge.east);
+  \draw[marbleline,dashed] (kp-end) |- ([yshift=-5pt]merge.east);
+
+  \snapmarbleline{out}{-3.0}{Flux<SSE>}{0}{11.6}
+  \node[marbleSSE] at (0.6,-3.0) {p};
+  \node[marbleSSE] at (1.4,-3.0) {x};
+  \node[marbleSSE] at (2.6,-3.0) {w};
+  \node[marbleSSE] at (3.0,-3.0) {x};
+  \node[marbleSSE] at (3.6,-3.0) {t};
+  \node[marbleSSE] at (4.6,-3.0) {c};
+  \node[marbleSSE] at (5.0,-3.0) {x};
+  \node[marbleSSE] at (6.0,-3.0) {w};
+  \node[marbleSSE] at (6.4,-3.0) {p};
+  \node[marbleSSE] at (7.0,-3.0) {t};
+  \node[marbleSSE] at (7.4,-3.0) {x};
+  \node[marbleSSE] at (8.6,-3.0) {c};
+  \node[marbleSSE] at (9.4,-3.0) {p};
+  \node[marbleSSE] at (9.6,-3.0) {x};
+  \node[marbleSSE] at (10.4,-3.0) {t};
+  \node[marbletype] at (0.6,-2.55) {ServerSentEvent};
+
+  \draw[marbleline] (merge.south) -- ++(0,-4mm);
+\end{tikzpicture}

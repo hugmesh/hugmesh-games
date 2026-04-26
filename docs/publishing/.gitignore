@@ -1,0 +1,46 @@
+# All published artefacts in this directory tree are produced by
+# `make docs-*` and re-derivable from the LaTeX / Python / pom.xml
+# sources committed alongside them. Nothing here is canonical.
+
+# LaTeX architecture PDF + intermediates
+architecture/build/
+architecture/*.aux
+architecture/*.log
+architecture/*.toc
+architecture/*.out
+architecture/*.lof
+architecture/*.lot
+architecture/*.fls
+architecture/*.fdb_latexmk
+architecture/chapters/*.aux
+architecture/diagrams/*.aux
+
+# PowerPoint output
+slides/build/
+
+# Themed Javadoc HTML
+javadoc-output/
+
+# Python / venv leftovers if anyone runs the scripts manually instead of
+# via the Makefile (the canonical venv lives outside the tree at
+# ~/.venvs/snapdragon-publishing — see Makefile's `venv` target).
+.venv/
+__pycache__/
+*.pyc
+
+# Rendered TikZ diagrams + marble PNGs.
+diagrams-rendered/build/
+
+# Selenium UI screenshots (real or placeholder).
+screenshots/build/
+
+# User-guide PDFs (six per-deck companions).
+userguides/*/build/
+
+# OpenAPI build outputs (merged spec + LaTeX fragments).
+openapi/build/
+
+# Auto-generated openapi-summary.tex copied into chapter 5's build path
+# by the openapi-latex target. Kept committed nowhere — derived from
+# openapi/build/latex/openapi-summary.tex.
+architecture/openapi-summary.tex

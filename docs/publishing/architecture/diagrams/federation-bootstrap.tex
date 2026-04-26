@@ -1,0 +1,45 @@
+% Federation bootstrap sequence — two phases, top-to-bottom.
+\begin{tikzpicture}[
+  every node/.style={font=\sffamily\footnotesize},
+  node distance=10mm and 8mm,
+]
+  % Phase 1: federation runtime (single row)
+  \node[snapnode,minimum width=30mm]                       (mainTs) {main.ts loads};
+  \node[snapnode,minimum width=46mm,right=of mainTs]       (fetch)  {GET /api/federation/manifest};
+  \node[snapnode,minimum width=40mm,right=of fetch]        (fed)    {initFederation(manifest)};
+  \node[snapaccent,minimum width=44mm,right=of fed]        (stash)  {globalThis.\_\_SNAPDRAGON\_\\LOAD\_REMOTE\_MODULE\_\_};
+
+  \draw[snapedge] (mainTs) -- (fetch);
+  \draw[snapedge] (fetch)  -- (fed);
+  \draw[snapedge] (fed)    -- (stash);
+
+  % Phase 2: Angular bootstrap (single row, indented one node-width)
+  \node[snapnode,minimum width=36mm,below=24mm of mainTs,xshift=12mm]
+                                                           (boot)        {dynamic import\\ bootstrap.ts};
+  \node[snapnode,minimum width=40mm,right=of boot]         (app)         {bootstrapApplication\\ AppComponent};
+  \node[snapdarknode,minimum width=40mm,right=of app]      (route)       {Router → /login\\ loadComponent};
+  \node[snapnode,minimum width=40mm,right=of route]        (loadRemote)  {loadRemote(\textquotesingle login\textquotesingle ,\\ \textquotesingle ./LoginComponent\textquotesingle)};
+
+  % Vertical connector between phases (centred under stash)
+  \draw[snapedge] (stash.south) -- ++(0,-10mm) -| (boot.north);
+
+  \draw[snapedge] (boot)       -- (app);
+  \draw[snapedge] (app)        -- (route);
+  \draw[snapedge] (route)      -- (loadRemote);
+
+  % "Reads via globalThis" feedback edge — drawn ABOVE the bottom row so
+  % it doesn't cross the row 2 nodes.
+  \draw[snapedge,dashed] (loadRemote.north) to[bend left=30]
+    node[snaplabel,above,sloped]{reads via globalThis} (stash.south east);
+
+  \begin{scope}[on background layer]
+    \node[fit=(mainTs)(fetch)(fed)(stash),
+          fill=snapAccent!4,rounded corners=6pt,inner sep=10pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=2pt]above:Phase 1 — federation runtime}] {};
+    \node[fit=(boot)(app)(route)(loadRemote),
+          fill=snapAccentTwo!10,rounded corners=6pt,inner sep=10pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=-2pt]below:Phase 2 — Angular bootstrap}] {};
+  \end{scope}
+\end{tikzpicture}

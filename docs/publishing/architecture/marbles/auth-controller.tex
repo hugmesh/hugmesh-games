@@ -1,0 +1,26 @@
+% AuthController.POST /api/auth/token
+% Reactor chain: WebFlux receives a TokenExchangeRequest, the controller
+% calls Casdoor reactively, decodes the JSON response, returns Mono.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.2}{Mono<Req>}{0}{12.0}
+  \node[marbleMono]   (u1) at (1.6,2.2) {q};
+  \node[marbletype,above=1pt of u1] {TokenExchangeRequest};
+
+  \node[marbleop] (op1) at (4.0,1.4) {WebClient\\ \scriptsize.post()};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \snapmarbleline{mid}{0.6}{Mono<Resp>}{0}{12.0}
+  \node[marbleSSE] (m1) at (5.4,0.6) {r};
+  \node[marbletype,above=1pt of m1] {Casdoor JSON};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| (m1.north);
+
+  \node[marbleop] (op2) at (8.0,-0.2) {bodyToMono\\ \scriptsize(TokenResponse.class)};
+  \draw[marbleline] (m1.south) |- ([yshift=2pt]op2.west);
+
+  \snapmarbleline{dn}{-1.2}{Mono<Resp>}{0}{12.0}
+  \node[marbleMono] (d1) at (9.6,-1.2) {t};
+  \node[marbletype,above=1pt of d1] {TokenResponse};
+  \node[marbleDone] (done) at (11.6,-1.2) {};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (d1.north);
+\end{tikzpicture}

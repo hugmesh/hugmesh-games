@@ -1,0 +1,156 @@
+\chapter{Data model}\label{ch:datamodel}
+
+PostgreSQL holds the canonical relational state. Cassandra is a
+write-through cross-pod cache for movement events, an audit log for game
+state transitions, and a session store for short-lived browser tokens.
+Liquibase drives schema migration through 24 changelogs at the head of
+the federation branch; only Postgres is migrated this way — Cassandra
+schemas are bootstrapped by an init container.
+
+\section{Core relational schema}
+
+\begin{figure}[!h]
+\centering
+\snapdiagram{diagrams/data-model.tex}
+\caption{Core schema clusters. Arrows are foreign keys; tables in the
+\enquote{federation \& access} cluster were added by migrations 018–024 and
+are the post-federation additions to a previously single-game schema.}
+\end{figure}
+
+\subsection{Games and levels}
+
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Table} & \textbf{Purpose} \\
+\midrule
+\texttt{games} & Umbrella row per game.
+\texttt{slug} is the federation key (matches
+\texttt{federation\_modules.slug}); \texttt{current\_version\_dir} is the
+hash-prefixed directory under \snapfile{app.uploads.games-dir} that the
+runtime serves from. \\
+\texttt{levels} & One row per WASM bundle. \texttt{asset\_url} resolves to
+either \texttt{/api/assets/levels/<slug>/index.html} (legacy) or
+\texttt{/\_remotes/wasm-fragment/<slug>/index.html} (federated). \\
+\texttt{scene\_elements} & Per-level DTO rows that
+\snapfile{scene_loader.gd} pulls from
+\texttt{GET /api/levels/\{id\}/scene}. \\
+\texttt{level\_assets} & Optional registry for runtime-loaded textures /
+plugins / audio, looked up by \texttt{label} from GDScript via
+\texttt{ApiClient.resolve\_asset(level\_id, label, cb)}. \\
+\texttt{level\_prerequisites} & Quest gating: a level shows as locked
+on the home page until its quest is complete. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Federation, access, and uploads}
+
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Table} & \textbf{Purpose} \\
+\midrule
+\texttt{federation\_modules} & Source of truth for the federation
+manifest. Rows include \texttt{kind}
+(\texttt{remote-shell|remote-game|fragment}),
+\texttt{remote\_entry\_url}, and \texttt{exposed\_module}. Read by
+\snapfile{FederationController}. \\
+\texttt{game\_access} & Per-game visibility policy.
+\texttt{(scope, scope\_value)} can be
+\texttt{(all, NULL)} / \texttt{(role, ROLE\_PLAY\_X)} / \texttt{(user, <casdoor-id>)};
+the unique constraint \texttt{uq\_game\_access\_triple} keeps inserts
+idempotent. \\
+\texttt{game\_launches} & 256-bit URL-safe \texttt{launch\_uid} per
+session, with a \texttt{version\_dir} snapshot from
+\texttt{games.current\_version\_dir} at mint time so an in-flight launch
+keeps reading from its install even after a hot upload supersedes it.
+TTL 15 minutes; the \snapfile{GameLaunchSweeper} closes stale rows. \\
+\texttt{game\_uploads} & One row per upload zip, with the
+\texttt{manifest\_json} text (jsonb $\rightarrow$ text per migration
+024-1) and a \texttt{superseded\_at}
+timestamp on rollback. Bound by
+\texttt{app.uploads.versions-to-keep} via
+\snapfile{GameUploadPruner}. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Players, sessions, and progression}
+
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Table} & \textbf{Purpose} \\
+\midrule
+\texttt{characters} & One canonical character per Casdoor user, with
+\texttt{position\_x/y/z}, \texttt{rotation\_y}, HP/MP/XP, and
+\texttt{current\_level\_id}. \\
+\texttt{spell\_loadout} & Per-character spell-slot binding (key index
+$\rightarrow$ spell). \\
+\texttt{quests}, \texttt{character\_quests} & Quest catalog and
+per-character progress. \\
+\texttt{items}, \texttt{character\_items} & Inventory. \\
+\texttt{controls} & Sessionised input state — at most one row per
+\texttt{(character\_id, session\_id)}; only the holder of the controller
+role for a session may POST. \\
+\bottomrule
+\end{tabularx}
+
+\section{Migration ordering}
+
+Migrations 001–017 are pre-federation. The federation work landed in:
+
+\begin{itemize}
+  \item \reposrc{backend/src/main/resources/db/changelog/018-federation-modules.xml} —
+        \texttt{federation\_modules} + seed rows for the four remotes plus
+        \texttt{wasm-fragment}.
+  \item \reposrc{backend/src/main/resources/db/changelog/019-game-access.xml} —
+        \texttt{game\_access} + \texttt{uq\_game\_access\_triple}.
+  \item \reposrc{backend/src/main/resources/db/changelog/020-game-launches.xml} —
+        \texttt{game\_launches}.
+  \item \reposrc{backend/src/main/resources/db/changelog/021-game-uploads.xml} —
+        \texttt{game\_uploads}.
+  \item \reposrc{backend/src/main/resources/db/changelog/022-federation-relative-urls.xml} —
+        rewrites absolute remote URLs to relative paths.
+  \item \reposrc{backend/src/main/resources/db/changelog/023-launch-version-pin.xml} —
+        adds \texttt{version\_dir} to \texttt{game\_launches}.
+  \item \reposrc{backend/src/main/resources/db/changelog/024-game-uploads-manifest-text.xml} —
+        \texttt{ALTER manifest\_json} jsonb $\rightarrow$ text plus
+        \texttt{setval(games\_id\_seq, MAX(id))} (the integration test
+        surfaced both as latent bugs).
+\end{itemize}
+
+\section{R2DBC + JDBC coexistence}
+
+Runtime data access is non-blocking R2DBC. Liquibase needs a blocking
+JDBC \texttt{DataSource}, so \snapfile{JdbcDataSourceConfig} declares an
+explicit \texttt{@Primary HikariDataSource} (pool size 3) just for the
+migration phase. R2DBC then connects in parallel against the same
+database via the \texttt{spring.r2dbc.url} property.
+
+\begin{snapcaution}[title={MVCC snapshot race}]
+\texttt{@PostConstruct} services that touch the database can run
+\emph{before} Liquibase commits, locking their R2DBC connection into a
+pre-migration snapshot. The fix in this codebase is \texttt{@DependsOn(\"liquibase\")}
+on \snapfile{GameTimeService} and \snapfile{GameStateService}, plus
+\texttt{spring.r2dbc.pool.initial-size=0} in tests so the pool only opens
+connections after Liquibase finishes. Without these, the symptom is
+\texttt{BadSqlGrammarException: relation does not exist} from a query
+the test fixture clearly sets up.
+\end{snapcaution}
+
+\section{Cassandra cache}
+
+The Cassandra keyspace holds:
+
+\begin{itemize}
+  \item \textbf{Movement events} — write-through buffer for
+        \texttt{ControlEvent}s; the SSE stream reads from Postgres but
+        Cassandra holds the recent N events for fast cross-pod replay.
+  \item \textbf{Audit log} — every state transition emitted by
+        \snapfile{GameStateService} is persisted with
+        \texttt{(character\_id, occurred\_at)} as the primary key.
+  \item \textbf{Session store} — short-lived per-tab tokens bound to a
+        Casdoor user, used by the BFF to refuse \texttt{/api/controls}
+        requests from a tab that's not currently the controller for the
+        target session.
+\end{itemize}
+
+A nightly \snapfile{CassandraSyncService} reconciles audit-log totals
+back into Postgres counters so dashboards stay consistent across reboots.

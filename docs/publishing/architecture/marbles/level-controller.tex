@@ -1,0 +1,34 @@
+% LevelController.GET /api/levels/{id}/scene
+% Mono.flatMap chain: load level, fetch scene_elements, assemble DTO.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.0}{Mono<Long>}{0}{12.0}
+  \node[marbleMono] (u1) at (1.4,2.0) {id};
+  \node[marbletype,above=1pt of u1] {pathVar levelId};
+
+  \node[marbleop] (op1) at (3.6,1.0) {flatMap\\ \scriptsize levelRepo.findById};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \snapmarbleline{m1}{0.0}{Mono<Lvl>}{0}{12.0}
+  \node[marbleTx] (m1n) at (5.0,0.0) {L};
+  \node[marbletype,above=1pt of m1n] {Level (R2DBC row)};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| (m1n.north);
+
+  \node[marbleop] (op2) at (7.0,-1.0) {flatMap\\ \scriptsize sceneElementRepo.\\\scriptsize findByLevelId};
+  \draw[marbleline] (m1n.south) |- ([yshift=2pt]op2.west);
+
+  \snapmarbleline{m2}{-2.0}{Flux<Elt>}{0}{12.0}
+  \node[marbleTx] (m2a) at (8.4,-2.0) {e};
+  \node[marbleTx] (m2b) at (9.0,-2.0) {e};
+  \node[marbleTx] (m2c) at (9.6,-2.0) {e};
+  \node[marbletype,above=1pt of m2b] {SceneElement};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (m2a.north);
+
+  \node[marbleop] (op3) at (10.6,-3.0) {collectList\\ \scriptsize.map(SceneDto::from)};
+  \draw[marbleline] (m2c.south) |- ([yshift=2pt]op3.west);
+
+  \snapmarbleline{out}{-4.0}{Mono<Dto>}{0}{12.0}
+  \node[marbleMono] (o1) at (11.6,-4.0) {S};
+  \node[marbletype,above=1pt of o1] {SceneDto};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| (o1.north);
+\end{tikzpicture}

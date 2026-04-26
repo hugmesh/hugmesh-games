@@ -1,0 +1,143 @@
+\documentclass[11pt,a4paper,openany]{book}
+\input{userguide-preamble}
+\hypersetup{pdftitle={Snapdragon Games --- Maintainer runbook}}
+\begin{document}
+
+\begin{titlepage}\thispagestyle{empty}
+\noindent\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \fill[snapAccent,opacity=0.18]    ([yshift=-0.05\paperheight]current page.north west) circle (8cm);
+  \fill[snapAccentTwo,opacity=0.10] ([xshift=4cm,yshift=-2cm]current page.north west) circle (5cm);
+\end{tikzpicture}
+\vspace*{4cm}\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Maintainer\\runbook}\par}
+\vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+\vspace{0.8cm}\noindent
+{\sffamily\color{white!85}\large
+Detect, triage, mitigate. The runbook for whoever owns the live stack
+on call.}
+\vfill\noindent
+{\sffamily\color{white!70}\small
+Companion to \texttt{maintainer-runbook.pptx}. Generated: \today}
+\end{titlepage}
+
+\frontmatter\pagestyle{empty}\tableofcontents\clearpage
+\mainmatter\pagestyle{fancy}
+
+\chapter{Scope}
+Day-2 incident response. Detect $\rightarrow$ triage $\rightarrow$
+mitigate $\rightarrow$ recover. Change management lives in the
+administration guide; this is for fires.
+
+Audience: on-call engineer with shell access to the compose host.
+Assumes Docker, kubectl-equivalent skills, comfort reading
+SSE / Reactor stack traces.
+
+\chapter{Health checks at a glance}
+\snapdiagram{topology.tex}
+
+\begin{itemize}
+  \item \texttt{docker compose ps} --- every service should be
+        \texttt{healthy} (not \texttt{up}, that's not enough).
+  \item \texttt{curl /api/actuator/health} --- Spring Boot health
+        composite. Returns DOWN if any subsystem is.
+  \item \texttt{curl /api/federation/manifest} --- proves the host
+        can fetch the import map. 200 with a non-empty
+        \texttt{remotes} list.
+  \item \texttt{curl /api/game/stream} --- holds open with a
+        \texttt{ping} keepalive every 15 s.
+  \item Casdoor is internal --- no public endpoint to curl. Check via
+        \texttt{docker compose logs casdoor}.
+\end{itemize}
+
+\chapter{Runbook 1 --- BFF flapping}
+\textbf{Symptom.} \texttt{api} (or \texttt{api-native}) restarts every
+30--60 s.
+
+\begin{enumerate}
+  \item \texttt{docker compose logs api --tail=200}. Look for the boot
+        trace.
+  \item Liquibase failure? It will be the FIRST stack trace. Read the
+        changeset id.
+  \item Constraint violation? You may need a fixup changeset. Never
+        edit a committed changeset.
+  \item \texttt{@PostConstruct} race against Liquibase? Confirm
+        \texttt{@DependsOn("liquibase")} on the affected service.
+\end{enumerate}
+
+\chapter{Runbook 2 --- SSE silently drops}
+\snapdiagram{game-stream-controller.tex}
+
+\textbf{Symptom.} HUD freezes mid-game; no errors in the BFF log.
+
+99\% of the time: a \texttt{Sinks.many()} got \texttt{autoCancel=true}
+(default). Diagnosis: grep the relevant service for
+\texttt{Sinks.many} and verify every call passes
+\texttt{autoCancel=false}. Workaround: restart the BFF (kills sinks,
+forces re-subscribe). The fix lives in the source.
+
+\chapter{Runbook 3 --- Federated route 500s}
+\textbf{Symptom.} Clicking \texttt{/admin} or \texttt{/login} throws a
+NavigationError banner.
+
+\begin{enumerate}
+  \item Network panel: which \texttt{/\_remotes/} URL failed? That's
+        your guilty remote.
+  \item \texttt{docker compose ps <remote>}. If
+        \texttt{unhealthy}, restart it.
+  \item Check \texttt{federation\_modules} in Postgres. A row with a
+        stale \texttt{remote\_entry\_url} will 404.
+  \item If the host can't fetch \texttt{/api/federation/manifest}, the
+        BFF is the actual culprit (runbook 1).
+\end{enumerate}
+
+\chapter{Runbook 4 --- Iframe blank, no error}
+\textbf{Symptom.} Home page shows the game card but the iframe is
+white.
+
+\begin{itemize}
+  \item Cause 1: CORP missing on \texttt{wasm-fragment}. Check
+        Network $\rightarrow$ Headers for
+        \texttt{Cross-Origin-Resource-Policy}.
+  \item Cause 2: COOP/COEP duplicates from upstream nginx.
+  \item Cause 3: Browser cached a stale \texttt{index.html}. Hard
+        reload; the cache-bust \texttt{\&t=...} should make this rare.
+  \item Cause 4: Bundle missing on disk. Check
+        \texttt{<gamesDir>/<slug>/<version-dir>/} exists.
+\end{itemize}
+
+\chapter{Runbook 5 --- Hot upload failed mid-flight}
+\snapdiagram{game-upload-controller.tex}
+
+\textbf{Symptom.} Admin UI returned 500 on Upload; new bundle on disk
+but \texttt{games} row not updated.
+
+The install transaction is atomic in Postgres but NOT atomic vs the
+on-disk move. Recovery:
+\begin{itemize}
+  \item \texttt{GET /api/admin/games/\{slug\}/uploads}. Latest row
+        \texttt{supersededAt=NULL} is the active version.
+  \item If on-disk dir exists but no row, manually delete the dir; the
+        next upload will recreate.
+  \item If row exists but dir is missing, restore from snapshot or pin
+        to a previous version.
+\end{itemize}
+
+\chapter{Backup, capacity, escalation}
+\textbf{Backup:} \texttt{pg\_dump} from inside the postgres container
+nightly; snapshot \texttt{app.uploads.games-dir} on the same schedule.
+
+\textbf{Capacity:} BFF $\sim$700 MB JVM, $\sim$150 MB native. Postgres
+connections $\sim$13 baseline; sustained spike to 20+ means a leak.
+
+\textbf{Escalation.}
+\begin{itemize}
+  \item Tier 1 (you): triage with these runbooks. Aim for mitigation
+        in 15 min.
+  \item Tier 2 (the team): the engineer who owns the affected layer.
+  \item Tier 3 (the operator): the human with sudo on the compose host.
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,76 @@
+% Make build chain.
+%
+% Three columns, fixed horizontal spacing, no `right=of` chaining
+% across clusters (which is what created the overlap before). Each
+% column lays out vertically; cross-cluster arrows enter only the
+% boundary nodes (`make build` for source→deploy, `Publishing pipeline`
+% for source→publishing).
+\begin{tikzpicture}[
+  every node/.style={font=\sffamily\footnotesize},
+  node distance=6mm and 12mm,
+]
+  % Column 1: source build
+  \node[snapnode,minimum width=42mm]                  (rust)  {make build-rust};
+  \node[snapnode,minimum width=42mm,below=of rust]    (godot) {make build-godot};
+  \node[snapnode,minimum width=42mm,below=of godot]   (be)    {make build-backend};
+  \node[snapnode,minimum width=42mm,below=of be]      (fe)    {make build-frontend};
+  \node[snapaccent,minimum width=42mm,below=10mm of fe] (build) {make build};
+
+  % Column 2: deploy & test (right of build, vertical stack)
+  \node[snapnode,minimum width=42mm,right=24mm of rust]    (compose) {docker compose up -d};
+  \node[snapnode,minimum width=42mm,below=of compose]      (e2e)     {make e2e};
+  \node[snapnode,minimum width=42mm,below=of e2e]          (native)  {make build-backend-native};
+  \node[snapnode,minimum width=42mm,below=of native]       (e2en)    {make e2e-native};
+
+  % Column 3: publishing (right of deploy, vertical stack)
+  \node[snapdarknode,minimum width=42mm,right=24mm of compose] (docs)   {Publishing pipeline};
+  \node[snapnode,minimum width=42mm,below=of docs]             (jdoc)   {make docs-javadocs};
+  \node[snapnode,minimum width=42mm,below=of jdoc]             (pdf)    {make docs-pdf};
+  \node[snapnode,minimum width=42mm,below=of pdf]              (slides) {make docs-slides};
+
+  % Source-build chain (vertical, top-to-bottom). The four steps run
+  % in dependency order; the bottom step feeds `make build`. All edges
+  % stay on the column 1 vertical centre line — no horizontals, no
+  % crossings into column 2.
+  \draw[snapedge] (rust)  -- (godot);
+  \draw[snapedge] (godot) -- (be);
+  \draw[snapedge] (be)    -- (fe);
+  \draw[snapedge] (fe)    -- (build);
+
+  % Deploy chain (vertical inside column 2)
+  \draw[snapedge] (compose) -- (e2e);
+  \draw[snapedge] (native)  -- (e2en);
+
+  % Source → deploy (logical, not a Make dep) — dashed cross-cluster
+  % arrows that ENTER nodes from the west face only, so they never
+  % cross deploy-cluster steps.
+  \draw[snapedge,dashed] (be.east)    -- (native.west);
+  \draw[snapedge,dashed] (build.east) to[bend left=10] (compose.west);
+
+  % Publishing chain (vertical inside column 3)
+  \draw[snapedge] (docs)  -- (jdoc);
+  \draw[snapedge] (jdoc)  -- (pdf);
+  \draw[snapedge] (pdf)   -- (slides);
+
+  % Source → publishing (logical) — BFF + frontend feed the docs entry.
+  % Both edges enter docs.west; the small vertical offsets keep the two
+  % arrowheads from stacking on top of each other.
+  \draw[snapedge,dashed] (be.east) to[bend left=8]  ([yshift=2pt]docs.west);
+  \draw[snapedge,dashed] (fe.east) to[bend right=8] ([yshift=-2pt]docs.west);
+
+  % Cluster backgrounds + labels
+  \begin{scope}[on background layer]
+    \node[fit=(rust)(godot)(be)(fe)(build),
+          fill=snapAccent!4,rounded corners=6pt,inner sep=10pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=2pt]above:Source build}] {};
+    \node[fit=(compose)(e2e)(native)(e2en),
+          fill=snapAccentTwo!8,rounded corners=6pt,inner sep=10pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=2pt]above:Deploy \& test}] {};
+    \node[fit=(docs)(jdoc)(pdf)(slides),
+          fill=snapAccent!10,rounded corners=6pt,inner sep=10pt,
+          label={[font=\sffamily\bfseries\small\color{snapAccent},
+                  yshift=2pt]above:Publishing}] {};
+  \end{scope}
+\end{tikzpicture}

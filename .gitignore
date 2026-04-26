@@ -55,3 +55,30 @@ e2e/node_modules/
 
 # Claude Code agent harness — runtime lock files for scheduled tasks.
 .claude/
+
+# Publishing pipeline output (LaTeX PDF + PowerPoints + themed Javadoc).
+# Sources are under docs/publishing/; rebuild with `make docs-all`.
+docs/publishing/architecture/build/
+docs/publishing/architecture/*.aux
+docs/publishing/architecture/*.log
+docs/publishing/architecture/*.toc
+docs/publishing/architecture/*.out
+docs/publishing/architecture/chapters/*.aux
+docs/publishing/architecture/diagrams/*.aux
+docs/publishing/slides/build/
+docs/publishing/javadoc-output/
+docs/publishing/scripts/pre-push.sample
+docs/publishing/slides/__pycache__/
+
+# Rendered TikZ diagrams + marble PNGs (regenerated from the .tex sources).
+docs/publishing/diagrams-rendered/build/
+
+# Selenium-captured UI screenshots (or placeholder PNGs when compose is down).
+docs/publishing/screenshots/build/
+
+# Per-guide build outputs.
+docs/publishing/userguides/*/build/
+
+# OpenAPI build outputs (merged spec + per-tag LaTeX fragments).
+docs/publishing/openapi/build/
+docs/publishing/architecture/openapi-summary.tex

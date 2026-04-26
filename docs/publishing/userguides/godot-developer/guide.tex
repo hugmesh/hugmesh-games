@@ -1,0 +1,150 @@
+\documentclass[11pt,a4paper,openany]{book}
+\input{userguide-preamble}
+\hypersetup{pdftitle={Snapdragon Games --- Godot developer walkthrough}}
+\begin{document}
+
+\begin{titlepage}\thispagestyle{empty}
+\noindent\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \fill[snapAccent,opacity=0.18]    ([yshift=-0.05\paperheight]current page.north west) circle (8cm);
+  \fill[snapAccentTwo,opacity=0.10] ([xshift=4cm,yshift=-2cm]current page.north west) circle (5cm);
+\end{tikzpicture}
+\vspace*{4cm}\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Godot\\developer guide}\par}
+\vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+\vspace{0.8cm}\noindent
+{\sffamily\color{white!85}\large
+From \texttt{mkdir games/my-game/} to a row on the home page: a
+step-by-step Godot 4 walkthrough.}
+\vfill\noindent
+{\sffamily\color{white!70}\small
+Companion to \texttt{godot-developer.pptx}. Generated: \today}
+\end{titlepage}
+
+\frontmatter\pagestyle{empty}\tableofcontents\clearpage
+\mainmatter\pagestyle{fancy}
+
+\chapter{What you'll build}
+A new Godot 4.6 project under \snapfile{games/<game-slug>/} that opens
+standalone in the editor. It uses the reusable Rust GDExtension at
+\snapfile{extensions/snapdragon-bridge/} for HostBridge signals. The
+Snapdragon Export plugin produces a deploy-ready zip with
+\texttt{manifest.json} (schema v2) + \texttt{register.sql} +
+\texttt{bundle/}. You ship it either through \texttt{make build-godot}
+(committed in-repo) or through \texttt{/admin/games} (hot upload).
+
+\chapter{Prerequisites}
+\begin{itemize}
+  \item Godot 4.6 in \texttt{PATH} as \texttt{godot}.
+  \item Rust stable (\texttt{cargo --version}).
+  \item Optional: Emscripten + rustup \texttt{wasm32-unknown-emscripten}
+        for the Rust GDExtension WASM target.
+\end{itemize}
+Run once: \texttt{make build-rust} so every \snapfile{games/<dir>/bin/}
+gets a fresh \texttt{libsnapdragon\_bridge.so}.
+
+\chapter{Step 1 --- Create the project}
+\begin{enumerate}
+  \item \texttt{mkdir games/my-game-slug/}
+  \item Open Godot $\rightarrow$ New Project $\rightarrow$ set path
+        $\rightarrow$ Create.
+  \item Copy \snapfile{snapdragon\_bridge.gdextension} and
+        \snapfile{addons/snapdragon\_export/} from
+        \snapfile{games/three-wizards-in-a-trenchcoat/}.
+  \item Drop a starter scene at \snapfile{scenes/main.tscn}.
+\end{enumerate}
+
+\chapter{Step 2 --- Pick your slugs}
+\textbf{GAME slug} appears in \texttt{games.slug},
+\texttt{federation\_modules.slug}, and (sometimes) the directory name
+under \snapfile{games/}. \textbf{LEVEL slug(s)} --- one per export
+preset; appear in \texttt{levels.slug}, the export path, and the
+Makefile.
+
+Lowercase, hyphen-free, kebab-case (\texttt{forest-glade}, not
+\texttt{ForestGlade}). Once committed, slugs do not change without a
+coordinated DB migration. Pick well.
+
+\chapter{Step 3 --- Wire HostBridge}
+The reusable GDExtension exposes a \texttt{HostBridge} node with typed
+signals: \texttt{movement(x,y,z,action,pressed)},
+\texttt{world\_state(state)}, \texttt{character\_state(state)},
+\texttt{scene\_state(state)}, \texttt{time(state)}.
+
+Add a HostBridge node to the scene tree, then connect signals from your
+gameplay scripts. See
+\snapfile{games/three-wizards-in-a-trenchcoat/scripts/scene\_loader.gd}
+for a reference subscriber.
+
+\chapter{Step 4 --- Author export presets}
+Project $\rightarrow$ Export $\rightarrow$ Add new preset $\rightarrow$
+Web $\rightarrow$ name it after the level slug (\texttt{ForestGlade}).
+
+\begin{lstlisting}[language=bash]
+export_path  = ../../backend/src/main/resources/assets/levels/forest-glade/index.html
+custom_features = level_forest-glade
+exclude_filter  = *.gdextension
+\end{lstlisting}
+
+Save the \texttt{.cfg}, do not export from the editor. The Makefile
+drives headless export.
+
+\chapter{Step 5a --- Commit and ship}
+\begin{enumerate}
+  \item Add \snapfile{games/<dir>/} to \texttt{GAME\_PROJECTS} in the
+        root \texttt{Makefile}.
+  \item Define \texttt{PRESETS\_<dir>} with the preset names.
+  \item Write a Liquibase changeset for \texttt{games},
+        \texttt{levels}, \texttt{federation\_modules},
+        \texttt{game\_access} (use
+        \snapfile{017-snapdragon-catalog.xml} as the template).
+  \item Commit. CI runs \texttt{make build} and your game lands.
+\end{enumerate}
+
+\chapter{Step 5b --- Upload through admin}
+\snapdiagram{game-upload-controller.tex}
+
+In Godot: \emph{Project $\rightarrow$ Tools $\rightarrow$ Snapdragon
+$\rightarrow$ Export\ldots}. Fill in slug, display name, description,
+scene type. The plugin writes a deploy-ready zip with the v2
+\texttt{manifest.json} + \texttt{register.sql} + \texttt{bundle/}.
+
+Visit \texttt{/admin/games} on the live stack and drag the zip into the
+upload card. The BFF validates manifest schema v2, hashes the bundle,
+atomically moves to \texttt{<gamesDir>/<slug>/<sha-prefix>}, and runs
+\texttt{register.sql} in one R2DBC transaction.
+
+\begin{figure}[!h]\centering
+\includegraphics[width=0.92\linewidth]{admin-uploads.png}
+\caption{The admin upload card with rollback history below.}
+\end{figure}
+
+\chapter{Local test loop}
+\begin{enumerate}
+  \item \texttt{docker compose up -d postgres cassandra casdoor api wasm-fragment}.
+  \item In Godot, press Play. \snapfile{scripts/api\_client.gd} auto-targets
+        \texttt{http://localhost:8080}.
+  \item \snapfile{scripts/scene\_loader.gd} polls
+        \texttt{/api/levels/\{id\}/scene} and spawns elements.
+  \item Edit a scene; press Play again. No build step required for
+        local iteration.
+  \item Ready to ship: \texttt{make build-godot \&\& docker compose
+        restart api wasm-fragment}.
+\end{enumerate}
+
+\chapter{Common mistakes}
+\begin{itemize}
+  \item Slugs differ across the four contract points $\rightarrow$
+        iframe 404s or wrong scene loads.
+  \item \texttt{exclude\_filter} misses \texttt{*.gdextension}
+        $\rightarrow$ bundle balloons by 8 MB.
+  \item Calling \texttt{add\_child} from \texttt{\_ready} on a node
+        already in the tree $\rightarrow$ ``parent is busy''. Use
+        \texttt{call\_deferred}.
+  \item Forgetting to run \texttt{make build-rust} after pulling
+        $\rightarrow$ stale \snapfile{games/*/bin/.so}.
+\end{itemize}
+
+\end{document}

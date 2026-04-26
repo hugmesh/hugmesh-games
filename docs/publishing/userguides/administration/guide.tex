@@ -1,0 +1,144 @@
+\documentclass[11pt,a4paper,openany]{book}
+\input{userguide-preamble}
+\hypersetup{pdftitle={Snapdragon Games --- Administration manual}}
+
+\begin{document}
+
+\begin{titlepage}\thispagestyle{empty}
+\noindent\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \fill[snapAccent,opacity=0.18]    ([yshift=-0.05\paperheight]current page.north west) circle (8cm);
+  \fill[snapAccentTwo,opacity=0.10] ([xshift=4cm,yshift=-2cm]current page.north west) circle (5cm);
+\end{tikzpicture}
+\vspace*{4cm}\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Administration\\manual}\par}
+\vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+\vspace{0.8cm}\noindent
+{\sffamily\color{white!85}\large
+Day-2 operations for ROLE\_ADMIN holders: deploy, upload, role-grant,
+revoke, roll back, troubleshoot.}
+\vfill\noindent
+{\sffamily\color{white!70}\small
+Companion to \texttt{administration-manual.pptx}. Generated: \today}
+\end{titlepage}
+
+\frontmatter\pagestyle{empty}\tableofcontents\clearpage
+\mainmatter\pagestyle{fancy}
+
+\chapter{Who this is for}
+Anyone with \texttt{ROLE\_ADMIN} in Casdoor and shell access to the
+compose host. You will: deploy, configure, inspect, revoke, roll back.
+You will not: write Java, GDScript, or Angular here — those have their
+own guides.
+
+\chapter{The compose stack}
+\snapdiagram{topology.tex}
+
+\begin{itemize}
+  \item \texttt{frontend} — host nginx + Angular host bundle.
+  \item \texttt{login}, \texttt{admin} — federated route remotes
+        (per-remote nginx).
+  \item \texttt{games-three-wizards}, \texttt{games-dodecahedron} —
+        federated game remotes.
+  \item \texttt{wasm-fragment} — asset-tier nginx that serves Godot
+        bundles with COOP/COEP/CORP headers.
+  \item \texttt{api} (or \texttt{api-native} on the GraalVM overlay) —
+        Spring Boot BFF.
+  \item \texttt{postgres}, \texttt{cassandra}, \texttt{casdoor} —
+        persistence and identity.
+\end{itemize}
+
+\chapter{Bringing the stack up}
+\begin{lstlisting}[language=bash]
+docker compose up -d            # cold start (90-120 s to all-healthy)
+docker compose -f compose.yml -f compose.native.yml up -d   # native overlay
+docker compose logs -f api      # follow BFF logs
+docker compose down -v          # full reset (DROPS volumes)
+\end{lstlisting}
+
+\begin{snapcaution}[title={Docker 29.x needs buildx}]
+\texttt{docker compose build} hangs silently if \texttt{docker-buildx}
+isn't installed. Fix: user-local install of the v0.18 binary into
+\texttt{\textasciitilde/.docker/cli-plugins/docker-buildx} (no sudo).
+\end{snapcaution}
+
+\chapter{The admin UI}
+\begin{figure}[!h]\centering
+\includegraphics[width=0.92\linewidth]{admin-dashboard.png}
+\caption{Admin dashboard --- per-user stats, active sessions, recent
+uploads, force-revoke buttons.}
+\end{figure}
+
+Visit \texttt{/admin} (after logging in as a ROLE\_ADMIN user). Sub-pages:
+\begin{itemize}
+  \item Dashboard --- per-user stats, active sessions, recent uploads.
+  \item \texttt{/admin/games} --- upload a game zip, view rollback
+        history, set version pin.
+  \item Per-game access --- \texttt{scope=all|role|user}; rows are
+        additive (union).
+  \item Roles dropdown --- live from Casdoor via
+        \texttt{/api/admin/roles}.
+  \item Active launches --- each row has a \emph{kick} button that
+        \texttt{DELETE}s \texttt{/api/admin/launches/\{uid\}}.
+\end{itemize}
+
+\chapter{Hot-uploading a game}
+\snapdiagram{game-upload-controller.tex}
+
+\begin{enumerate}
+  \item Get a Snapdragon Export zip from the game developer (or build
+        it yourself with the Godot editor plugin).
+  \item \texttt{/admin/games} $\rightarrow$ \emph{Upload game bundle}
+        $\rightarrow$ choose zip $\rightarrow$ Upload.
+  \item The install transaction validates manifest schema v2, hashes
+        the bundle, atomically moves to
+        \texttt{<gamesDir>/<slug>/<sha-prefix>}, and runs
+        \texttt{register.sql} in one Postgres transaction.
+  \item The host's federation manifest discovers the new game on the
+        next refresh (within 60 s).
+\end{enumerate}
+
+\begin{figure}[!h]\centering
+\includegraphics[width=0.92\linewidth]{admin-uploads.png}
+\caption{The \emph{Upload game bundle} card under \texttt{/admin/games}
+with rollback history below.}
+\end{figure}
+
+\chapter{Rollback and access policy}
+Every upload supersedes the previous one but keeps the prior bundle on
+disk. \texttt{GET /api/admin/games/\{slug\}/uploads} lists the rollback
+history; pin to a previous row via the admin UI's \emph{Set as current}
+button. Old versions are pruned by \snapfile{GameUploadPruner} (default:
+keep 3 newest, configurable via \texttt{app.uploads.versions-to-keep}).
+
+Per-game visibility lives in the \texttt{game\_access} table.
+Three additive scopes: \texttt{all}, \texttt{role} (e.g.
+\texttt{ROLE\_PLAY\_THREE\_WIZARDS}), \texttt{user} (specific Casdoor
+ID). Add via the admin UI; idempotent on the
+\texttt{uq\_game\_access\_triple} constraint.
+
+\chapter{Scheduled jobs and troubleshooting}
+\begin{itemize}
+  \item \snapfile{GameLaunchSweeper} --- closes stale launches once
+        their 15-minute TTL expires.
+  \item \snapfile{GameUploadPruner} --- caps disk usage by retaining
+        only \texttt{versions-to-keep} most-recent dirs per slug.
+  \item \snapfile{CassandraSyncService} --- nightly reconciliation of
+        Cassandra audit-log totals into Postgres counters.
+\end{itemize}
+
+\paragraph{Common fires.}
+\begin{itemize}
+  \item \texttt{docker compose build} hangs $\rightarrow$ install
+        \texttt{docker-buildx}.
+  \item BFF restarts every minute $\rightarrow$ Liquibase failed; check
+        \texttt{docker compose logs api}.
+  \item Iframe blank, no error $\rightarrow$ CORP missing on
+        \texttt{wasm-fragment}; verify \texttt{nginx.conf}.
+  \item JWT 500 with ``Missing required keys member'' $\rightarrow$
+        wrong jwks endpoint; should be \texttt{/.well-known/jwks}.
+\end{itemize}
+
+\end{document}

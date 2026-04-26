@@ -1,0 +1,125 @@
+\chapter{Runtime architecture}
+
+The runtime data flow has three tiers. Tier one is the player's browser:
+the federated Angular host, the active remote module, and the WASM iframe.
+Tier two is the per-remote nginx fleet: the host, four route-or-game
+remotes, and the asset-tier \texttt{wasm-fragment}. Tier three is the BFF
+plus its persistence: Spring Boot WebFlux on top of Postgres and Cassandra,
+behind Casdoor for authentication.
+
+\section{Browser-side flow}
+
+\begin{figure}[!h]
+\centering
+\snapdiagram{diagrams/runtime-flow.tex}
+\caption{Runtime data flow from a click on the home page to a frame
+rendered inside the Godot iframe. \texttt{SCENE\_TYPE\_TO\_GAME\_SLUG}
+forks the renderer; federated games mint a \texttt{launch\_uid} for
+operational visibility; \texttt{TW\_LEVEL\_TRANSITION} \texttt{postMessage}
+is caught at the host level so it works regardless of which renderer is
+mounted.}
+\end{figure}
+
+The host shell's \snapfile{main.ts} is intentionally split into two
+modules. \snapfile{main.ts} runs the
+\textbf{native-federation \texttt{initFederation(...)}} bootstrap with the
+manifest fetched from \texttt{GET /api/federation/manifest}, then stashes
+\texttt{loadRemoteModule} on \texttt{globalThis.\_\_SNAPDRAGON\_LOAD\_REMOTE\_MODULE\_\_}
+and only then dynamically imports \snapfile{bootstrap.ts}, which calls
+\texttt{bootstrapApplication} with the host's \texttt{AppComponent}. This
+ordering is non-negotiable: any \texttt{@angular/*} static import resolved
+before \texttt{initFederation} runs will fail because the import map
+that's about to be installed isn't there yet.
+
+\begin{snapnote}[title={Why \texttt{globalThis} and not a service?}]
+The federation runtime can't be reached through Angular's DI without
+making \texttt{@angular-architects/native-federation} a static import
+into a route-handler chunk, which puts it on karma's module graph and
+breaks tests that don't load the federation runtime at all. Stashing the
+function on \texttt{globalThis} after bootstrap keeps the package out of
+karma's static graph and out of every route bundle that doesn't need it.
+\end{snapnote}
+
+\section{Three-tier topology}
+
+\begin{figure}[!h]
+\centering
+\snapdiagram{diagrams/topology.tex}
+\caption{Compose-network view. Each box is a Docker container; arrows are
+HTTP routes proxied by the host nginx at \snapfile{frontend/nginx.conf}.
+The BFF is the only container that talks to Postgres / Cassandra /
+Casdoor.}
+\end{figure}
+
+\subsection{The host shell}
+
+The host nginx serves the host bundle plus a set of \texttt{location
+/\_remotes/<slug>/} blocks that proxy each remote's
+\texttt{remoteEntry.json} and chunks. For \texttt{wasm-fragment} the host
+strips upstream COOP/COEP duplicates with \texttt{proxy\_hide\_header} and
+re-emits the canonical set so the WASM iframe loads with isolated
+headers.
+
+\subsection{The remotes}
+
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Slug} & \textbf{Kind} & \textbf{What it exposes / does} \\
+\midrule
+\texttt{login} & \texttt{remote-shell} & \texttt{./LoginComponent} —
+mounted via \texttt{loadComponent} on the \texttt{/login} route. Inline
+\texttt{POST /api/auth/token} + \texttt{sessionStorage.tw\_auth} write,
+mirrors the host \texttt{AuthService.StoredAuth} shape. \\
+\texttt{admin} & \texttt{remote-shell} & \texttt{./AdminShell} +
+\texttt{./UploadShell} — both expose under
+\texttt{federation\_modules.slug = 'admin'} so \texttt{/admin} and
+\texttt{/admin/games} share a build. \\
+\texttt{games-three-wizards} & \texttt{remote-game} &
+\texttt{./GameRoot} — Web Component (\texttt{createCustomElement}) with
+\texttt{@Input levelSlug + levelId + launchUid}. Renders cave and field. \\
+\texttt{games-dodecahedron} & \texttt{remote-game} &
+\texttt{./GameRoot} — same pattern, single chrome-less scene. \\
+\texttt{wasm-fragment} & \texttt{fragment} & Asset-tier nginx; bakes
+\snapfile{backend/src/main/resources/assets/levels/} and serves at
+\texttt{/\_remotes/wasm-fragment/<slug>/index.html}. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{The BFF}
+
+\snapfile{backend/} runs as a single Spring Boot 3.4 application with both
+WebFlux (R2DBC, runtime path) and JDBC (Liquibase, blocking) wired in.
+Spring auto-config skips \texttt{DataSourceAutoConfiguration} when an
+R2DBC \texttt{ConnectionFactory} is present, so
+\snapfile{JdbcDataSourceConfig} declares an explicit
+\texttt{@Primary HikariDataSource} of pool size 3 just for Liquibase to
+acquire on boot.
+
+\section{Authentication and access}
+
+Casdoor is reachable only from inside the compose network. The host BFF
+proxies the login flow at \texttt{/api/auth/*} and verifies JWTs against
+the anonymous \texttt{/.well-known/jwks} endpoint (not
+\texttt{/api/get-jwks}, which requires admin auth and would 401 on every
+request). Per-game visibility is enforced by the \texttt{game\_access}
+table — see chapter~\ref{ch:datamodel}.
+
+\section{Server-sent events}
+
+\snapfile{GameStreamController} merges five SSE channels onto a single
+\texttt{Flux<ServerSentEvent>}: four \texttt{Sinks.Many} from
+\snapfile{GameStateService} (movement, world, character, scene) plus one
+from \snapfile{GameTimeService} (time), with a 15-second
+\texttt{Flux.interval} keepalive that fires immediately on subscribe so
+the response headers flush at connect time and the browser
+\texttt{EventSource.onopen} fires in milliseconds.
+
+\begin{snapcaution}[title={The \texttt{autoCancel} trap}]
+\texttt{Sinks.many().multicast().onBackpressureBuffer(N)} defaults to
+\texttt{autoCancel=true}. When every subscriber disconnects (iframe
+remount, EventSource reconnect, network blip), the sink terminates
+\textbf{permanently} and all subsequent \texttt{tryEmitNext} calls
+silently drop. Every sink in this project passes \texttt{autoCancel=false}
+explicitly. If a freshly-deployed sink \enquote{works once and then
+silently dies}, this is the cause.
+\end{snapcaution}

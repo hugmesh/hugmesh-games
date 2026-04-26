@@ -1,0 +1,38 @@
+% GameUploadController.POST /api/admin/games/upload
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.0,2.4) {z};
+  \node[marbletype,above=1pt of u1] {UploadRequest};
+
+  \node[marbleop] (op1) at (3.0,1.4) {flatMap\\ \scriptsize validateZip};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \snapmarbleline{m1}{0.4}{Mono<V>}{0}{12.6}
+  \node[marbleMono] (m1n) at (4.4,0.4) {v};
+  \node[marbletype,above=1pt of m1n] {ValidatedZip};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| (m1n.north);
+
+  \node[marbleop] (op2) at (6.0,-0.4) {flatMap\\ \scriptsize hashAndStage};
+  \draw[marbleline] (m1n.south) |- ([yshift=2pt]op2.west);
+
+  \snapmarbleline{m2}{-1.4}{Mono<S>}{0}{12.6}
+  \node[marbleMono] (m2n) at (7.4,-1.4) {s};
+  \node[marbletype,above=1pt of m2n] {StagedBundle};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (m2n.north);
+
+  \node[marbleop] (op3) at (9.0,-2.4) {transactional\\ \scriptsize installInsideTx};
+  \draw[marbleline] (m2n.south) |- ([yshift=2pt]op3.west);
+
+  \node[marbleop, fill=red!8, draw=red!70!black] (oerr) at (3.0,-2.4)
+    {onErrorMap\\ \scriptsize $\rightarrow$ 4xx/5xx};
+  \node[marbleErr] (e1) at (4.4,-3.4) {!};
+  \node[marbletype,below=1pt of e1] {UploadException};
+  \draw[marbleline,red!70!black,dashed] (oerr.south) -- (e1.north);
+
+  \snapmarbleline{out}{-4.4}{Mono<R>}{0}{12.6}
+  \node[marbleTx]   (o1) at (10.4,-4.4) {I};
+  \node[marbletype,above=1pt of o1] {InstalledBundle};
+  \node[marbleDone] (od) at (12.0,-4.4) {};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| (o1.north);
+\end{tikzpicture}

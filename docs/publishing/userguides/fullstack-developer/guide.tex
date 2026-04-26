@@ -1,0 +1,127 @@
+\documentclass[11pt,a4paper,openany]{book}
+\input{userguide-preamble}
+\hypersetup{pdftitle={Snapdragon Games --- Full-stack developer guide}}
+\begin{document}
+
+\begin{titlepage}\thispagestyle{empty}
+\noindent\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \fill[snapAccent,opacity=0.18]    ([yshift=-0.05\paperheight]current page.north west) circle (8cm);
+  \fill[snapAccentTwo,opacity=0.10] ([xshift=4cm,yshift=-2cm]current page.north west) circle (5cm);
+\end{tikzpicture}
+\vspace*{4cm}\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Full-stack\\developer guide}\par}
+\vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+\vspace{0.8cm}\noindent
+{\sffamily\color{white!85}\large
+DB to browser, with the rules that hold the federated stack together.}
+\vfill\noindent
+{\sffamily\color{white!70}\small
+Companion to \texttt{fullstack-developer.pptx}. Generated: \today}
+\end{titlepage}
+
+\frontmatter\pagestyle{empty}\tableofcontents\clearpage
+\mainmatter\pagestyle{fancy}
+
+\chapter{Mental model}
+One repository, three languages, four runtimes. The BFF is Java 21 +
+Spring Boot 3.4 + WebFlux + R2DBC + JDBC. The frontend is TypeScript +
+Angular standalone components + Module Federation. The games are
+GDScript + Godot 4.6, with a Rust GDExtension shared across them. The
+GraalVM native AOT build of the BFF is the same Java code with a
+sub-second cold start.
+
+\chapter{How requests are shaped}
+\snapdiagram{topology.tex}
+
+The browser hits the host nginx; the host routes to the matching
+per-remote nginx for \texttt{/\_remotes/<slug>/...} and to the BFF for
+\texttt{/api/...}. Inside the BFF every controller is a
+\texttt{@RestController}; routing is annotation-based, and WebFlux
+decides reactor vs blocking by inspecting return types. Liquibase runs
+once at boot on a JDBC pool of size 3 (separate from the R2DBC runtime
+pool).
+
+\chapter{Backend tour, in five files}
+\begin{itemize}
+  \item \snapfile{GameStreamController} --- the SSE merge that drives
+        the live HUD. The \texttt{autoCancel=false} rule lives here.
+  \item \snapfile{GameUploadService} --- the install transaction.
+        Understanding this gives the whole hot-upload story.
+  \item \snapfile{FederationController} --- the manifest endpoint that
+        drives the host's import map. Trivial code, foundational
+        consequence.
+  \item \snapfile{JdbcDataSourceConfig} --- the one-line
+        \texttt{@Primary HikariDataSource} that explains R2DBC + JDBC
+        coexistence.
+  \item \snapfile{R2dbcConvertersConfig} --- registers every entity for
+        native-image reflection. Adding a new entity touches one place.
+\end{itemize}
+
+\chapter{Reactive vs blocking}
+\snapdiagram{game-stream-controller.tex}
+
+WebFlux requires non-blocking IO on the dispatcher thread. R2DBC for
+the runtime path; JDBC + Liquibase only at boot. If a chain needs to
+call something blocking, wrap it:
+
+\begin{lstlisting}[language=Java]
+Mono.fromCallable(() -> blockingCall())
+    .subscribeOn(Schedulers.boundedElastic())
+\end{lstlisting}
+
+\begin{snapcaution}[title={Sinks.many() must set autoCancel=false}]
+The default kills the sink on the first reconnect. Long-lived merges
+go through \texttt{Flux.merge} --- see
+\snapfile{GameStreamController} for the canonical 5-channel pattern.
+\end{snapcaution}
+
+\chapter{Adding a federated route}
+\snapdiagram{federation-bootstrap.tex}
+
+\begin{enumerate}
+  \item Create \snapfile{frontend/projects/<remote>/} with its own
+        \texttt{federation.config.js}.
+  \item Expose the entry component in the \texttt{exposes} map.
+  \item Insert a \texttt{federation\_modules} row (Liquibase
+        changeset). \texttt{kind=remote-shell} for full route
+        components.
+  \item Add a \texttt{loadRemote(...)} entry to
+        \snapfile{frontend/src/app/app.routes.ts}.
+  \item Add a \texttt{/\_remotes/<remote>/} proxy block to
+        \snapfile{frontend/nginx.conf}.
+  \item Add the per-remote service to \snapfile{docker-compose.yml}.
+  \item Redeclare DTOs inside the remote --- types erase across the
+        federation boundary.
+\end{enumerate}
+
+\chapter{Common code-review patterns}
+\begin{itemize}
+  \item New endpoint? Check that
+        \snapfile{R2dbcConvertersConfig} is updated and
+        \texttt{make gen-api} ran.
+  \item New SSE channel? Check
+        \texttt{Sinks.many(...).onBackpressureBuffer(N, false)} ---
+        the \texttt{false} is autoCancel.
+  \item New federated remote? Check the host
+        \texttt{nginx.conf}'s \texttt{/\_remotes/} block AND the
+        \texttt{federation\_modules} row.
+  \item New Liquibase changeset? Next integer prefix and included in
+        \snapfile{db.changelog-master.xml}.
+  \item New game? Four-place slug contract (see Godot guide).
+\end{itemize}
+
+\chapter{What NOT to do}
+\begin{itemize}
+  \item Don't call JDBC from a WebFlux controller.
+  \item Don't import \snapfile{@angular-architects/native-federation}
+        statically from a route handler.
+  \item Don't share TypeScript DTO types across federation boundaries.
+  \item Don't bypass Liquibase. Manual SQL on a live DB diverges.
+  \item Don't add controller logic without tests AND an updated
+        Javadoc.
+\end{itemize}
+
+\end{document}
