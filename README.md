@@ -1301,6 +1301,21 @@ make build-backend-native        # one-shot: docker build -f backend/Dockerfile.
 make e2e-native                  # full Playwright suite against the native image
 ```
 
+**Prerequisites + tradeoffs**:
+- The AOT compiler (GraalVM `native-image`) wants **6–8 GB of free RAM** during
+  the compile pass. On a 16 GB laptop the build takes ~5–10 minutes; on
+  smaller machines it OOMs partway through with no graceful fallback. Run
+  the JVM build (`make build-backend`) on memory-constrained hosts.
+- The build is **not** wired into PR CI by default — it's gated behind a
+  `[native]` commit-message marker so a normal PR doesn't pay the 5–10 min
+  compile tax. Flip on when a release branch is being prepared.
+- Image runtime size is ~150 MB (vs ~600 MB for the JVM build). Cold start
+  is **~0.4 s** (vs ~3 s JVM). RSS at idle is ~100 MB (vs ~400 MB JVM).
+- Liquibase migrations run from a separate init container at startup
+  (see `docker-compose.native.yml`) — the native binary itself has
+  `SPRING_LIQUIBASE_ENABLED=false`. New migrations land transparently;
+  no rebuild of the native image is required for schema-only changes.
+
 Implementation notes — gotchas surfaced and fixed during initial
 verification, all visible in [SnapdragonRuntimeHints.java](backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java) +
 [backend/pom.xml](backend/pom.xml) `native` profile:
