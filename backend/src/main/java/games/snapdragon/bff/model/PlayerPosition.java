@@ -5,7 +5,7 @@ import org.springframework.data.relational.core.mapping.Table;
 import java.time.Instant;
 
 /**
- * One row per (characterId, levelId) — Liquibase 027 promoted the
+ * One row per (characterId, chapterId) — Liquibase 027 promoted the
  * legacy single-row-per-character layout into a per-level layout so
  * a character traversing cave → field → cave returns to the cave
  * coordinates they left, not a single global pose that gets clobbered
@@ -17,7 +17,7 @@ public class PlayerPosition {
     @Id
     private Long id;
     private Long characterId;
-    private Long levelId;
+    private Long chapterId;
     private double posX;
     private double posY;
     private double posZ;
@@ -26,7 +26,7 @@ public class PlayerPosition {
 
     public Long getId() { return id; }
     public Long getCharacterId() { return characterId; }
-    public Long getLevelId() { return levelId; }
+    public Long getChapterId() { return chapterId; }
     public double getPosX() { return posX; }
     public double getPosY() { return posY; }
     public double getPosZ() { return posZ; }
@@ -34,7 +34,7 @@ public class PlayerPosition {
     public Instant getUpdatedAt() { return updatedAt; }
 
     public void setCharacterId(Long characterId) { this.characterId = characterId; }
-    public void setLevelId(Long levelId) { this.levelId = levelId; }
+    public void setChapterId(Long chapterId) { this.chapterId = chapterId; }
     public void setPosX(double posX) { this.posX = posX; }
     public void setPosY(double posY) { this.posY = posY; }
     public void setPosZ(double posZ) { this.posZ = posZ; }

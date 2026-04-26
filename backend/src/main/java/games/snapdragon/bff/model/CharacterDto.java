@@ -14,7 +14,7 @@ public record CharacterDto(
         int defense,
         int speed,
         int magicPower,
-        Long currentLevelId
+        Long currentChapterId
 ) {
     public static CharacterDto from(PlayerCharacter c) {
         return new CharacterDto(
@@ -23,7 +23,7 @@ public record CharacterDto(
                 c.getMaxHp(), c.getCurrentHp(),
                 c.getMaxMp(), c.getCurrentMp(),
                 c.getAttack(), c.getDefense(), c.getSpeed(), c.getMagicPower(),
-                c.getCurrentLevelId()
+                c.getCurrentChapterId()
         );
     }
 }

@@ -3,7 +3,7 @@ package games.snapdragon.bff.controller;
 import games.snapdragon.bff.model.ControlEvent;
 import games.snapdragon.bff.service.GameStateService;
 import games.snapdragon.bff.service.SessionService;
-import games.snapdragon.bff.service.SpellService;
+import games.snapdragon.bff.service.InstantService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,14 +22,14 @@ public class ControlController {
 
     private final GameStateService gameStateService;
     private final SessionService sessionService;
-    private final SpellService spellService;
+    private final InstantService instantService;
 
     public ControlController(GameStateService gameStateService,
                              SessionService sessionService,
-                             SpellService spellService) {
+                             InstantService instantService) {
         this.gameStateService = gameStateService;
         this.sessionService   = sessionService;
-        this.spellService     = spellService;
+        this.instantService     = instantService;
     }
 
     @Operation(
@@ -59,7 +59,7 @@ public class ControlController {
 
             | field | type | example |
             |---|---|---|
-            | `action` | string | `MOVE_FORWARD`, `JUMP`, `CAST_SPELL_1` |
+            | `action` | string | `MOVE_FORWARD`, `JUMP`, `CAST_INSTANT_1` |
             | `pressed` | boolean | `true` = key-down, `false` = key-up |
             | `timestamp` | long | client epoch-ms |
             """)
@@ -86,13 +86,13 @@ public class ControlController {
         // Spell cast: drain MP first; only emit the movement event if the cast
         // was affordable. Out-of-MP casts return 204 with no SSE side effects.
         String action = event.action();
-        if (event.pressed() && action != null && action.startsWith("CAST_SPELL_")) {
+        if (event.pressed() && action != null && action.startsWith("CAST_INSTANT_")) {
             int slot;
-            try { slot = Integer.parseInt(action.substring("CAST_SPELL_".length())); }
+            try { slot = Integer.parseInt(action.substring("CAST_INSTANT_".length())); }
             catch (NumberFormatException nfe) { slot = -1; }
             if (slot >= 1 && slot <= 5) {
                 final int finalSlot = slot;
-                return spellService.castSpell(characterId, finalSlot)
+                return instantService.castInstant(characterId, finalSlot)
                         .doOnNext(success -> {
                             if (success) gameStateService.applyControl(event, characterId);
                         })

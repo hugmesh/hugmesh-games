@@ -97,29 +97,29 @@ describe('HomeComponent helpers', () => {
     it('forwards a well-formed TW_LEVEL_TRANSITION to onLevelTransition', () => {
       const spy = spyOn(component, 'onLevelTransition');
       const ev = new MessageEvent('message', {
-        data: { type: 'TW_LEVEL_TRANSITION', slug: 'field', levelId: 2 },
+        data: { type: 'TW_LEVEL_TRANSITION', slug: 'field', chapterId: 2 },
       });
       component.onWindowMessage(ev);
-      expect(spy).toHaveBeenCalledWith({ slug: 'field', levelId: 2 });
+      expect(spy).toHaveBeenCalledWith({ slug: 'field', chapterId: 2 });
     });
 
     it('ignores messages with the wrong type', () => {
       const spy = spyOn(component, 'onLevelTransition');
       component.onWindowMessage(new MessageEvent('message', {
-        data: { type: 'GAME_STATE', slug: 'field', levelId: 2 },
+        data: { type: 'GAME_STATE', slug: 'field', chapterId: 2 },
       }));
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('ignores messages with missing or wrong-typed slug/levelId', () => {
+    it('ignores messages with missing or wrong-typed slug/chapterId', () => {
       const spy = spyOn(component, 'onLevelTransition');
-      // levelId is a string, not a number
+      // chapterId is a string, not a number
       component.onWindowMessage(new MessageEvent('message', {
-        data: { type: 'TW_LEVEL_TRANSITION', slug: 'field', levelId: '2' },
+        data: { type: 'TW_LEVEL_TRANSITION', slug: 'field', chapterId: '2' },
       }));
       // missing slug
       component.onWindowMessage(new MessageEvent('message', {
-        data: { type: 'TW_LEVEL_TRANSITION', levelId: 2 },
+        data: { type: 'TW_LEVEL_TRANSITION', chapterId: 2 },
       }));
       // null payload (chrome extension noise)
       component.onWindowMessage(new MessageEvent('message', { data: null }));

@@ -24,8 +24,8 @@ public class CharacterPositionCache {
     @PrimaryKeyColumn(name = "character_id", type = PrimaryKeyType.PARTITIONED, ordinal = 0)
     private long characterId;
 
-    @PrimaryKeyColumn(name = "level_id", type = PrimaryKeyType.PARTITIONED, ordinal = 1)
-    private long levelId;
+    @PrimaryKeyColumn(name = "chapter_id", type = PrimaryKeyType.PARTITIONED, ordinal = 1)
+    private long chapterId;
 
     private double posX;
     private double posY;
@@ -39,13 +39,13 @@ public class CharacterPositionCache {
 
     public CharacterPositionCache() {}
 
-    public CharacterPositionCache(long characterId, long levelId,
+    public CharacterPositionCache(long characterId, long chapterId,
                                   double posX, double posY, double posZ,
                                   double rotationY,
                                   String lastAction, Boolean lastPressed,
                                   String podId, Instant updatedAt, long tick) {
         this.characterId = characterId;
-        this.levelId = levelId;
+        this.chapterId = chapterId;
         this.posX = posX; this.posY = posY; this.posZ = posZ;
         this.rotationY = rotationY;
         this.lastAction = lastAction;
@@ -56,7 +56,7 @@ public class CharacterPositionCache {
     }
 
     public long getCharacterId() { return characterId; }
-    public long getLevelId() { return levelId; }
+    public long getChapterId() { return chapterId; }
     public double getPosX() { return posX; }
     public double getPosY() { return posY; }
     public double getPosZ() { return posZ; }
@@ -68,7 +68,7 @@ public class CharacterPositionCache {
     public long getTick() { return tick; }
 
     public void setCharacterId(long v) { this.characterId = v; }
-    public void setLevelId(long v) { this.levelId = v; }
+    public void setChapterId(long v) { this.chapterId = v; }
     public void setPosX(double v) { this.posX = v; }
     public void setPosY(double v) { this.posY = v; }
     public void setPosZ(double v) { this.posZ = v; }

@@ -136,11 +136,11 @@ func _on_state_updated(state: Dictionary) -> void:
 		"MOVE_RIGHT":    _sse_dir.x =  1.0 if pressed else 0.0
 		"JUMP":          if pressed: _pending_jump = true
 		"INTERACT":      if pressed: _use_first_item()
-		"CAST_SPELL_1":  if pressed: _cast_spell(1)
-		"CAST_SPELL_2":  if pressed: _cast_spell(2)
-		"CAST_SPELL_3":  if pressed: _cast_spell(3)
-		"CAST_SPELL_4":  if pressed: _cast_spell(4)
-		"CAST_SPELL_5":  if pressed: _cast_spell(5)
+		"CAST_INSTANT_1":  if pressed: _cast_spell(1)
+		"CAST_INSTANT_2":  if pressed: _cast_spell(2)
+		"CAST_INSTANT_3":  if pressed: _cast_spell(3)
+		"CAST_INSTANT_4":  if pressed: _cast_spell(4)
+		"CAST_INSTANT_5":  if pressed: _cast_spell(5)
 
 # Spawn a glowing projectile from the player's hand position in the camera-forward
 # direction. Self-destructs after 2 seconds. Pure visual — damage / MP cost are

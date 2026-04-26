@@ -20,7 +20,7 @@ class CharacterDtoTest {
         c.setDefense(8);
         c.setSpeed(12);
         c.setMagicPower(22);
-        c.setCurrentLevelId(3L);
+        c.setCurrentChapterId(3L);
 
         CharacterDto dto = CharacterDto.from(c);
 
@@ -35,6 +35,6 @@ class CharacterDtoTest {
         assertThat(dto.defense()).isEqualTo(8);
         assertThat(dto.speed()).isEqualTo(12);
         assertThat(dto.magicPower()).isEqualTo(22);
-        assertThat(dto.currentLevelId()).isEqualTo(3L);
+        assertThat(dto.currentChapterId()).isEqualTo(3L);
     }
 }

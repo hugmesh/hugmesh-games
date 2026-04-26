@@ -18,16 +18,16 @@ import reactor.core.publisher.Mono;
  * Mono completes with {@code false} and no DB writes happen.
  */
 @Service
-public class SpellService {
+public class InstantService {
 
-    private static final Logger log = LoggerFactory.getLogger(SpellService.class);
+    private static final Logger log = LoggerFactory.getLogger(InstantService.class);
 
     private final CharacterSkillSlotRepository slotRepo;
     private final SkillRepository skillRepo;
     private final PlayerCharacterRepository characterRepo;
     private final GameStateService gameStateService;
 
-    public SpellService(CharacterSkillSlotRepository slotRepo,
+    public InstantService(CharacterSkillSlotRepository slotRepo,
                         SkillRepository skillRepo,
                         PlayerCharacterRepository characterRepo,
                         GameStateService gameStateService) {
@@ -42,7 +42,7 @@ public class SpellService {
      * affordable + applied; {@code false} when MP is insufficient (caller
      * should NOT broadcast the cast to the SSE stream in that case).
      */
-    public Mono<Boolean> castSpell(Long characterId, int slot) {
+    public Mono<Boolean> castInstant(Long characterId, int slot) {
         return slotRepo.findByCharacterIdAndSlotNumber(characterId, slot)
                 .flatMap(s -> s.getSkillId() == null ? Mono.empty() : skillRepo.findById(s.getSkillId()))
                 .flatMap(skill -> characterRepo.findById(characterId).flatMap(c -> {

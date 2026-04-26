@@ -5,7 +5,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 
-/** Minimal shape the canvas needs — satisfied by both GameListing and AvailableLevel. */
+/** Minimal shape the canvas needs — satisfied by both GameListing and AvailableChapter. */
 export interface PlayableGame {
   id: number;
   slug?: string;

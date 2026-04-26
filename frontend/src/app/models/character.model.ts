@@ -12,5 +12,5 @@ export interface CharacterState {
   defense: number;
   speed: number;
   magicPower: number;
-  currentLevelId: number | null;
+  currentChapterId: number | null;
 }

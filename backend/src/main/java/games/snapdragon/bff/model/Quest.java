@@ -13,7 +13,7 @@ public class Quest {
     private int rewardXp;
     private int rewardGold;
     private Long rewardSkillId;
-    private Long levelId;
+    private Long chapterId;
 
     public Long getId() { return id; }
     public String getName() { return name; }
@@ -21,5 +21,5 @@ public class Quest {
     public int getRewardXp() { return rewardXp; }
     public int getRewardGold() { return rewardGold; }
     public Long getRewardSkillId() { return rewardSkillId; }
-    public Long getLevelId() { return levelId; }
+    public Long getChapterId() { return chapterId; }
 }

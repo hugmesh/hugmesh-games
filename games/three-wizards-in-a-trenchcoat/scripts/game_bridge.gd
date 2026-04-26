@@ -12,9 +12,9 @@ const KEY_ACTIONS := {
 	KEY_D: "MOVE_RIGHT",    KEY_RIGHT: "MOVE_RIGHT",
 	KEY_SPACE: "JUMP",
 	KEY_E: "INTERACT",
-	KEY_1: "CAST_SPELL_1",
-	KEY_2: "CAST_SPELL_2",
-	KEY_3: "CAST_SPELL_3",
+	KEY_1: "CAST_INSTANT_1",
+	KEY_2: "CAST_INSTANT_2",
+	KEY_3: "CAST_INSTANT_3",
 }
 
 func _ready() -> void:
@@ -54,7 +54,7 @@ func _fetch_game_config() -> void:
 		return;
 	}
 	var params = new URLSearchParams(window.location.search);
-	var levelId = params.get('level_id') || params.get('game_id') || '1';
+	var levelId = params.get('chapter_id') || params.get('game_id') || '1';
 	window._twSceneReady = false;
 	fetch('/api/levels/' + levelId + '/scene')
 		.then(function(r) { return r.json(); })
@@ -149,7 +149,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Spells fire instantly client-side so they don't depend on the
 		# SSE round-trip. The control event still fires so the server can
 		# apply side effects (MP cost, XP, etc.) when we wire those up.
-		if key_ev.pressed and action.begins_with("CAST_SPELL_"):
+		if key_ev.pressed and action.begins_with("CAST_INSTANT_"):
 			var slot := int(action.substr(11))
 			var player := get_parent().get_node_or_null("Player")
 			if player and player.has_method("_cast_spell"):
@@ -179,7 +179,7 @@ func send_control(action: String, pressed: bool) -> void:
 	# falls back to the character's current_level_id from PG, but
 	# threading it through here keeps the read path inside one tier.
 	var level_id_js: String = JavaScriptBridge.eval(
-		"new URLSearchParams(window.location.search).get('level_id') || ''")
+		"new URLSearchParams(window.location.search).get('chapter_id') || ''")
 	var level_id_str := str(level_id_js)
 	var body: String
 	if level_id_str.is_empty() or not level_id_str.is_valid_int():

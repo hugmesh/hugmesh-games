@@ -10,12 +10,12 @@ import java.time.Instant;
  * served through the API alongside the compiled WASM bundle. The `label` gives
  * GDScript a stable handle to look up an asset regardless of filename churn.
  */
-@Table("level_assets")
-public class LevelAsset {
+@Table("chapter_assets")
+public class ChapterAsset {
 
     @Id
     private Long id;
-    private Long levelId;
+    private Long chapterId;
     private String label;
     private String assetType;
     private String filePath;
@@ -24,7 +24,7 @@ public class LevelAsset {
     private Instant uploadedAt;
 
     public Long getId() { return id; }
-    public Long getLevelId() { return levelId; }
+    public Long getChapterId() { return chapterId; }
     public String getLabel() { return label; }
     public String getAssetType() { return assetType; }
     public String getFilePath() { return filePath; }
@@ -32,7 +32,7 @@ public class LevelAsset {
     public Long getSizeBytes() { return sizeBytes; }
     public Instant getUploadedAt() { return uploadedAt; }
 
-    public void setLevelId(Long levelId) { this.levelId = levelId; }
+    public void setChapterId(Long chapterId) { this.chapterId = chapterId; }
     public void setLabel(String label) { this.label = label; }
     public void setAssetType(String assetType) { this.assetType = assetType; }
     public void setFilePath(String filePath) { this.filePath = filePath; }

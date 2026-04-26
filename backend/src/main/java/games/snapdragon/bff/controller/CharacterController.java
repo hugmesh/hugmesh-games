@@ -4,7 +4,7 @@ import games.snapdragon.bff.model.CharacterDto;
 import games.snapdragon.bff.model.CharacterQuest;
 import games.snapdragon.bff.model.CharacterSkill;
 import games.snapdragon.bff.model.DashboardDto;
-import games.snapdragon.bff.model.GameWithLevelsDto;
+import games.snapdragon.bff.model.GameWithChaptersDto;
 import games.snapdragon.bff.model.PlayerSession;
 import games.snapdragon.bff.model.QuestDto;
 import games.snapdragon.bff.repository.CharacterItemRepository;
@@ -111,7 +111,7 @@ public class CharacterController {
             clients see the updated HP/MP/level immediately.
 
             Accepted patch keys: `currentHp`, `currentMp`, `maxHp`, `maxMp`, `level`,
-            `xp`, `xpToNext`, `attack`, `defense`, `speed`, `magicPower`, `currentLevelId`.
+            `xp`, `xpToNext`, `attack`, `defense`, `speed`, `magicPower`, `currentChapterId`.
 
             ```
             ──request──► characterRepo.findById(id)
@@ -147,9 +147,9 @@ public class CharacterController {
                         c.setAttack(((Number) patch.get("attack")).intValue());
                     if (patch.containsKey("defense"))
                         c.setDefense(((Number) patch.get("defense")).intValue());
-                    if (patch.containsKey("currentLevelId"))
-                        c.setCurrentLevelId(patch.get("currentLevelId") == null ? null
-                                : ((Number) patch.get("currentLevelId")).longValue());
+                    if (patch.containsKey("currentChapterId"))
+                        c.setCurrentChapterId(patch.get("currentChapterId") == null ? null
+                                : ((Number) patch.get("currentChapterId")).longValue());
                     return characters.save(c);
                 })
                 .doOnNext(c -> gameStateService.notifyCharacterStatChange(CharacterDto.from(c)))
@@ -197,7 +197,7 @@ public class CharacterController {
                 ? java.util.List.of()
                 : extractRoles(jwt);
         String userId = jwt == null ? null : jwt.getSubject();
-        Mono<List<GameWithLevelsDto>> games = progression
+        Mono<List<GameWithChaptersDto>> games = progression
                 .availableGamesWithLevels(id, roles, userId).collectList();
 
         Mono<List<QuestDto>> quests = charQuests.findByCharacterId(id)

@@ -21,7 +21,7 @@ export interface AvailableGame {
 }
 
 /** Umbrella game with its levels nested — returned by /api/games/available/{charId}. */
-export interface GameWithLevels {
+export interface GameWithChapters {
   id: number;
   name: string;
   description: string;

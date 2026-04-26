@@ -23,7 +23,7 @@ import java.time.Instant;
 public record WasmConsoleLine(
         String level,
         String gameSlug,
-        String levelSlug,
+        String chapterSlug,
         String message,
         String source,
         Integer line,
@@ -32,7 +32,7 @@ public record WasmConsoleLine(
         Instant occurredAt
 ) {
     public WasmConsoleLine withTimestamp(Instant t) {
-        return new WasmConsoleLine(level, gameSlug, levelSlug, message,
+        return new WasmConsoleLine(level, gameSlug, chapterSlug, message,
                                    source, line, column, stack, t);
     }
 }

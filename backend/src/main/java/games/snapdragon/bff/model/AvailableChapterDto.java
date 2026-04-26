@@ -7,7 +7,7 @@ import java.util.List;
  * `requiredQuestIds` are in status 'completed' for the calling character, or when
  * there are no prerequisites.
  */
-public record AvailableLevelDto(
+public record AvailableChapterDto(
         Long id,
         Long gameId,
         String name,

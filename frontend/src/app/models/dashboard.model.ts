@@ -1,6 +1,6 @@
 import { CharacterState } from './character.model';
 import { GameTime } from './game-time.model';
-import { GameWithLevels } from './available-game.model';
+import { GameWithChapters } from './available-game.model';
 
 export interface DashboardQuest {
   id: number;
@@ -15,7 +15,7 @@ export interface Dashboard {
   character: CharacterState;
   gameTime: GameTime;
   /** Umbrella games with their levels nested (games → levels → scenes hierarchy). */
-  games: GameWithLevels[];
+  games: GameWithChapters[];
   quests: DashboardQuest[];
   totalPlayMinutes: number;
   totalSessions: number;

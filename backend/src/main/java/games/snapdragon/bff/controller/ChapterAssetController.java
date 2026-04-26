@@ -1,7 +1,7 @@
 package games.snapdragon.bff.controller;
 
-import games.snapdragon.bff.model.LevelAsset;
-import games.snapdragon.bff.repository.LevelAssetRepository;
+import games.snapdragon.bff.model.ChapterAsset;
+import games.snapdragon.bff.repository.ChapterAssetRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -19,19 +19,19 @@ import reactor.core.publisher.Mono;
  * <p>Workflow for a Godot developer adding a new texture:
  * <ol>
  *   <li>Drop the file into {@code backend/src/main/resources/assets/levels/{slug}/}</li>
- *   <li>POST {@code /api/levels/{id}/assets} with label + file_path + type</li>
- *   <li>From GDScript: fetch {@code /api/levels/{id}/assets} and resolve by label</li>
+ *   <li>POST {@code /api/chapters/{id}/assets} with label + file_path + type</li>
+ *   <li>From GDScript: fetch {@code /api/chapters/{id}/assets} and resolve by label</li>
  * </ol>
  */
-@Tag(name = "Level Assets",
+@Tag(name = "Chapter Assets",
      description = "Registry for user-added Godot assets (textures, plugins, sounds) attached to a specific level. Served via /api/assets/levels/.")
 @RestController
-@RequestMapping("/api/levels/{levelId}/assets")
-public class LevelAssetController {
+@RequestMapping("/api/chapters/{chapterId}/assets")
+public class ChapterAssetController {
 
-    private final LevelAssetRepository repo;
+    private final ChapterAssetRepository repo;
 
-    public LevelAssetController(LevelAssetRepository repo) { this.repo = repo; }
+    public ChapterAssetController(ChapterAssetRepository repo) { this.repo = repo; }
 
     public record RegisterAssetRequest(
             String label,
@@ -51,18 +51,18 @@ public class LevelAssetController {
             ```
             ──request──► assetRepo.findByLevelId(id)
              ──────────────●──●──●──|
-                           LevelAsset{id, label, assetType, filePath, …}…
+                           ChapterAsset{id, label, assetType, filePath, …}…
             ```
             """)
     @GetMapping
-    public Flux<LevelAsset> list(@PathVariable Long levelId) {
-        return repo.findByLevelId(levelId);
+    public Flux<ChapterAsset> list(@PathVariable Long chapterId) {
+        return repo.findByLevelId(chapterId);
     }
 
     @Operation(summary = "Look up a single asset by label (e.g. 'oak-bark-texture')")
     @GetMapping("/by-label/{label}")
-    public Mono<LevelAsset> byLabel(@PathVariable Long levelId, @PathVariable String label) {
-        return repo.findByLevelIdAndLabel(levelId, label)
+    public Mono<ChapterAsset> byLabel(@PathVariable Long chapterId, @PathVariable String label) {
+        return repo.findByLevelIdAndLabel(chapterId, label)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }
 
@@ -75,15 +75,15 @@ public class LevelAssetController {
             with the label they want GDScript to use.
 
             ```
-            ──request──► LevelAsset{levelId, label, assetType, filePath, …}
+            ──request──► ChapterAsset{chapterId, label, assetType, filePath, …}
                           ──●──► repo.save()
-             ──────────────────────●─|  LevelAsset (with id, uploadedAt)
+             ──────────────────────●─|  ChapterAsset (with id, uploadedAt)
             ```
             """)
     @PostMapping
-    public Mono<LevelAsset> register(@PathVariable Long levelId, @RequestBody RegisterAssetRequest req) {
-        LevelAsset a = new LevelAsset();
-        a.setLevelId(levelId);
+    public Mono<ChapterAsset> register(@PathVariable Long chapterId, @RequestBody RegisterAssetRequest req) {
+        ChapterAsset a = new ChapterAsset();
+        a.setChapterId(chapterId);
         a.setLabel(req.label());
         a.setAssetType(req.assetType() == null ? "texture" : req.assetType());
         a.setFilePath(req.filePath());
@@ -94,7 +94,7 @@ public class LevelAssetController {
 
     @Operation(summary = "Remove an asset registration")
     @DeleteMapping("/{assetId}")
-    public Mono<Void> delete(@PathVariable Long levelId, @PathVariable Long assetId) {
+    public Mono<Void> delete(@PathVariable Long chapterId, @PathVariable Long assetId) {
         return repo.deleteById(assetId);
     }
 }
