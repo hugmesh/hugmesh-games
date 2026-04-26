@@ -180,9 +180,11 @@ javadocs:
 	@# Inject the build stamp into every page's footer so a printed /
 	@# emailed page is traceable to a specific build. The maven-javadoc-
 	@# plugin's <bottom> emits one fixed div on each page; we insert a
-	@# matching stamp line immediately after it.
+	@# matching stamp line immediately after it. NOTE: the literal `&`
+	@# in `&middot;` MUST be escaped in the sed replacement (`&` would
+	@# otherwise be replaced with the matched text).
 	@find $(JAVADOC_OUT) -name '*.html' -print0 | xargs -0 -I{} \
-	  sed -i 's|<div class="snap-footer">|<div class="snap-footer"><span class="snap-buildstamp">$(SNAPDRAGON_PROJECT_NAME) &middot; $(SNAPDRAGON_BUILD_DATETIME)</span><br>|' {}
+	  sed -i 's|<div class="snap-footer">|<div class="snap-footer"><span class="snap-buildstamp">$(SNAPDRAGON_PROJECT_NAME) \&middot; $(SNAPDRAGON_BUILD_DATETIME)</span><br>|' {}
 	@echo "✓ $(JAVADOC_OUT)/index.html"
 
 # ── Rendered diagrams (PNG) ───────────────────────────────────────────────
