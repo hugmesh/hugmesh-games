@@ -7,7 +7,7 @@
 #   ✓ Final image ~150 MB (vs ~430 MB on eclipse-temurin:21-jre)
 #   ✗ Build is slow (~5–10 min) and memory-hungry (~6–8 GB)
 #   ✗ No JIT / class hot-swap; reflection requires explicit hints
-#     (see backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java)
+#     (see backend/src/main/java/games/snapdragon/bff/aot/SnapdragonRuntimeHints.java)
 #
 # Build standalone:
 #   docker build -f backend/Dockerfile.native -t snapdragon-gaming-bff:native ./backend

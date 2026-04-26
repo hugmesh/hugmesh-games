@@ -197,6 +197,15 @@ dt + dd { color: var(--snap-text); }
 }
 .snap-footer a { color: var(--snap-accent-2); }
 
+/* Build stamp line (project name + datetime) injected by `make docs-javadocs`. */
+.snap-footer .snap-buildstamp {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+
 /* ── Search box ─────────────────────────────────────────────────────── */
 .searchInput, input[type="text"] {
   background: white;

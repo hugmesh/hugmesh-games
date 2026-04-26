@@ -1,0 +1,90 @@
+# Snapdragon Games — production overlay
+#
+# Apply on top of the base compose.yml:
+#   docker compose -f compose.yml -f compose.prod.yml up -d
+#
+# Routing model on production:
+#   snapdragon.games                              (host shell, apex)
+#   <service>.snapdragon.games                    (auth / admin / api docs)
+#   <game>.snapdragon.games                       (each game's federated remote)
+#   wasm.snapdragon.games                         (asset-tier WASM fragment)
+#   api.snapdragon.games                          (BFF)
+#
+# Strict mode:
+#   - SNAPDRAGON_TAG MUST be set (no :dev fallback in prod).
+#   - Spring CORS allowlist is the apex + every *.snapdragon.games host.
+#   - Postgres + Cassandra ports are NOT bound — managed by an external
+#     managed service in steady state; the local containers shipped here
+#     are for failover bring-up only.
+#
+# Staging: see compose.staging.yml for the *.staging.snapdragon.games
+# equivalent (loosened CORS, different volumes, different DNS).
+
+services:
+  postgres:
+    # Replace with `external_link:` to a managed Postgres in real prod.
+    volumes:
+      - pgdata-prod:/var/lib/postgresql/data
+    ports: !reset []
+
+  cassandra:
+    ports: !reset []
+    volumes:
+      - cassandra-prod:/var/lib/cassandra
+
+  casdoor:
+    environment:
+      CASDOOR_ORIGIN: "https://login.snapdragon.games"
+      CASDOOR_PUBLIC_BASE_URL: "https://login.snapdragon.games"
+
+  api:
+    image: snapdragon-games/bff:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_WEB_CORS_ALLOWED_ORIGINS: "https://snapdragon.games,https://*.snapdragon.games"
+      APP_PUBLIC_HOST: snapdragon.games
+      APP_PUBLIC_SCHEME: https
+      CASDOOR_PUBLIC_BASE_URL: https://login.snapdragon.games
+      # Production upload limits — bigger ceiling than staging since
+      # a real shipped game bundle (full audio + textures) can hit a
+      # gigabyte. APP_GAMES_UPLOAD_HOST_DIR MUST be set in prod;
+      # default points at a known-bad tmpfs path so a misconfigured
+      # deploy fails fast instead of silently writing into ephemeral
+      # storage.
+      APP_MAX_IN_MEMORY:    ${APP_MAX_IN_MEMORY:-2MB}
+      APP_MAX_PART_SIZE:    ${APP_MAX_PART_SIZE:-4096MB}
+      APP_MAX_PARTS:        ${APP_MAX_PARTS:-32}
+      APP_CODEC_MAX:        ${APP_CODEC_MAX:-16MB}
+      APP_UPLOADS_GAMES_DIR: /var/snapdragon/games
+    expose: ["8080"]
+    volumes:
+      - !reset null
+      - ${APP_GAMES_UPLOAD_HOST_DIR:?APP_GAMES_UPLOAD_HOST_DIR must be set on prod (path to a durable host volume)}:/var/snapdragon/games
+
+  frontend:
+    image: snapdragon-games/portal-host:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
+    environment:
+      PUBLIC_HOSTNAME: snapdragon.games
+      # Production CORS is the apex + EVERY subdomain on snapdragon.games.
+      # Staging uses a separate suffix so the two never bleed into each
+      # other.
+      ALLOW_ORIGIN: "https://*.snapdragon.games"
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  login:
+    image: snapdragon-games/login-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
+  admin:
+    image: snapdragon-games/admin-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
+  api-docs:
+    image: snapdragon-games/api-docs-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
+  games-three-wizards:
+    image: snapdragon-games/three-wizards-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
+  games-dodecahedron:
+    image: snapdragon-games/dodecahedron-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
+  wasm-fragment:
+    image: snapdragon-games/wasm-fragment:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
+
+volumes:
+  pgdata-prod:
+  cassandra-prod:

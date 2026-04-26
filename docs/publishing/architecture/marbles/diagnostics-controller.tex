@@ -1,0 +1,25 @@
+% DiagnosticsController.POST /api/diagnostics/wasm-console
+% Anonymous endpoint — accepts a forwarded WASM-iframe console line,
+% stamps a server timestamp, fans out on the wasm-console SSE channel.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{1.6}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.4,1.6) {q};
+  \node[marbletype,above=1pt of u1] {WasmConsoleLine};
+
+  \node[marbleop] (op1) at (4.0,0.6) {stamp\\ \scriptsize Instant.now()};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (7.6,-0.6) {emit\\ \scriptsize wasmConsoleSink};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \snapmarbleline{sk}{-1.8}{Sinks.Many}{0}{12.6}
+  \node[marbleErr] (s1) at (10.4,-1.8) {!};
+  \node[marbletype,above=1pt of s1] {SSE: wasm-console};
+  \draw[marbleline,dashed] (op2.south) -| (s1.north);
+
+  \snapmarbleline{out}{-3.0}{Mono<L>}{0}{12.6}
+  \node[marbleMono] (d1) at (10.4,-3.0) {l};
+  \node[marbletype,above=1pt of d1] {202 Accepted};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (d1.north);
+\end{tikzpicture}

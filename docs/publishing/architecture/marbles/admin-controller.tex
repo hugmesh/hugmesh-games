@@ -1,0 +1,47 @@
+% AdminController.GET /api/admin/stream
+% Admin SSE — three independent Flux<...> sources merged onto one
+% Flux<ServerSentEvent>: stats (1/5s), active sessions (1/5s),
+% roster (push). ROLE_ADMIN gates the whole controller.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{st}{3.4}{stats}{0}{11.6}
+  \node[marbleFlux] at (1.4,3.4) {s};
+  \node[marbleFlux] at (4.4,3.4) {s};
+  \node[marbleFlux] at (7.4,3.4) {s};
+  \node[marbleFlux] at (10.4,3.4) {s};
+  \node[marbletype] at (1.4,3.85) {AdminStatsDto};
+
+  \snapmarbleline{ss}{2.0}{sessions}{0}{11.6}
+  \node[marbleFlux] at (1.4,2.0) {l};
+  \node[marbleFlux] at (4.4,2.0) {l};
+  \node[marbleFlux] at (7.4,2.0) {l};
+  \node[marbleFlux] at (10.4,2.0) {l};
+  \node[marbletype] at (1.4,2.45) {List<SessionDto>};
+
+  \snapmarbleline{rs}{0.6}{roster}{0}{11.6}
+  \node[marbleFlux] at (3.0,0.6) {r};
+  \node[marbleFlux] at (6.4,0.6) {r};
+  \node[marbleFlux] at (9.6,0.6) {r};
+  \node[marbletype] at (3.0,1.05) {RosterEvent};
+
+  \node[marbleop, minimum width=44mm, minimum height=9mm] (merge) at (5.8,-1.0)
+    {Flux.merge(...)\\ \scriptsize ROLE\_ADMIN gate};
+  \draw[marbleline,dashed] (st-end) |- ([yshift=2pt]merge.east);
+  \draw[marbleline,dashed] (ss-end) |- ([yshift=0pt]merge.east);
+  \draw[marbleline,dashed] (rs-end) |- ([yshift=-2pt]merge.east);
+
+  \snapmarbleline{out}{-2.4}{Flux<SSE>}{0}{11.6}
+  \node[marbleSSE] at (1.4,-2.4) {s};
+  \node[marbleSSE] at (3.0,-2.4) {r};
+  \node[marbleSSE] at (4.4,-2.4) {l};
+  \node[marbleSSE] at (6.4,-2.4) {r};
+  \node[marbleSSE] at (7.4,-2.4) {s};
+  \node[marbleSSE] at (9.6,-2.4) {r};
+  \node[marbleSSE] at (10.4,-2.4) {l};
+
+  \node[marbleErr] (e1) at (3.6,-3.8) {!};
+  \node[marbletype,below=1pt of e1] {Forbidden403 (no ROLE\_ADMIN)};
+  \draw[marbleline,red!70!black,dashed] (merge.south) -- (e1.north);
+
+  \draw[marbleline] (merge.south) -- ++(0,-2mm) -| (out-start);
+\end{tikzpicture}

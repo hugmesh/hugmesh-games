@@ -3,5 +3,5 @@
 
 logging:
   level:
-    com.threewizards: DEBUG
+    games.snapdragon.bff: DEBUG
     org.springframework.security: DEBUG

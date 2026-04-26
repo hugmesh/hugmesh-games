@@ -1,0 +1,20 @@
+% LevelAssetController.GET .../assets/by-label/{label}
+% Lookup by composite (level_id, label); 404 if no row.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{1.6}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.4,1.6) {q};
+  \node[marbletype,above=1pt of u1] {(levelId, label)};
+
+  \node[marbleop] (op1) at (4.4,0.6) {assetRepo\\ \scriptsize.findByLevelAndLabel};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \snapmarbleline{m1}{-0.6}{Mono<A>}{0}{12.6}
+  \node[marbleTx] (d1) at (8.4,-0.6) {a};
+  \node[marbletype,above=1pt of d1] {LevelAsset (200)};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| (d1.north);
+
+  \node[marbleErr] (e1) at (4.4,-2.0) {!};
+  \node[marbletype,below=1pt of e1] {NotFound404};
+  \draw[marbleline,red!70!black,dashed] (op1.south) -- (e1.north);
+\end{tikzpicture}

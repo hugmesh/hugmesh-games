@@ -104,6 +104,16 @@ SECTIONS = [
         "image": "diagram:game-upload-controller",
     },
     {
+        "title": "What the admin sees on upload",
+        "body": [
+            "/admin/games shows the upload card + rollback history.",
+            "Drag-and-drop or file-pick the zip you just exported.",
+            "On success: new row at the top with supersededAt=NULL.",
+            "On failure: the install tx + on-disk move both roll back.",
+        ],
+        "image": "screenshot:admin-02-uploads",
+    },
+    {
         "title": "manifest.json (schema v2)",
         "body": [
             "schema_version: 2",
@@ -175,7 +185,7 @@ CLOSING = {
         "Every contract here is enforced by tests; if you stay inside the lines, the home page will pick your game up.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
         "Godot guide: docs/GODOT_DEVELOPER_GUIDE.md",
         "Architecture PDF: make docs-pdf",
     ],

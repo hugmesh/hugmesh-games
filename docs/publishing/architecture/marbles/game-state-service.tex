@@ -1,0 +1,39 @@
+% GameStateService — owner of seven Sinks.Many that GameStreamController
+% merges into the SSE response. Every sink uses
+% onBackpressureBuffer(N, autoCancel=false) so subscribers can come and
+% go without terminating the producer side.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \node[marbleop, minimum width=44mm, minimum height=12mm] (svc) at (3.6,2.0)
+    {GameStateService\\ \scriptsize @DependsOn(liquibase)\\ \scriptsize @PostConstruct init()};
+
+  \snapmarbleline{mv}{4.0}{movement}{6.4}{12.6}
+  \node[marbleFlux] at (8.0,4.0) {x};
+  \node[marbleFlux] at (10.4,4.0) {x};
+  \snapmarbleline{wd}{3.0}{world}{6.4}{12.6}
+  \node[marbleFlux] at (8.6,3.0) {w};
+  \snapmarbleline{ch}{2.0}{character}{6.4}{12.6}
+  \node[marbleFlux] at (7.8,2.0) {c};
+  \node[marbleFlux] at (10.0,2.0) {c};
+  \snapmarbleline{sc}{1.0}{scene}{6.4}{12.6}
+  \node[marbleFlux] at (9.4,1.0) {s};
+  \snapmarbleline{ip}{0.0}{input}{6.4}{12.6}
+  \node[marbleFlux] at (7.4,0.0) {i};
+  \node[marbleFlux] at (10.6,0.0) {i};
+  \snapmarbleline{au}{-1.0}{audio}{6.4}{12.6}
+  \node[marbleFlux] at (8.6,-1.0) {a};
+  \snapmarbleline{wc}{-2.0}{wasm-console}{6.4}{12.6}
+  \node[marbleErr]  at (9.6,-2.0) {!};
+
+  \draw[marbleline,dashed] (svc.east) -- ++(0.2,2.0);
+  \draw[marbleline,dashed] (svc.east) -- ++(0.2,1.0);
+  \draw[marbleline,dashed] (svc.east) -- ++(0.2,0);
+  \draw[marbleline,dashed] (svc.east) -- ++(0.2,-1.0);
+  \draw[marbleline,dashed] (svc.east) -- ++(0.2,-2.0);
+  \draw[marbleline,dashed] (svc.east) -- ++(0.2,-3.0);
+  \draw[marbleline,dashed] (svc.east) -- ++(0.2,-4.0);
+
+  \node[marbletype] at (3.6,-0.4) {applyControl, emitInput,};
+  \node[marbletype] at (3.6,-0.9) {emitWasmConsole, etc.};
+  \node[marbletype] at (3.6,-1.4) {persist + tryEmitNext (autoCancel=false)};
+\end{tikzpicture}

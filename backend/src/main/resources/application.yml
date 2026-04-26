@@ -6,6 +6,28 @@ spring:
     name: snapdragon-gaming-bff
   webflux:
     base-path: /
+    multipart:
+      # Large-file uploads — game bundle zips can run into the
+      # hundreds of megabytes once Godot ships full-resolution
+      # textures + audio assets. The defaults (256 KB in-memory,
+      # unlimited disk) would either OOM the BFF or have no upper
+      # bound. Pin both: anything below max-in-memory-size buffers
+      # in heap; anything larger spills to the OS temp dir;
+      # max-disk-usage-per-part caps the spill so a malicious client
+      # can't fill the disk.
+      #
+      # All three are env-overridable so the staging / prod overlays
+      # can dial these per-environment. The temp-spill location is
+      # configured via the standard java.io.tmpdir property; set
+      # APP_MULTIPART_TMP via an env var on the container if you
+      # want a dedicated volume.
+      max-in-memory-size:        ${APP_MAX_IN_MEMORY:1MB}
+      max-disk-usage-per-part:   ${APP_MAX_PART_SIZE:1024MB}
+      max-parts:                 ${APP_MAX_PARTS:32}
+  codec:
+    # WebFlux's default in-memory codec buffer is 256 KB — too small
+    # for a game upload's request body proxy through. Bump it.
+    max-in-memory-size:          ${APP_CODEC_MAX:16MB}
 
   # R2DBC — all runtime data access (non-blocking)
   r2dbc:
@@ -56,6 +78,6 @@ casdoor:
 
 logging:
   level:
-    com.threewizards: DEBUG
+    games.snapdragon.bff: DEBUG
     org.springframework.web: INFO
     org.springframework.security: INFO

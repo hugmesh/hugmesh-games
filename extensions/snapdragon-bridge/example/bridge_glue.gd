@@ -29,6 +29,9 @@ func _ready() -> void:
 	if OS.has_feature("web") and _has_parent_module():
 		bridge.set_streaming_mode(true)
 		bridge.input_egress.connect(_on_input_egress)
+		# Outbound audio + console egress also forward to the host.
+		bridge.audio_egress.connect(_on_audio_egress)
+		bridge.console_egress.connect(_on_console_egress)
 		print("[bridge_glue] streaming mode wired")
 	else:
 		print("[bridge_glue] standalone mode — local input echoes through movement_received")
@@ -43,22 +46,42 @@ func _process(delta: float) -> void:
 		return
 	_poll_accum = 0.0
 
-	# Drain the parent's queue in one eval and dispatch each event into
-	# the HostBridge so signals fire on the same frame.
+	# Drain the parent's SSE queue in one eval and dispatch each event
+	# into the HostBridge so signals fire on the same frame.
 	var raw: Variant = JavaScriptBridge.eval(
 		"JSON.stringify(window._twSceneEvents?.splice(0) ?? [])"
 	)
 	var raw_str := str(raw) if raw != null else "[]"
-	if raw_str == "" or raw_str == "[]":
-		return
-	var events = JSON.parse_string(raw_str)
-	if not (events is Array):
-		return
-	for event in events:
-		if event is Dictionary:
-			var t: String = str(event.get("type", ""))
-			var payload_json: String = JSON.stringify(event.get("payload", {}))
-			bridge.dispatch_event(t, payload_json)
+	if raw_str != "" and raw_str != "[]":
+		var events = JSON.parse_string(raw_str)
+		if events is Array:
+			for event in events:
+				if event is Dictionary:
+					var t: String = str(event.get("type", ""))
+					var payload_json: String = JSON.stringify(event.get("payload", {}))
+					bridge.dispatch_event(t, payload_json)
+
+	# Drain the snapdragon-shim input queue: gamepad polls, mouse
+	# motion, keyboard, touch — all forwarded by the host shell via
+	# postMessage and stashed on window._sdInputQueue. Each entry has
+	# the shape { kind, type, payload, ts }; HostBridge.dispatch_event
+	# routes the kind to the matching per-kind signal so game scripts
+	# subscribe to gamepad_received / mouse_received / etc. without
+	# caring whether the source was the BFF SSE or the host's gamepad
+	# poll.
+	var raw_input: Variant = JavaScriptBridge.eval(
+		"JSON.stringify(window._sdInputQueue?.splice(0) ?? [])"
+	)
+	var raw_in_str := str(raw_input) if raw_input != null else "[]"
+	if raw_in_str != "" and raw_in_str != "[]":
+		var inputs = JSON.parse_string(raw_in_str)
+		if inputs is Array:
+			for inp in inputs:
+				if inp is Dictionary:
+					var kind: String = str(inp.get("kind", ""))
+					var payload_json: String = JSON.stringify(inp.get("payload", {}))
+					if kind != "":
+						bridge.dispatch_event(kind, payload_json)
 
 
 func _on_input_egress(payload_json: String) -> void:
@@ -66,6 +89,23 @@ func _on_input_egress(payload_json: String) -> void:
 	# `{"action":"<x>","value":<y>}`; the parent module reads it from
 	# window._twInputQueue.
 	var snippet := "(window._twInputQueue ||= []).push(%s)" % payload_json
+	JavaScriptBridge.eval(snippet)
+
+
+func _on_audio_egress(payload_json: String) -> void:
+	# Forward an outbound audio cue to the host devtools subscribers.
+	# The host shell's WasmConsoleForwarder already listens for
+	# postMessage; the BFF's audio SSE channel is the destination.
+	var snippet := "window.parent.postMessage({type:'SD_AUDIO_EGRESS',payload:%s}, '*')" % payload_json
+	JavaScriptBridge.eval(snippet)
+
+
+func _on_console_egress(payload_json: String) -> void:
+	# Forward a console line to the host. The shim already wraps the
+	# default console and onerror channels — this path is for explicit
+	# game-side `bridge.report_error(...)` calls that catch GDScript
+	# exceptions Godot's default print pipeline would swallow.
+	var snippet := "window.parent.postMessage(Object.assign({type:'SD_WASM_CONSOLE'}, %s), '*')" % payload_json
 	JavaScriptBridge.eval(snippet)
 
 

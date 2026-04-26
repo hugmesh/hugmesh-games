@@ -1,6 +1,15 @@
 {
-  "name": "snapdragon-games-frontend",
+  "name": "@snapdragon-games/portal-frontend",
   "version": "0.1.0",
+  "description": "Snapdragon Games portal — Angular host shell + federated remotes for snapdragon.games.",
+  "homepage": "https://snapdragon.games",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Snapdragon-Systems/snapdragon.games.git",
+    "directory": "frontend"
+  },
+  "license": "UNLICENSED",
+  "private": true,
   "scripts": {
     "ng": "ng",
     "start": "ng serve snapdragon-games-frontend",

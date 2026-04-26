@@ -1,4 +1,4 @@
-# Three Wizards In A Trenchcoat — Master Build
+# Snapdragon Games portal — Master Build (snapdragon.games)
 # Build chain: cargo → godot export → mvn package → ng build
 #
 # Prerequisites:
@@ -13,7 +13,7 @@ SHELL := /bin/bash
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend \
-        docs-pdf docs-slides docs-javadocs docs-all docs-clean docs-install-hooks \
+        docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-userguides docs-openapi-spec docs-openapi-latex
 
 GODOT        ?= godot
@@ -453,6 +453,9 @@ docs-openapi-latex:
 
 docs-all:
 	@$(MAKE) -C docs/publishing all
+
+docs-bundle:
+	@$(MAKE) -C docs/publishing bundle
 
 docs-clean:
 	@$(MAKE) -C docs/publishing clean

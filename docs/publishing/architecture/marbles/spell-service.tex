@@ -1,0 +1,34 @@
+% SpellService.castSpell(characterId, slot)
+% Resolves slot → skill catalogue, checks MP cost, drains MP if
+% affordable, persists, and emits character SSE. Returns true on cast.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.4,2.4) {q};
+  \node[marbletype,above=1pt of u1] {(charId, slot)};
+
+  \node[marbleop] (op1) at (3.6,1.4) {resolve slot\\ \scriptsize $\rightarrow$ Skill};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (6.4,0.2) {check mp\\ \scriptsize char.mp $\geq$ cost};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \node[marbleop] (op3) at (9.0,-1.0) {drain + save\\ \scriptsize char.mp -= cost};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| ([yshift=2pt]op3.west);
+
+  \node[marbleop] (op4) at (10.4,-2.2) {emit\\ \scriptsize charStatSink};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| ([yshift=2pt]op4.west);
+
+  \snapmarbleline{m1}{-3.4}{Mono<B>}{0}{12.6}
+  \node[marbleMono] (d1) at (10.4,-3.4) {t};
+  \node[marbletype,above=1pt of d1] {true (cast OK)};
+  \draw[marbleline] ([yshift=-2pt]op4.south) -| (d1.north);
+
+  \node[marbleErr] (e1) at (4.4,-1.6) {!};
+  \node[marbletype,below=1pt of e1] {404 (slot empty / unknown)};
+  \draw[marbleline,red!70!black,dashed] (op1.south) to[bend right=14] (e1.north);
+
+  \node[marbleMono] (f1) at (4.4,-3.0) {f};
+  \node[marbletype,above=1pt of f1] {false (insufficient MP)};
+  \draw[marbleline,dashed] (op2.south) to[bend right=14] (f1.north);
+\end{tikzpicture}

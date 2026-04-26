@@ -22,12 +22,13 @@
       "chapter": "5.1.1"
     },
     "Game stream": {
-      "blurb": "Server-Sent Events. Five typed channels merged onto one Flux<ServerSentEvent>.",
+      "blurb": "Server-Sent Events. Eight typed channels (movement, world, character, scene, time, input, audio, wasm-console) merged onto one Flux<ServerSentEvent>, plus a 15s keepalive.",
       "marble": "marbles/game-stream-controller.tex",
       "chapter": "5.1.2"
     },
     "Games": {
       "blurb": "Game catalog reads, filtered by per-game access policy when a JWT is present.",
+      "marble": "marbles/game-controller.tex",
       "chapter": "5.1.3"
     },
     "Levels": {
@@ -37,10 +38,12 @@
     },
     "Level assets": {
       "blurb": "Per-level texture / plugin / audio registry, looked up by label from GDScript.",
+      "marble": "marbles/level-asset-controller.tex",
       "chapter": "5.1.5"
     },
     "Assets": {
       "blurb": "Legacy classpath asset serving, kept as a fallback for non-federated levels.",
+      "marble": "marbles/asset-controller.tex",
       "chapter": "5.1.6"
     },
     "Controls": {
@@ -65,11 +68,58 @@
     },
     "Game access": {
       "blurb": "Per-game visibility policy (scope=all|role|user). Rows are additive (union).",
+      "marble": "marbles/game-access-controller.tex",
       "chapter": "5.3.3"
     },
     "Roles": {
       "blurb": "Server-side proxy of Casdoor's role catalog so the admin UI's grant-role dropdown stays live.",
+      "marble": "marbles/role-proxy-controller.tex",
       "chapter": "5.3.4"
+    },
+    "Input events": {
+      "blurb": "Generalised input + audio + world event ingestion. One discriminated endpoint covers gamepad / mouse / keyboard / touch / audio / world / control.",
+      "marble": "marbles/input-event-controller.tex",
+      "chapter": "5.4.1"
+    },
+    "Diagnostics": {
+      "blurb": "Forwarded WASM iframe console + future telemetry channels.",
+      "marble": "marbles/diagnostics-controller.tex",
+      "chapter": "5.4.2"
+    },
+    "Sessions": {
+      "blurb": "Active-player capacity (3-player cap), controller role handover, session history.",
+      "marble": "marbles/session-controller.tex",
+      "chapter": "5.2.1"
+    },
+    "Characters": {
+      "blurb": "Character read / patch / dashboard / quest completion / use-first-item. Patch fans out on the character SSE channel.",
+      "marble": "marbles/character-controller.tex",
+      "chapter": "5.2.2"
+    },
+    "Skills": {
+      "blurb": "Skill catalogue, learned skills per character, hot-bar slot binding.",
+      "marble": "marbles/skill-controller.tex",
+      "chapter": "5.2.3"
+    },
+    "Items": {
+      "blurb": "Inventory + per-character equipment slots.",
+      "marble": "marbles/item-controller.tex",
+      "chapter": "5.2.4"
+    },
+    "Quests": {
+      "blurb": "Quest catalogue + per-character started-quest list with status.",
+      "marble": "marbles/quest-controller.tex",
+      "chapter": "5.2.5"
+    },
+    "Game time": {
+      "blurb": "Public game-clock snapshot read; the time SSE channel emits the same DTO.",
+      "marble": "marbles/game-time-controller.tex",
+      "chapter": "5.1.9"
+    },
+    "Admin": {
+      "blurb": "Dashboard reads + force-disconnect + character moderation; backed by a ROLE_ADMIN-gated SSE merge.",
+      "marble": "marbles/admin-controller.tex",
+      "chapter": "5.3.1"
     }
   },
 
@@ -90,7 +140,7 @@
     },
 
     "GET /api/game/stream": {
-      "longDescription": "Server-Sent Events. Holds open indefinitely. Five typed channels merged plus a 15s keepalive that fires immediately on subscribe so the response headers flush at connect time and the browser EventSource.onopen lands in milliseconds. autoCancel=false on every sink — disconnect → reconnect cycles do NOT terminate the stream.",
+      "longDescription": "Server-Sent Events. Holds open indefinitely. Eight typed channels (movement, world, character, scene, time, input, audio, wasm-console) merged plus a 15s keepalive that fires immediately on subscribe so the response headers flush at connect time and the browser EventSource.onopen lands in milliseconds. autoCancel=false on every sink — disconnect → reconnect cycles do NOT terminate the stream.",
       "sse": true,
       "sampleEvent": "event: movement\ndata: {\"characterId\":1,\"x\":12.4,\"y\":0.0,\"z\":-3.1,\"action\":\"walk\",\"pressed\":true,\"tick\":4421}\n\nevent: time\ndata: {\"day\":3,\"hour\":18,\"minute\":42,\"phase\":\"dusk\"}\n\n"
     },
@@ -165,6 +215,39 @@
         "x": 12.4, "y": 0.0,
         "pressed": true,
         "spellSlot": 2
+      }
+    },
+
+    "POST /api/input/{characterId}": {
+      "longDescription": "Generalised input ingestion. Same endpoint accepts every event kind the BFF understands — gamepad button / axis, mouse motion / button / wheel, keyboard up / down, touch gestures, audio cues, world events, legacy control commands. Validation runs in three gates: (1) (kind, type) must exist in the input_event_types reference table; (2) the active game's games.features flag must accept this kind; (3) the (game_slug, kind, type) triple must be present in game_event_support. Refused at 400 / 405. Persisted into input_events; fanned out on the SSE input + audio channels.",
+      "sampleRequest": {
+        "gameSlug": "three-wizards",
+        "sessionId": "sess_8f3c1a",
+        "kind": "gamepad",
+        "type": "button_down",
+        "payload": {"controllerId": 0, "button": 0, "value": 1.0}
+      }
+    },
+
+    "GET /api/input/character/{characterId}": {
+      "longDescription": "Recent events for one character — newest first. Bounded by the limit query (default 100, max 1000)."
+    },
+
+    "GET /api/input/session/{sessionId}": {
+      "longDescription": "Recent events for one session — newest first. Useful for replay UIs."
+    },
+
+    "POST /api/diagnostics/wasm-console": {
+      "longDescription": "Forwarded WASM-iframe console line. The wasm-fragment shim wraps console.error / console.warn / window.onerror / unhandledrejection in the Godot bundle and posts each capture to the parent host shell, which forwards here. The BFF stamps a server timestamp and fans out on the wasm-console SSE channel so the admin docs explorer's terminal panel can mirror crashes live.",
+      "sampleRequest": {
+        "level": "error",
+        "gameSlug": "three-wizards",
+        "levelSlug": "cave",
+        "message": "RangeError: Maximum call stack size exceeded",
+        "source": "/cave/index.js",
+        "line": 1428,
+        "column": 17,
+        "stack": "RangeError: Maximum call stack size exceeded\n    at recursive(... )"
       }
     }
   }

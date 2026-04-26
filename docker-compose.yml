@@ -80,6 +80,7 @@ services:
     restart: "no"
 
   api:
+    image: snapdragon-games/bff:${SNAPDRAGON_TAG:-dev}
     build: ./backend
     depends_on:
       postgres:
@@ -111,12 +112,27 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       # Hot-uploaded games land here; AssetController falls back to this
       # path when classpath assets/levels/<slug>/ doesn't have the file.
-      APP_UPLOADS_GAMES_DIR: /var/snapdragon/games
+      # Override the host-side bind via APP_GAMES_UPLOAD_HOST_DIR (see
+      # the volume entry below); the in-container path stays stable.
+      APP_UPLOADS_GAMES_DIR: ${APP_UPLOADS_GAMES_DIR:-/var/snapdragon/games}
+
+      # Multipart upload limits — game bundle zips can run into the
+      # hundreds of megabytes. Override per environment if needed.
+      APP_MAX_IN_MEMORY:    ${APP_MAX_IN_MEMORY:-1MB}
+      APP_MAX_PART_SIZE:    ${APP_MAX_PART_SIZE:-1024MB}
+      APP_MAX_PARTS:        ${APP_MAX_PARTS:-32}
+      APP_CODEC_MAX:        ${APP_CODEC_MAX:-16MB}
     volumes:
+      # Dev default: a Docker-managed named volume. Staging + prod
+      # override this in their compose overlays with a bind mount
+      # pointing at a real host path (NFS / fast SSD). Don't
+      # duplicate-mount in a single file — Compose errors on the
+      # second entry.
       - games_uploads:/var/snapdragon/games
     restart: on-failure
 
   frontend:
+    image: snapdragon-games/portal-host:${SNAPDRAGON_TAG:-dev}
     build: ./frontend
     depends_on:
       # nginx resolves every upstream at startup; without these the
@@ -148,12 +164,14 @@ services:
   # origin (same COOP/COEP, same TLS termination, no CORS gymnastics).
 
   login:
+    image: snapdragon-games/login-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/login/Dockerfile
     expose: ["8080"]
 
   admin:
+    image: snapdragon-games/admin-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/admin/Dockerfile
@@ -163,18 +181,21 @@ services:
   # replacement generated from the BFF's OpenAPI spec. Mounted at
   # /admin/docs in the host. Same image pattern as login + admin.
   api-docs:
+    image: snapdragon-games/api-docs-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/api-docs/Dockerfile
     expose: ["8080"]
 
   games-three-wizards:
+    image: snapdragon-games/three-wizards-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/games-three-wizards/Dockerfile
     expose: ["8080"]
 
   games-dodecahedron:
+    image: snapdragon-games/dodecahedron-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/games-dodecahedron/Dockerfile
@@ -189,6 +210,7 @@ services:
   # + threaded WASM; .wasm gets the right application/wasm MIME so
   # WebAssembly.instantiateStreaming doesn't fall back to ArrayBuffer.
   wasm-fragment:
+    image: snapdragon-games/wasm-fragment:${SNAPDRAGON_TAG:-dev}
     build:
       context: .
       dockerfile: wasm-fragment/Dockerfile

@@ -1,0 +1,42 @@
+% Scenario: SSE subscriber drops mid-stream. The client's TCP closes;
+% Reactor sees onCancel; the subscription terminates without
+% terminating the upstream Sinks (because every Sink in the project is
+% Sinks.many().multicast().onBackpressureBuffer(N, /* autoCancel */ false)).
+% A reconnect spawns a fresh subscription and re-reads the in-process
+% buffer.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  % Upstream: persistent Sinks that survive any subscriber lifecycle.
+  \snapmarbleline{src}{2.4}{Sinks.Many}{0}{12.6}
+  \node[marbleFlux] at (1.0,2.4) {x};
+  \node[marbleFlux] at (2.4,2.4) {x};
+  \node[marbleFlux] at (4.0,2.4) {x};
+  \node[marbleFlux] at (6.6,2.4) {x};
+  \node[marbleFlux] at (8.6,2.4) {x};
+  \node[marbleFlux] at (10.4,2.4) {x};
+  \node[marbletype] at (1.0,2.85) {autoCancel=false};
+
+  % Subscription 1: ends mid-stream when the client TCP closes.
+  \snapmarbleline{sub1}{0.6}{subscriber\#1}{0}{6.4}
+  \node[marbleSSE] at (1.0,0.6) {x};
+  \node[marbleSSE] at (2.4,0.6) {x};
+  \node[marbleSSE] at (4.0,0.6) {x};
+  \node[marbleErr] (cx) at (5.4,0.6) {!};
+  \node[marbletype,below=1pt of cx] {onCancel (TCP close)};
+
+  % Sub-1 -> upstream cancel: Reactor deregisters subscription 1, the
+  % Sinks STAY OPEN (autoCancel=false). The other subscribers — and
+  % any subscriber #1 reconnect — keep emitting.
+  \node[marbleop, fill=red!8, draw=red!70!black] (deReg) at (7.0,-0.6)
+    {Reactor\\ \scriptsize deregister \#1};
+  \draw[marbleline,red!70!black,dashed] (cx.east) -- (deReg.west);
+
+  % Subscription 2: client reconnects, gets a fresh Flux from the same
+  % Sink — events from the buffered window onward.
+  \snapmarbleline{sub2}{-2.0}{subscriber\#1' (reconnect)}{6.4}{12.6}
+  \node[marbleSSE] (rA) at (8.6,-2.0) {x};
+  \node[marbleSSE]      at (10.4,-2.0) {x};
+  \node[marbletype,above=1pt of rA] {GET /api/game/stream};
+
+  \draw[marbleline,dashed] (deReg.east) -- ++(0,-3mm) -| (rA);
+\end{tikzpicture}

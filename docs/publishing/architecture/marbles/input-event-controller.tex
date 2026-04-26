@@ -1,0 +1,40 @@
+% InputEventController.POST /api/input/{characterId}
+% Three-gate validation: (kind,type) ref → games.features flag →
+% game_event_support triple. Persists, then fans out on input/audio sinks.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.6}{Mono<Req>}{0}{12.6}
+  \node[marbleSig] (u1) at (1.4,2.6) {e};
+  \node[marbletype,above=1pt of u1] {InputEvent};
+
+  \node[marbleop] (g1) at (3.6,1.4) {gate 1\\ \scriptsize input\_event\_types};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]g1.west);
+
+  \node[marbleop] (g2) at (6.4,0.2) {gate 2\\ \scriptsize games.features.<kind>};
+  \draw[marbleline] ([yshift=-2pt]g1.east) -| ([yshift=2pt]g2.west);
+
+  \node[marbleop] (g3) at (9.2,-1.0) {gate 3\\ \scriptsize game\_event\_support};
+  \draw[marbleline] ([yshift=-2pt]g2.east) -| ([yshift=2pt]g3.west);
+
+  \node[marbleop] (op4) at (10.4,-2.4) {persist\\ \scriptsize input\_events};
+  \draw[marbleline] ([yshift=-2pt]g3.east) -- ([yshift=2pt]op4.west);
+
+  \snapmarbleline{sk}{-3.6}{Sinks.Many}{0}{12.6}
+  \node[marbleFlux] (s1) at (10.0,-3.6) {i};
+  \node[marbleFlux] (s2) at (11.2,-3.6) {a};
+  \node[marbletype,above=1pt of s1] {input + audio (kind==audio)};
+  \draw[marbleline,dashed] (op4.south) -| (s1.north);
+  \draw[marbleline,dashed] (op4.south) -| (s2.north);
+
+  \node[marbleErr] (e1) at (4.4,-0.4) {!};
+  \node[marbletype,below=1pt of e1] {BadRequest400 (unknown kind/type)};
+  \draw[marbleline,red!70!black,dashed] (g1.south) to[bend right=14] (e1.north);
+
+  \node[marbleErr] (e2) at (7.0,-1.6) {!};
+  \node[marbletype,below=1pt of e2] {MethodNotAllowed405 (feature off)};
+  \draw[marbleline,red!70!black,dashed] (g2.south) to[bend right=14] (e2.north);
+
+  \node[marbleErr] (e3) at (9.0,-2.8) {!};
+  \node[marbletype,below=1pt of e3] {405 (triple not supported)};
+  \draw[marbleline,red!70!black,dashed] (g3.south) to[bend right=12] (e3.north);
+\end{tikzpicture}

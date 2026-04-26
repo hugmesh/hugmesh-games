@@ -30,6 +30,7 @@ Why Selenium (and not Playwright):
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -47,6 +48,13 @@ from selenium.webdriver.support import expected_conditions as EC
 SCREENSHOTS_DIR = Path(__file__).resolve().parent / "build"
 WINDOW_SIZE     = (1366, 800)
 
+# Login credentials. Read from env so secrets stay out of git; defaults
+# match the Casdoor seed so a vanilla `docker compose up -d` works
+# without extra config. Override via SNAPDRAGON_TEST_USER /
+# SNAPDRAGON_TEST_PASS for non-default deployments.
+DEFAULT_USER = os.environ.get("SNAPDRAGON_TEST_USER", "admin")
+DEFAULT_PASS = os.environ.get("SNAPDRAGON_TEST_PASS", "123")
+
 
 # ── Capture spec ──────────────────────────────────────────────────────────
 @dataclass
@@ -56,19 +64,83 @@ class Capture:
     settle_ms: int = 1500
     pre_action: Optional[Callable] = None
     description: str = ""
+    requires_auth: bool = True   # default — most pages are gated
 
 
+# Captures split in two passes:
+#   - login-page (no auth) — captured first.
+#   - everything else      — captured AFTER login_via_api() has
+#                             written sessionStorage.tw_auth so the
+#                             host's authGuard lets the route mount.
+#
+# `requires_auth=False` means the capture should run BEFORE login so
+# we get the un-authenticated UI (the login form itself).
+# Step-by-step page tours used as walkthrough screenshots inside the
+# slide decks and user-guide PDFs. Names are stable — slide and guide
+# templates reference them as `screenshot:<label>`.
+#
+# We group captures into two flavours:
+#   • "tour-*"   — short, ordered click-through of the public surface
+#                  used by the intro-for-coders + Godot-developer decks.
+#   • "admin-*"  — admin-UI walkthrough used by the administration +
+#                  maintainer decks. All require ROLE_ADMIN; the
+#                  default Casdoor seed `admin / 123` has it.
+#
+# Plain `home-page`, `login-form`, etc. stay under their original
+# names so existing slide refs don't break.
 CAPTURES: list[Capture] = [
+    # ── un-auth captures (pass 1) ────────────────────────────────────
+    Capture("login-form",          "/login",            1200,
+            requires_auth=False,
+            description="Federated login remote — Casdoor proxy form."),
+    Capture("tour-01-login",       "/login",            1200,
+            requires_auth=False,
+            description="Step 1 — Land on the login form. Username "
+                        "+ password go to /api/auth/token; the BFF "
+                        "proxies Casdoor."),
+
+    # ── auth captures (pass 2 — after login_via_api) ────────────────
     Capture("home-page",           "/",                 1500,
             description="Game catalog landing page (federated host shell)."),
-    Capture("login-form",          "/login",            1200,
-            description="Federated login remote — Casdoor auth code flow."),
     Capture("home-after-login",    "/",                 2000,
             description="Home page once a session token is in sessionStorage."),
+    Capture("tour-02-home",        "/",                 2000,
+            description="Step 2 — Game catalog. Each card is a federated "
+                        "remote loaded on click."),
+    Capture("tour-03-game-cave",   "/?level=1",         3500,
+            description="Step 3 — Click a level: the federated "
+                        "three-wizards remote mounts and the iframe "
+                        "loads the cave Godot bundle. Floating "
+                        "fullscreen / new-tab toolbar visible top-right."),
+    Capture("tour-04-game-dodec",  "/?level=99",        3500,
+            description="Step 4 — Same flow for dodecahedron-demo. "
+                        "Different remote, same toolbar — every game "
+                        "ships with fullscreen + new-tab + new-window "
+                        "controls."),
+
+    # ── admin walkthrough ───────────────────────────────────────────
     Capture("admin-dashboard",     "/admin",            2500,
             description="Admin dashboard (federated admin remote)."),
     Capture("admin-uploads",       "/admin/games",      2500,
             description="Hot-upload + rollback UI for game bundles."),
+    Capture("admin-docs",          "/admin/docs",       2500,
+            description="API docs explorer (the api-docs federated remote)."),
+    Capture("admin-01-dashboard",  "/admin",            2500,
+            description="Step 1 — /admin landing. Per-user stats, "
+                        "active sessions, recent uploads."),
+    Capture("admin-02-uploads",    "/admin/games",      2500,
+            description="Step 2 — /admin/games. Drop a Snapdragon "
+                        "Export zip into the upload card; the BFF "
+                        "validates manifest schema v2, hashes, "
+                        "atomically moves into <gamesDir>/<slug>/<sha>, "
+                        "runs register.sql in one R2DBC tx."),
+    Capture("admin-03-docs",       "/admin/docs",       2500,
+            description="Step 3 — /admin/docs. Navigator-style API "
+                        "explorer rendered from the merged OpenAPI "
+                        "spec; auth-token override + binary uploads + "
+                        "live SSE terminal in the same UI."),
+
+    # ── original game captures (still referenced) ──────────────────
     Capture("game-cave",           "/?level=1",         3500,
             description="In-game iframe — three-wizards cave scene."),
     Capture("game-dodecahedron",   "/?level=99",        3500,
@@ -137,6 +209,63 @@ def capture_one(driver, base_url: str, spec: Capture) -> Path:
     out = SCREENSHOTS_DIR / f"{spec.label}.png"
     driver.save_screenshot(str(out))
     return out
+
+
+def login_via_api(driver, base_url: str, username: str, password: str) -> bool:
+    """
+    Mirror what LoginRemoteComponent does in the browser: POST to
+    /api/auth/token with {username, password}, then write the
+    TokenResponse into sessionStorage.tw_auth so the host's authGuard
+    treats the next navigation as already-logged-in.
+
+    We do this from INSIDE the browser context (driver.execute_script)
+    rather than via Python `requests` because:
+      1) sessionStorage is per-origin — writing it from Python wouldn't
+         leak into the Selenium tab anyway.
+      2) The browser's fetch goes through nginx with the right Origin
+         header, exercising the same CORS path the real login does.
+
+    Returns True if login succeeded; False so the caller can skip the
+    auth-required pages and let placeholders fill in.
+    """
+    # Land on the host so window.location is on the right origin —
+    # sessionStorage we write here will then survive the next
+    # `driver.get(...)` to / or /admin etc.
+    driver.get(base_url.rstrip("/") + "/login")
+    WebDriverWait(driver, 10).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    js = """
+        const cb = arguments[arguments.length - 1];
+        const [user, pw] = [arguments[0], arguments[1]];
+        fetch('/api/auth/token', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ username: user, password: pw }),
+        }).then(async (r) => {
+            if (!r.ok) {
+                cb({ok: false, status: r.status, body: await r.text()});
+                return;
+            }
+            const tok = await r.json();
+            // Mirror AuthService.StoredAuth shape exactly so the host's
+            // interceptor + guard accept this without a second login.
+            sessionStorage.setItem('tw_auth', JSON.stringify(tok));
+            cb({ok: true, casdoorUserId: tok.casdoorUserId || null});
+        }).catch((e) => cb({ok: false, error: String(e)}));
+    """
+    driver.set_script_timeout(20)
+    try:
+        result = driver.execute_async_script(js, username, password)
+    except Exception as e:
+        print(f"  login: execute_async_script failed: {e}", file=sys.stderr)
+        return False
+    if isinstance(result, dict) and result.get("ok"):
+        print(f"  ✓ logged in as {username} "
+              f"(casdoor_user_id={result.get('casdoorUserId')})")
+        return True
+    print(f"  ✗ login failed: {result}", file=sys.stderr)
+    return False
 
 
 def write_placeholder(spec: Capture) -> Path:
@@ -226,7 +355,32 @@ def main():
             print(f"  ph  {spec.label:<24} {p}")
         return 0
     try:
+        # Pass 1: capture pages that should be visited un-authenticated
+        # (the login form itself).
         for spec in CAPTURES:
+            if spec.requires_auth:
+                continue
+            try:
+                p = capture_one(driver, args.base_url, spec)
+                print(f"  ✓   {spec.label:<24} {p}")
+            except Exception as e:
+                print(f"  WARN: {spec.label}: {e}", file=sys.stderr)
+                write_placeholder(spec)
+
+        # Login. If the credential exchange fails we fall through and
+        # render placeholders for every auth-gated capture below — the
+        # un-authenticated UI screenshots from pass 1 still ship.
+        logged_in = login_via_api(
+            driver, args.base_url, DEFAULT_USER, DEFAULT_PASS)
+
+        # Pass 2: auth-gated routes.
+        for spec in CAPTURES:
+            if not spec.requires_auth:
+                continue
+            if not logged_in:
+                p = write_placeholder(spec)
+                print(f"  ph  {spec.label:<24} {p}  (login failed)")
+                continue
             try:
                 p = capture_one(driver, args.base_url, spec)
                 print(f"  ✓   {spec.label:<24} {p}")

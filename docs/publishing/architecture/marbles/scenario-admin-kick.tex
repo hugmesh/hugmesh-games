@@ -1,0 +1,52 @@
+% Scenario: ROLE_ADMIN force-revokes a player's launch.
+%
+% Admin clicks "kick" on the dashboard → DELETE /api/admin/launches/{uid}.
+% GameLaunchController sets game_launches.terminated_at = NOW().
+% AssetController validates incoming asset GETs against this row;
+% subsequent GETs from the kicked uid get 410 Gone. The browser
+% notices via the next /api/game/stream tick — its current iframe
+% finishes streaming the WASM bytes it had, but on level-transition
+% the next bundle 410s and the host shows the kicked-banner.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  % Admin issues the DELETE.
+  \snapmarbleline{adm}{2.6}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (a1) at (1.6,2.6) {k};
+  \node[marbletype,above=1pt of a1] {ROLE\_ADMIN: DELETE /api/admin/launches/\{uid\}};
+
+  \node[marbleop] (op1) at (4.6,1.6)
+    {transactional\\ \scriptsize launchRepo.terminate(uid, NOW)};
+  \draw[marbleline] (a1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleTx] (tx) at (6.4,0.6) {T};
+  \node[marbletype,above=1pt of tx] {game\_launches.terminated\_at};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| (tx.north);
+
+  % Player's already-running iframe — the WASM keeps streaming
+  % bytes for the bundle it loaded BEFORE the kick. No mid-flight
+  % cancel (the browser doesn't know).
+  \snapmarbleline{play}{-1.0}{player iframe (in flight)}{0}{12.6}
+  \node[marbleSSE] at (1.0,-1.0) {x};
+  \node[marbleSSE] at (2.4,-1.0) {x};
+  \node[marbleSSE] at (4.0,-1.0) {x};
+  \node[marbleSSE] at (6.4,-1.0) {x};
+  \node[marbleSSE] at (8.6,-1.0) {x};
+  \node[marbleSSE] at (10.4,-1.0) {x};
+
+  % Player attempts a level-transition AFTER the kick. AssetController
+  % validates against game_launches; finds terminated_at set →
+  % returns 410.
+  \snapmarbleline{nxt}{-3.0}{player level-transition}{6.4}{12.6}
+  \node[marbleErr] (g) at (8.6,-3.0) {!};
+  \node[marbletype,below=1pt of g] {410 Gone (uid revoked)};
+
+  % Causal arrow from the tx commit to the 410 emission point.
+  \draw[marbleline,red!70!black,dashed]
+    (tx.south) to[bend right=8] (g.north);
+
+  % The host shows a kicked banner.
+  \snapmarbleline{ui}{-4.4}{host UI}{6.4}{12.6}
+  \node[marbleSig] (b) at (10.4,-4.4) {b};
+  \node[marbletype,below=1pt of b] {NavigationError $\rightarrow$ banner};
+  \draw[marbleline,red!70!black,dashed] (g.south) -| (b.north);
+\end{tikzpicture}

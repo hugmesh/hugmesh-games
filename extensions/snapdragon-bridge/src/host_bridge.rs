@@ -74,6 +74,35 @@ impl HostBridge {
     /// one slot to this and forwards each payload to `window._twInputQueue`.
     #[signal] fn input_egress(payload: GString);
 
+    // ── Generalised input + audio + diagnostics signals ────────────────
+    //
+    // Each carries a JSON payload matching the corresponding row in the
+    // BFF's input_event_types table. Game scripts connect to whichever
+    // they care about; HostBridge stays type-agnostic so a new event
+    // type lands by adding a row to input_event_types + a slot in the
+    // game without re-publishing the GDExtension.
+    //
+    // The dispatch_event() match below routes incoming "input" events
+    // to the per-kind signal so the same publish-side code that works
+    // with the legacy movement / world / character channels also works
+    // here.
+    #[signal] fn gamepad_received(payload: GString);
+    #[signal] fn mouse_received(payload: GString);
+    #[signal] fn keyboard_received(payload: GString);
+    #[signal] fn touch_received(payload: GString);
+    #[signal] fn audio_received(payload: GString);
+    /// Outbound audio cue — a Godot AudioStreamPlayer can emit a JSON
+    /// payload (sourceId, bus, volumeDb, loop) that the GDScript glue
+    /// forwards to the host so the host devtools can mirror what's
+    /// playing. Subscribe with `bridge.audio_egress.connect(...)`.
+    #[signal] fn audio_egress(payload: GString);
+    /// Outbound console line — the game can call
+    /// `bridge.report_error(level, message, source, line)` from any
+    /// GDScript handler that catches an exception; the glue forwards
+    /// to `window.parent.postMessage({type:'SD_WASM_CONSOLE', ...})`.
+    /// Subscribe to mirror locally; the GDScript glue ALWAYS emits.
+    #[signal] fn console_egress(payload: GString);
+
     /// Called by the GDScript glue once it confirms a parent module is
     /// present. Flips the bridge into streaming mode so [`send_input`]
     /// stops echoing locally and instead emits `input_egress`.
@@ -97,6 +126,14 @@ impl HostBridge {
 
     /// Called by the GDScript glue with `(type, json_payload)` for each
     /// queued parent event. Re-emits as a typed signal.
+    ///
+    /// Also accepts the generalised input-event kinds (gamepad / mouse /
+    /// keyboard / touch / audio) — these arrive on the parent's
+    /// `input` SSE channel and the glue routes them in via the same
+    /// dispatch_event call. The Godot scripts subscribe to
+    /// `gamepad_received` / `audio_received` etc. without caring
+    /// whether the event came from the BFF SSE or a host-tier
+    /// gamepad poll relayed through postMessage.
     #[func]
     fn dispatch_event(&mut self, event_type: GString, payload: GString) {
         let signal = match event_type.to_string().as_str() {
@@ -106,12 +143,51 @@ impl HostBridge {
             "time"        => "time_received",
             "scene"       => "scene_received",
             "scene_ready" => "scene_ready",
+            "gamepad"     => "gamepad_received",
+            "mouse"       => "mouse_received",
+            "keyboard"    => "keyboard_received",
+            "touch"       => "touch_received",
+            "audio"       => "audio_received",
             other => {
                 godot_warn!("[HostBridge] unknown event type '{}'", other);
                 return;
             }
         };
         self.base_mut().emit_signal(signal, &[payload.to_variant()]);
+    }
+
+    /// Forward an audio cue to the host. Game scripts call this on
+    /// AudioStreamPlayer transitions so the host devtools mirror
+    /// what's playing. JSON payload follows the audio:* row schemas
+    /// (sourceId / bus / volumeDb / loop).
+    #[func]
+    fn report_audio(&mut self, payload: GString) {
+        self.base_mut()
+            .emit_signal("audio_egress", &[payload.to_variant()]);
+    }
+
+    /// Forward a console line to the host's devtools subscribers.
+    /// `level` is one of `error` / `warn` / `info` / `log`. Game
+    /// scripts use this when their own exception handlers catch
+    /// something Godot's default print pipeline would swallow inside
+    /// a WASM iframe.
+    #[func]
+    fn report_error(
+        &mut self,
+        level: GString,
+        message: GString,
+        source: GString,
+        line: i64,
+    ) {
+        let level_s   = level.to_string().replace('"', "\\\"");
+        let message_s = message.to_string().replace('"', "\\\"");
+        let source_s  = source.to_string().replace('"', "\\\"");
+        let payload = format!(
+            "{{\"level\":\"{}\",\"message\":\"{}\",\"source\":\"{}\",\"line\":{}}}",
+            level_s, message_s, source_s, line
+        );
+        self.base_mut()
+            .emit_signal("console_egress", &[GString::from(payload.as_str()).to_variant()]);
     }
 
     /// Player input — Streaming mode emits `input_egress` for the

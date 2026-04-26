@@ -1,0 +1,22 @@
+% QuestController.GET /api/quests/character/{characterId}
+% Joins character_quests onto quests catalogue; emits one row per
+% started quest with merged status.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{1.6}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.4,1.6) {q};
+  \node[marbletype,above=1pt of u1] {characterId};
+
+  \node[marbleop] (op1) at (4.4,0.6) {questRepo\\ \scriptsize.startedBy(charId)};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (7.6,-0.6) {map\\ \scriptsize $\rightarrow$ QuestDto};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \snapmarbleline{out}{-1.8}{Flux<Q>}{0}{12.6}
+  \node[marbleFlux] at (8.4,-1.8) {q};
+  \node[marbleFlux] at (9.6,-1.8) {q};
+  \node[marbleFlux] at (10.8,-1.8) {q};
+  \node[marbletype] at (8.4,-1.35) {QuestDto (status)};
+  \draw[marbleline] (op2.south) -- ++(0,-3mm);
+\end{tikzpicture}

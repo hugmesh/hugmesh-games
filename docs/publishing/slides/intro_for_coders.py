@@ -102,9 +102,35 @@ SECTIONS = [
             "make build                 — full source build (rust + godot + backend + frontend)",
             "docker compose up -d       — bring the whole stack up",
             "make e2e                   — full Playwright suite against the live stack",
-            "make e2e-native            — same, against the GraalVM native binary",
             "Open http://localhost:8080 — login auto-creates a character on first visit.",
         ],
+    },
+    {
+        "title": "First click: the login form",
+        "body": [
+            "Land on /login. The Casdoor flow is reverse-proxied by the BFF.",
+            "Form posts to /api/auth/token. Token lands in sessionStorage.tw_auth.",
+            "After login the host's authGuard lets / and /admin/* routes mount.",
+        ],
+        "image": "screenshot:tour-01-login",
+    },
+    {
+        "title": "Second click: the catalog",
+        "body": [
+            "/ shows every visible game (filtered by game_access).",
+            "Each card is a federated remote loaded on click.",
+            "Clicking a level mints a launch_uid + loads the matching games-* remote.",
+        ],
+        "image": "screenshot:tour-02-home",
+    },
+    {
+        "title": "Third click: a game running",
+        "body": [
+            "wasm-fragment serves index.html with COOP/COEP/CORP headers.",
+            "Godot prefetches /api/levels/{id}/scene before the WASM compiles.",
+            "Toolbar (top-right): fullscreen, open-in-new-tab, open-in-new-window.",
+        ],
+        "image": "screenshot:tour-03-game-cave",
     },
     {
         "title": "Your first change: pick the right tier",
@@ -158,7 +184,7 @@ CLOSING = {
         "Ask for help in the team channel — every gotcha here cost someone an afternoon already.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
         "Issues + roadmap: docs/PLAN-module-federation-and-native.md",
         "Build everything locally: make docs-all",
     ],

@@ -1,0 +1,37 @@
+% GameUploadService.install(byte[], uploadedBy)
+% Stage zip → validate (manifest schema_v=2 + zip-slip) → SHA-256 →
+% atomic move → R2DBC tx (insert game_uploads, exec register.sql,
+% UPDATE games.current_version_dir, mark priors superseded).
+% On error: tx rollback AND on-disk reverse.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.6}{Mono<bytes[]>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.0,2.6) {z};
+  \node[marbletype,above=1pt of u1] {.zip bytes};
+
+  \node[marbleop] (op1) at (3.0,1.6) {validateZip\\ \scriptsize schema + slip};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (5.4,0.4) {SHA-256\\ \scriptsize bundle/};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \node[marbleop] (op3) at (8.0,-0.8) {atomic move\\ \scriptsize <gamesDir>/<slug>/<sha>};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| ([yshift=2pt]op3.west);
+
+  \node[marbleop, fill=snapAccent!12, draw=snapAccent] (tx) at (10.4,-2.0)
+    {R2DBC tx\\ \scriptsize insert + register.sql\\ \scriptsize + supersede prior};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| ([yshift=2pt]tx.west);
+
+  \snapmarbleline{m1}{-3.6}{Mono<I>}{0}{12.6}
+  \node[marbleTx] (d1) at (10.4,-3.6) {i};
+  \node[marbletype,above=1pt of d1] {InstalledUpload};
+  \draw[marbleline] ([yshift=-2pt]tx.south) -| (d1.north);
+
+  \node[marbleErr] (e1) at (4.0,-1.6) {!};
+  \node[marbletype,below=1pt of e1] {bad zip / bad manifest (400)};
+  \draw[marbleline,red!70!black,dashed] (op1.south) to[bend right=14] (e1.north);
+
+  \node[marbleErr] (e2) at (7.0,-3.0) {!};
+  \node[marbletype,below=1pt of e2] {tx rolls back + on-disk reverse (500)};
+  \draw[marbleline,red!70!black,dashed] (tx.south) to[bend right=14] (e2.north);
+\end{tikzpicture}

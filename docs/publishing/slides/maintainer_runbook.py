@@ -55,6 +55,15 @@ SECTIONS = [
         "image": "diagram:game-stream-controller",
     },
     {
+        "title": "Where to inspect: the admin dashboard",
+        "body": [
+            "/admin shows active sessions per character + per-user stats.",
+            "Recent uploads card — quick read on what changed last.",
+            "Active launches table — `kick` button DELETEs /api/admin/launches/{uid}.",
+        ],
+        "image": "screenshot:admin-01-dashboard",
+    },
+    {
         "title": "Runbook 3: Federated route 500s",
         "body": [
             "Symptom: clicking /admin or /login throws a NavigationError banner.",
@@ -172,7 +181,7 @@ CLOSING = {
         "After every fire, propose a code-level fix so the next on-call doesn't see the same symptom.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
         "Administration deck: docs/publishing/slides/build/administration-manual.pptx",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
     ],

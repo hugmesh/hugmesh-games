@@ -136,7 +136,7 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
         <configuration>
-          <mainClass>com.threewizards.ThreeWizardsApplication</mainClass>
+          <mainClass>games.snapdragon.bff.SnapdragonGamesBffApplication</mainClass>
         </configuration>
       </plugin>
       <!--
@@ -157,11 +157,11 @@
           <bottom><![CDATA[
             <div class="snap-footer">
               <strong>Snapdragon Games</strong> &middot;
-              <a href="https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat">repository</a>
+              <a href="https://github.com/Snapdragon-Systems/snapdragon.games">repository</a>
               &middot;
-              <a href="https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/docs/publishing/architecture/architecture.tex">architecture (PDF)</a>
+              <a href="https://github.com/Snapdragon-Systems/snapdragon.games/blob/main/docs/publishing/architecture/architecture.tex">architecture (PDF)</a>
               &middot;
-              <a href="https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/README.md">README</a>
+              <a href="https://github.com/Snapdragon-Systems/snapdragon.games/blob/main/README.md">README</a>
             </div>
           ]]></bottom>
           <header><![CDATA[
@@ -171,8 +171,8 @@
                 <span>API Reference</span>
               </div>
               <div class="snap-meta">
-                Three Wizards In A Trenchcoat &middot;
-                <a href="https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat">github</a>
+                snapdragon.games &middot;
+                <a href="https://github.com/Snapdragon-Systems/snapdragon.games">github</a>
               </div>
             </div>
           ]]></header>

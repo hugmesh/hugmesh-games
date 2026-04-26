@@ -1,18 +1,21 @@
-\chapter{API reference}\label{ch:api}
+\chapter{API and service-tier reference}\label{ch:api}
 
 This chapter is the printed companion to the generated Javadoc HTML at
 \reposrc{docs/publishing/javadoc-output/index.html}. Every controller is
 listed once with its endpoints, auth posture, and a one-line description
-of the contract; the Javadoc has the per-method signatures, parameter
-descriptions, and full HTTP examples. The Javadoc is rebuilt by
-\snapcommand{make docs-javadocs} and is themed to match this document
-(see \snapfile{docs/publishing/javadoc-theme/snapdragon.css}).
+of the contract; every service / scheduled worker is listed in a
+parallel section after the controllers. The Javadoc has the
+per-method signatures, parameter descriptions, and full HTTP examples.
+The Javadoc is rebuilt by \snapcommand{make docs-javadocs} and is
+themed to match this document (see
+\snapfile{docs/publishing/javadoc-theme/snapdragon.css}).
 
 \bigskip
 
-The reactive controllers below carry a \emph{marble diagram} showing
-their Project Reactor chain. Marbles use distinct shapes for distinct
-runtime types so the topology is readable at a glance:
+The reactive controllers and services below carry a \emph{marble
+diagram} showing their Project Reactor chain. Marbles use distinct
+shapes for distinct runtime types so the topology is readable at a
+glance:
 \snapmarbleshape{marbleMono}~\texttt{Mono<T>} value,
 \snapmarbleshape{marbleFlux}~\texttt{Flux<T>} element,
 \snapmarbleshape{marbleSSE}~\texttt{ServerSentEvent} (HTTP-tier emission),
@@ -22,6 +25,16 @@ runtime types so the topology is readable at a glance:
 \snapmarbleshape{marbleDone}~\texttt{onComplete}. Each diagram's legend
 lists the carried object's relevant fields and flags so a reader can
 cross-reference the chain with the BFF source code.
+
+\medskip
+
+Every controller subsection follows the same shape: marble diagram
+$\rightarrow$ legend $\rightarrow$ a worked \emph{call example} (curl
+request, happy-path JSON response, and the most likely error response).
+The error responses are the ones an integrator is most likely to hit;
+exhaustive status-code tables are in the OpenAPI spec at
+\snapfile{docs/publishing/openapi/openapi.fallback.json} (and at
+runtime, at \texttt{/v3/api-docs}).
 
 \section{Public surface}
 
@@ -48,13 +61,33 @@ Public reverse-proxy of the Casdoor login flow.
     & terminal: a single value plus completion. The host writes it to \texttt{sessionStorage.tw\_auth}. \\
 }
 
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X POST http://localhost:8080/api/auth/token \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"abc123","redirectUri":"http://localhost:8080/login"}'
+\end{lstlisting}
+\textit{200 OK:}
+\begin{lstlisting}[language=json]
+{ "accessToken": "eyJhbGciOi...", "expiresAt": "2026-04-26T12:30:00Z",
+  "refreshToken": "rt_abc123", "casdoorUserId": "alice@threewizards" }
+\end{lstlisting}
+\textit{400 Bad Request — Casdoor rejected the code:}
+\begin{lstlisting}[language=json]
+{ "status": 400, "error": "invalid_grant",
+  "message": "Casdoor: authorization code expired or already used" }
+\end{lstlisting}
+
 \subsection{\texttt{GameStreamController} — \texttt{/api/game}}
-Public SSE merge stream.
+Public SSE merge stream — eight typed channels plus a keepalive.
 
 \begin{itemize}
-  \item \texttt{GET /api/game/stream} — returns five typed event channels
-        (\texttt{movement}, \texttt{world}, \texttt{character},
-        \texttt{time}, \texttt{scene}) plus a 15-second keepalive.
+  \item \texttt{GET /api/game/stream} — returns eight typed event
+        channels (\texttt{movement}, \texttt{world}, \texttt{character},
+        \texttt{scene}, \texttt{time}, \texttt{input}, \texttt{audio},
+        \texttt{wasm-console}) plus a 15-second \texttt{keepalive}
+        ping that fires immediately on subscribe so
+        \texttt{EventSource.onopen} fires within milliseconds.
 \end{itemize}
 
 \snapdiagram{marbles/game-stream-controller.tex}
@@ -63,24 +96,79 @@ Public SSE merge stream.
     & \texttt{characterId} {\rm $\cdot$} \texttt{x,y,z} {\rm $\cdot$} \texttt{rotationY} {\rm $\cdot$} \texttt{action} {\rm $\cdot$} \texttt{pressed} (bool) {\rm $\cdot$} \texttt{tick}. \\
   \snapmarbleshape{marbleFlux} & \texttt{WorldEvent}
     & \texttt{type} (\texttt{spawn}/\texttt{despawn}/\texttt{transition}) {\rm $\cdot$} \texttt{payload} (Map). \\
-  \snapmarbleshape{marbleFlux} & \texttt{CharacterEvent}
-    & \texttt{characterId} {\rm $\cdot$} \texttt{hp}, \texttt{mp}, \texttt{xp} {\rm $\cdot$} \texttt{flags}: \texttt{stunned}, \texttt{burning}, \texttt{frozen}. \\
-  \snapmarbleshape{marbleFlux} & \texttt{GameTimeTick}
-    & \texttt{day} {\rm $\cdot$} \texttt{hour} {\rm $\cdot$} \texttt{minute} {\rm $\cdot$} \texttt{phase} (\texttt{day}/\texttt{dusk}/\texttt{night}/\texttt{dawn}). \\
-  \snapmarbleshape{marbleSig}  & ping (15-second keepalive)
-    & no payload — fires the moment the subscribe lands so \texttt{onopen} flushes. \\
+  \snapmarbleshape{marbleFlux} & \texttt{CharacterDto}
+    & \texttt{characterId} {\rm $\cdot$} \texttt{hp,mp,xp} {\rm $\cdot$} \texttt{flags}: \texttt{stunned}/\texttt{burning}/\texttt{frozen}. \\
+  \snapmarbleshape{marbleFlux} & \texttt{SceneEvent}
+    & spawn / despawn / level transition events from \texttt{GameStateService.notifySceneEvent}. \\
+  \snapmarbleshape{marbleFlux} & \texttt{GameTimeDto}
+    & \texttt{day} {\rm $\cdot$} \texttt{hour} {\rm $\cdot$} \texttt{minute} {\rm $\cdot$} \texttt{phase}. \\
+  \snapmarbleshape{marbleFlux} & \texttt{InputEvent}
+    & \texttt{kind}/\texttt{type} discriminator pair {\rm $\cdot$} \texttt{payload} (jsonb). \\
+  \snapmarbleshape{marbleFlux} & \texttt{InputEvent} (audio kind)
+    & auto-routed off the same source whenever \texttt{kind == "audio"}. \\
+  \snapmarbleshape{marbleErr}  & \texttt{WasmConsoleLine}
+    & forwarded WASM-iframe error / warn — \texttt{level} {\rm $\cdot$} \texttt{message} {\rm $\cdot$} \texttt{stack}. \\
+  \snapmarbleshape{marbleSig}  & ping
+    & 15-second keepalive; first ping fires the moment subscription lands. \\
   \snapmarbleshape{marbleSSE}  & \texttt{ServerSentEvent}
-    & merged downstream: \texttt{event} (the channel name) {\rm $\cdot$} \texttt{data} (JSON of the source value) {\rm $\cdot$} \texttt{id} (sequence). \\
+    & merged downstream: \texttt{event} (the channel name) {\rm $\cdot$} \texttt{data} (JSON of source) {\rm $\cdot$} \texttt{id}. \\
 }
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -N http://localhost:8080/api/game/stream
+\end{lstlisting}
+\textit{200 OK — text/event-stream (excerpt):}
+\begin{lstlisting}
+event: keepalive
+data: {"ts":"2026-04-26T12:30:00Z"}
+
+event: movement
+data: {"characterId":1,"x":12.4,"y":0.0,"z":-3.1,"action":"walk","tick":4421}
+
+event: time
+data: {"day":3,"hour":18,"minute":42,"phase":"dusk"}
+\end{lstlisting}
+\textit{Client disconnects:} the underlying \texttt{Sinks.Many}
+instances stay open (\texttt{autoCancel=false}). A reconnect from the
+same client gets a fresh subscription on the same sinks — see
+scenario~2 below.
 
 \subsection{\texttt{GameController} — \texttt{/api/games}}
 Public game catalog (filtered by \texttt{game\_access} when a JWT is
-present).
+present). Composes with \texttt{ProgressionService} for
+quest-completion-aware unlock state.
 
 \begin{itemize}
-  \item \texttt{GET /api/games} — list of visible games.
-  \item \texttt{GET /api/games/\{slug\}} — one game by slug.
+  \item \texttt{GET /api/games} — list of all games.
+  \item \texttt{GET /api/games/\{id\}} — one game by id.
+  \item \texttt{GET /api/games/\{id\}/levels} — its levels by id.
+  \item \texttt{GET /api/games/available/\{characterId\}} — JWT-aware
+        availability list with per-game lock state.
 \end{itemize}
+
+\snapdiagram{marbles/game-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{GET .../available/\{id\}}
+    & inputs: \texttt{characterId} (path) + JWT (optional). \\
+  \snapmarbleshape{marbleFlux} & \texttt{GameWithLevelsDto}
+    & per-game DTO with \texttt{unlocked} bool {\rm $\cdot$} \texttt{levels: List<LevelDto>}. \\
+  \snapmarbleshape{marbleTx}   & filtered + unlocked
+    & only games whose \texttt{game\_access} row matches scope; \texttt{unlocked} from quest state. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -H "Authorization: Bearer $JWT" \
+  http://localhost:8080/api/games/available/1
+\end{lstlisting}
+\textit{200 OK:}
+\begin{lstlisting}[language=json]
+[ { "slug": "three-wizards", "displayName": "Three Wizards",
+    "unlocked": true,  "levels": [{"id": 1, "slug": "cave"}] },
+  { "slug": "dodecahedron", "displayName": "Dodecahedron",
+    "unlocked": false, "lockReason": "quest 'awakening' incomplete" } ]
+\end{lstlisting}
 
 \subsection{\texttt{LevelController} — \texttt{/api/levels}}
 Public per-level metadata and scene DTOs.
@@ -99,16 +187,63 @@ Public per-level metadata and scene DTOs.
   \snapmarbleshape{marbleTx}   & \texttt{SceneElement} (one DB row per spawn)
     & \texttt{elementType} (\texttt{fairy}/\texttt{torch}/...) {\rm $\cdot$} \texttt{positionX,Y,Z} {\rm $\cdot$} \texttt{properties} (JSON) {\rm $\cdot$} \texttt{sortOrder}. \\
   \snapmarbleshape{marbleMono} & \texttt{SceneDto}
-    & \texttt{levelId} {\rm $\cdot$} \texttt{sceneType} {\rm $\cdot$} \texttt{elements: List<ElementDto>} (the Godot \texttt{scene\_loader} reads this directly). \\
+    & \texttt{levelId} {\rm $\cdot$} \texttt{sceneType} {\rm $\cdot$} \texttt{elements: List<ElementDto>}. \\
 }
 
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS http://localhost:8080/api/levels/1/scene
+\end{lstlisting}
+\textit{200 OK:}
+\begin{lstlisting}[language=json]
+{ "levelId": 1, "sceneType": "cave",
+  "elements": [
+    { "elementType": "fairy", "name": "Whisper",
+      "positionX": 4.2, "positionY": 1.0, "positionZ": -2.4 },
+    { "elementType": "torch", "name": "Sconce-1",
+      "positionX": -3.0, "positionY": 1.4, "positionZ": 0.0 } ] }
+\end{lstlisting}
+\textit{404 Not Found:} \texttt{\{"error":"level\_not\_found","id":1\}}.
+
 \subsection{\texttt{LevelAssetController} — \texttt{/api/levels/\{id\}/assets}}
-Public per-level asset registry — \texttt{POST} to register, \texttt{GET}
-to list, \texttt{GET /\{label\}} to resolve.
+Public per-level asset registry — \texttt{GET}/\texttt{POST}/\texttt{DELETE}.
+
+\snapdiagram{marbles/level-asset-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & label lookup
+    & path: \texttt{(levelId, label)}; resolves a registered asset row by composite key. \\
+  \snapmarbleshape{marbleTx}   & \texttt{LevelAsset}
+    & \texttt{levelId} {\rm $\cdot$} \texttt{label} {\rm $\cdot$} \texttt{type} (\texttt{texture}/\texttt{audio}/\texttt{plugin}) {\rm $\cdot$} \texttt{relativePath}. \\
+  \snapmarbleshape{marbleErr}  & 404
+    & raised when no row matches \texttt{(levelId, label)} — typically the GDScript handed an unmapped label. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS http://localhost:8080/api/levels/1/assets/by-label/portal-fx
+\end{lstlisting}
+\textit{200 OK:} \texttt{\{"label":"portal-fx","type":"texture","relativePath":"fx/portal.png"\}} {\rm{}}\textit{404:} \texttt{\{"error":"asset\_not\_found"\}}.
 
 \subsection{\texttt{AssetController} — \texttt{/api/assets}}
-Public legacy classpath asset serving (\texttt{/api/assets/levels/<slug>/*}).
-Honours \texttt{app.assets.require-launch-uid=true} for defense in depth.
+Public legacy classpath asset serving plus the launch-uid-gated
+filesystem path for hot-uploaded bundles.
+
+\snapdiagram{marbles/asset-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & request
+    & \texttt{slug} {\rm $\cdot$} \texttt{uid} (path-var, optional) {\rm $\cdot$} \texttt{filename}. \\
+  \snapmarbleshape{marbleTx}   & resolved \texttt{Resource}
+    & 200 OK with \texttt{Content-Type} from a small extension map; bytes from filesystem or classpath fallback. \\
+  \snapmarbleshape{marbleErr}  & 403 / 404
+    & 403 when \texttt{app.assets.require-launch-uid=true} and the uid is missing/expired; 404 when the file resolves nowhere. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -o cave.pck \
+  http://localhost:8080/api/assets/levels/cave/k7z3F4Nx2v9.../cave.pck
+\end{lstlisting}
+\textit{200 OK} returns the bundle bytes. \textit{403:} \texttt{\{"error":"launch\_uid\_required"\}}; \textit{404:} \texttt{\{"error":"asset\_not\_found"\}}.
 
 \subsection{\texttt{ControlController} — \texttt{/api/controls}}
 Session-validated control event ingestion. The session check is enforced
@@ -126,6 +261,16 @@ gone.
   \snapmarbleshape{marbleErr}  & \texttt{Forbidden403}
     & raised by \texttt{filterWhen} when the JWT subject isn't the controller-role holder for that session; never reaches the sink. \\
 }
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X POST -H "Authorization: Bearer $JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"sessionId":"sess_8f3c1a","action":"cast",
+       "x":12.4,"y":0.0,"pressed":true,"spellSlot":2}' \
+  http://localhost:8080/api/controls/1
+\end{lstlisting}
+\textit{204 No Content} on success. \textit{403:} \texttt{\{"error":"not\_session\_controller"\}}.
 
 \subsection{\texttt{FederationController} — \texttt{/api/federation}}
 Public federation manifest.
@@ -146,28 +291,210 @@ Public federation manifest.
     & \texttt{generatedAt} (Instant, ISO-8601) {\rm $\cdot$} \texttt{remotes: List<FederationRemoteDto>}; consumed by the host shell BEFORE \texttt{bootstrapApplication}. \\
 }
 
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS http://localhost:8080/api/federation/manifest
+\end{lstlisting}
+\textit{200 OK:}
+\begin{lstlisting}[language=json]
+{ "generatedAt": "2026-04-26T11:00:00Z",
+  "remotes": [
+    {"slug":"login","kind":"remote-shell",
+     "remoteEntryUrl":"/_remotes/login/remoteEntry.json",
+     "exposedModule":"./LoginComponent","version":"1.0.0"},
+    {"slug":"games-three-wizards","kind":"remote-game",
+     "remoteEntryUrl":"/_remotes/games-three-wizards/remoteEntry.json",
+     "exposedModule":"./GameRoot","version":"1.0.0"} ] }
+\end{lstlisting}
+
+\subsection{\texttt{GameTimeController} — \texttt{/api/time}}
+Public game-clock snapshot — same DTO that the \texttt{time} SSE channel
+emits.
+
+\snapdiagram{marbles/game-time-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{GameTimeDto}
+    & \texttt{day} {\rm $\cdot$} \texttt{hour} {\rm $\cdot$} \texttt{minute} {\rm $\cdot$} \texttt{phase} (\texttt{day}/\texttt{dusk}/\texttt{night}/\texttt{dawn}). \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS http://localhost:8080/api/time
+\end{lstlisting}
+\textit{200 OK:} \texttt{\{"day":3,"hour":18,"minute":42,"phase":"dusk"\}}.
+
+\subsection{\texttt{DiagnosticsController} — \texttt{/api/diagnostics}}
+Anonymous endpoint for forwarded WASM-iframe console captures. Stamps a
+server timestamp and pushes onto the \texttt{wasm-console} SSE channel so
+admin docs explorers can mirror crashes live.
+
+\snapdiagram{marbles/diagnostics-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{WasmConsoleLine}
+    & \texttt{level} (\texttt{error}/\texttt{warn}/\texttt{info}/\texttt{log}) {\rm $\cdot$} \texttt{gameSlug}? {\rm $\cdot$} \texttt{levelSlug}? {\rm $\cdot$} \texttt{message} {\rm $\cdot$} \texttt{source}? {\rm $\cdot$} \texttt{line}? {\rm $\cdot$} \texttt{stack}?. \\
+  \snapmarbleshape{marbleErr}  & SSE: \texttt{wasm-console}
+    & rendered as a \texttt{marbleErr} on the stream because subscribers usually treat these as failure events. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X POST http://localhost:8080/api/diagnostics/wasm-console \
+  -H 'Content-Type: application/json' \
+  -d '{"level":"error","gameSlug":"three-wizards",
+       "message":"RangeError: Maximum call stack size exceeded",
+       "source":"/cave/index.js","line":1428}'
+\end{lstlisting}
+\textit{202 Accepted}; the stamped row appears on the
+\texttt{wasm-console} SSE channel within milliseconds.
+
 \section{Authenticated surface}
 
 \subsection{\texttt{SessionController} — \texttt{/api/sessions}}
-Session connect/disconnect; \texttt{POST /api/sessions/connect} claims
-the controller role if no one else holds it.
+Session connect / disconnect / control-claim / history. Capacity is hard-capped
+at three concurrent players; first connect auto-claims controller.
+
+\snapdiagram{marbles/session-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{ConnectRequest}
+    & \texttt{characterId} (body) {\rm $\cdot$} JWT (\texttt{casdoorUserId} from sub) {\rm $\cdot$} optional \texttt{sessionId} (resume). \\
+  \snapmarbleshape{marbleTx}   & \texttt{SessionDto}
+    & \texttt{sessionId} {\rm $\cdot$} \texttt{casdoorUserId} {\rm $\cdot$} \texttt{characterId} {\rm $\cdot$} \texttt{isController} (bool) {\rm $\cdot$} \texttt{connectedAt}. \\
+  \snapmarbleshape{marbleErr}  & 409 \texttt{Conflict}
+    & three players already active — the in-memory \texttt{ConcurrentHashMap} is at capacity. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X POST -H "Authorization: Bearer $JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"characterId":1}' http://localhost:8080/api/sessions/connect
+\end{lstlisting}
+\textit{200 OK:} \texttt{\{"sessionId":"sess\_8f3c1a","isController":true\}}.{} \textit{409:} \texttt{\{"error":"server\_full","activePlayers":3\}}.
 
 \subsection{\texttt{CharacterController} — \texttt{/api/characters}}
-Character read/update including \texttt{POST /api/characters/\{id\}/move}
-which emits a \texttt{movement} SSE event after persisting.
+Character read / patch / dashboard / quest completion / use-first-item.
+The patch path emits a \texttt{character} SSE event after persisting.
+
+\snapdiagram{marbles/character-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{CharacterPatch}
+    & any subset of \texttt{name} / \texttt{position\_x,y,z} / \texttt{rotation\_y} / \texttt{hp} / \texttt{mp} / \texttt{xp}. \\
+  \snapmarbleshape{marbleTx}   & persisted \texttt{CharacterDto}
+    & full row read back after \texttt{save()}; FK \texttt{currentLevelId} resolved to a slug for the dashboard variant. \\
+  \snapmarbleshape{marbleFlux} & SSE: \texttt{character}
+    & \texttt{GameStateService.charStatSink.tryEmit} after persistence so subscribers see HP / MP / XP changes live. \\
+  \snapmarbleshape{marbleErr}  & 404
+    & raised when \texttt{characterId} doesn't match a row owned by the JWT subject. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X PUT -H "Authorization: Bearer $JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"hp":80,"mp":42}' http://localhost:8080/api/characters/1
+\end{lstlisting}
+\textit{200 OK:} \texttt{\{"id":1,"name":"Whisper","hp":80,"mp":42,"xp":1280\}}.
 
 \subsection{\texttt{SkillController} — \texttt{/api/skills}}
-Skill catalog and per-character unlock state.
+Skill catalog, per-character known skills, and hot-bar slot assignment.
+Casting itself is in \texttt{SpellService} (see service tier).
+
+\snapdiagram{marbles/skill-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{BindRequest}
+    & \texttt{slot} (1..N, path) {\rm $\cdot$} \texttt{skillId} (body); idempotent for the same (\texttt{characterId}, \texttt{slot}). \\
+  \snapmarbleshape{marbleTx}   & \texttt{character\_skill\_slots} row
+    & \texttt{characterId} {\rm $\cdot$} \texttt{slot} {\rm $\cdot$} \texttt{skillId} {\rm $\cdot$} unique \texttt{(characterId, slot)}. \\
+  \snapmarbleshape{marbleErr}  & 404
+    & slot index out of bounds OR skill not learned by the character. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X PUT -H "Authorization: Bearer $JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"skillId":7}' \
+  http://localhost:8080/api/skills/character/1/slots/2
+\end{lstlisting}
+\textit{204 No Content}; subsequent GETs of the slots collection return
+the new binding.
 
 \subsection{\texttt{ItemController} — \texttt{/api/items}}
-Inventory + per-character item state.
+Inventory + per-character equipment slots.
+
+\snapdiagram{marbles/item-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{EquipRequest}
+    & \texttt{slot} (\texttt{head}/\texttt{torso}/\texttt{mainhand}/...) {\rm $\cdot$} \texttt{itemId}. \\
+  \snapmarbleshape{marbleTx}   & \texttt{character\_equipment} row
+    & one row per filled slot; clearing a slot DELETEs the row instead of NULLing the FK. \\
+  \snapmarbleshape{marbleErr}  & 404
+    & unknown slot literal (the slot name vocabulary is closed). \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X PUT -H "Authorization: Bearer $JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"itemId":42}' \
+  http://localhost:8080/api/items/character/1/equipment/mainhand
+\end{lstlisting}
+\textit{204 No Content}. \textit{404:} \texttt{\{"error":"unknown\_slot","slot":"backpack"\}}.
 
 \subsection{\texttt{QuestController} — \texttt{/api/quests}}
-Quest catalog and per-character progress.
+Quest catalog (full) and per-character started-quest list.
 
-\subsection{\texttt{GameTimeController} — \texttt{/api/time}}
-Authenticated game-time read; the public SSE stream emits the same data
-on the \texttt{time} channel.
+\snapdiagram{marbles/quest-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & input
+    & \texttt{characterId} (path) — JWT-required; only returns quests the character has started. \\
+  \snapmarbleshape{marbleFlux} & \texttt{QuestDto}
+    & \texttt{id} {\rm $\cdot$} \texttt{title} {\rm $\cdot$} \texttt{status} (\texttt{started}/\texttt{complete}) {\rm $\cdot$} \texttt{rewardSkillId}? {\rm $\cdot$} \texttt{completedAt}?. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -H "Authorization: Bearer $JWT" \
+  http://localhost:8080/api/quests/character/1
+\end{lstlisting}
+\textit{200 OK:}
+\begin{lstlisting}[language=json]
+[ {"id":1,"title":"Awakening","status":"complete",
+   "completedAt":"2026-04-25T19:08:00Z","rewardSkillId":7},
+  {"id":2,"title":"Echoes of the Cave","status":"started"} ]
+\end{lstlisting}
+
+\subsection{\texttt{InputEventController} — \texttt{/api/input}}
+Generalised input ingestion — gamepad / mouse / keyboard / touch / audio /
+world / control. Three-gate validation (see chapter~\ref{ch:datamodel}).
+
+\snapdiagram{marbles/input-event-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleSig}  & \texttt{InputEvent}
+    & \texttt{gameSlug} {\rm $\cdot$} \texttt{characterId}? {\rm $\cdot$} \texttt{sessionId} {\rm $\cdot$} \texttt{kind} {\rm $\cdot$} \texttt{type} {\rm $\cdot$} \texttt{payload} (Map). \\
+  \snapmarbleshape{marbleTx}   & \texttt{input\_events} row
+    & insert + FK on \texttt{(event\_kind, event\_type)} into \texttt{input\_event\_types}; indexed for character / session / kind replay. \\
+  \snapmarbleshape{marbleFlux} & SSE: \texttt{input} + \texttt{audio}
+    & \texttt{GameStateService.emitInput} fans out — \texttt{audio} kind also lands on the audio channel. \\
+  \snapmarbleshape{marbleErr}  & 400
+    & \texttt{(kind, type)} not in \texttt{input\_event\_types} — the upload-time validator should have caught this. \\
+  \snapmarbleshape{marbleErr}  & 405
+    & \texttt{games.features.<kind>=false} OR \texttt{(slug, kind, type)} not in \texttt{game\_event\_support}. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X POST -H "Authorization: Bearer $JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"gameSlug":"three-wizards","sessionId":"sess_8f3c1a",
+       "kind":"gamepad","type":"button_down",
+       "payload":{"controllerId":0,"button":0,"value":1.0}}' \
+  http://localhost:8080/api/input/1
+\end{lstlisting}
+\textit{202 Accepted}; persisted to \texttt{input\_events} and fanned
+onto the \texttt{input} SSE channel.
+\textit{400:} \texttt{\{"error":"unknown\_event","kind":"gamepad","type":"hover"\}}.
+\textit{405:} \texttt{\{"error":"feature\_disabled","kind":"gamepad"\}}.
 
 \subsection{\texttt{GameLaunchController} — \texttt{/api/games}, \texttt{/api/admin/launches}}
 
@@ -175,7 +502,7 @@ on the \texttt{time} channel.
   \item \texttt{POST /api/games/\{slug\}/launch} — mints a
         \texttt{launch\_uid}, snapshots
         \texttt{games.current\_version\_dir}, returns
-        \texttt{\{uid, expiresAt, gameSlug\}}.
+        \texttt{\{uid, expiresAt, gameSlug, versionDir\}}.
   \item \texttt{DELETE /api/games/launches/\{uid\}} — owner
         self-terminate.
   \item \texttt{DELETE /api/admin/launches/\{uid\}} — admin
@@ -194,10 +521,48 @@ on the \texttt{time} channel.
     & post-commit row: \texttt{uid} {\rm $\cdot$} \texttt{gameSlug} {\rm $\cdot$} \texttt{expiresAt} {\rm $\cdot$} \texttt{versionDir}; threaded into the iframe URL as \texttt{?launch\_uid=...} . \\
 }
 
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X POST -H "Authorization: Bearer $JWT" \
+  http://localhost:8080/api/games/three-wizards/launch
+\end{lstlisting}
+\textit{200 OK:}
+\begin{lstlisting}[language=json]
+{ "uid": "k7z3F4Nx2v9...", "expiresAt": "2026-04-26T12:45:00Z",
+  "gameSlug": "three-wizards", "versionDir": "a1b2c3d4" }
+\end{lstlisting}
+
 \section{Admin-only surface}
 
 \subsection{\texttt{AdminController} — \texttt{/api/admin}}
-Admin dashboard data: per-user stats, active sessions, recent uploads.
+Dashboard reads + force-disconnect + character moderation; backed by a
+\texttt{ROLE\_ADMIN}-gated SSE merge.
+
+\snapdiagram{marbles/admin-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleFlux} & \texttt{AdminStatsDto}
+    & active sessions {\rm $\cdot$} characters online {\rm $\cdot$} uploads in last hour {\rm $\cdot$} sweeper / pruner heartbeat ages. \\
+  \snapmarbleshape{marbleFlux} & \texttt{List<SessionDto>}
+    & every active session with its character + controller flag. \\
+  \snapmarbleshape{marbleFlux} & roster events
+    & connect / disconnect / controller-handover events pushed by \texttt{SessionService}. \\
+  \snapmarbleshape{marbleErr}  & 403
+    & request authenticated but JWT lacks \texttt{ROLE\_ADMIN} — the controller-level \texttt{@PreAuthorize} short-circuits before the chain starts. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -N -H "Authorization: Bearer $ADMIN_JWT" \
+  http://localhost:8080/api/admin/stream
+\end{lstlisting}
+\textit{200 OK — text/event-stream (excerpt):}
+\begin{lstlisting}
+event: stats
+data: {"activeSessions":2,"charactersOnline":2,"uploadsLastHour":0}
+
+event: roster
+data: {"type":"connect","casdoorUserId":"alice@threewizards"}
+\end{lstlisting}
 
 \subsection{\texttt{GameUploadController} — \texttt{/api/admin/games}}
 
@@ -229,6 +594,19 @@ Admin dashboard data: per-user stats, active sessions, recent uploads.
     & terminal: response carries the four \texttt{InstalledBundle} fields and HTTP 200. \\
 }
 
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
+  -F file=@three-wizards-bundle.zip \
+  http://localhost:8080/api/admin/games/upload
+\end{lstlisting}
+\textit{200 OK:}
+\begin{lstlisting}[language=json]
+{ "slug":"three-wizards", "contentHash":"a1b2c3d4...",
+  "versionDir":"a1b2c3d4", "uploadedAt":"2026-04-26T11:30:00Z" }
+\end{lstlisting}
+\textit{400:} \texttt{\{"error":"manifest\_invalid","reason":"unknown schema\_version"\}}.
+
 \subsection{\texttt{GameAccessController} — \texttt{/api/admin/games}}
 
 \begin{itemize}
@@ -241,10 +619,306 @@ Admin dashboard data: per-user stats, active sessions, recent uploads.
         active rows.
 \end{itemize}
 
+\snapdiagram{marbles/game-access-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{AccessGrantRequest}
+    & \texttt{scope} $\in$ \{\texttt{all}, \texttt{role}, \texttt{user}\} {\rm $\cdot$} \texttt{value} (role name or Casdoor id, NULL when scope=all). \\
+  \snapmarbleshape{marbleTx}   & \texttt{game\_access} row
+    & idempotent — the unique \texttt{(slug, scope, value)} constraint absorbs duplicates. \\
+  \snapmarbleshape{marbleErr}  & 400 / 404
+    & 400 on bad scope literal; 404 when the slug doesn't exist in \texttt{games}. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"scope":"role","value":"ROLE_PLAY_THREE_WIZARDS"}' \
+  http://localhost:8080/api/admin/games/three-wizards/access
+\end{lstlisting}
+\textit{200 OK:}
+\texttt{\{"slug":"three-wizards","scope":"role","value":"ROLE\_PLAY\_THREE\_WIZARDS"\}}.
+
 \subsection{\texttt{RoleProxyController} — \texttt{/api/admin/roles}}
 Server-side proxy of \texttt{/api/get-roles?owner=threewizards} so the
 admin UI's \enquote{grant role} dropdown loads from the live Casdoor
 catalog without exposing the Casdoor admin client secret to the browser.
+On Casdoor failure: returns an empty list (\texttt{onErrorReturn}) so the
+dashboard never crashes — the dropdown just empties.
+
+\snapdiagram{marbles/role-proxy-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & request
+    & \texttt{GET} with \texttt{ROLE\_ADMIN} JWT — no path/body params. \\
+  \snapmarbleshape{marbleMono} & \texttt{List<RoleSummary>}
+    & one entry per Casdoor role: \texttt{name} {\rm $\cdot$} \texttt{displayName} {\rm $\cdot$} \texttt{description} {\rm $\cdot$} \texttt{enabled}. \\
+  \snapmarbleshape{marbleErr}  & Casdoor 5xx / network
+    & swallowed by \texttt{onErrorReturn(List.of())}; the response is still 200 OK with an empty body. \\
+}
+
+\paragraph{Call example.}
+\begin{lstlisting}[language=bash]
+curl -sS -H "Authorization: Bearer $ADMIN_JWT" \
+  http://localhost:8080/api/admin/roles
+\end{lstlisting}
+\textit{200 OK:}
+\begin{lstlisting}[language=json]
+[ {"name":"ROLE_PLAY_THREE_WIZARDS","displayName":"Play Three Wizards",
+   "description":"Allow access to the Three Wizards game.",
+   "enabled":true} ]
+\end{lstlisting}
+
+\section{BFF service tier}\label{sec:services}
+
+The controllers above are thin: they decode the request, run a
+reactor chain through one or more services, and return a DTO. The
+real work lives in the services below. They hold the long-lived
+\texttt{Sinks.Many} that the SSE stream merges, the \texttt{@Scheduled}
+heartbeats / sweepers / pruners, and the transactional install pipeline
+for hot uploads. Each carries its own marble.
+
+\subsection{\texttt{GameStateService}}
+Owns seven \texttt{Sinks.Many}: \texttt{movement}, \texttt{world},
+\texttt{character}, \texttt{scene}, \texttt{input}, \texttt{audio},
+\texttt{wasm-console}. Every sink is built with
+\texttt{onBackpressureBuffer(N, /\,*\,autoCancel\,*\,/ false)} so a
+disconnecting subscriber doesn't terminate the producer side.
+\texttt{@DependsOn(\"liquibase\")} guarantees the \texttt{@PostConstruct}
+init query runs against the migrated schema.
+
+\snapdiagram{marbles/game-state-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleFlux} & seven sink streams
+    & one \texttt{Sinks.Many<T>} per channel — buffer size capped per channel and tuned in \texttt{application.yml}. \\
+  \snapmarbleshape{marbleSig}  & \texttt{applyControl(...)}, \texttt{emitInput(...)}, \texttt{emitWasmConsole(...)}
+    & public methods that controllers call to push a value onto the right sink. \\
+}
+
+\paragraph{Call example (caller side).}
+\begin{lstlisting}[language=java]
+// Inside ControlController:
+controlEvent
+  .flatMap(controlRepo::upsert)
+  .doOnNext(e -> gameState.applyControl(e, characterId))
+  .then();
+\end{lstlisting}
+
+\subsection{\texttt{GameTimeService}}
+A \texttt{Flux.interval(1s)} tick loop advances the in-memory clock,
+persists snapshots every 10 ticks, and emits a \texttt{GameTimeDto} on
+the \texttt{time} SSE channel every 5 game-minutes (or whenever
+\texttt{phase} changes).
+
+\snapdiagram{marbles/game-time-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleSig}  & 1-second tick
+    & advance the clock; cheap in-memory mutation. \\
+  \snapmarbleshape{marbleTx}   & 10-second persist
+    & snapshot to \texttt{game\_time\_state} so a restart resumes near where it left off. \\
+  \snapmarbleshape{marbleFlux} & SSE: \texttt{time}
+    & emit on phase change or every 5 game-minutes — the host page's clock widget re-renders here. \\
+}
+
+\subsection{\texttt{GameUploadService}}
+The transactional install pipeline behind
+\texttt{POST /api/admin/games/upload}.
+\texttt{Mono.fromCallable(...)} for the blocking filesystem moves;
+\texttt{TransactionalOperator.transactional(...)} for the R2DBC commit
+that covers \texttt{game\_uploads} insert + \texttt{register.sql}
+execution + \texttt{games.current\_version\_dir} update + supersede
+prior uploads.
+
+\snapdiagram{marbles/game-upload-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{ValidatedZip}
+    & manifest schema\_v=2 {\rm $\cdot$} slug regex {\rm $\cdot$} zip-slip safe path check. \\
+  \snapmarbleshape{marbleTx}   & \texttt{InstalledUpload}
+    & post-tx row visible to \texttt{GameController} {\&} \texttt{AssetController}. \\
+  \snapmarbleshape{marbleErr}  & 400 / 500
+    & validation failures (400) and tx-rollback failures (500); both also undo the on-disk move. \\
+}
+
+\paragraph{Failure example.}
+A \texttt{register.sql} script that violates a foreign-key constraint
+throws inside the transactional block; Reactor's \texttt{onError}
+unwinds, the R2DBC transaction rolls back, AND the on-disk move is
+reversed. The prior \texttt{games.current\_version\_dir} is unchanged
+and the active bundle keeps serving — see scenario 4.
+
+\subsection{\texttt{GameLaunchSweeper}}
+\texttt{@Scheduled} task (default every 5 minutes) that marks expired
+\texttt{game\_launches} rows so the admin dashboard stops counting them
+and the asset-tier launch-uid check stops resolving.
+
+\snapdiagram{marbles/game-launch-sweeper.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleSig}  & tick (5 min)
+    & cron tick from Spring's \texttt{TaskScheduler}. \\
+  \snapmarbleshape{marbleTx}   & rows swept
+    & \texttt{UPDATE game\_launches SET terminated\_at = NOW()} for rows whose \texttt{expiresAt < NOW()}. \\
+}
+
+\subsection{\texttt{GameUploadPruner}}
+\texttt{@Scheduled} task (default every hour) that keeps the last
+\texttt{app.uploads.versions-to-keep} version directories per slug on
+disk and deletes the older ones inside \texttt{Mono.fromCallable}.
+
+\snapdiagram{marbles/game-upload-pruner.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleSig}  & tick (1 h)
+    & \texttt{fixedRate=3,600,000ms} default. \\
+  \snapmarbleshape{marbleTx}   & deleted version dirs
+    & per-slug oldest-first, capped by config; never deletes the row marked \texttt{supersededAt=NULL}. \\
+}
+
+\subsection{\texttt{CassandraSyncService}}
+Heartbeat (every 15s) writes a \texttt{pod\_heartbeats} row with TTL 30s
+into Cassandra so the admin dashboard can show pod liveness; daily
+snapshot (every 24h, 60s boot delay) mirrors Postgres aggregates into
+\texttt{daily\_snapshots} for offline analytics.
+
+\snapdiagram{marbles/cassandra-sync-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleSig}  & 15-second heartbeat
+    & only writes; reads are never reactive — the admin UI scans Cassandra synchronously. \\
+  \snapmarbleshape{marbleSig}  & 24-hour snapshot
+    & cross-store reconciliation; tolerant of failure (silent retry next tick). \\
+}
+
+\subsection{\texttt{SessionService}}
+Concurrent in-memory map of active sessions
+(\texttt{ConcurrentHashMap<String, SessionDto>}) capped at three
+players, plus \texttt{AtomicReference<String>} for the current
+controller. Backs \texttt{SessionController} and the admin SSE.
+
+\snapdiagram{marbles/session-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{tryConnect}
+    & atomic check-then-set of the active map — fails fast on capacity. \\
+  \snapmarbleshape{marbleTx}   & \texttt{player\_sessions} insert
+    & write happens after the in-memory accept so a DB hiccup doesn't lock out a slot. \\
+  \snapmarbleshape{marbleErr}  & 409
+    & three players already active; the in-memory map is full. \\
+}
+
+\subsection{\texttt{SpellService}}
+Resolves a hot-bar slot to a skill, checks MP cost, drains MP, persists
+the character row, and emits the \texttt{character} SSE event.
+
+\snapdiagram{marbles/spell-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & input
+    & \texttt{(characterId, slot)}; the JWT subject must own the character. \\
+  \snapmarbleshape{marbleMono} & \texttt{Mono<true>}
+    & cast succeeded — character row saved with reduced MP, SSE \texttt{character} event fired. \\
+  \snapmarbleshape{marbleMono} & \texttt{Mono<false>}
+    & insufficient MP — no DB write, no SSE; the caller renders a feedback hint. \\
+  \snapmarbleshape{marbleErr}  & 404
+    & slot empty or unknown — returned as an error rather than \texttt{Mono<false>} because the caller's UI treats them differently. \\
+}
+
+\subsection{\texttt{ProgressionService}}
+Pure read composition: \texttt{game\_access} $\times$
+\texttt{characters} $\times$ \texttt{character\_quests}. Drives the home
+page and \texttt{/api/games/available/\{characterId\}}.
+
+\snapdiagram{marbles/progression-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleFlux} & input fluxes
+    & three independent reactive reads zipped element-wise. \\
+  \snapmarbleshape{marbleTx}   & \texttt{GameWithLevelsDto}
+    & per-game DTO with \texttt{unlocked} bool + \texttt{lockReason}? string. \\
+}
+
+\subsection{\texttt{PgNotificationService}}
+Cross-instance fan-out: posts to an in-process
+\texttt{Sinks.Many<String>} \emph{and} fires a \texttt{pg\_notify}
+SQL command so other pods on the same Postgres see the same events.
+\texttt{onErrorComplete()} swallows publish failures so a transient pg
+issue doesn't bubble up to the request-handling reactor chain.
+
+\snapdiagram{marbles/pg-notification-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{publish(channel, payload)}
+    & in-process emit + \texttt{pg\_notify} side-effect; both are best-effort. \\
+  \snapmarbleshape{marbleFlux} & \texttt{events()}
+    & multicast subscriber-side stream; consumed by anyone needing cross-pod awareness (currently SSE re-broadcast). \\
+  \snapmarbleshape{marbleErr}  & swallowed
+    & \texttt{onErrorComplete()} prevents the publish failure from poisoning the parent chain. \\
+}
+
+\subsection{\texttt{AdminPasswordService}}
+Startup-only \texttt{@EventListener(ApplicationReadyEvent)} that logs
+the resolved Casdoor endpoint + client\_id (with the secret redacted) so
+an operator can verify env-driven config without grepping startup logs
+for individual variables.
+
+\snapdiagram{marbles/admin-password-service.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleSig}  & \texttt{ApplicationReadyEvent}
+    & fires once after \texttt{bootstrapApplication} completes; downstream of \texttt{liquibase} bean. \\
+  \snapmarbleshape{marbleDone} & one-shot terminate
+    & no Mono / Flux returned — pure side-effect logger. \\
+}
+
+\section{Example call scenarios}
+
+The marbles above show the \emph{happy path} of each controller and
+service. Production traffic also exercises four recurring non-happy
+paths; each gets a dedicated marble below.
+
+\subsection*{Scenario 1 --- Unauthenticated request}
+
+\snapdiagram{marbles/scenario-error-401.tex}
+
+A request arriving without a Bearer token, or with an expired one,
+is rejected by the OAuth2 resource-server filter \emph{before} the
+controller's reactor pipeline starts; the response is \texttt{401}
+with no controller code touched. Watch this in the BFF log to tell
+``client forgot to pass a token'' apart from ``token rejected by
+JWKS''.
+
+\subsection*{Scenario 2 --- SSE subscriber drops mid-stream}
+
+\snapdiagram{marbles/scenario-sse-disconnect.tex}
+
+The most common false alarm. A browser tab closes mid-stream; the
+client TCP closes; Reactor sees \texttt{onCancel}; subscription~1 is
+deregistered; \emph{the upstream Sinks stay open} because every
+\texttt{Sinks.many()} in this project sets \texttt{autoCancel=false}.
+A reconnect from the same client gets a fresh subscription against
+the same Sink and keeps reading from the buffered window onward. If
+this scenario stops working --- the symptom is "first reconnect, then
+silence" --- the offending Sink lost its \texttt{autoCancel=false}
+flag.
+
+\subsection*{Scenario 3 --- Admin force-revokes (kicks) a launch}
+
+\snapdiagram{marbles/scenario-admin-kick.tex}
+
+\texttt{ROLE\_ADMIN} clicks \emph{kick} on the dashboard; the BFF runs
+the \texttt{DELETE} inside a transactional block that sets
+\texttt{game\_launches.terminated\_at = NOW()}. Bytes already in
+flight to the player's iframe finish (the WASM keeps running on what
+it already has); the kick lands at the next level-transition where
+the player's request is denied with \texttt{410 Gone}. The host shell
+catches the resulting \texttt{NavigationError} and shows a banner.
+
+\subsection*{Scenario 4 --- Hot upload rolls back}
+
+\snapdiagram{marbles/scenario-upload-rollback.tex}
+
+The install transaction is the most fragile path in the system because
+it commits across two stores --- Postgres (the games rows) and the
+filesystem (the staged bundle directory). When \texttt{register.sql}
+throws inside the transactional block, Reactor's \texttt{onError}
+unwinds: the R2DBC transaction rolls back \emph{and} the on-disk
+move is reversed before returning the response. The prior
+\texttt{games.current\_version\_dir} is unchanged and the active
+bundle keeps serving. Failure surfaces to the admin UI as
+\texttt{500} (internal SQL exception) or \texttt{409} when the
+exception carries a slug-aware reason (e.g. constraint violation on
+\texttt{games\_pkey}).
 
 \section{Operation index (from the OpenAPI spec)}
 
@@ -273,7 +947,7 @@ The Javadoc HTML is git-ignored.
 \medskip
 
 The Angular API explorer remote
-(\reposrc{frontend/projects/api-explorer/}) is the interactive
+(\reposrc{frontend/projects/api-docs/}) is the interactive
 companion: it loads the same merged OpenAPI document, lets you
 override the auth token in a textbox, supports binary uploads, and
 streams SSE responses into an in-window terminal panel. Reachable at

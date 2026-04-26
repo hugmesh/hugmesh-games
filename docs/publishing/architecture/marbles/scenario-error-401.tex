@@ -1,0 +1,23 @@
+% Scenario: a request arrives with no Bearer / expired Bearer.
+% Spring Security's reactive resource-server rejects in the filter
+% chain BEFORE the controller's reactor pipeline starts.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{1.6}{Mono<Req>}{0}{12.0}
+  \node[marbleMono] (u1) at (1.6,1.6) {q};
+  \node[marbletype,above=1pt of u1] {bearer absent / expired};
+
+  \node[marbleop] (op1) at (4.2,0.6)
+    {OAuth2ResourceServer\\ \scriptsize JwtAuthenticationFilter};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleErr] (e1) at (6.6,-0.6) {!};
+  \node[marbletype,below=1pt of e1] {AccessDenied401};
+  \draw[marbleline,red!70!black,dashed]
+    ([yshift=-2pt]op1.east) -| (e1.north);
+
+  \snapmarbleline{out}{-2.2}{Mono<Resp>}{0}{12.0}
+  \node[marbleSSE] (o1) at (8.4,-2.2) {r};
+  \node[marbletype,above=1pt of o1] {401 Unauthorized};
+  \draw[marbleline,red!70!black] (e1.south) -| (o1.north);
+\end{tikzpicture}

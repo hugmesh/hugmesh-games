@@ -1,0 +1,43 @@
+% Scenario: a hot upload fails inside the install transaction.
+% register.sql throws (e.g. constraint violation), which trips
+% Reactor's onError; transactionalOperator rolls back the R2DBC
+% transaction; the BFF then undoes the on-disk move to keep
+% disk + DB consistent. Returns 5xx to the admin UI; prior bundle
+% stays current.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.0,2.4) {z};
+  \node[marbletype,above=1pt of u1] {UploadRequest};
+
+  \node[marbleop] (op1) at (3.0,1.4) {validate + hash + stage};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleMono] (m1) at (4.4,0.4) {s};
+  \node[marbletype,above=1pt of m1] {StagedBundle};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| (m1.north);
+
+  \node[marbleop] (op2) at (6.6,-0.6)
+    {transactional\\ \scriptsize register.sql};
+  \draw[marbleline] (m1.south) |- ([yshift=2pt]op2.west);
+
+  % register.sql throws — onError flows back through the chain.
+  \node[marbleErr] (e1) at (8.4,-1.6) {!};
+  \node[marbletype,below=1pt of e1] {SQLException};
+  \draw[marbleline,red!70!black,dashed] ([yshift=-2pt]op2.east) -| (e1.north);
+
+  % Compensating actions: tx rollback + on-disk move undo.
+  \node[marbleop, fill=red!8, draw=red!70!black] (rb) at (4.4,-2.6)
+    {rollback tx\\ \scriptsize + reverse on-disk move};
+  \draw[marbleline,red!70!black,dashed] (e1.west) -- (rb.east);
+
+  \snapmarbleline{out}{-3.6}{Mono<Resp>}{0}{12.6}
+  \node[marbleSSE] (o1) at (6.4,-3.6) {r};
+  \node[marbletype,above=1pt of o1] {500 / 409 (slug-aware)};
+  \draw[marbleline,red!70!black] (rb.south) -| (o1.north);
+
+  % games.current_version_dir is unchanged; prior bundle still active.
+  \node[marbleTx] (prev) at (10.4,-3.6) {C};
+  \node[marbletype,above=1pt of prev] {prior current\_version\_dir};
+  \node[marbletype,below=1pt of prev] {(unchanged)};
+\end{tikzpicture}

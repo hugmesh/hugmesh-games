@@ -42,10 +42,28 @@ docs/publishing/
 make docs-pdf           # ~10 s — runs pdflatex twice for cross-refs
 make docs-slides        # ~5 s — produces six .pptx files
 make docs-javadocs      # ~30 s — runs `mvn javadoc:javadoc` on the BFF
-make docs-all           # everything above
-make docs-clean         # remove every produced artefact
+make docs-bundle        # ~3 s — zip every produced artefact at repo root
+make docs-all           # everything above + bundle
+make docs-clean         # remove every produced artefact (incl. zips)
 make docs-install-hooks # opt-in pre-push hook that re-runs docs-pdf on touch
 ```
+
+### Build provenance
+
+Every produced artefact (architecture PDF, six user-guide PDFs, six
+slide decks, the themed Javadoc HTML, and the zip bundle's manifest)
+carries the same project-name and UTC build datetime so a printed or
+emailed page can be paired back to a specific build. The Makefile
+emits `Snapdragon Games · YYYY-MM-DD HH:MM UTC` on every cover and
+in every page footer. Override the project label on the command line:
+
+```
+make docs-all SNAPDRAGON_PROJECT_NAME='Snapdragon Games (RC1)'
+```
+
+The bundle target writes to `<repo-root>/snapdragon-docs-<YYYY-MM-DD>.zip`
+with a top-level `snapdragon-docs-<YYYY-MM-DD>/` prefix and a
+`MANIFEST.txt` listing every file. The zip is git-ignored.
 
 Every target is idempotent. The Make targets at the repo root delegate
 to this directory's `Makefile`, so `make docs-pdf` and
