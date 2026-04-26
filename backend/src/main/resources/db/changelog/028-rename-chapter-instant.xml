@@ -102,4 +102,32 @@
     <sql>ALTER TABLE chapter_assets RENAME CONSTRAINT uq_level_assets_label TO uq_chapter_assets_label</sql>
   </changeSet>
 
+  <!-- 028-9 catches the `level_prerequisites` table missed by the
+       original 028 sweep. Symptom in production was an R2DBC
+       BadGrammarException: `column level_prerequisites.chapter_id
+       does not exist` from ChapterPrerequisiteRepository when
+       /api/games/available/{characterId} ran ProgressionService —
+       the home page came back with zero games for the player. -->
+  <changeSet id="028-9-rename-level-prerequisites-table" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <tableExists tableName="level_prerequisites"/>
+    </preConditions>
+    <renameTable oldTableName="level_prerequisites" newTableName="chapter_prerequisites"/>
+  </changeSet>
+
+  <changeSet id="028-10-rename-level-id-on-chapter-prerequisites" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="chapter_prerequisites" columnName="level_id"/>
+    </preConditions>
+    <renameColumn tableName="chapter_prerequisites"
+                  oldColumnName="level_id" newColumnName="chapter_id"/>
+  </changeSet>
+
+  <changeSet id="028-11-rename-prerequisite-index" author="nin">
+    <preConditions onFail="MARK_RAN" onFailMessage="legacy index already renamed">
+      <indexExists indexName="ix_level_prerequisites_level"/>
+    </preConditions>
+    <sql>ALTER INDEX ix_level_prerequisites_level RENAME TO ix_chapter_prerequisites_chapter</sql>
+  </changeSet>
+
 </databaseChangeLog>

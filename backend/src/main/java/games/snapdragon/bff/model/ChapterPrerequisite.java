@@ -7,7 +7,7 @@ import org.springframework.data.relational.core.mapping.Table;
  * Replaces the old GamePrerequisite after the games→levels rename.
  * A Chapter unlocks when the character has completed every required quest listed here.
  */
-@Table("level_prerequisites")
+@Table("chapter_prerequisites")
 public class ChapterPrerequisite {
 
     @Id
