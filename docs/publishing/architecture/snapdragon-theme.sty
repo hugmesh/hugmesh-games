@@ -215,10 +215,40 @@
 }
 
 % ── Helpers ───────────────────────────────────────────────────────────────
-\newcommand{\snapcommand}[1]{\textcolor{snapAccentDim}{\texttt{#1}}}
-\newcommand{\snapfile}[1]{\textcolor{snapAccentDim}{\texttt{#1}}}
+%
+% Inline file paths and command names CAN'T break in plain \texttt{}, so a
+% long path like docs/PLAN-module-federation-and-native.md ends up jutting
+% into the right margin when typeset inside body text. Use the url package's
+% \DeclareUrlCommand which produces typewriter output with allowable break
+% points after '/', '_', '-', '.', and '~'. The argument is treated mostly
+% verbatim — that means the call sites must use RAW underscores, not the
+% LaTeX-escaped '\_' that plain \texttt{} requires.
+\RequirePackage{url}
+
+\DeclareUrlCommand{\snap@brkpath}{\color{snapAccentDim}\ttfamily}
+
+% These are \DeclareRobustCommand because they appear inside captions and
+% other "moving arguments" (.aux/.toc writes), and url-package commands
+% expand wrong in those contexts. The robust wrapper makes the macro
+% survive intact until typesetting.
+\DeclareRobustCommand{\snapcommand}[1]{\snap@brkpath{#1}}
+\DeclareRobustCommand{\snapfile}[1]{\snap@brkpath{#1}}
+
 \newcommand{\repolink}[2]{\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/#1}{#2}}
-\newcommand{\reposrc}[1]{\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/#1}{\snapfile{#1}}}
+
+% \reposrc has to keep the file-path text break-friendly the same way
+% \snapfile does, but it ALSO has to live inside \href{...}{<text>} where
+% the second arg is normal LaTeX. \snap@brkpath uses url's break logic,
+% which composes inside \href.
+\DeclareRobustCommand{\reposrc}[1]{\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/#1}{\snap@brkpath{#1}}}
+
+% Give LaTeX three more ems of slack on each line so paragraphs with
+% otherwise-unbreakable tokens (URLs, capitalised model names, the rare
+% texttt segment without separators) still settle without sticking into
+% the margin. \sloppy is enabled per-document in architecture.tex so
+% individual chapters can opt out via {\fussy ...} if they need a tighter
+% setting for a specific block.
+\setlength{\emergencystretch}{3em}
 
 % \snapdiagram{path/to/figure.tex}
 %

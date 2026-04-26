@@ -30,6 +30,12 @@
 
 \begin{document}
 
+% \sloppy + \emergencystretch (declared in snapdragon-theme.sty) let
+% LaTeX stretch interword spaces a bit more than the strict default so
+% paragraphs that contain long unbreakable tokens (URLs, file paths,
+% camelCase identifiers) lay out without overflowing the right margin.
+\sloppy
+
 % ── Cover page ────────────────────────────────────────────────────────────
 \begin{titlepage}
 \thispagestyle{empty}
@@ -131,7 +137,7 @@ This reference covers the system as it exists at the head of the
   \item \reposrc{README.md} — the canonical setup and operations guide.
   \item \reposrc{docs/PLAN-module-federation-and-native.md} — the
         eight-section plan that produced the federated topology.
-  \item \reposrc{docs/GODOT\_DEVELOPER\_GUIDE.md} — game-developer-facing
+  \item \reposrc{docs/GODOT_DEVELOPER_GUIDE.md} — game-developer-facing
         contract for slugs, presets, and uploads.
   \item Generated Javadoc HTML at
         \reposrc{docs/publishing/javadoc-output/index.html} after running

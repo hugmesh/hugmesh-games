@@ -13,7 +13,7 @@ There are two paths.
 \subsection{Path A — upload at runtime}
 
 Every supported game ships an editor plugin
-(\snapfile{addons/snapdragon\_export/}) under
+(\snapfile{addons/snapdragon_export/}) under
 \reposrc{games/three-wizards-in-a-trenchcoat/} that produces a deploy-ready
 zip with a v2 \texttt{manifest.json}, a \texttt{register.sql} insert
 script, and the \texttt{bundle/} contents:
@@ -47,8 +47,8 @@ For a game you want to ship in the repository:
 \begin{enumerate}
   \item Drop the Godot project under
         \snapfile{games/<game-dir>/project.godot}, with its own
-        \snapfile{export\_presets.cfg} and
-        \snapfile{addons/snapdragon\_export/}.
+        \snapfile{export_presets.cfg} and
+        \snapfile{addons/snapdragon_export/}.
   \item Add the directory to \texttt{GAME\_PROJECTS} and define
         \texttt{PRESETS\_<dir>} in the root \snapfile{Makefile}.
   \item Add a Liquibase changeset that inserts the \texttt{games} +
