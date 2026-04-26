@@ -1,0 +1,291 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Snapdragon Gaming BFF",
+    "version": "0.1.0-fallback",
+    "description": "Static fallback spec used by the publishing pipeline when the live BFF isn't reachable. The schema bodies and parameter shapes here are deliberately thin — bring the BFF up and re-run `make docs-openapi-spec` to refresh against the canonical /v3/api-docs."
+  },
+  "servers": [
+    { "url": "http://localhost:8080", "description": "Local compose stack" }
+  ],
+  "tags": [
+    { "name": "Authentication" },
+    { "name": "Game stream" },
+    { "name": "Games" },
+    { "name": "Levels" },
+    { "name": "Level assets" },
+    { "name": "Assets" },
+    { "name": "Controls" },
+    { "name": "Federation" },
+    { "name": "Game launches" },
+    { "name": "Game uploads" },
+    { "name": "Game access" },
+    { "name": "Roles" }
+  ],
+  "paths": {
+    "/api/auth/token": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Exchange Casdoor authorization code for an access token.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TokenExchangeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "OK", "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/TokenResponse" }}
+          }}
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Return resolved Casdoor user from the bearer token.",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/game/stream": {
+      "get": {
+        "tags": ["Game stream"],
+        "summary": "Server-Sent Events merged stream (5 typed channels + keepalive).",
+        "responses": {
+          "200": {
+            "description": "text/event-stream",
+            "content": { "text/event-stream": {} }
+          }
+        }
+      }
+    },
+    "/api/games": {
+      "get": {
+        "tags": ["Games"],
+        "summary": "List visible games (filtered by game_access).",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/games/{slug}": {
+      "get": {
+        "tags": ["Games"],
+        "summary": "One game by slug.",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true,
+            "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/levels/{id}": {
+      "get": {
+        "tags": ["Levels"],
+        "summary": "Level row including asset_url.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true,
+            "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/levels/{id}/scene": {
+      "get": {
+        "tags": ["Levels"],
+        "summary": "Typed SceneDto for the in-game scene_loader.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true,
+            "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/levels/{levelId}/assets": {
+      "get": {
+        "tags": ["Level assets"],
+        "summary": "List per-level registered assets.",
+        "parameters": [
+          { "name": "levelId", "in": "path", "required": true,
+            "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Level assets"],
+        "summary": "Register a per-level asset (texture / audio / plugin).",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/controls/{characterId}": {
+      "post": {
+        "tags": ["Controls"],
+        "summary": "Submit a session-validated control event.",
+        "parameters": [
+          { "name": "characterId", "in": "path", "required": true,
+            "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ControlEvent" }}
+        }},
+        "responses": { "204": { "description": "No Content" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/federation/manifest": {
+      "get": {
+        "tags": ["Federation"],
+        "summary": "DB-backed federation manifest (host import map).",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/games/{slug}/launch": {
+      "post": {
+        "tags": ["Game launches"],
+        "summary": "Mint a launch_uid for the calling session.",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true,
+            "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/games/launches/{uid}": {
+      "delete": {
+        "tags": ["Game launches"],
+        "summary": "Self-terminate a launch (owner only).",
+        "parameters": [
+          { "name": "uid", "in": "path", "required": true,
+            "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "No Content" } }
+      }
+    },
+    "/api/admin/launches/{uid}": {
+      "delete": {
+        "tags": ["Game launches"],
+        "summary": "Force-revoke any launch (admin only).",
+        "parameters": [
+          { "name": "uid", "in": "path", "required": true,
+            "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "No Content" } }
+      }
+    },
+    "/api/admin/games/upload": {
+      "post": {
+        "tags": ["Game uploads"],
+        "summary": "Hot-upload a game bundle zip.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": { "type": "string", "format": "binary",
+                            "description": "Snapdragon Export bundle (.zip)" }
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/admin/games/{slug}/uploads": {
+      "get": {
+        "tags": ["Game uploads"],
+        "summary": "Rollback history for a slug (newest first).",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true,
+            "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/admin/games/{slug}/access": {
+      "get": {
+        "tags": ["Game access"],
+        "summary": "List game_access policy rows for a slug.",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true,
+            "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Game access"],
+        "summary": "Add a game_access row (scope=all|role|user).",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true,
+            "schema": { "type": "string" } }
+        ],
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/AccessGrantRequest" }}
+        }},
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["Game access"],
+        "summary": "Remove a game_access row.",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true,
+            "schema": { "type": "string" } },
+          { "name": "scope", "in": "query", "required": true,
+            "schema": { "type": "string" } },
+          { "name": "value", "in": "query", "required": false,
+            "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "No Content" } }
+      }
+    },
+    "/api/admin/roles": {
+      "get": {
+        "tags": ["Roles"],
+        "summary": "Proxy Casdoor's role catalog (live).",
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "TokenExchangeRequest": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "redirectUri": { "type": "string" },
+          "state": { "type": "string" }
+        },
+        "required": ["code", "redirectUri"]
+      },
+      "TokenResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": { "type": "string" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "refreshToken": { "type": "string" },
+          "casdoorUserId": { "type": "string" }
+        }
+      },
+      "ControlEvent": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string" },
+          "action": { "type": "string", "enum": ["move", "cast", "interact"] },
+          "x": { "type": "number" }, "y": { "type": "number" },
+          "pressed": { "type": "boolean" },
+          "spellSlot": { "type": "integer", "nullable": true }
+        }
+      },
+      "AccessGrantRequest": {
+        "type": "object",
+        "properties": {
+          "scope": { "type": "string", "enum": ["all", "role", "user"] },
+          "value": { "type": "string", "nullable": true }
+        },
+        "required": ["scope"]
+      }
+    }
+  }
+}

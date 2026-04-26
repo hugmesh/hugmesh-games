@@ -27,7 +27,7 @@ BACKEND_DIR   := $(ROOT)/../../backend
 PDF           := $(BUILD_DIR)/architecture.pdf
 
 .PHONY: all pdf slides javadocs clean help \
-        venv pdf-once diagrams screenshots userguides \
+        venv pdf-once diagrams screenshots userguides openapi-spec openapi-latex \
         slides-intro slides-admin slides-godot \
         slides-fullstack slides-maintainer slides-data-architect
 
@@ -46,7 +46,7 @@ help:
 	@echo ""
 	@echo "  All output paths are git-ignored."
 
-all: diagrams screenshots pdf slides userguides javadocs
+all: openapi-spec diagrams screenshots openapi-latex pdf slides userguides javadocs
 
 # ── LaTeX architecture PDF ────────────────────────────────────────────────
 pdf: $(PDF)
@@ -153,6 +153,23 @@ diagrams:
 screenshots: venv
 	$(PYTHON) $(ROOT)/screenshots/capture.py
 
+# ── OpenAPI spec extraction + LaTeX rendering ─────────────────────────────
+# `openapi-spec` produces docs/publishing/openapi/build/openapi.json — the
+# live BFF spec (curl) merged with the editorial sidecar metadata.json
+# from this directory; falls back to a hand-curated openapi.fallback.json
+# when the BFF isn't reachable. `openapi-latex` then renders the merged
+# spec as LaTeX fragments the architecture PDF and user guides \input.
+openapi-spec: venv
+	$(ROOT)/openapi/build-spec.sh
+
+openapi-latex: openapi-spec
+	@mkdir -p $(ARCH_DIR) $(ROOT)/openapi/build/latex
+	$(PYTHON) $(ROOT)/openapi/spec-to-latex.py \
+	  --spec $(ROOT)/openapi/build/openapi.json \
+	  --out-dir $(ROOT)/openapi/build/latex
+	@# Drop the summary table where chapter 5 \inputs from.
+	cp $(ROOT)/openapi/build/latex/openapi-summary.tex $(ARCH_DIR)/openapi-summary.tex
+
 # ── User-guide PDFs (one per deck) ────────────────────────────────────────
 # Six standalone LaTeX PDFs, sharing the architecture-PDF theme via
 # TEXINPUTS. Each guide embeds the rendered diagrams (and the screenshots
@@ -165,5 +182,7 @@ clean:
 	rm -rf $(BUILD_DIR) $(SLIDES_BUILD) $(JAVADOC_OUT) \
 	       $(ROOT)/diagrams-rendered/build \
 	       $(ROOT)/screenshots/build \
-	       $(ROOT)/userguides/*/build
+	       $(ROOT)/userguides/*/build \
+	       $(ROOT)/openapi/build \
+	       $(ARCH_DIR)/openapi-summary.tex
 	@echo "✓ removed publishing artefacts"

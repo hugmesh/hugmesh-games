@@ -36,3 +36,11 @@ screenshots/build/
 
 # User-guide PDFs (six per-deck companions).
 userguides/*/build/
+
+# OpenAPI build outputs (merged spec + LaTeX fragments).
+openapi/build/
+
+# Auto-generated openapi-summary.tex copied into chapter 5's build path
+# by the openapi-latex target. Kept committed nowhere — derived from
+# openapi/build/latex/openapi-summary.tex.
+architecture/openapi-summary.tex

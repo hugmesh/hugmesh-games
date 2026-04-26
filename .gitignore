@@ -78,3 +78,7 @@ docs/publishing/screenshots/build/
 
 # Per-guide build outputs.
 docs/publishing/userguides/*/build/
+
+# OpenAPI build outputs (merged spec + per-tag LaTeX fragments).
+docs/publishing/openapi/build/
+docs/publishing/architecture/openapi-summary.tex

@@ -125,6 +125,7 @@ services:
       - api
       - login
       - admin
+      - api-docs
       - games-three-wizards
       - games-dodecahedron
       - wasm-fragment
@@ -156,6 +157,15 @@ services:
     build:
       context: ./frontend
       dockerfile: projects/admin/Dockerfile
+    expose: ["8080"]
+
+  # Federated API docs explorer — a navigator-style swagger/javadoc
+  # replacement generated from the BFF's OpenAPI spec. Mounted at
+  # /admin/docs in the host. Same image pattern as login + admin.
+  api-docs:
+    build:
+      context: ./frontend
+      dockerfile: projects/api-docs/Dockerfile
     expose: ["8080"]
 
   games-three-wizards:

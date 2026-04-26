@@ -1,0 +1,171 @@
+{
+  "$schema": "./metadata.schema.json",
+  "_comment": [
+    "Sidecar for the BFF's OpenAPI 3 spec. Adds editorial fields the",
+    "OpenAPI annotations don't carry: a marble-diagram pointer, a link",
+    "to the architecture-PDF chapter, sample inline payloads, an SSE",
+    "flag for the terminal-viewer UI, and a binary-upload flag for the",
+    "file-picker UI.",
+    "",
+    "The merge order is: openapi.json (live or static fallback) is the",
+    "primary source; this metadata enriches matching (tag) and",
+    "(path,method) pairs. Anything not matched here passes through.",
+    "",
+    "Keys are stable — the API explorer remote and the LaTeX generator",
+    "both read this file; renaming a key is a breaking change."
+  ],
+
+  "tags": {
+    "Authentication": {
+      "blurb": "OAuth2/OIDC reverse-proxy of Casdoor. The BFF holds the client secret; the browser never sees it.",
+      "marble": "marbles/auth-controller.tex",
+      "chapter": "5.1.1"
+    },
+    "Game stream": {
+      "blurb": "Server-Sent Events. Five typed channels merged onto one Flux<ServerSentEvent>.",
+      "marble": "marbles/game-stream-controller.tex",
+      "chapter": "5.1.2"
+    },
+    "Games": {
+      "blurb": "Game catalog reads, filtered by per-game access policy when a JWT is present.",
+      "chapter": "5.1.3"
+    },
+    "Levels": {
+      "blurb": "Per-level metadata + the typed SceneDto that the Godot scene loader consumes.",
+      "marble": "marbles/level-controller.tex",
+      "chapter": "5.1.4"
+    },
+    "Level assets": {
+      "blurb": "Per-level texture / plugin / audio registry, looked up by label from GDScript.",
+      "chapter": "5.1.5"
+    },
+    "Assets": {
+      "blurb": "Legacy classpath asset serving, kept as a fallback for non-federated levels.",
+      "chapter": "5.1.6"
+    },
+    "Controls": {
+      "blurb": "Session-validated control event ingestion. JWT subject must match the controller-role holder.",
+      "marble": "marbles/control-controller.tex",
+      "chapter": "5.1.7"
+    },
+    "Federation": {
+      "blurb": "DB-backed runtime federation manifest. Read by the Angular host BEFORE bootstrapApplication.",
+      "marble": "marbles/federation-controller.tex",
+      "chapter": "5.1.8"
+    },
+    "Game launches": {
+      "blurb": "256-bit URL-safe launch_uid per session + version_dir snapshot for in-flight reproducibility.",
+      "marble": "marbles/game-launch-controller.tex",
+      "chapter": "5.2.7"
+    },
+    "Game uploads": {
+      "blurb": "Hot upload pipeline: validate → SHA-256 → atomic move → R2DBC tx → register.sql.",
+      "marble": "marbles/game-upload-controller.tex",
+      "chapter": "5.3.2"
+    },
+    "Game access": {
+      "blurb": "Per-game visibility policy (scope=all|role|user). Rows are additive (union).",
+      "chapter": "5.3.3"
+    },
+    "Roles": {
+      "blurb": "Server-side proxy of Casdoor's role catalog so the admin UI's grant-role dropdown stays live.",
+      "chapter": "5.3.4"
+    }
+  },
+
+  "operations": {
+    "POST /api/auth/token": {
+      "longDescription": "Exchanges a Casdoor authorization code for an access + refresh token. The federated `login` remote calls this directly after receiving the OAuth2 redirect. The BFF holds the Casdoor client_secret; the browser only ever sees the resulting JWT and writes it to sessionStorage.tw_auth.",
+      "sampleRequest": {
+        "code": "abc123fromCasdoorRedirect",
+        "redirectUri": "http://localhost:8080/login",
+        "state": "csrf-echo-value"
+      },
+      "sampleResponse": {
+        "accessToken": "eyJhbGciOiJSUzI1NiJ9...",
+        "expiresAt": "2026-04-26T12:30:00Z",
+        "refreshToken": "rt_abc123",
+        "casdoorUserId": "alice@threewizards"
+      }
+    },
+
+    "GET /api/game/stream": {
+      "longDescription": "Server-Sent Events. Holds open indefinitely. Five typed channels merged plus a 15s keepalive that fires immediately on subscribe so the response headers flush at connect time and the browser EventSource.onopen lands in milliseconds. autoCancel=false on every sink — disconnect → reconnect cycles do NOT terminate the stream.",
+      "sse": true,
+      "sampleEvent": "event: movement\ndata: {\"characterId\":1,\"x\":12.4,\"y\":0.0,\"z\":-3.1,\"action\":\"walk\",\"pressed\":true,\"tick\":4421}\n\nevent: time\ndata: {\"day\":3,\"hour\":18,\"minute\":42,\"phase\":\"dusk\"}\n\n"
+    },
+
+    "GET /api/games": {
+      "longDescription": "Visible-game catalog. When called with a JWT, the result is filtered by the game_access table (scope=all OR scope=role matches a user role OR scope=user matches the JWT subject). Anonymous callers see only scope=all rows."
+    },
+
+    "GET /api/levels/{id}/scene": {
+      "longDescription": "Returns the typed SceneDto that scene_loader.gd consumes inside the Godot WASM bundle. The DTO carries a list of element_type-tagged entries that scene_loader._spawn() dispatches on; adding a new element_type to the seed data without a matching handler in scene_loader will produce silent no-ops in-game.",
+      "sampleResponse": {
+        "levelId": 1,
+        "sceneType": "cave",
+        "elements": [
+          {"elementType": "fairy", "name": "Whisper", "positionX": 4.2, "positionY": 1.0, "positionZ": -2.4, "properties": {"colorR": 0.6, "colorG": 0.8, "colorB": 1.0}},
+          {"elementType": "torch", "name": "Sconce-1", "positionX": -3.0, "positionY": 1.4, "positionZ": 0.0, "properties": {"flickerHz": 6}}
+        ]
+      }
+    },
+
+    "POST /api/games/{slug}/launch": {
+      "longDescription": "Mints a 256-bit URL-safe launch_uid, persists a game_launches row with version_dir snapshotted from games.current_version_dir at mint time so an in-flight launch is reproducible after a hot upload, and returns {uid, expiresAt, gameSlug, versionDir}. The federated remote threads the uid into the iframe URL as ?launch_uid=...; AssetController validates it on the legacy launch-uid-gated asset path.",
+      "sampleResponse": {
+        "uid": "k7z3F4Nx2v9Lp_QrAa1m8sBcDe-fGhJiK5oTyuXz",
+        "expiresAt": "2026-04-26T12:45:00Z",
+        "gameSlug": "three-wizards",
+        "versionDir": "a1b2c3d4"
+      }
+    },
+
+    "POST /api/admin/games/upload": {
+      "longDescription": "Multipart bundle zip → install pipeline. Validates manifest_json schema_version=2 + slug regex (`[a-z0-9-]+`) + zip-slip-safe paths, SHA-256s the bundle/ tree, atomically moves into <gamesDir>/<slug>/<sha-prefix>, runs the bundle's register.sql statement-by-statement inside ONE R2DBC transaction (insert game_uploads row, run register.sql, UPDATE games.current_version_dir, supersede prior uploads). On failure the transaction rolls back AND the on-disk move is undone.",
+      "binaryUpload": {
+        "field": "file",
+        "accept": ".zip",
+        "description": "Snapdragon Export bundle (manifest.json + register.sql + bundle/...)"
+      },
+      "sampleResponse": {
+        "slug": "three-wizards",
+        "contentHash": "a1b2c3d4e5f6...64-char-hex",
+        "versionDir": "a1b2c3d4",
+        "uploadedAt": "2026-04-26T11:30:00Z"
+      }
+    },
+
+    "GET /api/admin/games/{slug}/uploads": {
+      "longDescription": "Rollback history for a slug. Newest first. supersededAt = NULL marks the currently-active upload; pin to a prior row through the admin UI's `Set as current` button to roll back."
+    },
+
+    "POST /api/admin/games/{slug}/access": {
+      "longDescription": "Add a row to game_access. Body: `{scope, value?}` — scope ∈ {all, role, user}; value is the role name or Casdoor user id (or absent for scope=all). Idempotent on the uq_game_access_triple unique constraint.",
+      "sampleRequest": {"scope": "role", "value": "ROLE_PLAY_THREE_WIZARDS"}
+    },
+
+    "GET /api/federation/manifest": {
+      "longDescription": "DB-backed runtime federation manifest read from the federation_modules table, ordered by (kind, slug). Public on purpose — the host needs the `login` remote URL before any user has authenticated. Cached client-side for 60 s by the host; new remotes appear within one cache-bust without a host redeploy.",
+      "sampleResponse": {
+        "generatedAt": "2026-04-26T11:00:00Z",
+        "remotes": [
+          {"slug": "login",  "kind": "remote-shell", "displayName": "Login",  "remoteEntryUrl": "/_remotes/login/remoteEntry.json",  "exposedModule": "./LoginComponent", "version": "1.0.0", "metadata": {}},
+          {"slug": "admin",  "kind": "remote-shell", "displayName": "Admin",  "remoteEntryUrl": "/_remotes/admin/remoteEntry.json",  "exposedModule": "./AdminShell",     "version": "1.0.0", "metadata": {}},
+          {"slug": "games-three-wizards", "kind": "remote-game", "displayName": "Three Wizards", "remoteEntryUrl": "/_remotes/games-three-wizards/remoteEntry.json", "exposedModule": "./GameRoot", "version": "1.0.0", "metadata": {}}
+        ]
+      }
+    },
+
+    "POST /api/controls/{characterId}": {
+      "longDescription": "Session-validated control event. Authorisation: the JWT subject must match the holder of the controller role for the given session. Mismatch → 403. After persistence, the event is pushed onto GameStateService.movementSink so every connected SSE subscriber sees it.",
+      "sampleRequest": {
+        "sessionId": "sess_8f3c1a",
+        "action": "cast",
+        "x": 12.4, "y": 0.0,
+        "pressed": true,
+        "spellSlot": 2
+      }
+    }
+  }
+}

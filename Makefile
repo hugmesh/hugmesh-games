@@ -14,7 +14,7 @@ SHELL := /bin/bash
         gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend \
         docs-pdf docs-slides docs-javadocs docs-all docs-clean docs-install-hooks \
-        docs-diagrams docs-screenshots docs-userguides
+        docs-diagrams docs-screenshots docs-userguides docs-openapi-spec docs-openapi-latex
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -444,6 +444,12 @@ docs-screenshots:
 
 docs-userguides:
 	@$(MAKE) -C docs/publishing userguides
+
+docs-openapi-spec:
+	@$(MAKE) -C docs/publishing openapi-spec
+
+docs-openapi-latex:
+	@$(MAKE) -C docs/publishing openapi-latex
 
 docs-all:
 	@$(MAKE) -C docs/publishing all

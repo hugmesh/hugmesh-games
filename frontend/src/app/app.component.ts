@@ -15,6 +15,7 @@ import { AuthService } from './services/auth.service';
 const FEDERATED_ROUTE_LABELS: ReadonlyArray<{ prefix: string; label: string }> = [
   { prefix: '/login',        label: 'Login' },
   { prefix: '/admin/games',  label: 'Game uploads' },
+  { prefix: '/admin/docs',   label: 'API docs' },
   { prefix: '/admin',        label: 'Admin console' },
 ];
 

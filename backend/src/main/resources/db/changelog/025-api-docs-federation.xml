@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Register the federated `api-docs` remote in federation_modules.
+        It exposes three modules:
+          - ./DocsShell    — top-level navigator (mounted at /admin/docs)
+          - ./ApiExplorer  — try-it-out + auth override + SSE terminal
+          - ./ApiReference — Javadoc-style read-only reference
+
+        The remote is generated FROM the merged OpenAPI spec at the
+        publishing build (`make docs-openapi-spec`); the host shell
+        proxies /_remotes/api-docs/* through to the per-remote nginx
+        container, same as login / admin.
+
+        Placed under /admin/docs because all three exposed components
+        require ROLE_ADMIN to be useful — the spec-mutating endpoints
+        (uploads, role grants) only respond to admin tokens.
+    -->
+    <changeSet id="025-1-api-docs-federation-row" author="nin">
+        <sql>
+            INSERT INTO federation_modules
+                (slug, display_name, kind, remote_entry_url, exposed_module,
+                 game_slug, version, enabled, metadata)
+            VALUES
+                ('api-docs', 'API docs', 'remote-shell',
+                 '/_remotes/api-docs/remoteEntry.json',
+                 './DocsShell', NULL, '1.0.0', true,
+                 '{"mountAt":"/admin/docs","requires":"ROLE_ADMIN"}'::jsonb)
+            ON CONFLICT (slug) DO UPDATE
+              SET remote_entry_url = EXCLUDED.remote_entry_url,
+                  exposed_module   = EXCLUDED.exposed_module,
+                  display_name     = EXCLUDED.display_name,
+                  metadata         = EXCLUDED.metadata,
+                  enabled          = EXCLUDED.enabled;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
