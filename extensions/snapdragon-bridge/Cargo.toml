@@ -7,6 +7,15 @@ description = "Reusable Godot GDExtension that translates host-module SSE events
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# godot-rust gates the wasm32-unknown-emscripten target behind an explicit
+# opt-in feature ("Wasm target requires opt-in via `experimental-wasm`…").
+# We forward it through this crate's default features so a plain
+#   cargo build --target wasm32-unknown-emscripten
+# Just Works for both `make build-rust` and CI.
+default = ["wasm-opt-in"]
+wasm-opt-in = ["godot/experimental-wasm"]
+
 [dependencies]
 godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
 

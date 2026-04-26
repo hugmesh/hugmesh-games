@@ -1,6 +1,24 @@
 # Godot Developer Guide
 
-This guide is for anyone working inside `godot-project/` and needs their work to **compile into the shapes the rest of the stack expects**: slugs, export paths, asset registrations, and scene DTOs. Follow it and the API, Angular, and DB will pick up your level / textures / plugins without any other code changes.
+This guide is for anyone working inside `games/<slug>/` and needs their work to **compile into the shapes the rest of the stack expects**: slugs, export paths, asset registrations, scene DTOs, and federation manifests. Follow it and the API, Angular host, and DB will pick up your level / textures / plugins / new game without any other code changes.
+
+> **Layout note.** The Godot tree was split into per-game projects in section G of the federation plan. Every game is a self-contained Godot project under `games/<game-slug>/`, opens standalone in the Godot editor, and produces one or more Web export bundles. The legacy single `godot-project/` directory is gone.
+
+```
+games/
+├── three-wizards-in-a-trenchcoat/   # slug: three-wizards (parent game)
+│   ├── project.godot
+│   ├── export_presets.cfg            # Cave + Field presets
+│   ├── scenes/cave.tscn, scenes/field.tscn
+│   ├── scripts/                       # api_client.gd, scene_loader.gd, …
+│   ├── addons/snapdragon_export/      # editor plugin → upload zip
+│   ├── snapdragon_bridge.gdextension  # GDExtension binding
+│   └── bin/libsnapdragon_bridge.so    # populated by `make build-rust`
+└── dodecahedron-demo/               # slug: dodecahedron
+    └── …
+```
+
+A Rust GDExtension (`extensions/snapdragon-bridge/`) supplies the bridge ABI. `make build-rust` builds it once and copies `libsnapdragon_bridge.so` into every game's `bin/` so each project can be opened directly.
 
 ---
 
@@ -11,23 +29,44 @@ Every level must have a **slug** that appears in exactly the same lowercase, hyp
 | Place | Example |
 |---|---|
 | `levels.slug` DB column | `cave` |
-| `godot-project/export_presets.cfg` → `export_path` directory | `.../assets/levels/cave/index.html` |
-| `Makefile` `GODOT_LEVELS` entry (preset name, capitalised) | `Cave` |
-| `levels.asset_url` DB column | `/api/assets/levels/cave/index.html` |
+| `games/<game-slug>/export_presets.cfg` → `export_path` directory | `.../assets/levels/cave/index.html` |
+| `Makefile` `PRESETS_<game-slug>` entry (preset name, capitalised) | `Cave` |
+| `levels.asset_url` DB column | `/api/assets/levels/cave/index.html` (legacy) **or** `/_remotes/wasm-fragment/cave/index.html` (federated) |
 
 If any of those four drift, the level 404s in the iframe or loads the wrong bundle. **Never use spaces or uppercase in the slug itself** — the Makefile lowercases the preset name with `tr '[:upper:]' '[:lower:]'`, so `Cave` (preset) → `cave` (directory).
+
+A **game slug** (parent of one or more level slugs) appears in three more places:
+
+| Place | Example |
+|---|---|
+| `games.slug` DB column | `three-wizards` |
+| `federation_modules.slug` (the Module Federation remote) | `three-wizards` |
+| `Makefile` `GAME_PROJECTS` row (filesystem dir under `games/`) | `three-wizards-in-a-trenchcoat` |
+
+The directory under `games/` is allowed to be longer / more descriptive than the database slug — the Makefile maps one to the other via the `PRESETS_<dir>` variable.
 
 Supporting contracts:
 
 - Scene DTOs returned from `GET /api/levels/{id}/scene` must have `elementType` values that `scene_loader.gd` knows (`world_env`, `sky_env`, `ambient_light`, `sun_light`, `torch`, `fill_light`, `fairy`, `stalagmite`, `stalactite`, `tree`, `cottage`). Add a new value → add a handler in `scene_loader._spawn()`.
-- Level-transition `postMessage` payload must literally be `{type: "TW_LEVEL_TRANSITION", slug, levelId}` — the Angular host matches on the literal string.
+- Level-transition `postMessage` payload must literally be `{type: "TW_LEVEL_TRANSITION", slug, levelId}` — the Angular host's `HomeComponent.onWindowMessage` matches on the literal string. (This used to live in `game-canvas.component.ts`; section H of the federation plan lifted it to the host so it works regardless of which remote rendered the iframe.)
 - Assets referenced from a scene element's `properties.textureUrl` must be either a classpath file under `assets/levels/{slug}/` or registered in `level_assets` with a `filePath` that `AssetController` can resolve.
+
+---
+
+## Two delivery paths: classpath assets vs. federated remotes
+
+There are two ways a Godot bundle reaches the player:
+
+1. **Classpath assets (legacy / dev-loop).** `make build-godot` writes the export into `backend/src/main/resources/assets/levels/<slug>/`. `AssetController` serves the bundle at `/api/assets/levels/<slug>/index.html`. This path is still used for development and as a fallback.
+2. **Federated remote via `wasm-fragment`.** The `wasm-fragment` Docker service (`wasm-fragment/`) is an nginx that bakes the same exports and serves them at `/_remotes/wasm-fragment/<slug>/index.html` with the COOP/COEP/CORP headers WASM games need. The host shell's `RemoteLoaderService` picks this path for federated games (`SCENE_TYPE_TO_GAME_SLUG` in `home.component.ts`).
+
+You don't have to pick — both paths read the same exports. The federated path adds a `launch_uid` query string for operational visibility (sweeper / revoke) and lets the Angular host swap the active game without reloading the page.
 
 ---
 
 ## Running the Godot editor against the live stack
 
-The project runs in two modes and `scripts/api_client.gd` auto-selects between them:
+Each project under `games/<slug>/` opens directly in Godot 4.5+. `scripts/api_client.gd` auto-selects between native run and web export:
 
 ```
 Editor / native run  → fetch('http://localhost:8080/api/…')
@@ -40,28 +79,32 @@ To play the full game from inside the editor:
    ```
    docker compose up -d            # or: make dev-backend
    ```
-2. In Godot, press **Play**. The scene_loader polls `/api/levels/{id}/scene` and populates fairies/lights/geometry exactly as the web build does.
-3. User-added assets registered under `level_assets` are reachable by label via `ApiClient.resolve_asset(level_id, "oak-bark", cb)`.
+2. Ensure the GDExtension is built and copied:
+   ```
+   make build-rust
+   ```
+3. Open `games/<slug>/project.godot` in Godot and press **Play**. The scene_loader polls `/api/levels/{id}/scene` and populates fairies/lights/geometry exactly as the web build does.
+4. User-added assets registered under `level_assets` are reachable by label via `ApiClient.resolve_asset(level_id, "oak-bark", cb)`.
 
 If the editor can't reach the API, `_base_url()` in `api_client.gd` logs an HTTP error to the output panel. No silent fallbacks.
 
 ---
 
-## Adding a new level
+## Adding a new level to an existing game
 
-A level is **one compiled WASM bundle**. Each level lives in its own subdirectory under `backend/src/main/resources/assets/levels/<slug>/` and has its own row in `levels`.
+A level is **one compiled WASM bundle** that lives inside an existing game project. Each level has its own preset and its own row in `levels`.
 
-### 1. Pick a slug
+### 1. Pick a level slug
 
-Lowercase, hyphen-free, stable. Examples: `cave`, `field`, `forest-glade`, `tower`. Do **not** use `CaveOfDoom` or `cave_of_doom` — keep it kebab-case and lowercase. The slug will be written into `export_presets.cfg`, `Makefile`, and the DB, so make it short and final.
+Lowercase, hyphen-free, stable. Examples: `cave`, `field`, `forest-glade`, `tower`. Do **not** use `CaveOfDoom` or `cave_of_doom`. The slug will be written into `export_presets.cfg`, `Makefile`, and the DB, so make it short and final.
 
 ### 2. Create the scene file
 
-Put the main `.tscn` in `godot-project/scenes/<slug>.tscn`. The convention is that the scene's root node runs `scene_loader.gd` which reads `?level_id=N` from the iframe URL, calls `/api/levels/{N}/scene`, and spawns the elements returned in the DTO. You don't need to hardcode scene contents.
+Put the main `.tscn` in `games/<game-slug>/scenes/<level-slug>.tscn`. The convention is that the scene's root node runs `scene_loader.gd` which reads `?level_id=N` from the iframe URL, calls `/api/levels/{N}/scene`, and spawns the elements returned in the DTO. You don't need to hardcode scene contents.
 
 ### 3. Add an export preset
 
-Open `godot-project/export_presets.cfg` and append a new `[preset.N]` block. Copy the `[preset.0]` (Cave) block verbatim, then edit these three fields:
+Open `games/<game-slug>/export_presets.cfg` and append a new `[preset.N]` block. Copy an existing preset block verbatim, then edit:
 
 ```ini
 [preset.N]
@@ -70,23 +113,25 @@ name="ForestGlade"                              ; CamelCase, no spaces. Used by 
 platform="Web"
 runnable=true
 custom_features="level_forest-glade"            ; matches lowercase slug
-exclude_filter="*.gdextension,scenes/cave.tscn,scenes/field.tscn,...others"
+exclude_filter="*.gdextension"                  ; GDExtension is shipped via build-rust
 export_path="../../backend/src/main/resources/assets/levels/forest-glade/index.html"
 ```
 
-**`exclude_filter` matters.** List every other level's `.tscn` so each bundle only ships its own scene + shared dependencies. Keep `*.gdextension` in the filter — GDExtension is handled via the separate `build-rust` step.
+The `../../` prefix is relative to the game project directory and resolves to the repo's `backend/src/main/resources/assets/levels/`. Keep the `[preset.N.options]` block identical to a working preset — `html/canvas_resize_policy=2`, `extensions_support=true` (or `false` if you don't need GDExtension at runtime), etc.
 
-Keep the `[preset.N.options]` block identical to the Cave one — `html/canvas_resize_policy=2`, `extensions_support=true`, etc.
+> **Note on `exclude_filter`.** With per-game projects you no longer need to enumerate other levels' `.tscn` files — Godot's tree-shaking ships only what each preset references, and only one game's scenes live in the project. The single `*.gdextension` exclusion stays.
 
-### 4. Register the slug in the Makefile
+### 4. Register the preset in the Makefile
 
-Open `Makefile` at the project root and add your preset name to `GODOT_LEVELS`:
+Open `Makefile` at the project root and append the preset name to `PRESETS_<game-slug>`:
 
 ```makefile
-GODOT_LEVELS = Cave Field ForestGlade
+GAME_PROJECTS = three-wizards-in-a-trenchcoat dodecahedron-demo
+PRESETS_three-wizards-in-a-trenchcoat = Cave Field ForestGlade
+PRESETS_dodecahedron-demo             = Dodecahedron
 ```
 
-The `build-godot` target iterates over this list, lowercases each entry to derive the output directory, and calls `godot --headless --export-release "<preset>"` for each one.
+`build-godot` iterates `GAME_PROJECTS`, looks up the per-game preset list, lowercases each entry to derive the output directory, and calls `godot --headless --export-release "<preset>"` from inside that game's directory.
 
 ### 5. Seed the DB
 
@@ -95,37 +140,54 @@ Either add a Liquibase changeset (preferred for committed content) or run `make 
 ```sql
 INSERT INTO levels (name, slug, scene_type, sort_order, asset_url, game_id, scene_config, created_at)
 VALUES ('The Forest Glade', 'forest-glade', 'forest', 3,
-        '/api/assets/levels/forest-glade/index.html', 1, '{}', NOW())
+        '/api/assets/levels/forest-glade/index.html',
+        (SELECT id FROM games WHERE slug='three-wizards'),
+        '{}', NOW())
 ON CONFLICT (slug) DO UPDATE SET asset_url = EXCLUDED.asset_url;
 ```
 
-Then add scene_elements:
-
-```sql
-INSERT INTO scene_elements (level_id, element_type, name, position_x, position_y, position_z, properties, sort_order)
-VALUES
-  ((SELECT id FROM levels WHERE slug='forest-glade'),
-   'sky_env', 'GladeSky', 0, 0, 0,
-   '{"skyTopR":0.2,"skyTopG":0.5,"skyTopB":0.85,"ambientEnergy":1.2}', 1);
-```
-
-And optionally prerequisites if the level should be gated:
-
-```sql
-INSERT INTO level_prerequisites (level_id, required_quest_id)
-SELECT (SELECT id FROM levels WHERE slug='forest-glade'),
-       (SELECT id FROM quests WHERE name='The Cottage Secret');
-```
+Then add `scene_elements` rows and (optionally) `level_prerequisites` to gate the level behind a quest. See `db/changelog/004-seed-scene-elements.xml` for the pattern.
 
 ### 6. Build
 
 ```
-make build-godot        # exports every preset → classpath
-make seed-db            # refreshes DB if you used scripts/seed-games.sql
-docker compose build api && docker compose up -d api
+make build-rust         # populates games/*/bin/libsnapdragon_bridge.so
+make build-godot        # exports every preset in every game → classpath
+make seed-db            # refreshes DB if you changed seed SQL
+docker compose build api wasm-fragment && docker compose up -d api wasm-fragment
 ```
 
-The new level appears on the home page with its lock state driven by its prerequisites.
+Rebuild `wasm-fragment` whenever you change `assets/levels/` so the federated path picks up the new bundle. The new level appears on the home page with its lock state driven by its prerequisites.
+
+---
+
+## Adding a brand-new game
+
+A *game* is one Godot project under `games/<game-slug-dir>/` that produces one or more level bundles, plus one row in `games`, one row in `federation_modules`, and (usually) a `games-<slug>` Docker compose service if you want a separately deployable Module Federation remote rather than a host-rendered fragment.
+
+The fast path: use the **Snapdragon Export** editor plugin already wired into both stock games (`addons/snapdragon_export/`).
+
+### Option A — let the upload pipeline register everything
+
+1. Create a new project under `games/<dir>/` (copy an existing one as a template).
+2. In Godot, open **Project → Tools → Snapdragon → Export…**, fill in slug / display name / description / scene type, and let the plugin produce a deploy-ready zip with `manifest.json` (schema v2) + `register.sql` + `bundle/`.
+3. Hit `/api/admin/games/upload` (the BFF's `GameUploadController`) with the zip. The install transaction:
+   - Validates the manifest, computes a content hash, supersedes the previous upload row.
+   - Moves the bundle into `app.uploads.games-dir/<slug>/<version-dir>/` and updates `games.current_version_dir`.
+   - Runs `register.sql` which inserts/updates rows in `games`, `federation_modules`, and `game_access` atomically.
+
+Once the request returns, the game is live: the host shell's federation manifest discovers it on next fetch and the home page picks it up.
+
+### Option B — wire it manually
+
+If you're committing a game to the repo (rather than uploading at runtime), do all four:
+
+1. Add the project dir to `GAME_PROJECTS` and define `PRESETS_<dir>` in the Makefile.
+2. Add a Liquibase changeset that inserts the `games` row, the `federation_modules` row, and `level_prerequisites`/`game_access` if needed. See `db/changelog/017-snapdragon-catalog.xml` and `018-federation-modules.xml` for the patterns.
+3. (Optional) Add a `games-<slug>` service to `docker-compose.yml` if the game ships its own remote (separate Angular project under `frontend/projects/games-<slug>/`). Stock games use this; one-off uploads can ride the shared `wasm-fragment` remote instead.
+4. Run the section-6 build chain.
+
+The four-place slug rule still applies — every place that names the game must use the same `<game-slug>` value in `games.slug`.
 
 ---
 
@@ -199,7 +261,7 @@ $GameBridge.request_level_transition("forest-glade", 3)
 What happens:
 
 1. Godot posts `window.parent.postMessage({type:"TW_LEVEL_TRANSITION", slug:"forest-glade", levelId:3}, "*")`.
-2. Angular's `game-canvas.component.ts` catches it, hits `GET /api/levels/3` to read the fresh `asset_url`, and swaps the iframe `src`.
+2. Angular's `HomeComponent.onWindowMessage` (host-level — moved out of `game-canvas.component.ts` in section H) catches it, hits `GET /api/levels/3` to read the fresh `asset_url`, mints a new `launch_uid` via `POST /api/games/{slug}/launch` if the target is federated, and either swaps the iframe `src` (host fragment) or threads the new inputs into the active remote component.
 3. The new level's Godot bundle loads cold; its `scene_loader.gd` fetches `/api/levels/3/scene` and spawns.
 
 **Important:** the current WASM is fully destroyed. Anything in memory is lost. Persist to the DB via `PUT /api/characters/{id}` (stats, HP) or `POST /api/controls/{id}` (movement) before calling `request_level_transition`.
@@ -210,15 +272,17 @@ What happens:
 
 | Symptom | Cause |
 |---|---|
-| Iframe 404 on `index.html` | `levels.asset_url` slug differs from the classpath directory |
-| Blank iframe, no error | Export preset name in `GODOT_LEVELS` doesn't match `export_presets.cfg` |
+| Iframe 404 on `index.html` | `levels.asset_url` slug differs from the classpath directory, or `wasm-fragment` not rebuilt after `make build-godot` |
+| Blank iframe, no error | Preset name in `PRESETS_<game>` doesn't match `export_presets.cfg`, or `GAME_PROJECTS` row pointing at a nonexistent directory |
 | Wrong scene loads | `scene_elements.level_id` FK is stale — check it matches the new `levels.id` |
 | `resolve_asset` returns 404 | `label` isn't in `level_assets` or `level_id` wrong |
-| `postMessage` transition doesn't fire | payload shape wrong — must be literally `TW_LEVEL_TRANSITION` and include `slug` + `levelId` |
-| Exported bundle includes other levels' scenes | `exclude_filter` in your preset is incomplete |
-| `ERROR: Parent node is busy setting up children, add_child() failed` | Calling `add_child` (or `get_tree().root.add_child`) directly from `_ready()` or `_process()` while siblings are still `_ready`-ing. Use `node.add_child.call_deferred(child)`. |
-| Loading dots animate forever, prefetch logged success | `JavaScriptBridge.eval(...) != true` Variant compare is unreliable. Use `bool(JavaScriptBridge.eval("!!window.foo"))` to coerce through a real JS boolean. |
-| Iframe shows old WASM after `make build-godot` | Browser cached the iframe HTML. The Angular `game-canvas` already cache-busts with `&t=...`; if the timestamp isn't in the URL, it's the wrong code path. |
+| `postMessage` transition doesn't fire | Payload shape wrong — must be literally `TW_LEVEL_TRANSITION` and include `slug` + `levelId` |
+| `ERR_BLOCKED_BY_RESPONSE` on federated WASM iframe | `wasm-fragment/nginx.conf` missing `Cross-Origin-Resource-Policy: cross-origin`, or host nginx not stripping duplicate COOP/COEP from the upstream |
+| Federation manifest shows the game but iframe stays blank | `federation_modules.remote_entry_url` points at a host that isn't reachable from the browser, or the game ships its own remote but `games-<slug>` compose service isn't up |
+| `ERROR: Parent node is busy setting up children, add_child() failed` | Calling `add_child` (or `get_tree().root.add_child`) directly from `_ready()` or `_process()` while siblings are still `_ready`-ing. Use `node.add_child.call_deferred(child)` |
+| Loading dots animate forever, prefetch logged success | `JavaScriptBridge.eval(...) != true` Variant compare is unreliable. Use `bool(JavaScriptBridge.eval("!!window.foo"))` to coerce through a real JS boolean |
+| Iframe shows old WASM after `make build-godot` | Browser cached the iframe HTML. The Angular remote already cache-busts with `&t=...`; if the timestamp isn't in the URL, it's the wrong code path |
+| GDExtension symbol fails to load in editor | `make build-rust` was skipped or the per-game `bin/libsnapdragon_bridge.so` is stale — the Makefile copies the freshly-built `.so` into every `games/*/bin/` |
 
 ### Why so many `call_deferred` calls
 
@@ -243,7 +307,8 @@ the live tree.
 ## Compile-time checklist (run before pushing)
 
 ```
-make build-godot        # every preset exports cleanly
+make build-rust         # GDExtension compiles, .so copied into every games/*/bin/
+make build-godot        # every preset in every game exports cleanly
 make build-backend      # Liquibase + R2DBC bindings match the entity shape
 make build-frontend     # TypeScript models + templates typecheck
 make gen-api            # optional, refreshes Angular TS client from /v3/api-docs
