@@ -3,6 +3,7 @@ import { Type } from '@angular/core';
 import { HomeComponent } from './home/home.component';
 import { AboutComponent } from './about/about.component';
 import { PlayerDashboardComponent } from './player-dashboard/player-dashboard.component';
+import { BannedPageComponent } from './banned-page/banned-page.component';
 import { authGuard } from './auth.guard';
 
 // Federated route loaders. main.ts stashes
@@ -37,6 +38,7 @@ export const routes: Routes = [
   { path: 'dashboard', component: PlayerDashboardComponent, canActivate: [authGuard] },
   { path: 'login', loadComponent: () => loadRemote('login', './LoginComponent', 'LoginRemoteComponent') },
   { path: 'about', component: AboutComponent },
+  { path: 'banned', component: BannedPageComponent },
   { path: 'admin', loadComponent: () => loadRemote('admin', './AdminShell', 'AdminRemoteComponent'), canActivate: [authGuard] },
   { path: 'admin/games', loadComponent: () => loadRemote('admin', './UploadShell', 'UploadRemoteComponent'), canActivate: [authGuard] },
   { path: 'admin/docs', loadComponent: () => loadRemote('api-docs', './DocsShell', 'DocsShellComponent'), canActivate: [authGuard] },

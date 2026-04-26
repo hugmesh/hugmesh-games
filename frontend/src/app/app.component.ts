@@ -5,6 +5,7 @@ import { Router, RouterOutlet, RouterLink, RouterLinkActive,
 import { AuthService } from './services/auth.service';
 import { GamepadService } from './services/gamepad.service';
 import { WasmConsoleForwarderService } from './services/wasm-console-forwarder.service';
+import { AdminActionsListenerService } from './services/admin-actions-listener.service';
 
 // Routes whose component is fetched at runtime via loadRemoteModule.
 // A NavigationError on one of these is almost always a federation
@@ -33,6 +34,7 @@ export class AppComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly gamepads = inject(GamepadService);
   private readonly wasmConsoleForwarder = inject(WasmConsoleForwarderService);
+  private readonly adminActions = inject(AdminActionsListenerService);
 
   /**
    * Set when the router fails to activate a federated route — the
@@ -58,6 +60,10 @@ export class AppComponent implements OnInit {
     //     and forwards to /api/diagnostics/wasm-console.
     this.gamepads.start();
     this.wasmConsoleForwarder.start();
+    // AdminActionsListener subscribes to the per-user SSE stream and
+    // closes the game iframe / redirects to /banned on a kick or ban.
+    // Idempotent — safe to re-call on auth state changes.
+    this.adminActions.start();
 
     this.router.events.subscribe(ev => {
       if (ev instanceof NavigationError) {
