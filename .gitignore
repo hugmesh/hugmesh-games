@@ -52,3 +52,6 @@ frontend/openapi.json
 e2e/certs/
 e2e/results/
 e2e/node_modules/
+
+# Claude Code agent harness — runtime lock files for scheduled tasks.
+.claude/
