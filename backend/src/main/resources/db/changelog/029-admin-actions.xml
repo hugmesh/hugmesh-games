@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    admin_actions: append-only audit log of moderator actions on
+    players. Holds the kick/ban/unban history with the optional
+    admin-supplied message that's surfaced to the affected player on
+    their banned page.
+
+    Schema choices:
+      action: closed enum (kick / ban / unban) enforced via CHECK.
+      message: TEXT nullable — admin can omit a reason.
+      expires_at: nullable timestamp for temp bans (NULL = permanent).
+      target / actor casdoor_id: free-form strings (no FK to a Casdoor
+        users table since Casdoor is external; the JWT subject is the
+        canonical identity).
+
+    Indexed on (target_casdoor_id, created_at DESC) so the
+    "latest action for this user" query stays single-page.
+  -->
+
+  <changeSet id="029-1-create-admin-actions" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="admin_actions"/></not>
+    </preConditions>
+    <createTable tableName="admin_actions">
+      <column name="id" type="BIGINT" autoIncrement="true">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="target_casdoor_id" type="VARCHAR(120)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="actor_casdoor_id" type="VARCHAR(120)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="action" type="VARCHAR(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="message" type="TEXT"/>
+      <column name="expires_at" type="TIMESTAMP WITH TIME ZONE"/>
+      <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+  </changeSet>
+
+  <changeSet id="029-2-action-check-constraint" author="nin">
+    <sql>
+      ALTER TABLE admin_actions
+        ADD CONSTRAINT chk_admin_actions_action
+        CHECK (action IN ('kick', 'ban', 'unban'));
+    </sql>
+  </changeSet>
+
+  <changeSet id="029-3-target-created-index" author="nin">
+    <createIndex tableName="admin_actions" indexName="idx_admin_actions_target_created">
+      <column name="target_casdoor_id"/>
+      <column name="created_at" descending="true"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>
