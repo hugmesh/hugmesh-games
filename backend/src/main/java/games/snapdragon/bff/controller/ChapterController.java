@@ -48,7 +48,7 @@ public class ChapterController {
             ```
             ──request──► levels.findById(id)
                           ──●──► flatMap ──►
-                                 sceneElements.findByLevelIdOrderBySortOrder()
+                                 sceneElements.findByChapterIdOrderBySortOrder()
                                   ──●──●──●──● collectList()
                                              ──●─|  SceneDto{…, assetUrl, elements:[…]}
             ```
@@ -57,7 +57,7 @@ public class ChapterController {
     public Mono<SceneDto> getScene(@PathVariable Long id) {
         return levels.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
-                .flatMap(level -> sceneElements.findByLevelIdOrderBySortOrder(level.getId())
+                .flatMap(level -> sceneElements.findByChapterIdOrderBySortOrder(level.getId())
                         .map(e -> new SceneElementDto(
                                 e.getId(), e.getElementType(), e.getName(),
                                 e.getPositionX(), e.getPositionY(), e.getPositionZ(),

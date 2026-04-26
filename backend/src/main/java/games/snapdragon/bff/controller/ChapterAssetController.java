@@ -49,20 +49,20 @@ public class ChapterAssetController {
             hardcoding file names.
 
             ```
-            ──request──► assetRepo.findByLevelId(id)
+            ──request──► assetRepo.findByChapterId(id)
              ──────────────●──●──●──|
                            ChapterAsset{id, label, assetType, filePath, …}…
             ```
             """)
     @GetMapping
     public Flux<ChapterAsset> list(@PathVariable Long chapterId) {
-        return repo.findByLevelId(chapterId);
+        return repo.findByChapterId(chapterId);
     }
 
     @Operation(summary = "Look up a single asset by label (e.g. 'oak-bark-texture')")
     @GetMapping("/by-label/{label}")
     public Mono<ChapterAsset> byLabel(@PathVariable Long chapterId, @PathVariable String label) {
-        return repo.findByLevelIdAndLabel(chapterId, label)
+        return repo.findByChapterIdAndLabel(chapterId, label)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }
 
