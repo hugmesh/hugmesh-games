@@ -1,5 +1,10 @@
-<nav class="top-nav">
-  <a class="nav-brand" routerLink="/">🐉 Snapdragon Games</a>
+<!-- Skip-to-content link — first focusable element on the page so a
+     keyboard / AT user can jump past the global nav. CSS positions
+     it off-screen by default and reveals on focus. -->
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<nav class="top-nav" role="navigation" aria-label="Primary">
+  <a class="nav-brand" routerLink="/" aria-label="Snapdragon Games — home">🐉 Snapdragon Games</a>
   <ul class="nav-links">
     <li><a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}">Play</a></li>
     @if (isLoggedIn) {
@@ -13,20 +18,22 @@
   </ul>
   <div class="nav-user">
     @if (isLoggedIn) {
-      <span class="user-name">{{ displayName }}</span>
-      <button class="logout-btn" (click)="logout()">Sign out</button>
+      <span class="user-name" aria-label="Signed in as">{{ displayName }}</span>
+      <button class="logout-btn" type="button" (click)="logout()">Sign out</button>
     } @else {
       <a routerLink="/login" class="login-link">Sign in</a>
     }
   </div>
 </nav>
 @if (federationLoadError(); as err) {
-  <div class="federation-error" role="alert">
-    <span class="federation-error-icon">⚠</span>
+  <div class="federation-error" role="alert" aria-live="assertive">
+    <span class="federation-error-icon" aria-hidden="true">⚠</span>
     <span class="federation-error-msg">
       Couldn't reach <strong>{{ err.label }}</strong> — the federated module didn't load.
     </span>
-    <button class="federation-error-retry" (click)="retryFederationLoad()">Retry</button>
+    <button class="federation-error-retry" type="button" (click)="retryFederationLoad()">Retry</button>
   </div>
 }
-<router-outlet></router-outlet>
+<main id="main-content" tabindex="-1">
+  <router-outlet></router-outlet>
+</main>
