@@ -82,9 +82,14 @@ build-rust-wasm: $(RUST_WASM_DOCKERFILE)
 	  echo "  → docker image $(RUST_WASM_IMAGE) missing, building (~5 min one-time)"; \
 	  docker build -t $(RUST_WASM_IMAGE) tools/build-rust-wasm/ ; \
 	fi
-	docker run --rm -v "$(PWD):/work" $(RUST_WASM_IMAGE) \
-	  cargo build --release --target wasm32-unknown-emscripten \
-	  --manifest-path /work/$(RUST_DIR)/Cargo.toml
+	@# IMPORTANT: cd into the extension dir BEFORE invoking cargo so
+	@# .cargo/config.toml's per-target rustflags are discovered. With
+	@# --manifest-path alone cargo's cwd stays at /work and the wasm
+	@# `-Cpanic=abort` override is silently dropped, producing a wasm
+	@# that imports __cpp_exception (Godot's web template can't satisfy
+	@# that and the bundle fails to instantiate at runtime).
+	docker run --rm -v "$(PWD):/work" -w /work/$(RUST_DIR) $(RUST_WASM_IMAGE) \
+	  cargo build --release --target wasm32-unknown-emscripten
 	@# Docker-built artefacts land owned by root; chown back to the
 	@# invoking user via a quick container so subsequent host-side
 	@# cargo / cp / rm commands work without sudo.
