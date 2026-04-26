@@ -514,17 +514,26 @@ Target: an admin uploads a zip from the browser → BFF unpacks, validates, regi
   (all/role/user) using the existing Casdoor role-list proxy.
 
 **Open follow-ups:**
-1. Integration test that POSTs a fixture zip through the upload
-   endpoint, verifies the rows landed in `games_uploads` + `games`
-   + `federation_modules` + `game_access`, and that the asset
-   resolver serves from the new version dir.
-2. Active-version pinning for in-flight launches: currently the
-   AssetController reads `current_version_dir` per request, so a swap
-   mid-launch could swap the WASM under the player's feet. Capture
-   `version_dir` on the `game_launches` row at launch time and serve
-   from THAT (PLAN section A's session-safety contract).
-3. Disk-pressure cap: keep last N uploads per slug, prune older
-   `version_dir` trees in a scheduled task.
+1. **Deferred** — Integration test that POSTs a fixture zip through
+   the upload endpoint, verifies the rows landed in `games_uploads` +
+   `games` + `federation_modules` + `game_access`, and that the
+   asset resolver serves from the new version dir. Pulling in
+   Testcontainers + a sizeable fixture zip is too big for an
+   autonomous slice; `GameUploadServiceTest` covers the validation
+   paths at the unit level (7 specs).
+2. **Done.** Active-version pinning lands via the `version_dir`
+   column on `game_launches` (migration 020 + the GameLaunch entity
+   field). `GameLaunchController.create` snapshots
+   `games.current_version_dir` at launch time;
+   `AssetController.getLevelAssetByUid` calls `serveFromPinnedDir`
+   with that snapshot — falls back to current/classpath only when
+   the launch row's `version_dir` is null (legacy launch or
+   classpath-only game). Mid-session hot uploads no longer swap the
+   WASM under the player's feet.
+3. **Done.** `GameUploadPruner` (`@Scheduled` every hour, 10-minute
+   initial delay) keeps the latest `app.uploads.versions-to-keep`
+   uploads per slug (default 3) and removes older `version_dir`
+   trees. DB rows stay as audit trail.
 
 ---
 
@@ -627,18 +636,22 @@ Target: native binary built by Spring Boot's `native` profile, cold start <100 m
 - `Makefile`: `make build-backend-native`.
 
 **Open** (run when host has 6–8 GB free for the AOT compiler):
-1. Run `make build-backend-native` end-to-end (5–10 min). Likely surfaces
-   missing hints around: Casdoor JWKS verification, Springdoc OpenAPI `@Operation`
-   reflection, Liquibase singleton scope. Add to `SnapdragonRuntimeHints` as they
-   appear.
+1. Run `make build-backend-native` end-to-end (5–10 min). The first wave
+   of hints (Liquibase init container, netty jctools `Unsafe` field
+   offsets, R2DBC ↔ `OffsetDateTime` converter, classpath-resource
+   inclusion for `assets/levels/`) all landed and are documented in the
+   README's native-image section. Future hint additions go in
+   `SnapdragonRuntimeHints` as they appear.
 2. ✓ **Done in this branch:** `docker-compose.native.yml` overlay swaps the
    JVM api service for the native binary (`docker compose -f docker-compose.yml
    -f docker-compose.native.yml up`). `make e2e-native` runs the full
    Playwright suite against the native image — same pipeline as `make e2e`
    but with the overlay added. The build itself isn't run on PR CI; gate
    behind a `[native]` commit-message marker or a separate workflow.
-3. Document the build prerequisites + tradeoffs in the README testing section
-   (currently only the JVM build is documented).
+3. ✓ **Done in this branch:** README's native-image section gained a
+   "Prerequisites + tradeoffs" block — 6–8 GB RAM for the AOT compile,
+   the `[native]` PR-CI gating, image-size + cold-start numbers, and the
+   Liquibase init-container relationship.
 
 ---
 
@@ -663,15 +676,21 @@ Casdoor is the single source of truth for roles + assignments. Postgres `scope_v
 - `backend/src/main/java/com/threewizards/controller/GameController.java` — `/api/games/available/{characterId}` now plumbs the JWT through.
 
 ### Left off at
-**Done in this branch.** `make test-backend` green after the refactor; the
-existing 1 unit test (`CharacterDtoTest`) still passes. Open follow-ups:
-1. Plumb the JWT through `CharacterController` dashboard so role-gated games
-   don't leak into the player's own progress view.
-2. Add an admin endpoint that lists Casdoor role names (so the admin UI's
-   "grant role" dropdown isn't a free-text input). Easiest path: proxy
-   Casdoor's `/api/get-roles?owner=threewizards` from the BFF.
-3. Add a unit test for `GameAccessController` (validation rules + idempotent
-   grant) once the e2e admin UI is in place.
+**Done.** `make test-backend` green; coverage now 33 (was 1 at section
+start). All open follow-ups landed:
+1. ✓ JWT plumbed through `CharacterController.dashboard` — calls
+   `progression.availableGamesWithLevels(id, roles, userId)` which
+   intersects the catalog with the principal's authorities so role-gated
+   games don't leak into the player's progress view.
+2. ✓ `RoleProxyController` proxies Casdoor's
+   `/api/get-roles?owner=threewizards` (admin-only). The admin UI's
+   "grant role" dropdown loads from `GET /api/admin/roles` against this.
+3. ✓ `GameAccessControllerTest` covers all four validation rules
+   (unknown scope on grant + revoke, role/user without value), the three
+   success paths (scope=all, scope=role with value, scope=role + revoke),
+   the 404 paths on unknown slug, and idempotent-grant behaviour
+   (DuplicateKeyException on `uq_game_access_triple` is absorbed). 11
+   specs total.
 
 ---
 
@@ -765,13 +784,22 @@ Target reached this branch:
   `HostBridge` directly instead of the legacy GDScript bridge. Drop
   a copy into `scripts/bridge_glue.gd`, attach to a `HostBridge` node,
   connect game scripts to its signals.
+- ✓ `player_controller.gd` + `scene_loader.gd` migrated onto
+  `HostBridge` — they `get_node_or_null("HostBridge")` from the
+  parent scene and connect to the typed Rust signals
+  (`movement_received`, `time_received`, etc.). Legacy
+  `signal movement_updated` declarations on `game_bridge.gd` deleted
+  in b3d8bce. `camera_controller.gd` and `fairy.gd` stay GDScript-
+  only — they're pure local input/animation and never needed bridge
+  access.
+- `game_bridge.gd` shrank to ~225 lines and is now a thin JS↔GDScript
+  adapter: it owns the web SSE wiring (`JavaScriptBridge.eval`),
+  config fetch, key→action mapping, and HostBridge dispatch. Full
+  retirement would mean rewriting the JavaScriptBridge bits in Rust;
+  parked as a future refactor.
 
 **Open follow-ups:**
-1. Migrate the existing TWiaT scripts (`player_controller`,
-   `scene_loader`, `camera_controller`, `fairy`) onto the
-   `HostBridge` Rust node so the legacy `game_bridge.gd` can retire.
-   Each scene update can move independently.
-2. Web target for the Rust bridge: the WASM cargo target falls through
+1. Web target for the Rust bridge: the WASM cargo target falls through
    with a warning if emscripten isn't installed; per-export-preset
    `extensions_support` stays false. Light-weight; fix when emscripten
    tooling is set up.
@@ -825,15 +853,19 @@ Target reached this branch:
 
 ### Left off at
 **Done in this branch.** Open follow-ups:
-1. Flip `app.assets.require-launch-uid=true` once the federated remote
-   actually mints + uses a uid. Today the iframe-based SPA still hits the
-   legacy non-uid path, so flipping early would 403 every game card.
-2. Admin endpoint that revokes someone else's launch
-   (`/api/admin/launches/{uid}` with ROLE_ADMIN). Stub: today only
-   self-termination works.
-3. Cron / scheduled cleanup of `game_launches` rows past their
-   `expires_at` to keep the table bounded. Cassandra TTL would do the same
-   if we move launch state there later.
+1. **Still open** — Flip `app.assets.require-launch-uid=true` once the
+   federated remote actually mints + uses a uid. Today the iframe-based
+   path (which now routes through wasm-fragment after section A's
+   completion) still doesn't carry a uid, so flipping would 403 every
+   game card. Wiring the launch-uid mint into the federated remote's
+   iframe URL is the next slice on this thread.
+2. ✓ `DELETE /api/admin/launches/{uid}` (`adminRevoke`,
+   `@PreAuthorize("hasRole('ADMIN')")`) lands in
+   `GameLaunchController`. Self-termination via `DELETE /launches/{uid}`
+   stays for non-admin users.
+3. ✓ `GameLaunchSweeper` (`@Scheduled`) bulk-terminates rows whose
+   `expires_at` has passed but were never explicitly terminated. Keeps
+   the table bounded without a Cassandra TTL.
 
 ---
 
