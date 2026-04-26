@@ -104,6 +104,16 @@ SECTIONS = [
         "image": "diagram:game-upload-controller",
     },
     {
+        "title": "What the admin sees on upload",
+        "body": [
+            "/admin/games shows the upload card + rollback history.",
+            "Drag-and-drop or file-pick the zip you just exported.",
+            "On success: new row at the top with supersededAt=NULL.",
+            "On failure: the install tx + on-disk move both roll back.",
+        ],
+        "image": "screenshot:admin-02-uploads",
+    },
+    {
         "title": "manifest.json (schema v2)",
         "body": [
             "schema_version: 2",

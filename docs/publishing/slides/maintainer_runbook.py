@@ -55,6 +55,15 @@ SECTIONS = [
         "image": "diagram:game-stream-controller",
     },
     {
+        "title": "Where to inspect: the admin dashboard",
+        "body": [
+            "/admin shows active sessions per character + per-user stats.",
+            "Recent uploads card — quick read on what changed last.",
+            "Active launches table — `kick` button DELETEs /api/admin/launches/{uid}.",
+        ],
+        "image": "screenshot:admin-01-dashboard",
+    },
+    {
         "title": "Runbook 3: Federated route 500s",
         "body": [
             "Symptom: clicking /admin or /login throws a NavigationError banner.",

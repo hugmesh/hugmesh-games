@@ -76,6 +76,46 @@ SECTIONS = [
         "image": "diagram:game-upload-controller",
     },
     {
+        "title": "Failure mode 1 — unauthenticated request",
+        "body": [
+            "OAuth2 resource-server filter rejects pre-controller.",
+            "401; no controller code touched; nothing written.",
+            "BFF log distinguishes 'no token' from 'token rejected by JWKS'.",
+        ],
+        "image": "diagram:scenario-error-401",
+    },
+    {
+        "title": "Failure mode 2 — SSE subscriber disconnect",
+        "body": [
+            "Client TCP closes mid-stream; Reactor sees onCancel.",
+            "Reactor deregisters subscription #1; upstream Sinks stay open.",
+            "Every Sinks.many() sets autoCancel=false — reconnect resumes.",
+            "If 'first reconnect then silence': autoCancel=false was dropped.",
+        ],
+        "image": "diagram:scenario-sse-disconnect",
+    },
+    {
+        "title": "Failure mode 3 — admin force-revoke (kick)",
+        "body": [
+            "DELETE /api/admin/launches/{uid} inside a tx.",
+            "game_launches.terminated_at = NOW() — atomic.",
+            "In-flight bytes finish; next level-transition gets 410 Gone.",
+            "Host shell shows NavigationError banner.",
+        ],
+        "image": "diagram:scenario-admin-kick",
+        "dark": True,
+    },
+    {
+        "title": "Failure mode 4 — hot upload rollback",
+        "body": [
+            "register.sql throws inside transactional block.",
+            "R2DBC tx rolls back AND the on-disk move is reversed.",
+            "games.current_version_dir unchanged — prior bundle still active.",
+            "Surfaces as 500 (SQL) or 409 (slug-aware constraint reason).",
+        ],
+        "image": "diagram:scenario-upload-rollback",
+    },
+    {
         "title": "Read patterns",
         "body": [
             "Catalog reads (games, levels) — heavy cache, ttl ~60 s, served from Postgres directly. Index on slug.",

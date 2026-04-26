@@ -1437,6 +1437,42 @@ To override credentials:
 CASDOOR_CLIENT_SECRET=mysecret CASDOOR_ADMIN_PASS=mypass docker compose up -d
 ```
 
+### Staging and production overlays
+
+The portal is deployed at:
+
+- Production:  `snapdragon.games` (apex host) and `<service-or-game>.snapdragon.games` per-service / per-game subdomains.
+- Staging:     `staging.snapdragon.games` and `<service-or-game>.staging.snapdragon.games`.
+
+Two compose overlays sit on top of the dev `docker-compose.yml` for these targets:
+
+```bash
+# Staging — pin a build tag, narrow CORS to *.staging.snapdragon.games:
+SNAPDRAGON_TAG=2026-04-26.42 \
+  docker compose -f compose.yml -f compose.staging.yml up -d
+
+# Production — same pattern, narrower allowlist + separate volumes:
+SNAPDRAGON_TAG=2026-04-26.42 \
+  docker compose -f compose.yml -f compose.prod.yml up -d
+```
+
+Each app service is tagged `snapdragon-games/<svc>:${SNAPDRAGON_TAG:-dev}` in the dev compose so the same images are pushable to a registry; staging and prod overlays require `SNAPDRAGON_TAG` to be set explicitly (no `:dev` fallback). The image-name map:
+
+| Compose service | Image |
+|---|---|
+| `api`                  | `snapdragon-games/bff` |
+| `frontend`             | `snapdragon-games/portal-host` |
+| `login`                | `snapdragon-games/login-remote` |
+| `admin`                | `snapdragon-games/admin-remote` |
+| `api-docs`             | `snapdragon-games/api-docs-remote` |
+| `games-three-wizards`  | `snapdragon-games/three-wizards-remote` |
+| `games-dodecahedron`   | `snapdragon-games/dodecahedron-remote` |
+| `wasm-fragment`        | `snapdragon-games/wasm-fragment` |
+
+**CORS posture across environments.** `WebConfig.java` ships a development-friendly default allowlist (localhost + e2e + `*.snapdragon.games` + `*.staging.snapdragon.games`); the overlays narrow it via `SPRING_WEB_CORS_ALLOWED_ORIGINS` so a production BFF only accepts requests whose `Origin` header is on `snapdragon.games` / `*.snapdragon.games`. The two values are merged so a developer pointing a local browser at a staging BFF for debugging still works.
+
+**Casdoor public URL.** Both overlays set `CASDOOR_PUBLIC_BASE_URL` to the matching environment's Casdoor host (`login.staging.snapdragon.games` / `login.snapdragon.games`) so OAuth2 redirect URIs match the public DNS.
+
 ---
 
 ## Building the project
