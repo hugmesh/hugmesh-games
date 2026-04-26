@@ -15,9 +15,12 @@
 | E. JWT roles + access policy | **Done** | Per-game `game_access` table + `RoleProxyController` + JWT-gated dashboard + 11 GameAccessControllerTest specs. |
 | F. DB-backed federation discovery | **Done** | `federation_modules` table + `FederationController` + frontend manifest preload. |
 | G. Per-game project layout | **Done bar one** | `extensions/snapdragon-bridge/` + per-game projects + HostBridge migration. Open: WASM cargo target (gated on emscripten tooling). |
-| H. Cryptographic launch UIDs | **Done bar one** | Launch endpoint + UID minting + admin revoke + sweeper. Open: `app.assets.require-launch-uid=true` flip — formally closed (architectural conflict with section A's wasm-fragment direct-serve; documented). |
+| H. Cryptographic launch UIDs | **Done** | Launch endpoint + UID minting (now wired through federated game-card clicks too) + admin revoke + sweeper. The `app.assets.require-launch-uid=true` flag stays defense-in-depth on the BFF asset path only — formally closed. |
 
-Three threads remain genuinely open and each is a deliberate infrastructure decision (Testcontainers adoption, emscripten tooling, asset-tier auth philosophy) — not code that fits an autonomous continuation. See per-section "Open follow-ups" for the trade-off notes.
+All eight sections now reach a deliberate end state. The three originally-deferred items resolved as:
+- **C.1** (upload integration test): Testcontainers adoption attempted; hit a Liquibase ↔ R2DBC startup race the autonomous loop can't untangle without dedicated session focus. Reverted; `GameUploadServiceTest` (7 unit specs) covers validation paths.
+- **G.2** (Rust bridge WASM target): emscripten install (~700 MB external toolchain) sandbox-denied — exactly the gating note the PLAN already had.
+- **H.1** (launch-uid wiring): the *operational visibility* half landed (federated game-card clicks now mint a launch row, threaded through as `?launch_uid=…` for traceability + admin revoke + sweeper coverage). The *asset-path enforcement* half stays formally closed — Godot WASM bundles are public under wasm-fragment direct-serve by design.
 
 ---
 
@@ -880,20 +883,25 @@ Target reached this branch:
 
 ### Left off at
 **Done in this branch.** Open follow-ups:
-1. **Architectural conflict — formally closed.** The launch-uid was
-   designed to gate `/api/assets/levels/{slug}/{uid}/...` requests,
-   but section A's wasm-fragment direct-serve moved the federated
-   render path to `/_remotes/wasm-fragment/{slug}/...` which bypasses
-   the api entirely. Wiring the uid through the wasm-fragment proxy
-   would need either (a) wasm-fragment validating uids itself
-   (requires DB access in nginx — out of scope) or (b) reversing
-   wasm-fragment direct-serve (defeats section A's goal). Decision:
-   the launch-uid stays as a defense-in-depth feature on the
-   `/api/assets/levels/{slug}/{uid}/...` BFF fallback path
-   (legacy `<app-game-canvas>` paths still flow through there). The
-   federation path treats Godot WASM bundles as public — by design,
-   they aren't secret. `app.assets.require-launch-uid=false` stays
-   the production default.
+1. **Operational visibility wired; asset-path enforcement formally
+   closed.** Federated game-card clicks now POST
+   `/api/games/{slug}/launch` (HomeComponent.selectLevel) so a
+   `game_launches` row exists for every federated session — admin
+   revoke / sweeper / active-launches list all key off it. The uid
+   threads through to the iframe URL as `?launch_uid=<uid>` for log
+   traceability. Best-effort DELETE on close so the admin's active
+   list reflects reality faster than the hourly sweeper.
+   Asset-path enforcement (`app.assets.require-launch-uid=true`)
+   stays disabled in production: section A's wasm-fragment
+   direct-serve moved the federated render path to
+   `/_remotes/wasm-fragment/{slug}/...` which bypasses the api
+   entirely. Wiring the uid through the wasm-fragment proxy would
+   need either (a) wasm-fragment validating uids itself (requires DB
+   access in nginx — out of scope) or (b) reversing wasm-fragment
+   direct-serve (defeats section A's goal). Godot WASM bundles are
+   public under federation by design; the launch-uid stays as
+   defense-in-depth on the `/api/assets/levels/{slug}/{uid}/...` BFF
+   fallback path only.
 2. ✓ `DELETE /api/admin/launches/{uid}` (`adminRevoke`,
    `@PreAuthorize("hasRole('ADMIN')")`) lands in
    `GameLaunchController`. Self-termination via `DELETE /launches/{uid}`
