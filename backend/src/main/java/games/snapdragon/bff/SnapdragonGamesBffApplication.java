@@ -19,8 +19,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @EnableScheduling
 @ImportRuntimeHints(SnapdragonRuntimeHints.class)
-public class SnapdragonBffApplication {
+public class SnapdragonGamesBffApplication {
     public static void main(String[] args) {
-        SpringApplication.run(SnapdragonBffApplication.class, args);
+        SpringApplication.run(SnapdragonGamesBffApplication.class, args);
     }
 }

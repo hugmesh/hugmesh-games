@@ -167,7 +167,7 @@ CLOSING = {
         "Cloud relocation requires no code change today — only configuration. That is the strongest design property of the BFF.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+        "Repo: github.com/snapdragon-games/portal",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
         "Schema reference: backend/src/main/resources/db/changelog/",
     ],

@@ -158,7 +158,7 @@ CLOSING = {
         "Ask for help in the team channel — every gotcha here cost someone an afternoon already.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+        "Repo: github.com/snapdragon-games/portal",
         "Issues + roadmap: docs/PLAN-module-federation-and-native.md",
         "Build everything locally: make docs-all",
     ],

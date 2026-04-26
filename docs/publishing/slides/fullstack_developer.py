@@ -197,7 +197,7 @@ CLOSING = {
         "Most production fires this codebase has had came from skipping one of those three. Don't be the next one.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+        "Repo: github.com/snapdragon-games/portal",
         "Architecture PDF: make docs-pdf",
         "Build everything: make docs-all",
     ],

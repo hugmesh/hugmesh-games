@@ -1,4 +1,4 @@
-# Three Wizards In A Trenchcoat — Master Build
+# Snapdragon Games portal — Master Build (snapdragon.games)
 # Build chain: cargo → godot export → mvn package → ng build
 #
 # Prerequisites:

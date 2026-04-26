@@ -193,7 +193,7 @@ def _make_cover(pres, title, subtitle, kicker, audience):
                  text=f"Audience: {audience}",
                  size=12, color=MUTED, font="Calibri")
     _add_textbox(slide, Inches(0.8), Inches(6.7), Inches(11), Inches(0.5),
-                 text="Snapdragon Games  |  github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+                 text="Snapdragon Games  |  github.com/snapdragon-games/portal",
                  size=12, color=MUTED, font="Calibri")
     return slide
 
@@ -346,7 +346,7 @@ def _make_closing(pres, title, body_lines, links):
                            space_before=4)
 
     _add_textbox(slide, Inches(0.8), Inches(7.0), Inches(11.6), Inches(0.4),
-                 text="github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+                 text="github.com/snapdragon-games/portal",
                  size=12, color=MUTED, font="Calibri")
 
 

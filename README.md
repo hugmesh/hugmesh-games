@@ -12,8 +12,8 @@ The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cav
 
 | Resource | Link |
 |---|---|
-| Issue Tracker | [ThreeWizardsInATrenchcoat/issues](https://github.com/Nin-Crowley/ThreeWizardsInATrenchcoat/issues) |
-| Pull Requests | [ThreeWizardsInATrenchcoat/pulls](https://github.com/Nin-Crowley/ThreeWizardsInATrenchcoat/pulls) |
+| Issue Tracker | [snapdragon-games/portal/issues](https://github.com/snapdragon-games/portal/issues) |
+| Pull Requests | [snapdragon-games/portal/pulls](https://github.com/snapdragon-games/portal/pulls) |
 | Godot developer guide | [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md) |
 
 ---
@@ -1626,7 +1626,7 @@ Keyboard input works both from the Angular page and from inside the Godot canvas
 ## Project structure
 
 ```
-ThreeWizardsInATrenchcoat/
+portal/                                   # Snapdragon Games portal repo
 ├── Makefile                              # Master build + seed-db + e2e + e2e-native
 ├── scripts/
 │   ├── patch-godot-html.py              # Patches WASM sizes + scene prefetch

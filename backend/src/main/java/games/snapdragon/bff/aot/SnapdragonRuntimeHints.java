@@ -26,7 +26,7 @@ import org.springframework.lang.Nullable;
  * canonical-constructor introspection at runtime), and the Liquibase
  * changelog files which are XML resources resolved at runtime.
  *
- * <p>Wired via {@code @ImportRuntimeHints} on {@link games.snapdragon.bff.SnapdragonBffApplication}.
+ * <p>Wired via {@code @ImportRuntimeHints} on {@link games.snapdragon.bff.SnapdragonGamesBffApplication}.
  *
  * <p>Phase-2 plan: docs/PLAN-module-federation-and-native.md (section D).
  */

@@ -175,7 +175,7 @@ CLOSING = {
         "Every contract here is enforced by tests; if you stay inside the lines, the home page will pick your game up.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat",
+        "Repo: github.com/snapdragon-games/portal",
         "Godot guide: docs/GODOT_DEVELOPER_GUIDE.md",
         "Architecture PDF: make docs-pdf",
     ],
