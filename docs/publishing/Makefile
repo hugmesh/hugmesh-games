@@ -27,23 +27,26 @@ BACKEND_DIR   := $(ROOT)/../../backend
 PDF           := $(BUILD_DIR)/architecture.pdf
 
 .PHONY: all pdf slides javadocs clean help \
-        venv pdf-once \
+        venv pdf-once diagrams screenshots userguides \
         slides-intro slides-admin slides-godot \
         slides-fullstack slides-maintainer slides-data-architect
 
 help:
 	@echo "Snapdragon Games publishing pipeline"
 	@echo ""
-	@echo "  make pdf        — typeset architecture/architecture.tex"
-	@echo "  make slides     — generate three .pptx decks"
-	@echo "  make javadocs   — themed Javadoc HTML for the BFF"
-	@echo "  make all        — pdf + slides + javadocs"
-	@echo "  make clean      — remove every produced artefact"
+	@echo "  make diagrams    — render every TikZ diagram + marble to PNG"
+	@echo "  make screenshots — capture UI screenshots (Selenium; falls back"
+	@echo "                     to placeholders if compose isn't reachable)"
+	@echo "  make pdf         — typeset architecture/architecture.tex"
+	@echo "  make slides      — generate six .pptx decks (with diagrams)"
+	@echo "  make userguides  — six user-guide PDFs (one per deck)"
+	@echo "  make javadocs    — themed Javadoc HTML for the BFF"
+	@echo "  make all         — everything above, in dependency order"
+	@echo "  make clean       — remove every produced artefact"
 	@echo ""
-	@echo "  Artefacts: $(BUILD_DIR), $(SLIDES_BUILD), $(JAVADOC_OUT)"
 	@echo "  All output paths are git-ignored."
 
-all: pdf slides javadocs
+all: diagrams screenshots pdf slides userguides javadocs
 
 # ── LaTeX architecture PDF ────────────────────────────────────────────────
 pdf: $(PDF)
@@ -136,7 +139,31 @@ javadocs:
 	fi
 	@echo "✓ $(JAVADOC_OUT)/index.html"
 
+# ── Rendered diagrams (PNG) ───────────────────────────────────────────────
+# Compile every TikZ diagram + marble standalone and convert to PNG so
+# python-pptx (slides) and the user-guide LaTeX builds can embed them
+# directly. Output is git-ignored.
+diagrams:
+	$(ROOT)/diagrams-rendered/render-all.sh
+
+# ── Screenshots (Selenium) ────────────────────────────────────────────────
+# Captures the live UI through a headless browser. Falls back to branded
+# placeholder PNGs if the compose stack isn't reachable, so the rest of
+# the publishing pipeline always succeeds.
+screenshots: venv
+	$(PYTHON) $(ROOT)/screenshots/capture.py
+
+# ── User-guide PDFs (one per deck) ────────────────────────────────────────
+# Six standalone LaTeX PDFs, sharing the architecture-PDF theme via
+# TEXINPUTS. Each guide embeds the rendered diagrams (and the screenshots
+# when present) so the user-guides depend on `diagrams` having run.
+userguides: diagrams
+	$(ROOT)/userguides/build-all.sh
+
 # ── Clean ─────────────────────────────────────────────────────────────────
 clean:
-	rm -rf $(BUILD_DIR) $(SLIDES_BUILD) $(JAVADOC_OUT)
+	rm -rf $(BUILD_DIR) $(SLIDES_BUILD) $(JAVADOC_OUT) \
+	       $(ROOT)/diagrams-rendered/build \
+	       $(ROOT)/screenshots/build \
+	       $(ROOT)/userguides/*/build
 	@echo "✓ removed publishing artefacts"

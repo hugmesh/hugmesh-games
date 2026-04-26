@@ -24,13 +24,13 @@ SECTIONS = [
     {
         "title": "Health checks at a glance",
         "body": [
-            "docker compose ps            — every service should be `healthy` (not `up`, that's not enough).",
-            "curl /api/actuator/health    — Spring Boot health composite. Returns DOWN if any subsystem is.",
-            "curl /api/federation/manifest — proves the host can fetch the import map. 200 with a non-empty `remotes` list.",
-            "curl /api/game/stream        — should hold open with `ping` keepalives every 15 s.",
-            "Casdoor is internal — there is no public endpoint to curl. Check via `docker compose logs casdoor`.",
+            "docker compose ps — every service `healthy`, not just `up`.",
+            "curl /api/actuator/health — Spring Boot composite.",
+            "curl /api/federation/manifest — proves host import map fetch.",
+            "curl /api/game/stream — holds open with 15 s keepalive.",
+            "Casdoor is internal — check via `docker compose logs casdoor`.",
         ],
-        "dark": True,
+        "image": "diagram:topology",
     },
     {
         "title": "Runbook 1: BFF flapping",
@@ -46,12 +46,13 @@ SECTIONS = [
     {
         "title": "Runbook 2: SSE silently drops",
         "body": [
-            "Symptom: HUD freezes mid-game; no errors in the BFF log.",
-            "Cause 99% of the time: a Sinks.many() got autoCancel=true (default).",
-            "Diagnosis: grep the relevant service for `Sinks.many` and verify every call passes `autoCancel=false`.",
-            "Workaround: restart the BFF (kills sinks, forces re-subscribe). The fix lives in the source.",
-            "If the sink was added in the last commit, suspect that commit first.",
+            "Symptom: HUD freezes mid-game; no errors in BFF log.",
+            "Cause 99% of the time: a Sinks.many() got autoCancel=true.",
+            "Diagnosis: grep `Sinks.many` for missing autoCancel=false.",
+            "Workaround: restart BFF (forces re-subscribe).",
+            "If added in last commit, suspect that commit first.",
         ],
+        "image": "diagram:game-stream-controller",
     },
     {
         "title": "Runbook 3: Federated route 500s",

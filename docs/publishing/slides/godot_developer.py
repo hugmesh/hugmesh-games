@@ -94,13 +94,14 @@ SECTIONS = [
     {
         "title": "Step 5b (option B): Upload through admin",
         "body": [
-            "In the Godot editor, Project → Tools → Snapdragon → Export…",
-            "Fill in slug, display name, description, scene type, optional remote_entry_url.",
-            "Click Export. The plugin writes a zip to your chosen path.",
-            "Visit /admin/games on the live stack, drag the zip into the Upload card.",
-            "The BFF validates manifest schema v2, hashes the bundle, atomically moves to <gamesDir>/<slug>/<sha-prefix>, and runs register.sql in one tx.",
-            "The host's federation manifest discovers the new game on the next 60 s refresh.",
+            "Godot: Project → Tools → Snapdragon → Export…",
+            "Fill in slug, name, description, scene type.",
+            "Export. Plugin writes a zip to your chosen path.",
+            "Visit /admin/games, drag zip into Upload card.",
+            "BFF validates schema v2, hashes, atomically moves, runs register.sql.",
+            "Federation manifest discovers on next 60 s refresh.",
         ],
+        "image": "diagram:game-upload-controller",
     },
     {
         "title": "manifest.json (schema v2)",

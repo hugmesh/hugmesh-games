@@ -18,6 +18,9 @@
 \RequirePackage{xcolor}
 \RequirePackage[T1]{fontenc}
 \RequirePackage{csquotes}
+\RequirePackage{tabularx}
+\RequirePackage{booktabs}
+\RequirePackage{array}
 \RequirePackage{tikz}
 \RequirePackage{tcolorbox}
 \RequirePackage{titlesec}
@@ -45,54 +48,60 @@
 \definecolor{snapCodeBg}{HTML}{F4F2FA}
 \definecolor{snapCodeBorder}{HTML}{E0DCEE}
 
-% ── Page geometry ─────────────────────────────────────────────────────────
-\geometry{
-  paperwidth=210mm,paperheight=297mm,
-  inner=22mm,outer=22mm,top=24mm,bottom=24mm,
-  headsep=10mm,footskip=14mm,
+% ── Page geometry / headers / titles ─────────────────────────────────────
+% Only meaningful in a multi-page document; the standalone class used to
+% render individual diagrams as PNGs has no chapter machinery and would
+% blow up on \renewcommand{\chaptermark}. Gate everything in this block
+% on the host being a book/report-style class.
+\@ifundefined{chapter}{}{%
+  \geometry{
+    paperwidth=210mm,paperheight=297mm,
+    inner=22mm,outer=22mm,top=24mm,bottom=24mm,
+    headsep=10mm,footskip=14mm,
+  }
+  \pagestyle{fancy}
+  \fancyhf{}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0pt}
+  \fancyhead[LE,RO]{\small\color{snapMuted}\thepage}
+  \fancyhead[RE,LO]{\small\color{snapMuted}\nouppercase{\leftmark}}
+  \fancyfoot[C]{\small\color{snapMuted}Snapdragon Games --- Architecture Reference}
+
+  \renewcommand{\chaptermark}[1]{\markboth{#1}{}}
+  \renewcommand{\sectionmark}[1]{\markright{#1}{}}
+
+  \titleformat{\chapter}[display]
+    {\sffamily\bfseries\color{snapAccent}\fontsize{38}{42}\selectfont}
+    {\color{snapAccentDim}\normalsize\textsf{CHAPTER \thechapter}}
+    {12pt}
+    {\color{snapText}}
+    [\vspace{4pt}\textcolor{snapAccent}{\rule{0.35\linewidth}{1.5pt}}]
+  \titlespacing*{\chapter}{0pt}{-8pt}{36pt}
+
+  \titleformat{\section}
+    {\sffamily\bfseries\color{snapAccent}\Large}
+    {\thesection}{1em}{}
+  \titleformat{\subsection}
+    {\sffamily\bfseries\color{snapText}\large}
+    {\thesubsection}{1em}{}
 }
-
-% ── Headers / footers ─────────────────────────────────────────────────────
-\pagestyle{fancy}
-\fancyhf{}
-\renewcommand{\headrulewidth}{0pt}
-\renewcommand{\footrulewidth}{0pt}
-\fancyhead[LE,RO]{\small\color{snapMuted}\thepage}
-\fancyhead[RE,LO]{\small\color{snapMuted}\nouppercase{\leftmark}}
-\fancyfoot[C]{\small\color{snapMuted}Snapdragon Games — Architecture Reference}
-
-% Reset \chaptermark / \sectionmark to use sentence case
-\renewcommand{\chaptermark}[1]{\markboth{#1}{}}
-\renewcommand{\sectionmark}[1]{\markright{#1}{}}
-
-% ── Section titles ────────────────────────────────────────────────────────
-% titlesec for chapters: number on its own line, accent rule under the title.
-\titleformat{\chapter}[display]
-  {\sffamily\bfseries\color{snapAccent}\fontsize{38}{42}\selectfont}
-  {\color{snapAccentDim}\normalsize\textsf{CHAPTER \thechapter}}
-  {12pt}
-  {\color{snapText}}
-  [\vspace{4pt}\textcolor{snapAccent}{\rule{0.35\linewidth}{1.5pt}}]
-\titlespacing*{\chapter}{0pt}{-8pt}{36pt}
-
-\titleformat{\section}
-  {\sffamily\bfseries\color{snapAccent}\Large}
-  {\thesection}{1em}{}
-\titleformat{\subsection}
-  {\sffamily\bfseries\color{snapText}\large}
-  {\thesubsection}{1em}{}
 
 % ── Hyperlink color ───────────────────────────────────────────────────────
 % (hyperref is loaded in the main file with the right options; we just set
 % colors here so the package is loaded once at the right time.)
+% \hypersetup only matters when hyperref is loaded — the architecture
+% PDF loads it; the standalone wrapper used to render individual
+% diagrams to PNG does not. Gate so the theme can ship into both.
 \AtBeginDocument{%
-  \hypersetup{%
-    colorlinks=true,
-    linkcolor=snapAccent,
-    citecolor=snapAccent,
-    urlcolor=snapAccent,
-    pdfborder={0 0 0},
-  }%
+  \@ifpackageloaded{hyperref}{%
+    \hypersetup{%
+      colorlinks=true,
+      linkcolor=snapAccent,
+      citecolor=snapAccent,
+      urlcolor=snapAccent,
+      pdfborder={0 0 0},
+    }%
+  }{}%
 }
 
 % ── Code listings ─────────────────────────────────────────────────────────
@@ -249,6 +258,113 @@
 % individual chapters can opt out via {\fussy ...} if they need a tighter
 % setting for a specific block.
 \setlength{\emergencystretch}{3em}
+
+% Marble-diagram styles. Used to visualise a Project Reactor / RxJava-
+% style chain on a controller method: the upstream Mono/Flux is a time
+% line, concrete value "marbles" carry the Java type as a label, an
+% operator box transforms the line, and the downstream is another line.
+% Each *kind* of value uses a DISTINCT marble shape so a reader can
+% scan the diagram and infer reactor topology at a glance:
+%
+%   circle    — Mono<T> / single value
+%   square    — Flux<T> element (one of N events)
+%   pentagon  — ServerSentEvent (web-tier emission)
+%   hexagon   — R2DBC transactional unit / DB-touching value
+%   triangle  — control / signal (e.g. movement event, keepalive)
+%   star      — onError / failure marble
+%   bar       — onComplete sentinel (a thin filled rectangle)
+%
+% The colour stays in the brand purple family; only shape varies.
+% A \snapmarblelegend below each diagram explains what each shape +
+% type means in the *specific* controller's chain (the legend lists
+% the relevant fields/flags of the carried object).
+\usetikzlibrary{shapes.geometric,shapes.symbols}
+
+\tikzset{
+  marbleline/.style={
+    -{Stealth[length=2.2mm]},
+    snapAccentDim,line width=0.6pt,
+  },
+  % Common base — every marble shares colour, line, font, label sizing.
+  marble@base/.style={
+    draw=snapAccentDim,fill=snapAccent!18,
+    line width=0.5pt,inner sep=0pt,
+    minimum size=5.8mm,
+    font=\sffamily\bfseries\scriptsize,text=snapText,
+  },
+  % Per-shape variants
+  marbleMono/.style    ={marble@base,circle},
+  marbleFlux/.style    ={marble@base,rectangle},
+  marbleSSE/.style     ={marble@base,regular polygon,regular polygon sides=5},
+  marbleTx/.style      ={marble@base,regular polygon,regular polygon sides=6,
+                          minimum size=6.4mm},
+  marbleSig/.style     ={marble@base,isosceles triangle,
+                          isosceles triangle apex angle=60,
+                          shape border rotate=90,minimum size=4.8mm},
+  marbleErr/.style     ={marble@base,star,star points=5,
+                          fill=red!18,draw=red!70!black,minimum size=6mm},
+  marbleDone/.style    ={marble@base,rectangle,minimum width=1.6mm,
+                          minimum height=5.6mm,fill=snapAccentDim},
+  % Operator box: a labelled rounded rectangle between two lines.
+  marbleop/.style={
+    draw=snapAccent,fill=snapAccent!8,line width=0.6pt,
+    rounded corners=2pt,
+    minimum height=8mm,minimum width=24mm,inner sep=4pt,
+    font=\sffamily\small,text=snapAccentDim,align=center,
+  },
+  % Optional caption above a marble — the concrete instance type, e.g.
+  % "Mono<UploadRequest>" or just the field that varies (slug=test-fixture).
+  marbletype/.style={
+    font=\sffamily\scriptsize\itshape,text=snapAccentDim,
+    inner sep=1pt,
+  },
+  marbleaxis/.style={
+    font=\sffamily\scriptsize\bfseries,text=snapMuted,
+    anchor=east,inner sep=2pt,
+  },
+}
+
+% \snapmarbleline{coord-prefix}{y}{axis label}{x-start}{x-end}
+% Draws one horizontal time line with an axis caption on its left.
+\newcommand{\snapmarbleline}[5]{%
+  \node[marbleaxis] at (#4-6mm,#2) {#3};%
+  \draw[marbleline] (#4,#2) -- (#5,#2);%
+  \coordinate (#1-start) at (#4,#2);%
+  \coordinate (#1-end)   at (#5,#2);%
+}
+
+% \snapmarblelegend{ rows }
+%
+% Renders a legend table directly below a marble diagram. Each row
+% pairs a shape (rendered as a tiny inline tikzpicture) with the
+% object name and the fields/flags carried by that marble. Use as:
+%
+%   \snapmarblelegend{
+%     marbleMono & UploadRequest & file: MultipartFile · casdoorUserId · contentLength \\
+%     marbleTx   & InstalledBundle & slug · contentHash · versionDir · uploadedAt · supersededAt \\
+%     marbleErr  & UploadException & status (4xx/5xx) · cause · slug \\
+%   }
+\newcommand{\snapmarbleshape}[1]{%
+  \tikz[baseline=-0.6ex]{\node[#1,minimum size=3.6mm,font=\tiny] {};}%
+}
+\newcommand{\snapmarblelegend}[1]{%
+  \par\smallskip
+  \begingroup\small
+  \setlength{\tabcolsep}{4pt}%
+  % tabularx with X column lets the "Relevant fields / flags" cell wrap
+  % to whatever width remains after the fixed shape + object columns,
+  % which keeps the legend inside textwidth even with verbose field
+  % lists. \arraybackslash so \\ still works as a row separator inside X.
+  \begin{tabularx}{\linewidth}{@{}c l >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    \textbf{Shape} & \textbf{Object} & \textbf{Relevant fields / flags} \\
+    \midrule
+    #1
+    \bottomrule
+  \end{tabularx}
+  \endgroup
+  \par\smallskip
+}
 
 % \snapdiagram{path/to/figure.tex}
 %

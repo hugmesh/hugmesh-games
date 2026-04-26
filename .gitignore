@@ -69,3 +69,12 @@ docs/publishing/slides/build/
 docs/publishing/javadoc-output/
 docs/publishing/scripts/pre-push.sample
 docs/publishing/slides/__pycache__/
+
+# Rendered TikZ diagrams + marble PNGs (regenerated from the .tex sources).
+docs/publishing/diagrams-rendered/build/
+
+# Selenium-captured UI screenshots (or placeholder PNGs when compose is down).
+docs/publishing/screenshots/build/
+
+# Per-guide build outputs.
+docs/publishing/userguides/*/build/

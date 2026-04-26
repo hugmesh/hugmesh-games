@@ -8,6 +8,21 @@ descriptions, and full HTTP examples. The Javadoc is rebuilt by
 \snapcommand{make docs-javadocs} and is themed to match this document
 (see \snapfile{docs/publishing/javadoc-theme/snapdragon.css}).
 
+\bigskip
+
+The reactive controllers below carry a \emph{marble diagram} showing
+their Project Reactor chain. Marbles use distinct shapes for distinct
+runtime types so the topology is readable at a glance:
+\snapmarbleshape{marbleMono}~\texttt{Mono<T>} value,
+\snapmarbleshape{marbleFlux}~\texttt{Flux<T>} element,
+\snapmarbleshape{marbleSSE}~\texttt{ServerSentEvent} (HTTP-tier emission),
+\snapmarbleshape{marbleTx}~persistence-tier value (R2DBC row / post-tx),
+\snapmarbleshape{marbleSig}~control / signal,
+\snapmarbleshape{marbleErr}~error,
+\snapmarbleshape{marbleDone}~\texttt{onComplete}. Each diagram's legend
+lists the carried object's relevant fields and flags so a reader can
+cross-reference the chain with the BFF source code.
+
 \section{Public surface}
 
 \subsection{\texttt{AuthController} — \texttt{/api/auth}}
@@ -21,6 +36,18 @@ Public reverse-proxy of the Casdoor login flow.
         from the bearer token.
 \end{itemize}
 
+\snapdiagram{marbles/auth-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{TokenExchangeRequest}
+    & \texttt{code} (Casdoor authorization code) {\rm $\cdot$} \texttt{redirectUri} {\rm $\cdot$} \texttt{state} (CSRF echo). \\
+  \snapmarbleshape{marbleSSE}  & Upstream JSON
+    & raw Casdoor response: \texttt{access\_token}, \texttt{token\_type}, \texttt{expires\_in}, \texttt{refresh\_token}. \\
+  \snapmarbleshape{marbleMono} & \texttt{TokenResponse}
+    & decoded DTO: \texttt{accessToken}, \texttt{expiresAt} (Instant), \texttt{refreshToken}, \texttt{casdoorUserId}. \\
+  \snapmarbleshape{marbleDone} & \texttt{onComplete}
+    & terminal: a single value plus completion. The host writes it to \texttt{sessionStorage.tw\_auth}. \\
+}
+
 \subsection{\texttt{GameStreamController} — \texttt{/api/game}}
 Public SSE merge stream.
 
@@ -29,6 +56,22 @@ Public SSE merge stream.
         (\texttt{movement}, \texttt{world}, \texttt{character},
         \texttt{time}, \texttt{scene}) plus a 15-second keepalive.
 \end{itemize}
+
+\snapdiagram{marbles/game-stream-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleFlux} & \texttt{PlayerMovement}
+    & \texttt{characterId} {\rm $\cdot$} \texttt{x,y,z} {\rm $\cdot$} \texttt{rotationY} {\rm $\cdot$} \texttt{action} {\rm $\cdot$} \texttt{pressed} (bool) {\rm $\cdot$} \texttt{tick}. \\
+  \snapmarbleshape{marbleFlux} & \texttt{WorldEvent}
+    & \texttt{type} (\texttt{spawn}/\texttt{despawn}/\texttt{transition}) {\rm $\cdot$} \texttt{payload} (Map). \\
+  \snapmarbleshape{marbleFlux} & \texttt{CharacterEvent}
+    & \texttt{characterId} {\rm $\cdot$} \texttt{hp}, \texttt{mp}, \texttt{xp} {\rm $\cdot$} \texttt{flags}: \texttt{stunned}, \texttt{burning}, \texttt{frozen}. \\
+  \snapmarbleshape{marbleFlux} & \texttt{GameTimeTick}
+    & \texttt{day} {\rm $\cdot$} \texttt{hour} {\rm $\cdot$} \texttt{minute} {\rm $\cdot$} \texttt{phase} (\texttt{day}/\texttt{dusk}/\texttt{night}/\texttt{dawn}). \\
+  \snapmarbleshape{marbleSig}  & ping (15-second keepalive)
+    & no payload — fires the moment the subscribe lands so \texttt{onopen} flushes. \\
+  \snapmarbleshape{marbleSSE}  & \texttt{ServerSentEvent}
+    & merged downstream: \texttt{event} (the channel name) {\rm $\cdot$} \texttt{data} (JSON of the source value) {\rm $\cdot$} \texttt{id} (sequence). \\
+}
 
 \subsection{\texttt{GameController} — \texttt{/api/games}}
 Public game catalog (filtered by \texttt{game\_access} when a JWT is
@@ -49,6 +92,16 @@ Public per-level metadata and scene DTOs.
         \texttt{SceneDto} that \snapfile{scene_loader.gd} consumes.
 \end{itemize}
 
+\snapdiagram{marbles/level-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{Level} (catalog row)
+    & \texttt{id} {\rm $\cdot$} \texttt{slug} {\rm $\cdot$} \texttt{sceneType} {\rm $\cdot$} \texttt{assetUrl} {\rm $\cdot$} \texttt{gameId} (FK) {\rm $\cdot$} \texttt{sceneConfig} (JSON). \\
+  \snapmarbleshape{marbleTx}   & \texttt{SceneElement} (one DB row per spawn)
+    & \texttt{elementType} (\texttt{fairy}/\texttt{torch}/...) {\rm $\cdot$} \texttt{positionX,Y,Z} {\rm $\cdot$} \texttt{properties} (JSON) {\rm $\cdot$} \texttt{sortOrder}. \\
+  \snapmarbleshape{marbleMono} & \texttt{SceneDto}
+    & \texttt{levelId} {\rm $\cdot$} \texttt{sceneType} {\rm $\cdot$} \texttt{elements: List<ElementDto>} (the Godot \texttt{scene\_loader} reads this directly). \\
+}
+
 \subsection{\texttt{LevelAssetController} — \texttt{/api/levels/\{id\}/assets}}
 Public per-level asset registry — \texttt{POST} to register, \texttt{GET}
 to list, \texttt{GET /\{label\}} to resolve.
@@ -62,6 +115,18 @@ Session-validated control event ingestion. The session check is enforced
 through the JWT subject; the legacy \texttt{X-Casdoor-Id} header path is
 gone.
 
+\snapdiagram{marbles/control-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleSig}  & \texttt{ControlEvent}
+    & \texttt{characterId} (path var) {\rm $\cdot$} \texttt{sessionId} (header) {\rm $\cdot$} \texttt{action} (\texttt{move}/\texttt{cast}/\texttt{interact}) {\rm $\cdot$} \texttt{x,y} {\rm $\cdot$} \texttt{pressed} (bool) {\rm $\cdot$} \texttt{spellSlot}? . \\
+  \snapmarbleshape{marbleTx}   & persisted row
+    & \texttt{controls} table: same fields plus \texttt{persistedAt} (Instant) and the unique \texttt{(characterId, sessionId)} constraint. \\
+  \snapmarbleshape{marbleFlux} & sink emission
+    & a copy of the persisted row pushed onto \texttt{GameStateService.movementSink} so every connected SSE subscriber sees it. \\
+  \snapmarbleshape{marbleErr}  & \texttt{Forbidden403}
+    & raised by \texttt{filterWhen} when the JWT subject isn't the controller-role holder for that session; never reaches the sink. \\
+}
+
 \subsection{\texttt{FederationController} — \texttt{/api/federation}}
 Public federation manifest.
 
@@ -70,6 +135,16 @@ Public federation manifest.
         from \texttt{federation\_modules}, ordered by
         \texttt{kind}/\texttt{slug}.
 \end{itemize}
+
+\snapdiagram{marbles/federation-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleTx}   & \texttt{FederationModule} (Postgres row)
+    & \texttt{slug} {\rm $\cdot$} \texttt{kind} (\texttt{remote-shell} / \texttt{remote-game} / \texttt{fragment}) {\rm $\cdot$} \texttt{remoteEntryUrl} {\rm $\cdot$} \texttt{exposedModule} {\rm $\cdot$} \texttt{enabled} (bool). \\
+  \snapmarbleshape{marbleMono} & \texttt{FederationRemoteDto}
+    & + \texttt{displayName} {\rm $\cdot$} \texttt{version} {\rm $\cdot$} \texttt{metadata} (Map); ordered by \texttt{kind, slug}. \\
+  \snapmarbleshape{marbleMono} & \texttt{ManifestResponse}
+    & \texttt{generatedAt} (Instant, ISO-8601) {\rm $\cdot$} \texttt{remotes: List<FederationRemoteDto>}; consumed by the host shell BEFORE \texttt{bootstrapApplication}. \\
+}
 
 \section{Authenticated surface}
 
@@ -107,6 +182,18 @@ on the \texttt{time} channel.
         force-terminate.
 \end{itemize}
 
+\snapdiagram{marbles/game-launch-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{LaunchPayload}
+    & \texttt{slug} (path var) {\rm $\cdot$} \texttt{casdoorUserId} (JWT) {\rm $\cdot$} \texttt{sessionId} (header). \\
+  \snapmarbleshape{marbleMono} & \texttt{LaunchDraft}
+    & + \texttt{uid} (256-bit URL-safe) {\rm $\cdot$} \texttt{expiresAt = now + 15 min} {\rm $\cdot$} \texttt{version\_dir = NULL} (yet). \\
+  \snapmarbleshape{marbleMono} & version-pinned draft
+    & \texttt{LaunchDraft} merged with \texttt{games.current\_version\_dir} so the row is reproducible after a hot upload. \\
+  \snapmarbleshape{marbleTx}   & \texttt{LaunchResponse}
+    & post-commit row: \texttt{uid} {\rm $\cdot$} \texttt{gameSlug} {\rm $\cdot$} \texttt{expiresAt} {\rm $\cdot$} \texttt{versionDir}; threaded into the iframe URL as \texttt{?launch\_uid=...} . \\
+}
+
 \section{Admin-only surface}
 
 \subsection{\texttt{AdminController} — \texttt{/api/admin}}
@@ -125,6 +212,22 @@ Admin dashboard data: per-user stats, active sessions, recent uploads.
   \item \texttt{GET /api/admin/games/\{slug\}/uploads} — rollback history,
         newest first; \texttt{supersededAt = NULL} marks the current.
 \end{itemize}
+
+\snapdiagram{marbles/game-upload-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleMono} & \texttt{UploadRequest}
+    & \texttt{file} (MultipartFile, the zip) {\rm $\cdot$} \texttt{casdoorUserId} (from JWT) {\rm $\cdot$} \texttt{contentLength}. \\
+  \snapmarbleshape{marbleMono} & \texttt{ValidatedZip}
+    & \texttt{manifestJson} (schema\_v=2) {\rm $\cdot$} \texttt{slug} (regex \texttt{[a-z0-9-]+}) {\rm $\cdot$} \texttt{registerSql} {\rm $\cdot$} \texttt{flag}: \texttt{zipSlipSafe=true}. \\
+  \snapmarbleshape{marbleMono} & \texttt{StagedBundle}
+    & \texttt{slug} {\rm $\cdot$} \texttt{contentHash} (SHA-256, 64-char hex) {\rm $\cdot$} \texttt{stagedDir} (\texttt{<gamesDir>/<slug>/<sha-prefix>}). \\
+  \snapmarbleshape{marbleTx}   & \texttt{InstalledBundle} (post-commit)
+    & \texttt{slug} {\rm $\cdot$} \texttt{contentHash} {\rm $\cdot$} \texttt{versionDir} {\rm $\cdot$} \texttt{uploadedAt} {\rm $\cdot$} \texttt{supersededAt = NULL}. \\
+  \snapmarbleshape{marbleErr}  & \texttt{UploadException}
+    & \texttt{status} (\texttt{400}/\texttt{409}/\texttt{500}) {\rm $\cdot$} \texttt{reason} {\rm $\cdot$} \texttt{slug} (if known); rolls back the tx + on-disk move. \\
+  \snapmarbleshape{marbleDone} & \texttt{onComplete}
+    & terminal: response carries the four \texttt{InstalledBundle} fields and HTTP 200. \\
+}
 
 \subsection{\texttt{GameAccessController} — \texttt{/api/admin/games}}
 

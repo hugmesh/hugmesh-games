@@ -28,14 +28,14 @@ SECTIONS = [
     {
         "title": "The compose stack",
         "body": [
-            "frontend            — host nginx + Angular host bundle",
-            "login, admin        — federated route remotes (per-remote nginx)",
-            "games-three-wizards, games-dodecahedron — federated game remotes",
-            "wasm-fragment       — asset-tier nginx that serves Godot bundles",
-            "api                 — Spring Boot BFF (or `api-native` overlay for the native image)",
+            "frontend  — host nginx + Angular host bundle",
+            "login, admin — federated route remotes",
+            "games-three-wizards, games-dodecahedron — federated games",
+            "wasm-fragment — asset-tier nginx for Godot bundles",
+            "api — Spring Boot BFF (or api-native overlay)",
             "postgres, cassandra, casdoor — persistence + identity",
         ],
-        "code": "docker compose ps   →   12 services, all `healthy` is the target.",
+        "image": "diagram:topology",
     },
     {
         "title": "Bringing the stack up",
@@ -71,13 +71,13 @@ SECTIONS = [
     {
         "title": "Hot-uploading a game",
         "body": [
-            "1. Get a Snapdragon Export zip from the game developer (or build it yourself with the editor plugin).",
-            "2. /admin/games → Upload game bundle → choose zip → Upload.",
-            "3. The install transaction validates manifest schema v2, hashes the bundle, atomically moves to <gamesDir>/<slug>/<sha-prefix>, and runs register.sql in one Postgres transaction.",
-            "4. The host's federation manifest discovers the new game on the next refresh (within 60 s).",
+            "1. Snapdragon Export zip from the game developer.",
+            "2. /admin/games → Upload bundle → Upload.",
+            "3. Install tx validates schema v2, hashes, moves to versioned dir, runs register.sql atomically.",
+            "4. Federation manifest discovers the new game on next refresh (within 60 s).",
             "5. New title appears on the home page automatically.",
         ],
-        "code": "POST /api/admin/games/upload   →   {slug, contentHash, versionDir, uploadedAt}",
+        "image": "diagram:game-upload-controller",
     },
     {
         "title": "Rollback",

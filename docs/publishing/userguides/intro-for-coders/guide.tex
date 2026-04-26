@@ -1,0 +1,183 @@
+\documentclass[11pt,a4paper,openany]{book}
+\input{userguide-preamble}
+
+\hypersetup{
+  pdftitle={Snapdragon Games — Intro for coders},
+  pdfauthor={Snapdragon Systems},
+  pdfsubject={Entry-level orientation for the Snapdragon Games portal},
+}
+
+\begin{document}
+
+% ── Cover ─────────────────────────────────────────────────────────────────
+\begin{titlepage}
+\thispagestyle{empty}
+\noindent\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \fill[snapAccent,opacity=0.18] ([yshift=-0\paperheight]current page.north west) circle (8cm);
+  \fill[snapAccentTwo,opacity=0.10] ([xshift=4cm,yshift=-2cm]current page.north west) circle (5cm);
+\end{tikzpicture}
+\vspace*{4cm}\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Intro for coders}\par}
+\vspace{1.5cm}
+\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+\vspace{0.8cm}
+\noindent
+{\sffamily\color{white!85}\large
+A 12-section orientation to the federated portal: where code lives,
+how a click reaches a frame, and the small set of patterns that hold
+the stack together.}
+\vfill\noindent
+{\sffamily\color{white!70}\small
+User guide companion to \texttt{intro-for-coders.pptx}.\\
+Generated: \today}
+\end{titlepage}
+
+\frontmatter
+\pagestyle{empty}
+\tableofcontents
+\clearpage
+\mainmatter
+\pagestyle{fancy}
+
+% ── Chapter 1 ─────────────────────────────────────────────────────────────
+\chapter{What is Snapdragon Games?}
+A browser-native portal that hosts multiple Godot 4 games on one page.
+The Angular shell wraps each game with HUD, login, admin; a Spring Boot
+BFF streams game state and controls over Server-Sent Events. PostgreSQL
+holds the catalog and player state, Cassandra is the cross-pod movement
+cache and audit log, and Casdoor handles OAuth2/OIDC behind a federated
+login remote.
+
+The portal is delivered as one \texttt{docker compose} stack of
+roughly twelve containers: a host shell, four federated route or game
+remotes, an asset-tier nginx for the WASM bundles, the BFF, two
+databases, the identity provider, and a few init containers.
+
+\section{Three sentences}
+The host shell is a native-federation Angular host that loads its
+\texttt{login}, \texttt{admin}, and per-game routes from sibling bundles
+served by per-remote nginx containers. The BFF runs on Spring Boot 3.4
+WebFlux + R2DBC + JDBC, exposes the SSE stream, the federation manifest,
+the upload pipeline, and the per-game launch / access endpoints, and
+persists state in Postgres with a Cassandra cache. Each Godot game
+lives in its own project under \snapfile{games/<slug>/}, exports a
+self-contained WASM bundle, and is delivered to the browser through
+the dedicated \texttt{wasm-fragment} nginx remote with the COOP/COEP/CORP
+headers WASM games need.
+
+\section{Three-tier topology}
+\snapdiagram{topology.tex}
+
+% ── Chapter 2 ─────────────────────────────────────────────────────────────
+\chapter{Where the code lives}
+\begin{itemize}
+  \item \snapfile{frontend/} — Angular host (one project).
+  \item \snapfile{frontend/projects/} — the four federated remotes
+        (\texttt{login}, \texttt{admin}, \texttt{games-three-wizards},
+        \texttt{games-dodecahedron}).
+  \item \snapfile{wasm-fragment/} — asset-tier nginx that serves Godot
+        bundles.
+  \item \snapfile{backend/} — Spring Boot BFF (WebFlux + R2DBC).
+  \item \snapfile{games/<slug>/} — one Godot project per game.
+  \item \snapfile{extensions/snapdragon-bridge/} — reusable Rust
+        GDExtension (native + WASM).
+  \item \snapfile{infra/}, \snapfile{casdoor/}, \snapfile{e2e/} — init
+        containers, identity config, end-to-end tests.
+\end{itemize}
+
+% ── Chapter 3 ─────────────────────────────────────────────────────────────
+\chapter{How a player click reaches a frame}
+\snapdiagram{runtime-flow.tex}
+
+\begin{enumerate}
+  \item The host's \snapfile{HomeComponent} reads \texttt{SCENE\_TYPE\_TO\_GAME\_SLUG}
+        and forks the renderer based on the active level's scene type.
+  \item Federated games \texttt{POST /api/games/\{slug\}/launch} to
+        mint a 256-bit URL-safe \texttt{launch\_uid}.
+  \item \texttt{RemoteLoaderService} loads the matching per-game remote
+        through \texttt{globalThis.\_\_SNAPDRAGON\_LOAD\_REMOTE\_MODULE\_\_}.
+  \item The remote mounts a Web Component that builds the iframe URL.
+  \item \texttt{wasm-fragment} serves \texttt{index.html} with the
+        COOP/COEP/CORP headers WASM bundles need.
+  \item Godot pulls scene JSON from
+        \texttt{GET /api/levels/\{id\}/scene} and renders.
+\end{enumerate}
+
+% ── Chapter 4 ─────────────────────────────────────────────────────────────
+\chapter{Server-Sent Events: one stream, five channels}
+\snapdiagram{game-stream-controller.tex}
+\snapmarblelegend{
+  \snapmarbleshape{marbleFlux} & \texttt{PlayerMovement}
+    & \texttt{characterId} {\rm $\cdot$} \texttt{x,y,z} {\rm $\cdot$} \texttt{rotationY} {\rm $\cdot$} \texttt{action} {\rm $\cdot$} \texttt{pressed} {\rm $\cdot$} \texttt{tick}. \\
+  \snapmarbleshape{marbleFlux} & \texttt{WorldEvent}
+    & \texttt{type} (\texttt{spawn}/\texttt{despawn}/\texttt{transition}) {\rm $\cdot$} \texttt{payload}. \\
+  \snapmarbleshape{marbleFlux} & \texttt{CharacterEvent}
+    & \texttt{characterId} {\rm $\cdot$} \texttt{hp}, \texttt{mp}, \texttt{xp} {\rm $\cdot$} flags. \\
+  \snapmarbleshape{marbleFlux} & \texttt{GameTimeTick}
+    & \texttt{day} {\rm $\cdot$} \texttt{hour} {\rm $\cdot$} \texttt{minute} {\rm $\cdot$} \texttt{phase}. \\
+  \snapmarbleshape{marbleSig}  & ping (15-second keepalive)
+    & no payload — fires immediately to flush \texttt{onopen}. \\
+  \snapmarbleshape{marbleSSE}  & \texttt{ServerSentEvent}
+    & merged: \texttt{event}, \texttt{data}, \texttt{id}. \\
+}
+
+\begin{snapcaution}[title={The autoCancel trap}]
+\texttt{Sinks.many().multicast().onBackpressureBuffer(N)} defaults to
+\texttt{autoCancel=true}: when every subscriber disconnects (iframe
+remount, EventSource reconnect, network blip), the sink terminates
+permanently and all subsequent \texttt{tryEmitNext} calls silently
+drop. Every sink in this project passes \texttt{autoCancel=false}
+explicitly. If a sink ``works once and then dies'', this is the cause.
+\end{snapcaution}
+
+% ── Chapter 5 ─────────────────────────────────────────────────────────────
+\chapter{How to run it}
+\begin{itemize}
+  \item \texttt{make build} — full source build (rust + godot + backend + frontend).
+  \item \texttt{docker compose up -d} — bring the whole stack up.
+  \item \texttt{make e2e} — full Playwright suite against the live stack.
+  \item \texttt{make e2e-native} — same, against the GraalVM native binary.
+\end{itemize}
+Open \texttt{http://localhost:8080}; the home page shows the visible
+games for the current Casdoor user (or all games if you're admin).
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.95\linewidth]{home-page.png}
+\caption{The portal home page — federated host shell with cards for
+each game the current user can see.}
+\end{figure}
+
+% ── Chapter 6 ─────────────────────────────────────────────────────────────
+\chapter{Your first change}
+\begin{itemize}
+  \item Tweaking a controller / DTO / SQL? $\rightarrow$
+        \snapfile{backend/} + a Liquibase changeset.
+  \item Tweaking a route / login UI / admin? $\rightarrow$
+        \snapfile{frontend/projects/<remote>/}.
+  \item Tweaking the game? $\rightarrow$ \snapfile{games/<slug>/} in
+        the Godot editor (after \texttt{make build-rust}).
+  \item Tweaking the runtime data flow? $\rightarrow$
+        \snapfile{HomeComponent} + \snapfile{RemoteLoaderService}.
+\end{itemize}
+Always run the matching tests: \texttt{make test-backend},
+\texttt{make test-frontend}.
+
+% ── Chapter 7 ─────────────────────────────────────────────────────────────
+\chapter{Reading list}
+\begin{itemize}
+  \item \reposrc{README.md} — installation, build, deploy, troubleshooting.
+  \item \reposrc{docs/PLAN-module-federation-and-native.md} — the
+        eight-section plan that produced the current shape.
+  \item \reposrc{docs/GODOT_DEVELOPER_GUIDE.md} — slug contract,
+        presets, upload flow.
+  \item \reposrc{docs/publishing/architecture/build/architecture.pdf} —
+        full typeset architecture reference.
+  \item \reposrc{docs/publishing/javadoc-output/index.html} — branded
+        Javadoc with marble-style references.
+\end{itemize}
+
+\end{document}

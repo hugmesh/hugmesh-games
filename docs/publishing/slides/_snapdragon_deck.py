@@ -6,6 +6,18 @@ from this module and feeds it a list of section dicts. Each section
 becomes one slide. Edit the deck data structures in the per-script files;
 this module only knows about layout and brand.
 
+Each section dict supports these keys (all optional except `title`):
+    title  : str                  — slide heading
+    body   : list[str | (int, str)] — bullets, optional indent level
+    code   : str                  — single-block code under the body
+    image  : str (path)           — PNG to embed in the right pane
+                                    (rendered diagram / screenshot)
+    dark   : bool                 — invert palette
+
+If `image` is given but the file isn't on disk yet (because docs-diagrams
+or docs-screenshots hasn't run) the slide renders a placeholder box so
+the deck still builds.
+
 Brand tokens mirror docs/publishing/architecture/snapdragon-theme.sty
 and docs/publishing/javadoc-theme/snapdragon.css so the three artefact
 families look like one product.
@@ -18,6 +30,31 @@ from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+
+
+# Repo-root-relative resolver so deck data can use short keys like
+# "diagrams-rendered/build/topology.png" instead of absolute paths.
+PUBLISHING_DIR = Path(__file__).resolve().parent.parent
+DIAGRAMS_DIR   = PUBLISHING_DIR / "diagrams-rendered" / "build"
+SCREENSHOTS_DIR = PUBLISHING_DIR / "screenshots" / "build"
+
+
+def resolve_image(spec):
+    """
+    Accept a Path, an absolute path string, or a short key like
+    'diagram:topology' / 'screenshot:home-page'. Returns a Path that
+    may or may not exist (callers handle the missing case).
+    """
+    if spec is None:
+        return None
+    if isinstance(spec, Path):
+        return spec
+    s = str(spec)
+    if s.startswith("diagram:"):
+        return DIAGRAMS_DIR / f"{s[len('diagram:'):]}.png"
+    if s.startswith("screenshot:"):
+        return SCREENSHOTS_DIR / f"{s[len('screenshot:'):]}.png"
+    return Path(s)
 
 
 # ── Brand palette ──────────────────────────────────────────────────────────
@@ -162,7 +199,14 @@ def _make_cover(pres, title, subtitle, kicker, audience):
 
 
 def _make_section_header(slide, title, body_lines, footer_n, footer_total,
-                         *, dark=False, code=None):
+                         *, dark=False, code=None, image=None):
+    """
+    Build one content slide. The body region splits depending on what's
+    present: if `image` is set, the body shrinks to the left half and
+    the image fills the right; otherwise body uses full width. `code`
+    docks a code block to the bottom strip and is mutually exclusive
+    with `image` (slides can't carry both without crowding).
+    """
     if dark:
         _add_dark_background(slide)
         title_color = WHITE
@@ -184,24 +228,40 @@ def _make_section_header(slide, title, body_lines, footer_n, footer_total,
     _accent_rule(slide, Inches(0.6), Inches(1.32), Inches(2), height=Pt(3),
                  rgb=ACCENT)
 
-    # Body.
+    # Body region geometry depends on whether an image is present.
+    body_left  = Inches(0.6)
+    body_top   = Inches(1.7)
+    body_width = Inches(12.2)
+    if image is not None:
+        body_width = Inches(6.4)   # left half; image lives on the right.
+
+    body_height = Inches(5.0 if not code else 3.5)
+
+    # Body bullets.
     if body_lines:
         tb, tf, _p = _add_textbox(
-            slide, Inches(0.6), Inches(1.7),
-            Inches(12.2),
-            Inches(5.0 if not code else 3.5),
+            slide, body_left, body_top,
+            body_width, body_height,
             text=body_lines[0],
-            size=18, color=body_color,
+            size=16 if image else 18, color=body_color,
             font="Calibri")
         for line in body_lines[1:]:
             level = 0
             text = line
             if isinstance(line, tuple):
                 level, text = line
-            _add_paragraph(tf, text, size=16, color=body_color,
-                           bullet=True, indent=level, space_before=8)
+            _add_paragraph(tf, text,
+                           size=14 if image else 16,
+                           color=body_color,
+                           bullet=True, indent=level, space_before=6)
 
-    # Optional code block.
+    # Right-side image (if any).
+    if image is not None:
+        _add_image_panel(slide, image,
+                         left=Inches(7.2), top=Inches(1.7),
+                         width=Inches(5.6), height=Inches(5.0))
+
+    # Optional code block (across full width below body).
     if code:
         code_top = Inches(5.0)
         _solid_rect(slide, Inches(0.6), code_top, Inches(12.2),
@@ -220,6 +280,43 @@ def _make_section_header(slide, title, body_lines, footer_n, footer_total,
                  text=f"{footer_n} / {footer_total}",
                  size=10, color=MUTED, font="Calibri",
                  align=PP_ALIGN.RIGHT)
+
+
+def _add_image_panel(slide, image_path, *, left, top, width, height):
+    """
+    Drop an image into the slide centred in the given rect, scaled to
+    fit while preserving aspect. Falls back to a placeholder rectangle
+    with a label if the image is missing — slides remain valid even
+    when the docs-diagrams or docs-screenshots target hasn't run.
+    """
+    p = Path(image_path)
+    if not p.exists():
+        ph = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+        _fill(ph, SURFACE)
+        ph.line.color.rgb = ACCENT
+        _add_textbox(slide, left, top + Pt(8),
+                     width, height,
+                     text=f"[ image not yet rendered ]\n{p.name}",
+                     size=12, color=MUTED, font="Calibri",
+                     align=PP_ALIGN.CENTER)
+        return None
+    # python-pptx's add_picture preserves aspect when only one of
+    # width/height is given. Try height-bounded first (taller images)
+    # then check the resulting width and re-run width-bounded if it
+    # busted the box.
+    pic = slide.shapes.add_picture(str(p), int(left), int(top),
+                                   height=int(height))
+    if pic.width > width:
+        # Too wide: scale down by the width:
+        slide.shapes._spTree.remove(pic._element)
+        pic = slide.shapes.add_picture(str(p), int(left), int(top),
+                                       width=int(width))
+    # Centre inside the panel rect.
+    cx = left + (width  - pic.width)  / 2
+    cy = top  + (height - pic.height) / 2
+    pic.left = int(cx)
+    pic.top  = int(cy)
+    return pic
 
 
 def _make_closing(pres, title, body_lines, links):
@@ -277,7 +374,8 @@ def make_deck(*, title: str, subtitle: str, kicker: str, audience: str,
         _make_section_header(slide, sec["title"], sec.get("body", []),
                              n, total,
                              dark=sec.get("dark", False),
-                             code=sec.get("code"))
+                             code=sec.get("code"),
+                             image=resolve_image(sec.get("image")))
 
     _make_closing(pres, closing["title"], closing.get("body", []),
                   closing.get("links", []))

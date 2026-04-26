@@ -35,9 +35,10 @@ SECTIONS = [
             "Tier 1 — Browser: Angular host shell + the active game iframe.",
             "Tier 2 — Per-remote nginx: host, login, admin, two game remotes, and an asset-tier wasm-fragment.",
             "Tier 3 — BFF + persistence: Spring Boot, Postgres, Cassandra, Casdoor.",
-            "Everything in tier 2 is one Docker container per box. docker compose up -d is enough.",
+            "Everything in tier 2 is one Docker container per box.",
             "See chapter 2 of architecture.pdf for the full diagram.",
         ],
+        "image": "diagram:topology",
     },
     {
         "title": "Module Federation: why one app feels like many",
@@ -64,13 +65,14 @@ SECTIONS = [
     {
         "title": "How a player click reaches a frame",
         "body": [
-            "1. HomeComponent reads SCENE_TYPE_TO_GAME_SLUG and forks the renderer.",
+            "1. HomeComponent reads SCENE_TYPE_TO_GAME_SLUG.",
             "2. Federated games POST /api/games/{slug}/launch to mint a launch_uid.",
             "3. RemoteLoaderService loads the per-game remote.",
             "4. The remote mounts a Web Component that builds the iframe URL.",
-            "5. wasm-fragment nginx serves index.html with COOP/COEP/CORP headers.",
+            "5. wasm-fragment serves index.html with COOP/COEP/CORP headers.",
             "6. Godot pulls scene JSON from /api/levels/{id}/scene and renders.",
         ],
+        "image": "diagram:runtime-flow",
     },
     {
         "title": "Server-Sent Events: one stream, five channels",
@@ -78,10 +80,10 @@ SECTIONS = [
             "GET /api/game/stream emits movement, world, character, scene, and time events.",
             "GameStreamController merges five Sinks.Many onto one Flux<ServerSentEvent>.",
             "A 15s keepalive fires immediately so EventSource.onopen lands fast.",
-            "Every Sinks.many() in this project sets autoCancel=false. If you forget, the sink dies on the first reconnect.",
+            "Every Sinks.many() in this project sets autoCancel=false.",
+            "If you forget, the sink dies on the first reconnect.",
         ],
-        "code": "Flux.merge(movement(), world(), character(), scene(), time(), keepalive())",
-        "dark": True,
+        "image": "diagram:game-stream-controller",
     },
     {
         "title": "Authentication, in one paragraph",

@@ -1,0 +1,35 @@
+% ControlController.POST /api/controls/{characterId}
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{1.6}{Mono<E>}{0}{12.6}
+  \node[marbleSig] (u1) at (1.4,1.6) {e};
+  \node[marbletype,above=1pt of u1] {ControlEvent};
+
+  \node[marbleop] (op1) at (3.6,0.6) {filterWhen\\ \scriptsize sessionRepo.holderOf};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \snapmarbleline{m1}{-0.4}{Mono<E>}{0}{12.6}
+  \node[marbleSig] (m1n) at (4.6,-0.4) {e};
+  \node[marbletype,above=1pt of m1n] {authorised};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| (m1n.north);
+
+  \node[marbleop] (op2) at (7.0,-1.4) {flatMap\\ \scriptsize controlRepo.upsert\\ \scriptsize (R2DBC tx)};
+  \draw[marbleline] (m1n.south) |- ([yshift=2pt]op2.west);
+
+  \snapmarbleline{m2}{-2.4}{Mono<E>}{0}{12.6}
+  \node[marbleTx] (m2n) at (8.6,-2.4) {e};
+  \node[marbletype,above=1pt of m2n] {persisted};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (m2n.north);
+
+  \node[marbleop] (op3) at (10.4,-3.4) {doOnNext\\ \scriptsize movementSink.tryEmit};
+  \draw[marbleline] (m2n.south) |- ([yshift=2pt]op3.west);
+
+  \snapmarbleline{sink}{-4.4}{Sinks.Many}{0}{12.6}
+  \node[marbleFlux] (s1) at (11.4,-4.4) {x};
+  \node[marbletype,above=1pt of s1] {emit};
+  \draw[marbleline,dashed] (op3.south) -- (s1.north);
+
+  \node[marbleErr] (er) at (4.6,-3.6) {!};
+  \node[marbletype,below=1pt of er] {Forbidden403};
+  \draw[marbleline,red!70!black,dashed] (op1.south) to[bend right=14] (er.north);
+\end{tikzpicture}

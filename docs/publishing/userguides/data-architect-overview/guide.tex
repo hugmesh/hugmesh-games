@@ -1,0 +1,132 @@
+\documentclass[11pt,a4paper,openany]{book}
+\input{userguide-preamble}
+\hypersetup{pdftitle={Snapdragon Games --- Data architect overview}}
+\begin{document}
+
+\begin{titlepage}\thispagestyle{empty}
+\noindent\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \fill[snapAccent,opacity=0.18]    ([yshift=-0.05\paperheight]current page.north west) circle (8cm);
+  \fill[snapAccentTwo,opacity=0.10] ([xshift=4cm,yshift=-2cm]current page.north west) circle (5cm);
+\end{tikzpicture}
+\vspace*{4cm}\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Data architect\\overview}\par}
+\vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+\vspace{0.8cm}\noindent
+{\sffamily\color{white!85}\large
+Where data lives, how it flows, and how it stays consistent. The
+enterprise summary.}
+\vfill\noindent
+{\sffamily\color{white!70}\small
+Companion to \texttt{data-architect-overview.pptx}. Generated: \today}
+\end{titlepage}
+
+\frontmatter\pagestyle{empty}\tableofcontents\clearpage
+\mainmatter\pagestyle{fancy}
+
+\chapter{Executive summary}
+A multi-game browser portal. One Spring Boot BFF brokers reads and
+writes for many concurrent games and players. Two stores, by
+responsibility: PostgreSQL is the canonical relational state (catalog,
+players, federation, access, uploads); Cassandra is a high-write log +
+cache (movement events, audit log, short-lived sessions). Casdoor is
+the OAuth2/OIDC identity provider; the JWT subject is the trust
+boundary.
+
+All persistence is inside one compose stack today; cloud-relocation
+swap-points are documented for future migration without code changes.
+
+\chapter{Domains and clusters}
+\snapdiagram{data-model.tex}
+
+\begin{itemize}
+  \item Catalog --- \texttt{games}, \texttt{levels},
+        \texttt{scene\_elements}, \texttt{level\_assets},
+        \texttt{level\_prerequisites}.
+  \item Federation \& access --- \texttt{federation\_modules},
+        \texttt{game\_access}, \texttt{game\_launches},
+        \texttt{game\_uploads}.
+  \item Players --- \texttt{characters}, \texttt{spell\_loadout},
+        \texttt{character\_quests}, \texttt{character\_items},
+        \texttt{controls}.
+  \item Identity --- Casdoor's tenant in Postgres (separate database
+        within the same instance).
+  \item Audit \& cache --- Cassandra keyspace; movement events +
+        state-transition audit log.
+\end{itemize}
+
+\chapter{Data lifecycle}
+\begin{itemize}
+  \item \textbf{Hot} ($\le$ 60 s) --- SSE merge stream, in-process
+        \texttt{Sinks.Many}. Lost on restart by design; clients
+        re-subscribe.
+  \item \textbf{Warm} (minutes) --- Cassandra movement events. Useful
+        for cross-pod replay; aged out by TTL.
+  \item \textbf{Cold} (durable) --- Postgres rows for catalog,
+        characters, quests, uploads, audit summary.
+\end{itemize}
+
+Hot is recoverable from Cassandra. Cassandra is recoverable from
+Postgres + replay. Postgres is the source of truth.
+
+\chapter{Cross-cutting concerns}
+\snapdiagram{game-upload-controller.tex}
+
+\begin{itemize}
+  \item \textbf{Auditability} --- every state transition emitted by
+        \snapfile{GameStateService} writes to the Cassandra audit log.
+  \item \textbf{Reproducibility} ---
+        \texttt{game\_launches.version\_dir} snapshots
+        \texttt{games.current\_version\_dir} at mint, so an in-flight
+        launch keeps reading from its install.
+  \item \textbf{Reversibility} ---
+        \texttt{game\_uploads.superseded\_at} lets administrators pin
+        to a prior version through the admin UI.
+  \item \textbf{Consistency} --- \texttt{register.sql} executes inside
+        the upload R2DBC transaction; failure rolls everything back.
+  \item \textbf{Observability} --- scheduled jobs (Sweeper, Pruner,
+        CassandraSync) emit one line per run for log scraping.
+\end{itemize}
+
+\chapter{Identity, regulatory, DR}
+\begin{itemize}
+  \item PII surface: Casdoor user email + display name, stored in
+        Casdoor's Postgres; not duplicated.
+  \item Auth tokens: issued by Casdoor, verified at the BFF; never
+        logged.
+  \item Audit log: stores \texttt{casdoor\_user\_id}; combine with
+        Casdoor's tenant DB for traceback.
+  \item RPO 24 hours (nightly Postgres + uploads-dir snapshot); RTO
+        $\sim$30 minutes (compose up against a restored VM).
+  \item Right-to-erasure: delete the Casdoor user, cascade to
+        \texttt{characters}, NULL out \texttt{casdoor\_user\_id} in
+        audit rows.
+\end{itemize}
+
+\chapter{Cloud relocation swap-points}
+\begin{itemize}
+  \item Postgres $\rightarrow$ managed RDS / Cloud SQL: change
+        \texttt{spring.r2dbc.url} + \texttt{spring.datasource.url}.
+        No code change.
+  \item Cassandra $\rightarrow$ managed Astra / Scylla:
+        \texttt{spring.cassandra.contact-points}. No code change.
+  \item Casdoor $\rightarrow$ managed identity (Auth0 / Cognito /
+        Entra): change \texttt{/.well-known/jwks} URL +
+        Casdoor-specific role mapping.
+  \item Object-storage uploads: \texttt{app.uploads.games-dir}
+        $\rightarrow$ S3-compatible volume mount.
+  \item Federation manifest URL --- already DB-backed; no host
+        changes needed.
+\end{itemize}
+
+\chapter{Future shape}
+Per-game telemetry pipeline (Cassandra audit log $\rightarrow$ Kafka
+$\rightarrow$ analytics warehouse). Read replica for catalog reads to
+offload heavy \texttt{/api/games/*}. Object-storage-backed uploads to
+remove host-disk pressure and enable CDN delivery for
+\texttt{wasm-fragment}. All additive --- the data model doesn't need
+a rewrite to enable any of them.
+
+\end{document}

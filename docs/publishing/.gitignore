@@ -27,3 +27,12 @@ javadoc-output/
 .venv/
 __pycache__/
 *.pyc
+
+# Rendered TikZ diagrams + marble PNGs.
+diagrams-rendered/build/
+
+# Selenium UI screenshots (real or placeholder).
+screenshots/build/
+
+# User-guide PDFs (six per-deck companions).
+userguides/*/build/

@@ -27,13 +27,13 @@ SECTIONS = [
     {
         "title": "Domains",
         "body": [
-            "Catalog              — games, levels, scene_elements, level_assets, level_prerequisites.",
-            "Federation & access  — federation_modules, game_access, game_launches, game_uploads.",
-            "Players              — characters, spell_loadout, character_quests, character_items, controls.",
-            "Identity             — Casdoor's tenant in Postgres (separate database within the same instance).",
-            "Audit & cache        — Cassandra keyspace; movement events + state-transition audit log.",
+            "Catalog — games, levels, scene_elements, level_assets, level_prerequisites.",
+            "Federation & access — federation_modules, game_access, game_launches, game_uploads.",
+            "Players — characters, spell_loadout, character_quests, character_items, controls.",
+            "Identity — Casdoor's tenant in Postgres.",
+            "Audit & cache — Cassandra keyspace; movement + audit log.",
         ],
-        "dark": True,
+        "image": "diagram:data-model",
     },
     {
         "title": "Data lifecycle: hot, warm, cold",
@@ -67,13 +67,13 @@ SECTIONS = [
     {
         "title": "Cross-cutting concerns",
         "body": [
-            "Auditability — every state transition emitted by GameStateService is written to Cassandra audit log.",
-            "Reproducibility — game_launches.version_dir snapshots games.current_version_dir at mint, so an in-flight launch keeps reading from its install.",
-            "Reversibility — game_uploads.superseded_at lets administrators pin to a prior version through the admin UI.",
-            "Consistency — register.sql executes inside the upload R2DBC transaction; failure rolls everything back.",
-            "Observability — scheduled jobs (Sweeper, Pruner, CassandraSyncService) emit one line per run for log scraping.",
+            "Auditability — every state transition emitted to Cassandra audit log.",
+            "Reproducibility — game_launches.version_dir snapshots current_version_dir.",
+            "Reversibility — game_uploads.superseded_at allows version-pinning.",
+            "Consistency — register.sql in the upload R2DBC tx; failure rolls back.",
+            "Observability — scheduled jobs emit one-line summaries.",
         ],
-        "dark": True,
+        "image": "diagram:game-upload-controller",
     },
     {
         "title": "Read patterns",

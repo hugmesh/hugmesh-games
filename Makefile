@@ -13,7 +13,8 @@ SHELL := /bin/bash
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend \
-        docs-pdf docs-slides docs-javadocs docs-all docs-clean docs-install-hooks
+        docs-pdf docs-slides docs-javadocs docs-all docs-clean docs-install-hooks \
+        docs-diagrams docs-screenshots docs-userguides
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -434,6 +435,15 @@ docs-slides:
 
 docs-javadocs:
 	@$(MAKE) -C docs/publishing javadocs
+
+docs-diagrams:
+	@$(MAKE) -C docs/publishing diagrams
+
+docs-screenshots:
+	@$(MAKE) -C docs/publishing screenshots
+
+docs-userguides:
+	@$(MAKE) -C docs/publishing userguides
 
 docs-all:
 	@$(MAKE) -C docs/publishing all
