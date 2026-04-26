@@ -100,6 +100,34 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- Testcontainers — used by GameUploadIntegrationTest only.
+         Pinned past 1.21.0 so the bundled docker-java client speaks
+         the API the modern Docker daemon requires (the BOM defaults
+         in Spring Boot 3.4 pull 1.20.4 which speaks API 1.32 and
+         Docker 29+ rejects). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>1.21.3</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>1.21.3</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
   </dependencies>
 
   <build>
