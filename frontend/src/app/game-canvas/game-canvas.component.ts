@@ -1,16 +1,9 @@
 import {
-  Component, Input, Output, EventEmitter,
-  OnChanges, OnDestroy, OnInit, HostListener,
+  Component, Input, OnChanges,
   ElementRef, ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { Subscription, of } from 'rxjs';
-import { switchMap } from 'rxjs/operators';
-import { GameStateService } from '../services/game-state.service';
-import { GameState } from '../models/game-state.model';
-import { GameLibraryService } from '../services/game-library.service';
-import { SessionService } from '../services/session.service';
 
 /** Minimal shape the canvas needs — satisfied by both GameListing and AvailableLevel. */
 export interface PlayableGame {
@@ -19,13 +12,18 @@ export interface PlayableGame {
   assetUrl: string | null;
 }
 
-/** Payload posted by Godot (game_bridge.gd `request_level_transition`). */
-interface LevelTransitionMessage {
-  type: 'TW_LEVEL_TRANSITION';
-  slug: string;
-  levelId: number;
-}
-
+/**
+ * Legacy iframe renderer for levels whose sceneType isn't mapped to a
+ * federated remote yet. Today this only handles cases that fall
+ * outside SCENE_TYPE_TO_GAME_SLUG in HomeComponent — cave + field +
+ * dodecahedron all route through their federated remotes now.
+ *
+ * Session role binding (SessionService.connect / claimControl) and
+ * window-level TW_LEVEL_TRANSITION handling moved up to HomeComponent
+ * because they have to fire regardless of which renderer mounts. The
+ * GAME_STATE postMessage emit was dead code (no listener inside the
+ * Godot index.html) so it's gone too.
+ */
 @Component({
   selector: 'app-game-canvas',
   standalone: true,
@@ -33,10 +31,8 @@ interface LevelTransitionMessage {
   templateUrl: './game-canvas.component.html',
   styleUrl: './game-canvas.component.scss',
 })
-export class GameCanvasComponent implements OnInit, OnChanges, OnDestroy {
+export class GameCanvasComponent implements OnChanges {
   @Input() game!: PlayableGame;
-  /** Emitted when Godot requests a level transition so parent can update state. */
-  @Output() levelTransition = new EventEmitter<{ slug: string; levelId: number }>();
 
   @ViewChild('gameFrame') gameFrame!: ElementRef<HTMLIFrameElement>;
 
@@ -47,75 +43,17 @@ export class GameCanvasComponent implements OnInit, OnChanges, OnDestroy {
    *  remounts (and the SSE / WASM tear-down they trigger) when Angular
    *  fires `ngOnChanges` for unrelated input identity changes. */
   private _mountedId: number | null = null;
-  private _sub: Subscription | null = null;
 
-  constructor(
-    private gameState: GameStateService,
-    private sanitizer: DomSanitizer,
-    private library: GameLibraryService,
-    private session: SessionService,
-  ) {}
-
-  ngOnInit(): void {
-    if (!this._sub) {
-      this._sub = this.gameState.state$.subscribe(s => this._postState(s));
-    }
-    // Without this, every /api/controls/* POST that carries X-Casdoor-Id gets
-    // 403'd — the server rejects control input from anyone who isn't the
-    // holder of the controller role, and the JWT sub sits in the header on
-    // every Angular call. connect() auto-grants the role to the first joiner;
-    // claimControl() is a fallback for when another session already holds it.
-    this.session.connect(1).pipe(
-      switchMap(r => r?.isController ? of(r) : this.session.claimControl())
-    ).subscribe();
-  }
+  constructor(private sanitizer: DomSanitizer) {}
 
   ngOnChanges(): void {
     if (!this.game) return;
-    // Skip remount when the same level reference comes through again.
-    // Without this, every parent-component change detection would tear down
-    // the iframe (and the SSE channels inside it) just because the game
-    // object identity changed.
     if (this.game.id === this._mountedId) return;
     this._mountLevel(this.game);
   }
 
-  ngOnDestroy(): void {
-    this._sub?.unsubscribe();
-  }
-
   onFrameLoad(): void {
     this.gameLoaded = true;
-  }
-
-  /** Listens for `TW_LEVEL_TRANSITION` postMessage from the Godot iframe. */
-  @HostListener('window:message', ['$event'])
-  onWindowMessage(ev: MessageEvent): void {
-    const data = ev.data as LevelTransitionMessage | null;
-    if (!data || data.type !== 'TW_LEVEL_TRANSITION') return;
-
-    // Unload current WASM and look up the next level's asset_url from the API.
-    this.gameLoaded = false;
-    this.frameSrc = '';
-    this.levelTransition.emit({ slug: data.slug, levelId: data.levelId });
-
-    this.library.getLevel(data.levelId).subscribe({
-      next: level => {
-        this._mountLevel({
-          id: level.id,
-          slug: level.slug,
-          assetUrl: level.assetUrl,
-        });
-      },
-      error: () => {
-        // Fallback: construct URL by slug convention
-        this._mountLevel({
-          id: data.levelId,
-          slug: data.slug,
-          assetUrl: `/api/assets/levels/${data.slug}/index.html`,
-        });
-      },
-    });
   }
 
   private _mountLevel(level: PlayableGame): void {
@@ -130,12 +68,5 @@ export class GameCanvasComponent implements OnInit, OnChanges, OnDestroy {
     this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(
       `${base}?level_id=${level.id}&t=${Date.now()}`
     );
-  }
-
-  private _postState(state: GameState): void {
-    const frame = this.gameFrame?.nativeElement;
-    if (frame?.contentWindow) {
-      frame.contentWindow.postMessage({ type: 'GAME_STATE', payload: state }, '*');
-    }
   }
 }

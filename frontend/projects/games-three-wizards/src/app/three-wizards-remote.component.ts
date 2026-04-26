@@ -2,21 +2,33 @@ import { Component, Input, inject } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 
 /**
- * Federated TWiaT game shell. The host swaps levels (cave / field /
- * future TWiaT levels) by setting the `levelSlug` input — the remote
- * recomputes its iframe `[src]` to the matching Godot bundle. Asset
- * paths still flow through the BFF (`/api/assets/levels/<slug>/index.html`)
- * so this remote stays storage-agnostic.
+ * Federated TWiaT game shell. Renders an iframe that points at the
+ * BFF's per-level Godot bundle, parameterised by the host's currently-
+ * active level (cave + field today; future TWiaT levels just need a
+ * row in the levels table with sceneType=cave|field|… and the right
+ * SCENE_TYPE_TO_GAME_SLUG mapping in home.component.ts).
  *
- * The host loads it via:
- *   loadRemoteModule({ remoteName: 'games-three-wizards',
- *                      exposedModule: './GameRoot' })
- * and registers it as `<app-games-three-wizards-remote>`. Until that
- * cutover lands in home.component.html, the legacy <app-game-canvas>
- * stays the live render path for cave + field.
+ * The `levelSlug` and `levelId` inputs are set by the host's home
+ * template:
+ *
+ *   <app-three-wizards-remote
+ *     [levelSlug]="activeLevel.sceneType"
+ *     [levelId]="activeLevel.id"></app-three-wizards-remote>
+ *
+ * The selector is `app-three-wizards-remote` to match the tag
+ * RemoteLoaderService registers via createCustomElement
+ * (`app-${remote.gameSlug}-remote`, where `remote.gameSlug` is
+ * 'three-wizards' from the federation_modules seed).
+ *
+ * `level_id=<id>` query goes onto the iframe URL because the patched
+ * Godot index.html inside each bundle reads
+ * `URLSearchParams.get('level_id')` to prefetch
+ * `/api/levels/{id}/scene` before the WASM finishes compiling. Without
+ * the param the prefetch defaults to level 1 — fine for cave but
+ * wrong for field.
  */
 @Component({
-  selector: 'app-games-three-wizards-remote',
+  selector: 'app-three-wizards-remote',
   standalone: true,
   template: `
     <div class="remote-root">
@@ -47,18 +59,34 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 export class ThreeWizardsRemoteComponent {
   private readonly sanitizer = inject(DomSanitizer);
 
-  /** Set by the host on level transition; defaults to cave. */
+  /** Set by the host on initial mount and on level transition. */
   @Input()
   set levelSlug(value: string) {
     this._levelSlug = value || 'cave';
-    this.safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
-      `/api/assets/levels/${this._levelSlug}/index.html`,
-    );
+    this._refresh();
   }
   get levelSlug(): string { return this._levelSlug; }
   private _levelSlug = 'cave';
 
+  /** Mirrors the level row id; fed into the iframe URL so the patched
+   *  Godot index.html can prefetch /api/levels/{id}/scene. */
+  @Input()
+  set levelId(value: number | null | undefined) {
+    this._levelId = value ?? null;
+    this._refresh();
+  }
+  get levelId(): number | null { return this._levelId; }
+  private _levelId: number | null = null;
+
   safeUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
     '/api/assets/levels/cave/index.html',
   );
+
+  private _refresh(): void {
+    const id = this._levelId ?? '';
+    // Cache-bust on every (slug,id) change so the iframe remounts
+    // cleanly — the legacy GameCanvasComponent did the same.
+    const url = `/api/assets/levels/${this._levelSlug}/index.html?level_id=${id}&t=${Date.now()}`;
+    this.safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+  }
 }

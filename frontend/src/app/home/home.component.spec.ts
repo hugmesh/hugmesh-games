@@ -68,13 +68,19 @@ describe('HomeComponent helpers', () => {
   });
 
   describe('isFederated', () => {
-    it('returns true for game slugs in FEDERATED_GAME_SLUGS', () => {
+    it('returns true for sceneTypes mapped to a federated gameSlug', () => {
+      // dodecahedron sceneType → dodecahedron gameSlug → federated
       expect(component.isFederated(level('dodecahedron', 'dodecahedron'))).toBeTrue();
+      // cave + field both belong to the Three Wizards umbrella game and
+      // share the games-three-wizards federated remote.
+      expect(component.isFederated(level('cave', 'cave'))).toBeTrue();
+      expect(component.isFederated(level('field', 'field'))).toBeTrue();
     });
 
-    it('returns false for game slugs not in the federated set', () => {
-      expect(component.isFederated(level('cave', 'cave'))).toBeFalse();
-      expect(component.isFederated(level('field', 'field'))).toBeFalse();
+    it('returns false for sceneTypes outside SCENE_TYPE_TO_GAME_SLUG', () => {
+      // Unknown sceneTypes have no mapping, so they fall through to
+      // the legacy <app-game-canvas> branch.
+      expect(component.isFederated(level('mystery', 'mystery'))).toBeFalse();
     });
 
     it('returns false for null', () => {

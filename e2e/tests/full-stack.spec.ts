@@ -53,11 +53,11 @@ test.describe('full-stack smoke', () => {
     const cardCount = await gameCards.count();
     expect(cardCount).toBeGreaterThan(0);
 
-    // Step 4: pick the Cave card (legacy iframe path) by its scene-tag —
-    // sortOrder ties between cave/field/dodecahedron mean "first unlocked"
-    // can land on the federated dodecahedron card and skip the legacy
-    // <app-game-canvas> branch we want to exercise here. Federated render
-    // is exercised in Step 6 below.
+    // Step 4: pick the Cave card by its scene-tag. Cave + field both
+    // route through the federated games-three-wizards remote now
+    // (SCENE_TYPE_TO_GAME_SLUG in home.component.ts), so the iframe
+    // sits inside <app-three-wizards-remote> rather than the legacy
+    // <app-game-canvas>. Federated dodecahedron is exercised in Step 6.
     const caveCard = page.locator('.game-card', {
       has: page.locator('.scene-tag--cave'),
     }).first();
@@ -65,7 +65,7 @@ test.describe('full-stack smoke', () => {
     await caveCard.click();
 
     // Wait for the iframe to attach + start streaming bytes.
-    const iframe = page.frameLocator('app-game-canvas iframe');
+    const iframe = page.frameLocator('app-three-wizards-remote iframe');
     await expect(iframe.locator('body')).toBeAttached({ timeout: 30_000 });
 
     // Step 5: assert the WASM bundle assets came down. The Godot loader
