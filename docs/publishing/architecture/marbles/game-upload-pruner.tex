@@ -1,0 +1,25 @@
+% GameUploadPruner — @Scheduled every hour (default).
+% Per slug: keeps the last N uploads (app.uploads.versions-to-keep,
+% default 3); deletes older version_dirs from disk inside Mono.fromCallable.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{tk}{2.0}{tick (1h)}{0}{12.6}
+  \node[marbleSig] at (1.4,2.0) {t};
+  \node[marbleSig] at (5.4,2.0) {t};
+  \node[marbleSig] at (9.4,2.0) {t};
+  \node[marbletype] at (1.4,2.45) {fixedRate=3\,600\,000ms};
+
+  \node[marbleop] (op1) at (4.0,0.6) {groupBySlug\\ \scriptsize game\_uploads};
+  \draw[marbleline,dashed] (tk-end) -- (op1.east);
+
+  \node[marbleop] (op2) at (7.6,-0.4) {keep N most recent\\ \scriptsize per slug};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \node[marbleop] (op3) at (10.4,-1.6) {Files.deleteRecursive\\ \scriptsize fromCallable};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| ([yshift=2pt]op3.west);
+
+  \snapmarbleline{out}{-2.8}{Mono<L>}{0}{12.6}
+  \node[marbleTx] (d1) at (10.4,-2.8) {n};
+  \node[marbletype,above=1pt of d1] {dirs deleted};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| (d1.north);
+\end{tikzpicture}

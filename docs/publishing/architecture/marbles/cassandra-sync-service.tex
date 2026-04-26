@@ -1,0 +1,30 @@
+% CassandraSyncService — two scheduled timelines:
+%   heartbeat: every 15s, writes pod_heartbeats (TTL 30s)
+%   dailySnapshot: every 24h after a 60s boot delay, mirrors Postgres
+%                  stats into Cassandra daily_snapshots
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{hb}{2.6}{heartbeat (15s)}{0}{12.6}
+  \node[marbleSig] at (1.4,2.6) {h};
+  \node[marbleSig] at (3.0,2.6) {h};
+  \node[marbleSig] at (4.6,2.6) {h};
+  \node[marbleSig] at (6.2,2.6) {h};
+  \node[marbleSig] at (7.8,2.6) {h};
+  \node[marbletype] at (1.4,3.05) {@Scheduled fixedDelay=15s};
+
+  \node[marbleop] (hop) at (10.4,2.6) {Cassandra\\ \scriptsize INSERT (TTL 30s)};
+  \draw[marbleline,dashed] (hb-end) -- (hop.west);
+
+  \snapmarbleline{ds}{0.4}{dailySnapshot}{0}{12.6}
+  \node[marbleSig] at (4.0,0.4) {d};
+  \node[marbletype] at (4.0,0.85) {fixedDelay=24h, initialDelay=60s};
+
+  \node[marbleop] (qpg) at (7.4,0.4) {pgRepo\\ \scriptsize.aggregate()};
+  \draw[marbleline,dashed] (4.0,0.4) -- (qpg.west);
+  \node[marbleop] (cass) at (10.8,0.4) {Cassandra\\ \scriptsize daily\_snapshots};
+  \draw[marbleline,dashed] (qpg.east) -- (cass.west);
+
+  \node[marbleErr] (e1) at (10.4,-1.0) {!};
+  \node[marbletype,below=1pt of e1] {silently retry next tick};
+  \draw[marbleline,red!70!black,dashed] (cass.south) -- (e1.north);
+\end{tikzpicture}

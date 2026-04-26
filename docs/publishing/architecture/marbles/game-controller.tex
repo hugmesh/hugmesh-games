@@ -1,0 +1,33 @@
+% GameController.GET /api/games/available/{characterId}
+% Public list with optional JWT-aware filtering through ProgressionService.
+% Composes game_access (allow-by-scope) with quest-completion unlock state.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.4,2.4) {q};
+  \node[marbletype,above=1pt of u1] {GET .../available/{id}};
+
+  \node[marbleop] (op1) at (3.6,1.4) {jwtRoles\\ \scriptsize $\rightarrow$ List<role>};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (6.4,0.2) {progression\\ \scriptsize.availableGamesWithLevels};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \snapmarbleline{m1}{-1.0}{Flux<G>}{0}{12.6}
+  \node[marbleFlux] at (7.4,-1.0) {g};
+  \node[marbleFlux] at (8.6,-1.0) {g};
+  \node[marbleFlux] at (10.0,-1.0) {g};
+  \node[marbletype] at (7.4,-0.55) {GameWithLevelsDto};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (7.4,-1.0);
+
+  \node[marbleop] (op3) at (5.0,-2.4) {filter\\ \scriptsize game\_access (scope)};
+  \draw[marbleline,dashed] ([yshift=-2pt]op2.south) -| ([yshift=2pt]op3.east);
+
+  \node[marbleop] (op4) at (8.6,-3.4) {map\\ \scriptsize quest unlock state};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| ([yshift=2pt]op4.west);
+
+  \snapmarbleline{out}{-4.6}{Flux<G>}{0}{12.6}
+  \node[marbleTx] (gout) at (8.6,-4.6) {g};
+  \node[marbletype,above=1pt of gout] {filtered + unlocked};
+  \draw[marbleline] (op4.south) -- ++(0,-3mm);
+\end{tikzpicture}

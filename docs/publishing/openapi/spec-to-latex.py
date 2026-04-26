@@ -115,12 +115,17 @@ def render_tag_fragment(tag_name: str, tag_meta: dict,
     chapter = snap.get("chapter")
     marble  = snap.get("marble")
     if chapter or marble:
+        # The bits contain literal LaTeX commands (\S, \snapfile{...}) that
+        # MUST NOT be passed through tex() — that would re-escape the
+        # backslashes and ruin the cross-ref. The chapter / marble values
+        # are author-controlled and we constrain them to safe characters
+        # (digits, dots, lowercase, slashes, hyphens).
         bits = []
         if chapter:
-            bits.append(f"Architecture PDF \\S{tex(chapter)}")
+            bits.append(f"Architecture PDF \\S{chapter}")
         if marble:
             bits.append(f"marble at \\snapfile{{{marble}}}")
-        out.append("\\textit{" + tex(" — ".join(bits)) + ".}")
+        out.append("\\textit{" + " --- ".join(bits) + ".}")
         out.append("")
 
     for op in ops:

@@ -1,0 +1,31 @@
+% AssetController.GET /api/assets/levels/{slug}/{uid}/{filename}
+% Three-arg path: launch_uid validation → version-pinned filesystem
+% read → fallback to classpath. 403 / 404 on each gate.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.4,2.4) {q};
+  \node[marbletype,above=1pt of u1] {GET .../{slug}/{uid}/{file}};
+
+  \node[marbleop] (op1) at (3.6,1.4) {launches\\ \scriptsize.findActive(uid)};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (6.6,0.0) {resolveDir\\ \scriptsize<gamesDir>/<slug>/<verDir>};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \node[marbleop] (op3) at (9.6,-1.4) {Files.exists\\ \scriptsize / classpath fallback};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| ([yshift=2pt]op3.west);
+
+  \snapmarbleline{m1}{-2.6}{Mono<R>}{0}{12.6}
+  \node[marbleTx] (d1) at (10.4,-2.6) {b};
+  \node[marbletype,above=1pt of d1] {Resource (200 OK)};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| (d1.north);
+
+  \node[marbleErr] (e1) at (4.4,-1.6) {!};
+  \node[marbletype,below=1pt of e1] {Forbidden403 (uid expired/invalid)};
+  \draw[marbleline,red!70!black,dashed] (op1.south) to[bend right=14] (e1.north);
+
+  \node[marbleErr] (e2) at (8.0,-2.6) {!};
+  \node[marbletype,below=1pt of e2] {NotFound404 (file missing)};
+  \draw[marbleline,red!70!black,dashed] (op3.south) to[bend right=12] (e2.north);
+\end{tikzpicture}

@@ -1,0 +1,31 @@
+% ProgressionService.availableGamesWithLevels(charId, roles, userId)
+% Pure read composition: game_access × characters × character_quests.
+% Drives the home page and /api/games/available/{characterId}.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{ga}{2.6}{game\_access}{0}{12.6}
+  \node[marbleFlux] at (1.4,2.6) {g};
+  \node[marbleFlux] at (3.4,2.6) {g};
+  \node[marbleFlux] at (5.4,2.6) {g};
+
+  \snapmarbleline{cq}{1.4}{character\_quests}{0}{12.6}
+  \node[marbleFlux] at (1.4,1.4) {q};
+  \node[marbleFlux] at (3.4,1.4) {q};
+
+  \snapmarbleline{lv}{0.2}{levels}{0}{12.6}
+  \node[marbleFlux] at (1.4,0.2) {l};
+  \node[marbleFlux] at (3.4,0.2) {l};
+  \node[marbleFlux] at (5.4,0.2) {l};
+
+  \node[marbleop, minimum width=44mm, minimum height=10mm] (zip) at (8.4,1.4)
+    {Flux.zip\\ \scriptsize map(.with quest unlock)};
+  \draw[marbleline,dashed] (ga-end) -- ([yshift=3pt]zip.west);
+  \draw[marbleline,dashed] (cq-end) -- ([yshift=0pt]zip.west);
+  \draw[marbleline,dashed] (lv-end) -- ([yshift=-3pt]zip.west);
+
+  \snapmarbleline{out}{-0.6}{Flux<G>}{0}{12.6}
+  \node[marbleTx] at (10.0,-0.6) {g};
+  \node[marbleTx] at (11.4,-0.6) {g};
+  \node[marbletype] at (10.0,-0.15) {GameWithLevelsDto};
+  \draw[marbleline] (zip.south) -- ++(0,-3mm);
+\end{tikzpicture}

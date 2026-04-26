@@ -1,0 +1,24 @@
+% GameLaunchSweeper — @Scheduled every 5 min (default).
+% Marks expired game_launches rows (terminated_at = NOW()) so admin
+% dashboards stop counting them and the iframe's launch_uid stops
+% resolving on the asset-tier read.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{tk}{2.0}{tick (5m)}{0}{12.6}
+  \node[marbleSig] at (1.4,2.0) {t};
+  \node[marbleSig] at (4.6,2.0) {t};
+  \node[marbleSig] at (7.8,2.0) {t};
+  \node[marbleSig] at (11.0,2.0) {t};
+  \node[marbletype] at (1.4,2.45) {fixedRate=300\,000ms};
+
+  \node[marbleop] (op1) at (5.6,0.4) {launches\\ \scriptsize.sweepExpired(NOW)};
+  \draw[marbleline,dashed] (tk-end) -- (op1.east);
+
+  \node[marbleop] (op2) at (9.6,-1.0) {update\\ \scriptsize terminated\_at = NOW};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \snapmarbleline{m1}{-2.4}{Mono<Long>}{0}{12.6}
+  \node[marbleTx] (d1) at (10.4,-2.4) {n};
+  \node[marbletype,above=1pt of d1] {rows swept};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (d1.north);
+\end{tikzpicture}

@@ -1,0 +1,35 @@
+% GameTimeService — Flux.interval(1s) tick loop.
+% Every 10 ticks (~10s) persists snapshot to game_time_state.
+% Every 5 game-minutes emits a GameTimeDto on the time SSE channel.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Flux.interval(1s)}{0}{12.6}
+  \node[marbleSig] at (0.6,2.4) {t};
+  \node[marbleSig] at (1.6,2.4) {t};
+  \node[marbleSig] at (2.6,2.4) {t};
+  \node[marbleSig] at (3.6,2.4) {t};
+  \node[marbleSig] at (4.6,2.4) {t};
+  \node[marbleSig] at (5.6,2.4) {t};
+  \node[marbleSig] at (6.6,2.4) {t};
+  \node[marbleSig] at (7.6,2.4) {t};
+  \node[marbleSig] at (8.6,2.4) {t};
+  \node[marbleSig] at (9.6,2.4) {t};
+  \node[marbleSig] at (10.6,2.4) {t};
+  \node[marbletype] at (0.6,2.85) {advanceTick};
+
+  \node[marbleop] (op1) at (5.6,1.0) {filter\\ \scriptsize tick \% 10 == 0};
+  \draw[marbleline,dashed] (4.6,2.4) -- (op1.north);
+
+  \node[marbleop] (op2) at (9.6,1.0) {filter\\ \scriptsize phaseChanged};
+  \draw[marbleline,dashed] (9.6,2.4) -- (op2.north);
+
+  \node[marbleop] (op3) at (5.6,-0.6) {persist\\ \scriptsize game\_time\_state};
+  \draw[marbleline] (op1.south) -- (op3.north);
+  \node[marbleop] (op4) at (9.6,-0.6) {emit\\ \scriptsize timeSink.tryEmit};
+  \draw[marbleline] (op2.south) -- (op4.north);
+
+  \snapmarbleline{sk}{-2.0}{Sinks.Many}{0}{12.6}
+  \node[marbleFlux] at (9.6,-2.0) {t};
+  \node[marbletype] at (9.6,-1.55) {SSE: time};
+  \draw[marbleline,dashed] (op4.south) -- (9.6,-2.0);
+\end{tikzpicture}

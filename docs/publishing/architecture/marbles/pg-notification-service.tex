@@ -1,0 +1,28 @@
+% PgNotificationService — fan-out for cross-instance state changes.
+% In-process Sinks.Many<String> backed by pg_notify(channel, payload)
+% so other pods on the same Postgres see the same events.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.0}{publish}{0}{12.6}
+  \node[marbleMono] at (1.4,2.0) {p};
+  \node[marbleMono] at (4.6,2.0) {p};
+  \node[marbleMono] at (7.8,2.0) {p};
+  \node[marbletype] at (1.4,2.45) {(channel, payload)};
+
+  \node[marbleop] (sink) at (4.4,0.6) {Sinks.Many\\ \scriptsize tryEmitNext};
+  \draw[marbleline,dashed] (1.4,2.0) -- (sink.north);
+
+  \node[marbleop] (pg) at (9.0,0.6) {pg\_notify\\ \scriptsize SQL};
+  \draw[marbleline,dashed] (4.6,2.0) -- (pg.north);
+
+  \snapmarbleline{out}{-1.0}{events()}{0}{12.6}
+  \node[marbleFlux] at (4.4,-1.0) {e};
+  \node[marbleFlux] at (9.0,-1.0) {e};
+  \node[marbletype] at (4.4,-0.55) {Flux<String> (multicast)};
+  \draw[marbleline] (sink.south) -- (4.4,-1.0);
+  \draw[marbleline] (pg.south) -- (9.0,-1.0);
+
+  \node[marbleErr] (e1) at (10.4,0.6) {!};
+  \node[marbletype,below=1pt of e1] {onErrorComplete (silent)};
+  \draw[marbleline,red!70!black,dashed] (pg.south) to[bend right=14] (e1.north);
+\end{tikzpicture}

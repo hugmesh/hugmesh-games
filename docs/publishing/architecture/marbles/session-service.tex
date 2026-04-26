@@ -1,0 +1,27 @@
+% SessionService — concurrent in-memory map of active sessions
+% (max 3 players) with a single AtomicReference<String> currentController.
+% Backs SessionController + AdminController stats.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{tryConnect}{0}{12.6}
+  \node[marbleMono] (u1) at (1.4,2.4) {q};
+  \node[marbletype,above=1pt of u1] {(casdoorId, charId)};
+
+  \node[marbleop] (op1) at (3.6,1.4) {compareAndSet\\ \scriptsize size < 3};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (6.4,0.2) {persist\\ \scriptsize player\_sessions};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \node[marbleop] (op3) at (9.4,-1.0) {claim controller\\ \scriptsize if first};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| ([yshift=2pt]op3.west);
+
+  \snapmarbleline{m1}{-2.2}{Mono<S>}{0}{12.6}
+  \node[marbleTx] (d1) at (10.4,-2.2) {s};
+  \node[marbletype,above=1pt of d1] {connection token};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| (d1.north);
+
+  \node[marbleErr] (e1) at (4.4,0.0) {!};
+  \node[marbletype,below=1pt of e1] {Conflict409 (server full)};
+  \draw[marbleline,red!70!black,dashed] (op1.south) to[bend right=14] (e1.north);
+\end{tikzpicture}
