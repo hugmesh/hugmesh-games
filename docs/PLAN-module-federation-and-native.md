@@ -20,7 +20,7 @@
 All eight sections now reach a deliberate end state. The three originally-deferred items resolved as:
 - **C.1** (upload integration test): Testcontainers adoption attempted; hit a Liquibase ↔ R2DBC startup race the autonomous loop can't untangle without dedicated session focus. Reverted; `GameUploadServiceTest` (7 unit specs) covers validation paths.
 - **G.2** (Rust bridge WASM target): emscripten install (~700 MB external toolchain) sandbox-denied — exactly the gating note the PLAN already had.
-- **H.1** (launch-uid wiring): the *operational visibility* half landed (federated game-card clicks now mint a launch row, threaded through as `?launch_uid=…` for traceability + admin revoke + sweeper coverage). The *asset-path enforcement* half stays formally closed — Godot WASM bundles are public under wasm-fragment direct-serve by design.
+- **H.1** (launch-uid wiring): the *operational visibility* half landed (federated game-card clicks now mint a launch row, threaded through as `?launch_uid=…` for traceability + admin revoke + sweeper coverage). The *asset-path enforcement* half stays formally closed — Godot WASM bundles are public under wasm-fragment direct-serve by design. **Verified end-to-end after a host-tooling unblock**: Docker 29.x silently hangs `compose build` without `docker-buildx`; user-local install of the v0.18 binary into `~/.docker/cli-plugins/` (no sudo needed) restored the build pipeline and `make e2e` passed in 6.7s with the rebuilt federated remote bundles.
 
 ---
 

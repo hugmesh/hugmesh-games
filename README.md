@@ -1364,6 +1364,15 @@ with the `ChromeHeadlessCI` launcher (no-sandbox flags so it runs inside contain
 
 ### Cross-platform end-to-end test
 
+> **Docker buildx required.** Docker 29+ deprecated the legacy
+> builder; without `docker-buildx` installed every `docker compose
+> build` (and therefore `make e2e`) hangs silently with a
+> "Building" status that never progresses. On Gentoo:
+> `sudo emerge -av app-containers/docker-buildx`. On distros without
+> a system package, drop the v0.18+ binary into
+> `~/.docker/cli-plugins/docker-buildx` (chmod +x); user-local
+> install needs no root and `docker buildx version` confirms it.
+
 ```bash
 make e2e             # full Docker stack + Playwright browser test
 make e2e-down        # tear down the e2e compose stack manually
