@@ -19,6 +19,8 @@ public class Game {
     private String thumbnailUrl;
     private int sortOrder;
     private Instant createdAt;
+    /** Filesystem path of the active hot-upload version (migration 021). */
+    private String currentVersionDir;
 
     public Long getId() { return id; }
     public String getName() { return name; }
@@ -27,4 +29,7 @@ public class Game {
     public String getThumbnailUrl() { return thumbnailUrl; }
     public int getSortOrder() { return sortOrder; }
     public Instant getCreatedAt() { return createdAt; }
+    public String getCurrentVersionDir() { return currentVersionDir; }
+
+    public void setCurrentVersionDir(String currentVersionDir) { this.currentVersionDir = currentVersionDir; }
 }

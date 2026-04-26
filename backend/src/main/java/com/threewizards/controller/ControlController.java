@@ -9,6 +9,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
@@ -65,10 +67,19 @@ public class ControlController {
     public Mono<ResponseEntity<Void>> receiveControl(
             @PathVariable Long characterId,
             @RequestBody ControlEvent event,
-            @Parameter(description = "Casdoor user subject — omit to skip controller check (dev only)")
-            @RequestHeader(value = "X-Casdoor-Id", required = false) String casdoorId) {
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Legacy fallback — Casdoor user subject. Prefer Authorization: Bearer <jwt>; this header is only honoured when no JWT is present.")
+            @RequestHeader(value = "X-Casdoor-Id", required = false) String casdoorIdHeader) {
 
-        if (casdoorId != null && !casdoorId.isBlank() && !sessionService.isController(casdoorId)) {
+        // JWT.sub is the authoritative caller identity (signed, can't be
+        // spoofed). The X-Casdoor-Id header is the legacy fallback for
+        // the Godot fetch path (game_bridge.gd's _twMovementQueue → POST)
+        // which doesn't yet propagate Authorization. Once that bridge
+        // sends Authorization too, this fallback retires.
+        String casdoorId = jwt != null ? jwt.getSubject()
+                : (casdoorIdHeader != null && !casdoorIdHeader.isBlank() ? casdoorIdHeader : null);
+
+        if (casdoorId != null && !sessionService.isController(casdoorId)) {
             return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Not the current controller"));
         }
 

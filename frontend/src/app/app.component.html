@@ -7,6 +7,7 @@
     }
     @if (isAdmin) {
       <li><a routerLink="/admin" routerLinkActive="active">Admin</a></li>
+      <li><a routerLink="/admin/games" routerLinkActive="active">Game uploads</a></li>
     }
     <li><a routerLink="/about" routerLinkActive="active">About</a></li>
   </ul>
@@ -19,4 +20,13 @@
     }
   </div>
 </nav>
+@if (federationLoadError(); as err) {
+  <div class="federation-error" role="alert">
+    <span class="federation-error-icon">⚠</span>
+    <span class="federation-error-msg">
+      Couldn't reach <strong>{{ err.label }}</strong> — the federated module didn't load.
+    </span>
+    <button class="federation-error-retry" (click)="retryFederationLoad()">Retry</button>
+  </div>
+}
 <router-outlet></router-outlet>

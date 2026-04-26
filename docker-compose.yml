@@ -109,17 +109,82 @@ services:
       CASSANDRA_KEYSPACE: threewizards
       CASSANDRA_LOCAL_DC: dc1
       SPRING_PROFILES_ACTIVE: prod
+      # Hot-uploaded games land here; AssetController falls back to this
+      # path when classpath assets/levels/<slug>/ doesn't have the file.
+      APP_UPLOADS_GAMES_DIR: /var/snapdragon/games
+    volumes:
+      - games_uploads:/var/snapdragon/games
     restart: on-failure
 
   frontend:
     build: ./frontend
     depends_on:
+      # nginx resolves every upstream at startup; without these the
+      # frontend dies on `host not found in upstream` for any federated
+      # remote that hasn't booted yet.
       - api
+      - login
+      - admin
+      - games-three-wizards
+      - games-dodecahedron
+      - wasm-fragment
     # Web is on :8080 across compose / dev / e2e. nginx serves the Angular
     # bundle and reverse-proxies /api/* to api:8080 internally.
     ports:
       - "8080:8080"
 
+  # ── Federation remotes ──────────────────────────────────────────────────────
+  # Each `federation_modules` row points at one of these services. login,
+  # admin, games-three-wizards, and games-dodecahedron are real Angular
+  # remotes built with `@angular-architects/native-federation:build` and
+  # served by nginx. wasm-fragment stays an nginx-only service (it's a
+  # `fragment` kind that streams Godot bundles by `?slug=&level=` — no
+  # Angular build needed).
+  #
+  # All four expose only on the compose network; the host shell (frontend
+  # above) is the only public-facing service. The host's nginx proxies
+  # /_remotes/<slug>/ → http://<slug>:8080/ so the browser sees a single
+  # origin (same COOP/COEP, same TLS termination, no CORS gymnastics).
+
+  login:
+    build:
+      context: ./frontend
+      dockerfile: projects/login/Dockerfile
+    expose: ["8080"]
+
+  admin:
+    build:
+      context: ./frontend
+      dockerfile: projects/admin/Dockerfile
+    expose: ["8080"]
+
+  games-three-wizards:
+    build:
+      context: ./frontend
+      dockerfile: projects/games-three-wizards/Dockerfile
+    expose: ["8080"]
+
+  games-dodecahedron:
+    build:
+      context: ./frontend
+      dockerfile: projects/games-dodecahedron/Dockerfile
+    expose: ["8080"]
+
+  # wasm-fragment is the shared asset-tier service: it serves the
+  # Godot bundles (index.html / index.js / index.wasm / index.pck)
+  # directly from its own nginx, taking the api service off the
+  # binary asset path. Build context is the repo root so the
+  # classpath bundles in backend/src/main/resources/assets/levels/
+  # bake in at image build time. COOP/COEP set for SharedArrayBuffer
+  # + threaded WASM; .wasm gets the right application/wasm MIME so
+  # WebAssembly.instantiateStreaming doesn't fall back to ArrayBuffer.
+  wasm-fragment:
+    build:
+      context: .
+      dockerfile: wasm-fragment/Dockerfile
+    expose: ["8080"]
+
 volumes:
   pgdata:
   cassandra_data:
+  games_uploads:

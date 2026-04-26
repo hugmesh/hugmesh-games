@@ -86,3 +86,30 @@ body, :host {
     &:hover { background: rgba(124,77,255,0.15); }
   }
 }
+
+.federation-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  background: rgba(255, 107, 107, 0.08);
+  border-bottom: 1px solid rgba(255, 107, 107, 0.35);
+  color: #ff6b6b;
+  font-size: 0.88rem;
+
+  .federation-error-icon { font-size: 1.1rem; }
+  .federation-error-msg  { flex: 1; }
+
+  .federation-error-retry {
+    background: rgba(255, 107, 107, 0.15);
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 107, 107, 0.5);
+    border-radius: 5px;
+    padding: 6px 14px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    &:hover { background: rgba(255, 107, 107, 0.28); }
+  }
+}

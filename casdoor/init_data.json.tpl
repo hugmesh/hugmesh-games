@@ -71,5 +71,61 @@
       "score": 2000,
       "ranking": 1
     }
+  ],
+  "roles": [
+    {
+      "owner": "threewizards",
+      "name": "admin",
+      "displayName": "Administrator",
+      "description": "Full admin console access; can manage uploads, roles, and federation manifest.",
+      "users": ["threewizards/admin"],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "player",
+      "displayName": "Player",
+      "description": "Standard player; can access the portal and play unlocked levels.",
+      "users": ["threewizards/player"],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "uploader",
+      "displayName": "Game Uploader",
+      "description": "Can upload + replace game bundles; cannot manage roles.",
+      "users": [],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "play-three-wizards",
+      "displayName": "Play: Three Wizards",
+      "description": "Permits launching the Three Wizards in a Trenchcoat game.",
+      "users": ["threewizards/admin", "threewizards/player"],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "play-dodecahedron",
+      "displayName": "Play: Dodecahedron Demo",
+      "description": "Permits launching the Dodecahedron Demo game.",
+      "users": ["threewizards/admin", "threewizards/player"],
+      "isEnabled": true
+    }
+  ],
+  "permissions": [
+    {
+      "owner": "threewizards",
+      "name": "upload-games",
+      "displayName": "Upload games",
+      "description": "POST /api/admin/games/upload + replace registered games.",
+      "users": [],
+      "roles": ["threewizards/admin", "threewizards/uploader"],
+      "resource": "/api/admin/games/upload",
+      "actions": ["Read", "Write"],
+      "effect": "Allow",
+      "isEnabled": true
+    }
   ]
 }

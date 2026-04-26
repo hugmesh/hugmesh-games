@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Per-game access policy, layered on top of quest-based level unlocks.
+        Lets the admin console make a game available to:
+
+          • every authenticated user           (scope='all',   scope_value=NULL)
+          • members of a Casdoor role          (scope='role',  scope_value=role name)
+          • a specific user                    (scope='user',  scope_value=Casdoor user id)
+
+        Important boundary: role *names* live here as plain strings; the role
+        directory itself stays in Casdoor (assignments, member lists, naming
+        conflicts — Postgres is metadata only). The BFF reads the JWT's
+        `roles` claim at request time and matches against scope_value strings.
+
+        A game with NO `game_access` rows is hidden from non-admins. Existing
+        games (TWiaT, Dodecahedron Demo) get an open `scope='all'` row so this
+        migration is a no-op for current players.
+    -->
+
+    <changeSet id="019-1-game-access-table" author="nin">
+        <createTable tableName="game_access">
+            <column name="id" type="bigserial">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="game_id" type="bigint">
+                <constraints nullable="false"
+                             foreignKeyName="fk_game_access_game"
+                             referencedTableName="games"
+                             referencedColumnNames="id"
+                             deleteCascade="true"/>
+            </column>
+            <column name="scope" type="text">
+                <!-- 'all' | 'role' | 'user' -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="scope_value" type="text">
+                <!--
+                  NULL when scope='all'.
+                  Casdoor role NAME when scope='role' (matched against the JWT's
+                  `roles` claim). The role catalog itself lives in Casdoor.
+                  Casdoor user ID when scope='user' (matched against the JWT's
+                  `sub` claim).
+                -->
+            </column>
+            <column name="granted_by" type="text">
+                <!-- Casdoor user id of the admin who granted access. -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="granted_at" type="timestamptz" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addUniqueConstraint
+            tableName="game_access"
+            columnNames="game_id, scope, scope_value"
+            constraintName="uq_game_access_triple"/>
+
+        <createIndex tableName="game_access" indexName="idx_game_access_game_scope">
+            <column name="game_id"/>
+            <column name="scope"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="019-2-default-open-access" author="nin">
+        <!--
+          Backfill: every game existing as of this migration becomes
+          all-users-accessible. Without this row, ProgressionService's filter
+          would hide the games from every non-admin on first deploy.
+        -->
+        <sql>
+INSERT INTO game_access (game_id, scope, scope_value, granted_by, granted_at)
+SELECT g.id, 'all', NULL, 'system:migration-019', NOW()
+  FROM games g
+ WHERE NOT EXISTS (
+       SELECT 1 FROM game_access ga
+        WHERE ga.game_id = g.id AND ga.scope = 'all' AND ga.scope_value IS NULL
+ );
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

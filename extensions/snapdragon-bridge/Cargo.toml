@@ -1,0 +1,28 @@
+[package]
+name = "snapdragon_bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Reusable Godot GDExtension that translates host-module SSE events into Godot signals (Streaming mode) and falls back to local-input echo (Standalone mode) so Godot IDE local-play works without the BFF running."
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+# godot-rust gates the wasm32-unknown-emscripten target behind an explicit
+# opt-in feature ("Wasm target requires opt-in via `experimental-wasm`…").
+# We forward it through this crate's default features so a plain
+#   cargo build --target wasm32-unknown-emscripten
+# Just Works for both `make build-rust` and CI.
+default = ["wasm-opt-in"]
+wasm-opt-in = ["godot/experimental-wasm"]
+
+[dependencies]
+godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 0

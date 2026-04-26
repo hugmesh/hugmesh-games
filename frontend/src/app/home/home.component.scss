@@ -229,6 +229,16 @@ $muted: #7070a0;
     position: absolute;
     inset: 0;
   }
+
+  // Federated remote mount points (custom elements registered by
+  // RemoteLoaderService). Match game-canvas sizing — the remote's own
+  // styles handle inner layout. Selector targets any `*-remote` tag
+  // since each game ships its own under <app-<slug>-remote>.
+  .remote-mount {
+    position: absolute;
+    inset: 0;
+    display: block;
+  }
 }
 
 .hud-layer {

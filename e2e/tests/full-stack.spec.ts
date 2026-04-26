@@ -26,7 +26,14 @@ test.describe('full-stack smoke', () => {
     page.on('console', msg => consoleLines.push(`[${msg.type()}] ${msg.text()}`));
     page.on('response', resp => {
       const url = resp.url();
-      if (/\/api\/assets\/levels\/[^/]+\/index\.(html|wasm|pck|js)$/.test(url)) {
+      // Asset bytes flow through the federated wasm-fragment service
+      // now (see wasm-fragment/Dockerfile + frontend/nginx.conf
+      // /_remotes/wasm-fragment/ proxy). The legacy
+      // /api/assets/levels/* path stays as a fallback for any future
+      // sceneType not in SCENE_TYPE_TO_GAME_SLUG, so accept either
+      // shape here — what we're really testing is that the bytes
+      // came down with HTTP 200 from somewhere reasonable.
+      if (/\/(_remotes\/wasm-fragment|api\/assets\/levels)\/[^/]+\/index\.(html|wasm|pck|js)$/.test(url)) {
         if (resp.status() === 200) seenAssetUrls.add(url);
       }
       if (/\/api\/levels\/\d+\/scene$/.test(url)) {
@@ -35,7 +42,7 @@ test.describe('full-stack smoke', () => {
     });
 
     const dodecaAssets = () =>
-      [...seenAssetUrls].filter(u => u.includes('/levels/dodecahedron/'));
+      [...seenAssetUrls].filter(u => u.includes('/dodecahedron/'));
 
     // Step 1: visit /login (auth guard sends unauthenticated users here).
     await page.goto('/login', { waitUntil: 'networkidle' });
@@ -53,11 +60,19 @@ test.describe('full-stack smoke', () => {
     const cardCount = await gameCards.count();
     expect(cardCount).toBeGreaterThan(0);
 
-    // Step 4: click the first unlocked level (Cave is always unlocked at id=1).
-    await gameCards.filter({ hasNot: page.locator('.locked') }).first().click();
+    // Step 4: pick the Cave card by its scene-tag. Cave + field both
+    // route through the federated games-three-wizards remote now
+    // (SCENE_TYPE_TO_GAME_SLUG in home.component.ts), so the iframe
+    // sits inside <app-three-wizards-remote> rather than the legacy
+    // <app-game-canvas>. Federated dodecahedron is exercised in Step 6.
+    const caveCard = page.locator('.game-card', {
+      has: page.locator('.scene-tag--cave'),
+    }).first();
+    await expect(caveCard).toBeVisible({ timeout: 15_000 });
+    await caveCard.click();
 
     // Wait for the iframe to attach + start streaming bytes.
-    const iframe = page.frameLocator('app-game-canvas iframe');
+    const iframe = page.frameLocator('app-three-wizards-remote iframe');
     await expect(iframe.locator('body')).toBeAttached({ timeout: 30_000 });
 
     // Step 5: assert the WASM bundle assets came down. The Godot loader
@@ -65,12 +80,12 @@ test.describe('full-stack smoke', () => {
     // Give it a generous window — the wasm is 30+ MB.
     await expect.poll(
       () => Array.from(seenAssetUrls).filter(u => u.endsWith('.wasm')).length,
-      { timeout: 90_000, message: 'expected at least one /api/assets/levels/*/index.wasm with HTTP 200' },
+      { timeout: 90_000, message: 'expected at least one .wasm asset (wasm-fragment or BFF fallback) with HTTP 200' },
     ).toBeGreaterThan(0);
 
     await expect.poll(
       () => Array.from(seenAssetUrls).filter(u => u.endsWith('.pck')).length,
-      { timeout: 90_000, message: 'expected /api/assets/levels/*/index.pck' },
+      { timeout: 90_000, message: 'expected at least one .pck asset (wasm-fragment or BFF fallback) with HTTP 200' },
     ).toBeGreaterThan(0);
 
     await expect.poll(
@@ -78,11 +93,17 @@ test.describe('full-stack smoke', () => {
       { timeout: 30_000, message: 'expected /api/levels/{id}/scene to be fetched by the prefetch script' },
     ).toBeGreaterThan(0);
 
-    // ── Step 6: chrome-less Dodecahedron Demo ───────────────────────────────
+    // ── Step 6: federated chrome-less Dodecahedron Demo ─────────────────────
     // Close the cave canvas, return to the home grid, click the dodecahedron
-    // card. Verify (a) its WASM/PCK assets fetch with HTTP 200, and (b) the
-    // HUD + controls overlays are NOT rendered (sceneType=dodecahedron is
-    // marked CHROMELESS in home.component.ts).
+    // card. The dodecahedron level renders via the federated remote
+    // (<app-dodecahedron-remote> registered by RemoteLoaderService +
+    // loadRemoteModule), NOT the legacy <app-game-canvas>. Verify
+    //   (a) the federated custom element is mounted,
+    //   (b) the legacy <app-game-canvas> path is gone for this level,
+    //   (c) HUD + controls overlays are NOT rendered (sceneType is
+    //       CHROMELESS in home.component.ts), and
+    //   (d) WASM/PCK still fetch with HTTP 200 (the iframe inside the
+    //       federated component points at the same Godot asset URLs).
     await page.locator('button.close-btn').click();
     await expect(page.locator('app-game-canvas iframe')).toHaveCount(0);
 
@@ -92,6 +113,13 @@ test.describe('full-stack smoke', () => {
     await expect(dodecaCard).toBeVisible({ timeout: 15_000 });
     await dodecaCard.click();
 
+    // Federated mount: the host registered the custom element via
+    // loadRemoteModule + createCustomElement; the upgraded element holds
+    // the iframe pointing at /_remotes/wasm-fragment/dodecahedron/index.html
+    // (asset bytes flow through the wasm-fragment service now, not the BFF).
+    await expect(page.locator('app-dodecahedron-remote')).toBeAttached({ timeout: 30_000 });
+    await expect(page.locator('app-game-canvas')).toHaveCount(0);
+
     // The chrome-less rule: hud-layer must not be in the DOM for this game.
     await expect(page.locator('.hud-layer')).toHaveCount(0);
     await expect(page.locator('app-game-hud')).toHaveCount(0);
@@ -100,12 +128,36 @@ test.describe('full-stack smoke', () => {
     // Dodecahedron WASM bundle is ~37 MB — give it a wide window.
     await expect.poll(
       () => dodecaAssets().filter(u => u.endsWith('.wasm')).length,
-      { timeout: 90_000, message: 'expected /api/assets/levels/dodecahedron/index.wasm' },
+      { timeout: 90_000, message: 'expected dodecahedron index.wasm via /_remotes/wasm-fragment/dodecahedron/ or /api/assets/levels/dodecahedron/' },
     ).toBeGreaterThan(0);
     await expect.poll(
       () => dodecaAssets().filter(u => u.endsWith('.pck')).length,
-      { timeout: 90_000, message: 'expected /api/assets/levels/dodecahedron/index.pck' },
+      { timeout: 90_000, message: 'expected dodecahedron index.pck via /_remotes/wasm-fragment/dodecahedron/ or /api/assets/levels/dodecahedron/' },
     ).toBeGreaterThan(0);
+
+    // ── Step 7: federated /admin route renders for non-admin too ───────────
+    // The /admin route lazy-loads AdminRemoteComponent from the `admin`
+    // remote (loadComponent → loadRemoteModule). The seeded e2e player
+    // does NOT have ROLE_ADMIN, so the BFF rejects /api/admin/stats with
+    // 403 — but the federated component itself MUST mount and render the
+    // 403 banner. That's what we assert: the loadRemote → custom-element
+    // boundary is exercised even when the API rejects. (The /login route
+    // is implicitly exercised earlier when we logged in via the federated
+    // form.)
+    await page.goto('/admin', { waitUntil: 'networkidle' });
+    // The federated AdminShell renders its own header — `app-admin-remote`
+    // is the selector createCustomElement registered, but loadComponent
+    // attaches it as a normal Angular host element with the same selector.
+    await expect(page.locator('.admin-title')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('.admin-subtitle')).toContainText('admin');
+    // Without ROLE_ADMIN, /api/admin/stats returns 403 and the remote's
+    // catchError sets the host-equivalent error banner. Tolerate both
+    // states — slow stack startups can still be loading when the assertion
+    // runs, and a green dashboard render is also a valid pass.
+    await Promise.race([
+      page.locator('.error-banner').waitFor({ state: 'visible', timeout: 15_000 }).then(() => 'banner'),
+      page.locator('.stats-grid').waitFor({ state: 'visible', timeout: 15_000 }).then(() => 'stats'),
+    ]);
 
     // Capture diagnostic artifacts even on success.
     await testInfo.attach('captured-asset-urls.txt', {

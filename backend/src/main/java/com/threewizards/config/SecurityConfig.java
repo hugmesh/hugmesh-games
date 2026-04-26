@@ -89,16 +89,63 @@ public class SecurityConfig {
         return converter;
     }
 
+    /**
+     * Maps Casdoor JWT claims to Spring Security authorities. Three sources, in
+     * precedence order:
+     * <ol>
+     *   <li>{@code roles} — array of role names assigned to the user via the
+     *       Casdoor admin console (Roles → Members). Each entry produces a
+     *       {@code ROLE_<UPPER>} authority. This is the primary mechanism;
+     *       new roles can be added in Casdoor without touching this code.</li>
+     *   <li>{@code permissions} — array of fine-grained permission strings.
+     *       Each becomes a non-prefixed authority so it doesn't collide with
+     *       role-prefixed checks (e.g. {@code @PreAuthorize("hasAuthority('upload:games')")}).</li>
+     *   <li>{@code isAdmin} (legacy boolean) — kept for backward-compatibility
+     *       with users created before role assignment was introduced.</li>
+     * </ol>
+     * Every authenticated principal also gets {@code ROLE_USER} so
+     * {@code .authenticated()} matchers work even with no roles assigned.
+     */
     private Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
         return new Converter<>() {
             @Override
             public Flux<GrantedAuthority> convert(@org.springframework.lang.NonNull Jwt jwt) {
                 List<GrantedAuthority> authorities = new ArrayList<>();
                 authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+
+                // Primary: Casdoor-managed `roles` claim. The Casdoor token
+                // template can be configured to embed assigned roles as a JSON
+                // array of strings (Application → Token Format → JWT-Custom).
+                Object rolesClaim = jwt.getClaim("roles");
+                if (rolesClaim instanceof List<?> list) {
+                    for (Object r : list) {
+                        if (r != null) {
+                            authorities.add(new SimpleGrantedAuthority(
+                                    "ROLE_" + r.toString().trim().toUpperCase()));
+                        }
+                    }
+                }
+
+                // Optional: fine-grained permissions. Stored alongside roles in
+                // Casdoor (Permissions tab). Useful when a single endpoint
+                // gates on a verb-noun pair rather than a role.
+                Object permsClaim = jwt.getClaim("permissions");
+                if (permsClaim instanceof List<?> list) {
+                    for (Object p : list) {
+                        if (p != null) {
+                            authorities.add(new SimpleGrantedAuthority(p.toString().trim()));
+                        }
+                    }
+                }
+
+                // Legacy: pre-roles users with the boolean isAdmin flag still
+                // get ROLE_ADMIN. Safe to remove once everyone is migrated to
+                // Casdoor-assigned roles.
                 Object isAdmin = jwt.getClaim("isAdmin");
                 if (Boolean.TRUE.equals(isAdmin)) {
                     authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
                 }
+
                 return Flux.fromIterable(authorities);
             }
         };

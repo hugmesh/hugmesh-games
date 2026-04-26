@@ -8,6 +8,27 @@ COPY . .
 RUN test -s openapi.json && npm run gen || echo "No openapi.json — skipping API client generation"
 RUN npm run build -- --configuration production
 
+# Native-federation post-process. Two HTML rewrites needed:
+#
+#  1. Strip Angular's auto-generated <link rel="modulepreload" href=
+#     "@bare-specifier"> tags. The browser preloads them BEFORE
+#     initFederation() writes the import map; nginx 404s the bare
+#     paths with text/html, the strict module-script MIME guard fires,
+#     bootstrap dies silent.
+#
+#  2. Convert <script type="module" src="polyfills..."> to
+#     type="module-shim". The application builder emits polyfills
+#     as a plain `module` script that runs BEFORE main.js and
+#     therefore BEFORE initFederation. If polyfills happen to import
+#     a bare specifier (rxjs / zone.js subpath), the browser's
+#     native module loader fails to resolve it. module-shim hands
+#     the script to es-module-shims, which respects the import map
+#     hydrated by initFederation when it runs main.js.
+RUN sed -i \
+        -e 's|<link rel="modulepreload"[^>]*>||g' \
+        -e 's|<script type="module" src="\(polyfills[^"]*\)"|<script type="module-shim" src="\1"|g' \
+        /app/dist/snapdragon-games-frontend/browser/index.html
+
 # Real upstream nginx (Debian-based), pinned to a current stable release
 # rather than the alpine variant — we get the full module set + the
 # default conf layout the official docs assume.

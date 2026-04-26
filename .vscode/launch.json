@@ -63,15 +63,15 @@
           "test",
           "--no-run",
           "--manifest-path",
-          "${workspaceFolder}/game/rust/Cargo.toml"
+          "${workspaceFolder}/extensions/snapdragon-bridge/Cargo.toml"
         ],
         "filter": {
-          "name": "three_wizards",
+          "name": "snapdragon_bridge",
           "kind": "lib"
         }
       },
       "args": [],
-      "cwd": "${workspaceFolder}/game/rust",
+      "cwd": "${workspaceFolder}/extensions/snapdragon-bridge",
       "sourceMap": {
         "/rustc/*": "${env:HOME}/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust"
       }
@@ -84,20 +84,20 @@
         "args": [
           "build",
           "--manifest-path",
-          "${workspaceFolder}/game/rust/Cargo.toml"
+          "${workspaceFolder}/extensions/snapdragon-bridge/Cargo.toml"
         ]
       },
-      "program": "${workspaceFolder}/game/rust/target/debug/three_wizards",
+      "program": "${workspaceFolder}/extensions/snapdragon-bridge/target/debug/snapdragon_bridge",
       "args": [],
-      "cwd": "${workspaceFolder}/game/rust"
+      "cwd": "${workspaceFolder}/extensions/snapdragon-bridge"
     },
 
     // ── Godot ────────────────────────────────────────────────────────────
     {
       "type": "godot",
       "request": "launch",
-      "name": "Godot: Launch Editor",
-      "project": "${workspaceFolder}/godot-project",
+      "name": "Godot: Open TWiaT project",
+      "project": "${workspaceFolder}/games/three-wizards-in-a-trenchcoat",
       "port": 6007,
       "address": "127.0.0.1",
       "launch_game_instance": false,
@@ -106,13 +106,23 @@
     {
       "type": "godot",
       "request": "launch",
-      "name": "Godot: Play Cave Scene",
-      "project": "${workspaceFolder}/godot-project",
+      "name": "Godot: Open Dodecahedron Demo project",
+      "project": "${workspaceFolder}/games/dodecahedron-demo",
+      "port": 6007,
+      "address": "127.0.0.1",
+      "launch_game_instance": false,
+      "launch_scene": false
+    },
+    {
+      "type": "godot",
+      "request": "launch",
+      "name": "Godot: Play TWiaT Cave (local-play, bridge=Standalone)",
+      "project": "${workspaceFolder}/games/three-wizards-in-a-trenchcoat",
       "port": 6007,
       "address": "127.0.0.1",
       "launch_game_instance": true,
       "launch_scene": false,
-      "scene": "${workspaceFolder}/godot-project/scenes/cave.tscn"
+      "scene": "${workspaceFolder}/games/three-wizards-in-a-trenchcoat/scenes/cave.tscn"
     }
   ],
 

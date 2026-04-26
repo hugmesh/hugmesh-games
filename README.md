@@ -55,22 +55,40 @@ Adding levels and assets is a documented workflow — see the
 
 Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send input. All game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with five typed event channels.
 
+The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host: at runtime it loads four sibling bundles (`login`, `admin`, `games-three-wizards`, `games-dodecahedron`) plus a `wasm-fragment` asset-tier nginx, all served by per-remote services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The runtime data flow below describes the **post-federation** rendering path; legacy `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. See *Module Federation: host + four remotes + a fragment* under [Key architectural decisions](#key-architectural-decisions) for the bundle-view companion to this runtime view.
+
 ```
   Browser / Player (up to 3)
   ══════════════════════════════════════════════════════════════════════════════
-  Angular :4200 (nginx static server + /api reverse proxy in Docker)
+  Angular host shell :8080 (nginx — TLS in e2e/prod, plain in dev compose)
   ┌──────────────────────────────────────────────────────────────────────────┐
   │                                                                          │
-  │  LoginComponent ──► AuthService ──► sessionStorage JWT                   │
-  │                     POST /api/auth/token (ROPC proxy)                    │
+  │  /login route ──loadComponent──► federated login remote                  │
+  │     LoginRemoteComponent posts /api/auth/token (ROPC proxy)              │
+  │     writes sessionStorage['tw_auth'] (= AuthService.StoredAuth shape)    │
   │                                                                          │
   │  HTTP Interceptor attaches Bearer <jwt> to every /api/* request          │
   │  AuthGuard on every protected route                                      │
+  │  /admin + /admin/games ──loadComponent──► admin remote (AdminShell +     │
+  │     UploadShell — both expose under federation_modules.slug='admin')     │
   │                                                                          │
   │  HomeComponent (/)                                                       │
-  │  └── GameCanvasComponent                                                 │
-  │       ngOnInit → SessionService.connect(1) → auto-claims controller role │
-  │       ┌─ iframe src="/api/assets/levels/{slug}/index.html?level_id=N&t=…"│
+  │   ngOnInit → SessionService.connect(1) → auto-claims controller role     │
+  │   ngOnInit → window:message listener for TW_LEVEL_TRANSITION             │
+  │   selectLevel(level):                                                    │
+  │     • SCENE_TYPE_TO_GAME_SLUG[sceneType] → federation gameSlug           │
+  │     • POST /api/games/{gameSlug}/launch — mints a launch_uid for audit   │
+  │     • RemoteLoaderService.loadGameRemote(gameSlug) — registers           │
+  │         <app-{slug}-remote> Web Component via createCustomElement        │
+  │   @switch(activeRemoteSlug):                                             │
+  │     'three-wizards' → <app-three-wizards-remote                          │
+  │                          [levelSlug] [levelId] [launchUid]>              │
+  │     'dodecahedron'  → <app-dodecahedron-remote [launchUid]>              │
+  │     fallback        → <app-game-canvas [game]> (legacy iframe path)      │
+  │                                                                          │
+  │   ┌─ iframe src="/_remotes/wasm-fragment/{slug}/index.html?level_id=N    │
+  │   │                                       &launch_uid=…&t=…"             │
+  │   │   (federated path; bytes served by wasm-fragment nginx, not BFF)     │
   │       │                                                                  │
   │       │   Godot WASM bundle (per-level; cave / field / …)                │
   │       │   ┌──────────────────────────────────────────────────────────┐  │
@@ -94,8 +112,10 @@ Up to 3 players may be connected simultaneously; exactly one holds the **control
   │       │   │    _use_first_item() on E → POST use-first-item           │  │
   │       │   └──────────────────────────────────────────────────────────┘  │
   │       │                                                                  │
-  │       └── (levelTransition) event ← window:message TW_LEVEL_TRANSITION   │
-  │             GameLibraryService.getLevel(id) → swap iframe src            │
+  │       └── window:message TW_LEVEL_TRANSITION caught at HomeComponent ──► │
+  │             GameLibraryService.getLevel(id) → updates activeLevel input  │
+  │             which propagates to the federated remote's [levelSlug] —     │
+  │             the iframe re-renders with the new src (cache-busted by t=). │
   │                                                                          │
   │  GameControls (Angular)                                                  │
   │    WASD / Space / 1-5 / E keyboard + on-screen buttons                   │
@@ -166,12 +186,59 @@ Up to 3 players may be connected simultaneously; exactly one holds the **control
   │  PgNotificationService ◄────┘ LISTEN game_events                        │
   │    → feeds sceneSink                                                     │
   │                                                                          │
-  │  AssetController                                                         │
-  │    GET /api/assets/levels/{slug}/{file} → ClassPathResource             │
-  │         (per-level Godot WASM bundle)                                    │
-  │    GET /api/assets/{filename}            → root-level static asset       │
+  │  AssetController (legacy fallback path)                                  │
+  │    GET /api/assets/levels/{slug}/{file}     → DB version_dir → file     │
+  │       (or classpath fallback when no hot upload exists for the slug)    │
+  │    GET /api/assets/levels/{slug}/{uid}/{f}  → launch-uid-gated variant  │
+  │       (active under app.assets.require-launch-uid; see PLAN section H)   │
+  │    GET /api/assets/{filename}                → root-level static asset   │
+  │  Note: federated path (cave/field/dodecahedron) bypasses this entirely  │
+  │        — bytes flow through wasm-fragment nginx at /_remotes/wasm-      │
+  │        fragment/<slug>/<file> directly. AssetController serves only as  │
+  │        a fallback for sceneTypes outside SCENE_TYPE_TO_GAME_SLUG and    │
+  │        for the launch-uid-gated path on hot-uploaded games.             │
+  │                                                                          │
+  │  GameUploadController + Service (admin only, ROLE_ADMIN)                 │
+  │    POST /api/admin/games/upload — multipart bundle zip                  │
+  │      → validate manifest_json schema_version=2 + slug regex             │
+  │      → SHA-256 bundle/ tree → version_dir name                          │
+  │      → atomic move to <gamesDir>/<slug>/<sha-prefix>/                   │
+  │      → ONE R2DBC tx: insert game_uploads + run register.sql + UPDATE   │
+  │         games.current_version_dir + supersede prior uploads             │
+  │    @Scheduled GameUploadPruner — keep last N version_dir trees per slug │
+  │                                                                          │
+  │  GameLaunchController (mints + tracks per-session launch UIDs)           │
+  │    POST   /api/games/{slug}/launch     — 256-bit URL-safe uid           │
+  │    DELETE /api/games/launches/{uid}    — self-terminate                 │
+  │    DELETE /api/admin/launches/{uid}    — admin force-revoke (ROLE_ADMIN)│
+  │    @Scheduled GameLaunchSweeper — bulk-terminate expired launches       │
+  │                                                                          │
+  │  FederationController                                                    │
+  │    GET /api/federation/manifest — DB-backed federation_modules rows    │
+  │       (Angular host calls this BEFORE bootstrap, feeds into             │
+  │        initFederation; the host's main.ts also stashes loadRemoteModule │
+  │        on globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__ so app.routes    │
+  │        can lazy-load federated routes without a static import).        │
+  │                                                                          │
+  │  GameAccessController + RoleProxyController (admin only)                 │
+  │    POST /api/admin/games/{slug}/access      — grant scope:all|role|user│
+  │    DELETE /api/admin/games/{slug}/access    — revoke                   │
+  │    GET  /api/admin/roles                    — proxy Casdoor /get-roles │
   │                                                                          │
   └──────────────────────────────────────────────────────────────────────────┘
+  │  ▲   /api/* (BFF data + auth + admin)
+  │  │   /_remotes/wasm-fragment/<slug>/index.{html,js,wasm,pck}
+  │  │   /_remotes/{login,admin,games-three-wizards,games-dodecahedron}/...
+  ▼  │                       (federation manifest URLs, all proxied to
+  ┌──┴───────────────────────  same-origin through host nginx)
+  │  Federated remotes — per-service nginx, baked-in @angular-architects/
+  │  native-federation:build output. Each ships:
+  │   • remoteEntry.json — exposed modules + shared deps manifest
+  │   • exposed module bundle(s) — loaded on first reference
+  │   • COOP/COEP/CORP headers consistent with the host shell
+  │  wasm-fragment additionally bakes in /assets/levels/<slug>/ from the
+  │  api jar's classpath — the binary asset path bypasses the BFF entirely.
+  └──────────────────────────────────────────────────────────────────────────
                     │ internal Docker network only
   ──────────────────┼───────────────────────────────────────────────────────────
   Casdoor :8000     ▼   (no host port binding — unreachable from the browser)
@@ -210,6 +277,21 @@ The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WA
 
 **R2DBC + JDBC coexistence.**
 Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 3 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
+
+**Module Federation: host + four remotes + a fragment.**
+The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads four sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`:
+
+| Slug | Kind | Exposes | Where in the host |
+|---|---|---|---|
+| `login` | `remote-shell` | `./LoginComponent` | `loadComponent` for `/login` |
+| `admin` | `remote-shell` | `./AdminShell` + `./UploadShell` | `loadComponent` for `/admin` and `/admin/games` |
+| `games-three-wizards` | `remote-game` | `./GameRoot` | `<app-three-wizards-remote>` Web Component (cave + field) |
+| `games-dodecahedron` | `remote-game` | `./GameRoot` | `<app-dodecahedron-remote>` Web Component (chrome-less demo) |
+| `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
+
+`HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` (cave/field → `three-wizards`, dodecahedron → `dodecahedron`); levels with sceneTypes outside that map fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_LEVEL_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.
+
+The host's `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (split into `bootstrap.ts` because `@angular/*` imports can't resolve before the import map exists). Federated route components reach the federation runtime via `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`, which `main.ts` stashes after `initFederation` resolves — keeps the federation package out of karma's static graph and out of route-handler bundles. The federation manifest is fetched from `GET /api/federation/manifest` (DB-backed, see migration `018-federation-modules.xml`) so a new remote can come online without redeploying the host.
 
 ---
 
@@ -908,6 +990,73 @@ GET /api/time:
 
 ---
 
+### `FederationController` — `/api/federation`  *(public)*
+
+#### `GET /api/federation/manifest`
+
+Returns the active rows of `federation_modules` (slug + display name + kind + remote_entry_url + exposed_module + version + metadata) ordered by kind/slug. The Angular host calls this BEFORE `bootstrapApplication` and feeds the result into `initFederation(...)`. Public on purpose: the host needs the `login` remote URL before any user authenticates.
+
+```
+──request──► fedRepo.findAllByEnabledTrueOrderByKindAscSlugAsc()
+              ──map(FederationRemoteDto::from)──collectList──►
+ ──────────────────────────────────────────────────────────●─|
+                                                            {generatedAt, remotes:[…]}
+```
+
+---
+
+### `GameLaunchController` — `/api/games`  *(authenticated; admin endpoints under /api/admin/launches)*
+
+#### `POST /api/games/{slug}/launch`
+
+Mints a 256-bit URL-safe `launch_uid` for the active session, persists a `game_launches` row with a 15-minute TTL (with `version_dir` snapshot from `games.current_version_dir`), and returns `{uid, expiresAt, gameSlug}`. The federated remote threads the uid into the iframe URL as `?launch_uid=…` for traceability; `AssetController.getLevelAssetByUid` validates it on the legacy launch-uid-gated asset path.
+
+#### `DELETE /api/games/launches/{uid}`
+
+Self-terminate. The owner of the launch (matched by JWT subject vs `game_launches.casdoor_user_id`) can clear the `terminated_at` column. Mismatched user → 403.
+
+#### `DELETE /api/admin/launches/{uid}`  *(ROLE_ADMIN)*
+
+Admin force-terminate. Skips the ownership check; surfaces from the admin UI's "kick" button alongside the active-launches list.
+
+---
+
+### `GameUploadController` — `/api/admin/games`  *(ROLE_ADMIN)*
+
+#### `POST /api/admin/games/upload`
+
+Multipart bundle zip → install pipeline (validate manifest_json schema_version=2 + slug regex + zip-slip-safe paths → SHA-256 the bundle/ tree → atomic move to `<gamesDir>/<slug>/<sha-prefix>` → ONE R2DBC tx that inserts `game_uploads`, runs the bundle's `register.sql` statement-by-statement, UPDATEs `games.current_version_dir`, and supersedes prior uploads). Returns `{slug, contentHash, versionDir, uploadedAt}`. Bound by the `app.uploads.versions-to-keep` (default 3) `GameUploadPruner` scheduled task.
+
+#### `GET /api/admin/games/{slug}/uploads`
+
+Rollback history for a slug — newest first. Each row carries `supersededAt` (NULL = current).
+
+---
+
+### `GameAccessController` — `/api/admin/games`  *(ROLE_ADMIN)*
+
+#### `POST /api/admin/games/{slug}/access`
+
+Body: `{scope:"all"|"role"|"user", value?:"<role-name | casdoor-user-id>"}`. Adds a row to `game_access`. Idempotent — duplicates absorbed by the `uq_game_access_triple` unique constraint.
+
+#### `DELETE /api/admin/games/{slug}/access?scope=…&value=…`
+
+Removes the matching `game_access` row.
+
+#### `GET /api/admin/games/{slug}/access`
+
+Lists active access policies for a slug. Multiple rows are additive (union).
+
+---
+
+### `RoleProxyController` — `/api/admin/roles`  *(ROLE_ADMIN)*
+
+#### `GET /api/admin/roles`
+
+Proxies Casdoor's `/api/get-roles?owner=threewizards` so the admin UI's "grant role" dropdown loads from the live Casdoor catalog instead of a free-text input. The BFF holds the Casdoor admin client_secret; the browser doesn't.
+
+---
+
 ## Database schema
 
 ```
@@ -992,37 +1141,56 @@ Projectile size scales with tier: starter radius ≈ 0.6, advanced ≈ 1.0.
 
 ## Godot asset pipeline
 
-Each level compiles to its **own** WASM bundle. `export_presets.cfg` holds one
-preset per level; the Makefile loops over `GODOT_LEVELS` and runs
-`godot --headless --export-release "<preset>"` for each one, with the output
-going under `backend/src/main/resources/assets/levels/<slug>/`.
+Each game lives in its **own** Godot project under `games/<game-slug>/`, and
+each level inside that project compiles to its **own** WASM bundle. Per-game
+`export_presets.cfg` holds one preset per level; the Makefile walks
+`GAME_PROJECTS` and the per-game `PRESETS_<dir>` variable, runs
+`godot --headless --export-release "<preset>"` from each game's directory, and
+writes the output under `backend/src/main/resources/assets/levels/<slug>/`.
 
 ```
-make build-godot
+make build-rust
   │
-  ├─ cargo build --release     → godot-project/rust_extension/bin/libthree_wizards.so
+  ├─ cd extensions/snapdragon-bridge && cargo build --release
+  │    → target/release/libsnapdragon_bridge.so
   │
-  ├─ for preset in $(GODOT_LEVELS):
-  │    godot --headless --export-release "<preset>"
-  │       → backend/src/main/resources/assets/levels/<slug>/
-  │          index.html  index.wasm  index.pck  index.js  index.side.wasm
-  │    scripts/patch-godot-html.py <slug>/index.html <slug>/index.side.wasm
+  ├─ cp …/libsnapdragon_bridge.so → games/<game>/bin/libsnapdragon_bridge.so   (each game)
   │
-  └─ ✓ all levels exported
+  └─ cargo build --release --target wasm32-unknown-emscripten   (skipped if emsdk missing)
+
+make build-godot         (depends on build-rust)
+  │
+  ├─ for game in $(GAME_PROJECTS):
+  │    for preset in $(PRESETS_<game>):
+  │      cd games/<game> && godot --headless --export-release "<preset>"
+  │         → backend/src/main/resources/assets/levels/<slug>/
+  │            index.html  index.wasm  index.pck  index.js  index.side.wasm
+  │      scripts/patch-godot-html.py <slug>/index.html <slug>/index.side.wasm
+  │
+  └─ ✓ all bundles exported
 
 make seed-db
   │
   └─ scripts/seed-games.sql  (ON CONFLICT (slug) DO UPDATE)
-       upserts level rows with asset_url = '/api/assets/levels/<slug>/index.html'
+       upserts game + level rows with asset_url = '/api/assets/levels/<slug>/index.html'
 
 make deploy  =  build-godot + seed-db
-  (then rebuild the api image so the new classpath assets ship)
+  (then rebuild the api + wasm-fragment images so the new classpath assets ship)
 ```
 
-Adding a new level touches four places — `export_presets.cfg`, `Makefile`
-`GODOT_LEVELS`, the `levels` DB row, and (optionally) `level_prerequisites`.
-Full walk-through with naming rules and common mistakes: see the
-[Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
+The federated path serves the same exports through `wasm-fragment/` (an
+nginx that bakes `assets/levels/` and emits the COOP/COEP/CORP headers WASM
+games need) at `/_remotes/wasm-fragment/<slug>/index.html`. The Angular host's
+`HomeComponent` selects between the legacy classpath URL and the federated
+one via `SCENE_TYPE_TO_GAME_SLUG`.
+
+Adding a new level touches four places — the game's `export_presets.cfg`,
+the Makefile's `PRESETS_<game>`, the `levels` DB row, and (optionally)
+`level_prerequisites`. Adding a brand-new game touches a fifth (a row in
+`federation_modules`) — or you can let the editor's *Snapdragon Export*
+plugin produce an upload zip and let `GameUploadController` register
+everything atomically. Full walk-through with naming rules and common
+mistakes: see the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
 
 ### User-added assets (textures, plugins, sounds)
 
@@ -1157,15 +1325,41 @@ sudo usermod -aG docker $USER   # re-login after this
 docker compose version
 ```
 
-### 8. Emscripten (optional)
+### 8. Emscripten + WASM Rust target (optional, but required for `wasm32-unknown-emscripten`)
+
+The Rust GDExtension (`extensions/snapdragon-bridge/`) compiles to a native
+`.so` for the editor and to `wasm32-unknown-emscripten` for the web build.
+The native path needs no extra tooling; the WASM path needs **two** things
+that distro Rust packages typically don't ship together — emscripten itself,
+and the `wasm32-unknown-emscripten` Rust standard library.
 
 ```bash
-git clone https://github.com/emscripten-core/emsdk.git ~/emsdk
-cd ~/emsdk && ./emsdk install latest && ./emsdk activate latest
+# 1. emscripten via emsdk
+git clone https://github.com/emscripten-core/emsdk.git ~/Tools/emsdk
+cd ~/Tools/emsdk && ./emsdk install latest && ./emsdk activate latest
 source ./emsdk_env.sh
+
+# 2. wasm32-unknown-emscripten target. If your distro Rust ships it, skip
+#    rustup. Otherwise install rustup parallel to system Rust (no sudo,
+#    no PATH writes — call ~/.cargo/bin/cargo directly when needed):
+rustup-init -y --no-modify-path --default-toolchain stable --profile minimal
+~/.cargo/bin/rustup target add wasm32-unknown-emscripten
+
+# 3. Build (the Makefile's `build-rust` target does this automatically when
+#    emcc is on PATH):
+source ~/Tools/emsdk/emsdk_env.sh
+PATH=$HOME/.cargo/bin:$PATH cargo build --release \
+  --target wasm32-unknown-emscripten \
+  --manifest-path extensions/snapdragon-bridge/Cargo.toml
+# → extensions/snapdragon-bridge/target/wasm32-unknown-emscripten/release/snapdragon_bridge.wasm
 ```
 
-Add `source ~/emsdk/emsdk_env.sh` to your shell profile to persist it.
+godot-rust gates the WASM target behind an `experimental-wasm` Cargo
+feature; `extensions/snapdragon-bridge/Cargo.toml` enables it by default
+via the local `wasm-opt-in` feature, so a plain `cargo build` works on
+both target triples without extra flags.
+
+Add `source ~/Tools/emsdk/emsdk_env.sh` to your shell profile to persist it.
 
 ---
 
@@ -1266,13 +1460,69 @@ Order: `cargo build --release` → `godot --export-release` → `patch-godot-htm
 ### Individual steps
 
 ```bash
-make build-rust      # Rust GDExtension → godot-project/rust_extension/bin/
-make build-godot     # Godot WebGL export + HTML patch → backend classpath assets
-make build-backend   # Spring Boot JAR (artifact: snapdragon-gaming-bff)
-make build-frontend  # Angular dist (project: snapdragon-games-frontend)
-make seed-db         # Upsert game records with asset_url in running Postgres
-make deploy          # build-godot + seed-db (then rebuild api image to serve new WASM)
+make build-rust            # Rust GDExtension → extensions/snapdragon-bridge/bin/
+make build-godot           # Godot WebGL export + HTML patch → backend classpath assets
+make build-backend         # Spring Boot JAR (artifact: snapdragon-gaming-bff)
+make build-backend-native  # GraalVM native-image of the BFF (~70s, ~335 MB image)
+make build-frontend        # Angular dist (project: snapdragon-games-frontend)
+make seed-db               # Upsert game records with asset_url in running Postgres
+make seed-roles            # Idempotent per-game Casdoor role create (post-deploy)
+make deploy                # build-godot + seed-db (rebuild api image afterwards)
 ```
+
+### GraalVM native-image build (BFF)
+
+The native build trades ~5–10× longer compile time for sub-second cold start
+and ~70 % smaller container. Flow:
+
+```bash
+make build-backend-native        # one-shot: docker build -f backend/Dockerfile.native
+make e2e-native                  # full Playwright suite against the native image
+```
+
+**Prerequisites + tradeoffs**:
+- The AOT compiler (GraalVM `native-image`) wants **6–8 GB of free RAM** during
+  the compile pass. On a 16 GB laptop the build takes ~5–10 minutes; on
+  smaller machines it OOMs partway through with no graceful fallback. Run
+  the JVM build (`make build-backend`) on memory-constrained hosts.
+- The build is **not** wired into PR CI by default — it's gated behind a
+  `[native]` commit-message marker so a normal PR doesn't pay the 5–10 min
+  compile tax. Flip on when a release branch is being prepared.
+- Image runtime size is ~150 MB (vs ~600 MB for the JVM build). Cold start
+  is **~0.4 s** (vs ~3 s JVM). RSS at idle is ~100 MB (vs ~400 MB JVM).
+- Liquibase migrations run from a separate init container at startup
+  (see `docker-compose.native.yml`) — the native binary itself has
+  `SPRING_LIQUIBASE_ENABLED=false`. New migrations land transparently;
+  no rebuild of the native image is required for schema-only changes.
+
+Implementation notes — gotchas surfaced and fixed during initial
+verification, all visible in [SnapdragonRuntimeHints.java](backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java) +
+[backend/pom.xml](backend/pom.xml) `native` profile:
+
+- **Liquibase moves to a separate init container** ([docker-compose.native.yml](docker-compose.native.yml)).
+  Spring's auto-Liquibase requires reflection metadata for ~30+ ServiceLocator
+  classes; running migrations from the official `liquibase/liquibase` image
+  (with `SPRING_LIQUIBASE_ENABLED=false` on the api) sidesteps the entire
+  reflection chain.
+- **Netty's jctools-shaded MPSC queues** read field offsets via `Unsafe` at
+  class-init. Spring Boot 3.4's bundled GraalVM reachability metadata pins
+  netty 4.1.80 but the runtime is 4.1.115 — the Producer/Consumer/Limit
+  index-field classes drift out of coverage. Fixed by deferring init of
+  `io.netty.util.internal.shaded.org.jctools` to runtime AND registering
+  the index-field classes for `DECLARED_FIELDS`.
+- **R2DBC ↔ Postgres `timestamptz`** returns `OffsetDateTime`; entities use
+  `Instant`. Spring auto-registers a converter on the JVM but the
+  reflection-based discovery skips it under native-image. Fixed by
+  registering an explicit `R2dbcCustomConversions` bean in
+  [R2dbcConvertersConfig.java](backend/src/main/java/com/threewizards/config/R2dbcConvertersConfig.java).
+- **Per-level WASM bundles** ship as classpath resources under
+  `assets/levels/<slug>/`. native-image strips classpath resources by default;
+  added `-H:IncludeResources=assets/.*` to the `native` profile build args.
+
+Cold-start measurement: 0.39 s on the test rig (vs ~3 s JVM). The image
+runtime base is `debian:bookworm-slim` with `wget` + `ca-certificates`
+added so the `make e2e-native` health-check loop and outbound HTTPS to
+Casdoor work.
 
 ### Testing
 
@@ -1281,7 +1531,7 @@ chains them sequentially.
 
 ```bash
 make test            # rust + backend + frontend (chains through all three)
-make test-rust       # cargo test in game/rust (host toolchain; needs cargo)
+make test-rust       # cargo test in extensions/snapdragon-bridge (host toolchain; needs cargo)
 make test-backend    # mvnw test in backend/ (host toolchain; needs JDK 21)
 make test-frontend   # ng test inside Docker (Chromium baked into the image,
                      # so the host doesn't need a browser installed)
@@ -1292,6 +1542,15 @@ The frontend runner builds [frontend/Dockerfile.test](frontend/Dockerfile.test) 
 with the `ChromeHeadlessCI` launcher (no-sandbox flags so it runs inside containers).
 
 ### Cross-platform end-to-end test
+
+> **Docker buildx required.** Docker 29+ deprecated the legacy
+> builder; without `docker-buildx` installed every `docker compose
+> build` (and therefore `make e2e`) hangs silently with a
+> "Building" status that never progresses. On Gentoo:
+> `sudo emerge -av app-containers/docker-buildx`. On distros without
+> a system package, drop the v0.18+ binary into
+> `~/.docker/cli-plugins/docker-buildx` (chmod +x); user-local
+> install needs no root and `docker buildx version` confirms it.
 
 ```bash
 make e2e             # full Docker stack + Playwright browser test
@@ -1368,77 +1627,90 @@ Keyboard input works both from the Angular page and from inside the Godot canvas
 
 ```
 ThreeWizardsInATrenchcoat/
-├── Makefile                              # Master build + seed-db + deploy
+├── Makefile                              # Master build + seed-db + e2e + e2e-native
 ├── scripts/
 │   ├── patch-godot-html.py              # Patches WASM sizes + scene prefetch
-│   └── seed-games.sql                   # Idempotent game record upserts
-├── docker-compose.yml                   # postgres + casdoor (internal) + api + frontend
+│   ├── gen-certs.sh                     # Self-signed TLS certs for `make e2e`
+│   ├── seed-games.sql                   # Idempotent game record upserts
+│   └── seed-roles.sh                    # Casdoor role seeder (per-game ROLE_PLAY_*)
+├── docker-compose.yml                   # postgres + cassandra + casdoor + api + frontend
+│                                          + 4 federated remotes + wasm-fragment
+├── docker-compose.e2e.yml               # TLS overlay: nginx HTTPS on :8443, e2e service
+├── docker-compose.native.yml            # Native-image overlay: GraalVM api + Liquibase init
 ├── docker/
-│   └── postgres-init.sql                # Creates casdoor DB alongside threewizards
+│   ├── postgres-init.sql                # Creates casdoor + threewizards DBs
+│   └── cassandra-init.cql               # Cross-pod session/cache keyspace
 ├── casdoor/
 │   ├── conf/app.conf                    # Casdoor config (postgres, origin, initDataFile)
-│   ├── init_data.json.tpl               # Org / app / user seed template
+│   ├── init_data.json.tpl               # Org / app / user / role seed template
 │   └── entrypoint.sh                    # Substitutes env vars, generates random secrets
-├── game/
-│   └── rust/                            # Rust GDExtension crate
-│       ├── Cargo.toml
-│       └── src/
-│           ├── lib.rs                   # Extension entry point
-│           ├── cave_scene.rs            # CaveScene node
-│           ├── player.rs                # PlayerController stub
-│           └── game_state.rs            # GameStateBridge stub
-├── godot-project/                       # Godot 4.6 project
-│   ├── project.godot
-│   ├── export_presets.cfg               # Web export → backend classpath assets
-│   ├── scenes/
-│   │   ├── cave.tscn                    # Cave: CSG geometry + player + camera rig
-│   │   ├── field.tscn                   # Open field: procedural sky + terrain
-│   │   └── dodecahedron.tscn            # Chrome-less demo: spinning regular dodecahedron
-│   ├── scripts/
-│   │   ├── camera_controller.gd         # Orbit camera: scroll zoom, drag orbit, FP/3P
-│   │   ├── fairy.gd                     # Floating fairy particle behaviour
-│   │   ├── game_bridge.gd               # EventSource (5 typed channels) + keyboard → API
-│   │   ├── player_controller.gd         # Applies SSE movement state
-│   │   ├── dodecahedron_spinner.gd      # Builds dodecahedron from φ-vertices via SurfaceTool
-│   │   └── scene_loader.gd              # Fetches scene config, spawns elements, sun rotation
-│   │                                    # (early-bypasses to dodecahedron.tscn when the
-│   │                                    #  level_dodecahedron custom feature is set)
-│   └── rust_extension/
-│       └── three_wizards.gdextension    # GDExtension manifest
-├── frontend/                            # Angular 19 standalone app
-│   ├── nginx.conf                       # Reverse-proxies /api → api:8080
-│   ├── Dockerfile                       # ng build → nginx
-│   └── src/
-│       ├── environments/
-│       │   ├── environment.ts           # Dev: apiBase = 'http://localhost:8080'
-│       │   └── environment.prod.ts      # Prod: apiBase = ''
-│       └── app/
-│           ├── http-auth.interceptor.ts # Attaches Bearer token to /api/* requests
-│           ├── auth.guard.ts            # Route guard: AuthService.isAuthenticated()
-│           ├── login/                   # Form-based login (no Casdoor redirect)
-│           ├── home/                    # Game listing
-│           ├── game-canvas/             # Godot iframe host (reads game.assetUrl)
-│           ├── game-controls/           # WASD + spell buttons
-│           ├── game-hud/                # HP, MP, position, session badge
-│           └── services/
-│               ├── auth.service.ts      # sessionStorage JWT, login/logout/getClaims
-│               ├── control.service.ts   # POST /api/controls
-│               └── game-state.service.ts # EventSource with reconnect; typed events
-└── backend/                             # Spring Boot 3.x / Java 21 / WebFlux + R2DBC
+├── extensions/snapdragon-bridge/        # Reusable Rust GDExtension (replaces game/rust/)
+│   ├── Cargo.toml                       # crate-type cdylib (native + WASM target)
+│   ├── src/
+│   │   ├── lib.rs                       # Crate entry, registers HostBridge
+│   │   └── host_bridge.rs               # HostBridge node: typed signals + Standalone mode
+│   └── example/bridge_glue.gd           # Reference glue script for new game projects
+├── games/                               # Per-game Godot 4.6 projects
+│   ├── three-wizards-in-a-trenchcoat/  # Flagship JRPG (cave + field)
+│   │   ├── project.godot
+│   │   ├── export_presets.cfg           # Cave + Field web export presets
+│   │   ├── scenes/{cave,field}.tscn
+│   │   ├── scripts/                     # game_bridge.gd, player_controller.gd,
+│   │   │                                  scene_loader.gd, camera_controller.gd,
+│   │   │                                  fairy.gd, api_client.gd, bridge_glue.gd
+│   │   ├── addons/snapdragon_export/   # Project → Tools → Snapdragon → Export plugin
+│   │   ├── bin/                         # libsnapdragon_bridge.so (per-project copy)
+│   │   └── snapdragon_bridge.gdextension
+│   └── dodecahedron-demo/               # Chrome-less single-scene tech demo
+│       ├── project.godot
+│       ├── scenes/dodecahedron.tscn
+│       ├── scripts/dodecahedron_spinner.gd
+│       └── (same export plugin + bridge layout)
+├── frontend/                            # Angular 19 host shell
+│   ├── nginx.conf / nginx-tls.conf     # Reverse-proxy /api/* and /_remotes/<slug>/
+│   ├── Dockerfile                       # ng build under @angular-architects/native-federation
+│   ├── federation.config.js             # Host-side federation config
+│   ├── federation-base.js               # Shared shareAll/skip helpers (host + 4 remotes)
+│   ├── projects/                        # Federated remote bundles (per-remote Angular projects)
+│   │   ├── login/                       # remote-shell — exposes ./LoginComponent
+│   │   ├── admin/                       # remote-shell — exposes ./AdminShell + ./UploadShell
+│   │   ├── games-three-wizards/         # remote-game  — exposes ./GameRoot (cave + field)
+│   │   └── games-dodecahedron/          # remote-game  — exposes ./GameRoot
+│   └── src/app/                         # Host shell sources
+│       ├── http-auth.interceptor.ts    # Attaches Bearer token to /api/* requests
+│       ├── auth.guard.ts                # Route guard: AuthService.isAuthenticated()
+│       ├── app.routes.ts                # /login + /admin + /admin/games via loadRemote()
+│       ├── home/                        # Game listing + federated render fork
+│       ├── game-canvas/                 # Legacy iframe path (fallback, sceneType not in
+│       │                                  SCENE_TYPE_TO_GAME_SLUG)
+│       ├── game-controls/ + game-hud/   # WASD/spell overlays, character status
+│       └── services/                    # auth/control/game-state/federation/remote-loader
+├── wasm-fragment/                       # Asset-tier nginx (federated WASM bundle serving)
+│   ├── Dockerfile                       # Bakes classpath /assets/levels/<slug>/ into nginx
+│   └── nginx.conf                       # COOP/COEP/CORP headers, .wasm/.pck MIME, /<slug>/
+└── backend/                             # Spring Boot 3.4 / Java 21 / WebFlux + R2DBC
+    ├── pom.xml                          # `native` profile for GraalVM AOT
+    ├── Dockerfile / Dockerfile.native  # JVM image / GraalVM native-image multi-stage
     └── src/main/java/com/threewizards/
+        ├── aot/SnapdragonRuntimeHints.java  # Native-image reflection hints
         ├── config/
-        │   ├── JdbcDataSourceConfig.java  # @Primary HikariDataSource for Liquibase
-        │   ├── SecurityConfig.java        # JWT resource server, path rules
-        │   └── WebConfig.java             # CORS
-        ├── controller/                    # (12 controllers — see API Reference above)
-        ├── model/                         # R2DBC entities + DTOs + records
-        ├── repository/                    # ReactiveCrudRepository interfaces
+        │   ├── JdbcDataSourceConfig.java   # @Primary HikariDataSource for Liquibase
+        │   ├── R2dbcConvertersConfig.java  # OffsetDateTime ↔ Instant (native-image)
+        │   ├── SecurityConfig.java         # JWT resource server, path rules
+        │   └── WebConfig.java              # CORS
+        ├── controller/                     # See API Reference below — 14 controllers,
+        │                                     federation/admin-uploads/launches/access added
+        ├── model/                          # R2DBC entities + DTOs + records
+        ├── repository/                     # ReactiveCrudRepository interfaces
         └── service/
-            ├── GameStateService.java      # 4 typed Sinks (autoCancel=false) + keyup gate
-            ├── GameTimeService.java       # In-game clock scheduler
-            ├── PgNotificationService.java # LISTEN game_events → SSE scene$
-            ├── SessionService.java        # 3-player cap + controller arbitration
-            └── AdminPasswordService.java  # Dev profile: prints credentials at startup
+            ├── GameStateService.java       # @DependsOn(liquibase) — 4 typed Sinks
+            ├── GameTimeService.java        # @DependsOn(liquibase) — 10s = 1min scheduler
+            ├── GameUploadService.java      # Hot-upload pipeline: validate → stage → tx-install
+            ├── GameUploadPruner.java       # @Scheduled — keep-last-N version_dir trees
+            ├── GameLaunchSweeper.java      # @Scheduled — bulk-terminate expired launches
+            ├── PgNotificationService.java  # LISTEN game_events → SSE scene$
+            ├── SessionService.java         # 3-player cap + controller arbitration
+            └── AdminPasswordService.java   # Dev profile: prints credentials at startup
 ```
 
 ---

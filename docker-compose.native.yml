@@ -1,0 +1,69 @@
+# Compose overlay that swaps the JVM `api` service for a GraalVM
+# native-image build. Drop-in: `docker compose -f docker-compose.yml
+# -f docker-compose.native.yml up`.
+#
+# Tradeoffs (PLAN section D):
+#   ✓ Cold start ~50–100 ms (vs ~3 s on the JVM)
+#   ✓ RSS ~100 MB (vs ~400 MB)
+#   ✓ Final image ~150 MB (vs ~430 MB on eclipse-temurin:21-jre)
+#   ✗ Build is slow (~5–10 min) and memory-hungry (~6–8 GB)
+#   ✗ No JIT / class hot-swap; reflection requires explicit hints
+#     (see backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java)
+#
+# Validation strategy (separate workflow, not run on every PR):
+#   1. `make build-backend-native` produces snapdragon-gaming-bff:native.
+#   2. `docker compose -f docker-compose.yml -f docker-compose.e2e.yml \
+#                      -f docker-compose.native.yml \
+#                      up -d ...` (then make e2e steps).
+#   3. Expect a few rounds of missing-hint discovery (Casdoor JWKS
+#      verification, Springdoc @Operation reflection, Liquibase singleton
+#      scope) — fold each new hint into SnapdragonRuntimeHints.
+
+services:
+  # ── Liquibase migration runner (native-mode only) ───────────────────────────
+  # Spring Boot's auto-Liquibase uses heavy reflection that ships ~30+
+  # ServiceLocator classes (UIService, parsers, serializers, executors,
+  # etc.). Each one needs explicit reflection hints under native-image,
+  # which is fragile across Liquibase version bumps. The pragmatic fix:
+  # run migrations from a separate non-native init container BEFORE the
+  # api starts, then disable Spring's Liquibase auto-config in the
+  # native binary (`spring.liquibase.enabled=false` below).
+  #
+  # The official liquibase image bundles the Liquibase CLI; we mount the
+  # changelog dir + a tiny properties file and point it at the same
+  # postgres the api will use. Exits 0 once `update` completes; the api
+  # waits on `service_completed_successfully`.
+  liquibase:
+    image: liquibase/liquibase:4.29
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # The Liquibase CLI honours these env vars directly; saves us a
+      # liquibase.properties file mount.
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/threewizards
+      LIQUIBASE_COMMAND_USERNAME: threewizards
+      LIQUIBASE_COMMAND_PASSWORD: threewizards
+      LIQUIBASE_COMMAND_CHANGELOG_FILE: db/changelog/db.changelog-master.xml
+      LIQUIBASE_SEARCH_PATH: /workspace
+    volumes:
+      - ./backend/src/main/resources:/workspace:ro
+    command: ["update"]
+    restart: "no"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.native
+    image: snapdragon-gaming-bff:native
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+    environment:
+      # Native binary doesn't take JAVA_TOOL_OPTIONS; clear it from the
+      # base profile to avoid spurious warnings on startup.
+      JAVA_TOOL_OPTIONS: ""
+      # Liquibase already ran in the init container above; tell Spring
+      # to skip its own auto-config so the native binary doesn't have
+      # to ship Liquibase reflection metadata.
+      SPRING_LIQUIBASE_ENABLED: "false"

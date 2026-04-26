@@ -1,0 +1,174 @@
+[gd_scene load_steps=16 format=3 uid="uid://cave_main_scene"]
+
+[ext_resource type="Script" path="res://scripts/game_bridge.gd" id="1_bridge"]
+[ext_resource type="Script" path="res://scripts/player_controller.gd" id="2_player"]
+[ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3_camera"]
+[ext_resource type="Script" path="res://scripts/scene_loader.gd" id="4_loader"]
+[ext_resource type="Script" path="res://scripts/bridge_glue.gd" id="5_glue"]
+
+[sub_resource type="StandardMaterial3D" id="mat_cave"]
+albedo_color = Color(0.18, 0.14, 0.12, 1)
+roughness = 0.95
+metallic = 0.0
+
+[sub_resource type="StandardMaterial3D" id="mat_robe"]
+albedo_color = Color(0.12, 0.08, 0.22, 1)
+roughness = 0.8
+metallic = 0.05
+
+[sub_resource type="StandardMaterial3D" id="mat_skin"]
+albedo_color = Color(0.85, 0.72, 0.58, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="mat_hood"]
+albedo_color = Color(0.10, 0.06, 0.18, 1)
+roughness = 0.85
+
+[sub_resource type="CapsuleShape3D" id="player_collision"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="CylinderMesh" id="mesh_robe"]
+top_radius = 0.25
+bottom_radius = 0.55
+height = 1.6
+
+[sub_resource type="SphereMesh" id="mesh_head"]
+radius = 0.22
+height = 0.44
+
+[sub_resource type="CylinderMesh" id="mesh_hood"]
+top_radius = 0.0
+bottom_radius = 0.28
+height = 0.45
+
+[sub_resource type="CylinderMesh" id="mesh_hood_brim"]
+top_radius = 0.28
+bottom_radius = 0.28
+height = 0.06
+
+[sub_resource type="Environment" id="env_fallback"]
+background_mode = 1
+background_color = Color(0.01, 0.01, 0.03, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.55, 0.65, 0.85, 1)
+ambient_light_energy = 1.5
+
+[node name="Cave" type="Node3D"]
+
+[node name="GameBridge" type="Node" parent="."]
+script = ExtResource("1_bridge")
+
+[node name="HostBridge" type="HostBridge" parent="."]
+
+[node name="BridgeGlue" type="Node" parent="GameBridge"]
+script = ExtResource("5_glue")
+
+[node name="SceneLoader" type="Node" parent="."]
+script = ExtResource("4_loader")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env_fallback")
+
+[node name="Floor" type="CSGBox3D" parent="."]
+size = Vector3(80, 2, 120)
+position = Vector3(0, -1, 0)
+use_collision = true
+material_override = SubResource("mat_cave")
+
+[node name="Ceiling" type="CSGBox3D" parent="."]
+size = Vector3(80, 2, 120)
+position = Vector3(0, 21, 0)
+use_collision = true
+material_override = SubResource("mat_cave")
+
+[node name="WallNorth" type="CSGBox3D" parent="."]
+size = Vector3(2, 24, 120)
+position = Vector3(-41, 10, 0)
+use_collision = true
+material_override = SubResource("mat_cave")
+
+[node name="WallSouth" type="CSGBox3D" parent="."]
+size = Vector3(2, 24, 120)
+position = Vector3(41, 10, 0)
+use_collision = true
+material_override = SubResource("mat_cave")
+
+[node name="WallEast" type="CSGBox3D" parent="."]
+size = Vector3(80, 24, 2)
+position = Vector3(0, 10, 61)
+use_collision = true
+material_override = SubResource("mat_cave")
+
+[node name="WallWest" type="CSGBox3D" parent="."]
+size = Vector3(80, 24, 2)
+position = Vector3(0, 10, -61)
+use_collision = true
+material_override = SubResource("mat_cave")
+
+[node name="Stalactite1" type="CSGCylinder3D" parent="."]
+radius = 0.4
+height = 6.0
+position = Vector3(12, 18, -20)
+rotation = Vector3(0, 0, 3.14159)
+material_override = SubResource("mat_cave")
+
+[node name="Stalactite2" type="CSGCylinder3D" parent="."]
+radius = 0.6
+height = 8.0
+position = Vector3(-18, 19, 15)
+rotation = Vector3(0, 0, 3.14159)
+material_override = SubResource("mat_cave")
+
+[node name="Stalactite3" type="CSGCylinder3D" parent="."]
+radius = 0.3
+height = 5.0
+position = Vector3(5, 17, 30)
+rotation = Vector3(0, 0, 3.14159)
+material_override = SubResource("mat_cave")
+
+[node name="Stalagmite1" type="CSGCylinder3D" parent="."]
+radius = 0.5
+height = 4.0
+position = Vector3(-10, 2, 10)
+material_override = SubResource("mat_cave")
+
+[node name="Stalagmite2" type="CSGCylinder3D" parent="."]
+radius = 0.4
+height = 3.5
+position = Vector3(20, 1.75, -15)
+material_override = SubResource("mat_cave")
+
+[node name="Player" type="CharacterBody3D" parent="."]
+position = Vector3(0, 0.9, 0)
+script = ExtResource("2_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+position = Vector3(0, 0.9, 0)
+shape = SubResource("player_collision")
+
+[node name="RobeBody" type="MeshInstance3D" parent="Player"]
+position = Vector3(0, 0.8, 0)
+mesh = SubResource("mesh_robe")
+surface_material_override/0 = SubResource("mat_robe")
+
+[node name="Head" type="MeshInstance3D" parent="Player"]
+position = Vector3(0, 1.82, 0)
+mesh = SubResource("mesh_head")
+surface_material_override/0 = SubResource("mat_skin")
+
+[node name="Hood" type="MeshInstance3D" parent="Player"]
+position = Vector3(0, 2.18, 0)
+mesh = SubResource("mesh_hood")
+surface_material_override/0 = SubResource("mat_hood")
+
+[node name="HoodBrim" type="MeshInstance3D" parent="Player"]
+position = Vector3(0, 1.96, 0)
+mesh = SubResource("mesh_hood_brim")
+surface_material_override/0 = SubResource("mat_hood")
+
+[node name="CameraPivot" type="Node3D" parent="Player"]
+position = Vector3(0, 1.7, 0)
+script = ExtResource("3_camera")
+
+[node name="Camera3D" type="Camera3D" parent="Player/CameraPivot"]

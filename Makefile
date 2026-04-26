@@ -9,9 +9,9 @@
 #   node        (v20+)
 
 SHELL := /bin/bash
-.PHONY: all clean build build-rust build-godot patch-godot build-backend build-frontend \
-        dev-backend dev-frontend install deps-rust deps-frontend seed-db deploy \
-        gen-certs e2e e2e-down e2e-logs gen-api \
+.PHONY: all clean build build-rust build-godot patch-godot build-backend build-backend-native build-frontend \
+        dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
+        gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend
 
 GODOT        ?= godot
@@ -20,17 +20,26 @@ DB_PORT      ?= 5432
 DB_NAME      ?= threewizards
 DB_USER      ?= threewizards
 PSQL         ?= psql
-RUST_DIR      = game/rust
-GODOT_DIR     = godot-project
+RUST_DIR      = extensions/snapdragon-bridge
+GAMES_DIR     = games
 FRONTEND_DIR  = frontend
 BACKEND_DIR   = backend
 
-RUST_TARGET_NATIVE  = target/release/libthree_wizards.so
-RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/three_wizards.wasm
+RUST_TARGET_NATIVE  = target/release/libsnapdragon_bridge.so
+RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/snapdragon_bridge.wasm
 GODOT_EXPORT_ROOT   = $(BACKEND_DIR)/src/main/resources/assets/levels
-# Space-separated list of level slugs that map to export preset names.
-# Add new levels here AND in godot-project/export_presets.cfg.
-GODOT_LEVELS        = Cave Field Dodecahedron
+
+# Per-game project layout. Each row maps:
+#   <game-slug-dir-under-games/> : <space-separated export preset names>
+# `make build-godot` iterates this list, runs each preset, and writes the
+# resulting bundle to backend/.../assets/levels/<lower-preset>/. Adding a
+# new game = drop a new project under games/<slug>/ + append a row here.
+GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo
+PRESETS_three-wizards-in-a-trenchcoat = Cave Field
+PRESETS_dodecahedron-demo             = Dodecahedron
+# Flat slug list used by `make seed-roles` and other per-game iteration.
+GAME_SLUGS          = three-wizards dodecahedron
+
 BACKEND_JAR         = $(BACKEND_DIR)/target/snapdragon-gaming-bff-0.1.0-SNAPSHOT.jar
 FRONTEND_DIST       = $(FRONTEND_DIR)/dist/snapdragon-games-frontend
 
@@ -44,11 +53,17 @@ build: build-rust build-godot build-backend build-frontend
 # ── Rust GDExtension ──────────────────────────────────────────────────────────
 
 build-rust: deps-rust
-	@echo "→ Building Rust GDExtension (native)..."
+	@echo "→ Building Snapdragon Bridge GDExtension (native)..."
 	cd $(RUST_DIR) && cargo build --release
-	mkdir -p $(GODOT_DIR)/rust_extension/bin
-	cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(GODOT_DIR)/rust_extension/bin/libthree_wizards.so
-	@echo "→ Building Rust GDExtension (WASM for web export)..."
+	@# One canonical binary in the extension dir; copy into every game project's
+	@# bin/ so each project opens standalone in the Godot editor.
+	mkdir -p $(RUST_DIR)/bin
+	cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(RUST_DIR)/bin/libsnapdragon_bridge.so
+	@for game in $(GAME_PROJECTS); do \
+	  mkdir -p $(GAMES_DIR)/$$game/bin; \
+	  cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(GAMES_DIR)/$$game/bin/libsnapdragon_bridge.so; \
+	done
+	@echo "→ Building Snapdragon Bridge (WASM for web export)..."
 	cd $(RUST_DIR) && cargo build --release --target wasm32-unknown-emscripten 2>/dev/null || \
 	  echo "  ⚠ WASM target skipped — install emscripten to enable web-native Rust"
 	@echo "✓ Rust build done"
@@ -60,26 +75,32 @@ deps-rust:
 # ── Godot Web Export ──────────────────────────────────────────────────────────
 
 build-godot: build-rust
-	@echo "→ Exporting Godot project — one WASM bundle per level..."
+	@echo "→ Exporting per-game Web bundles..."
 	@command -v $(GODOT) >/dev/null 2>&1 || { echo "ERROR: godot not found in PATH"; exit 1; }
-	@for preset in $(GODOT_LEVELS); do \
-	  slug=$$(echo $$preset | tr '[:upper:]' '[:lower:]'); \
-	  out_dir=$(GODOT_EXPORT_ROOT)/$$slug; \
-	  mkdir -p $$out_dir; \
-	  echo "→ Exporting preset '$$preset' → $$out_dir/"; \
-	  cd $(GODOT_DIR) && $(GODOT) --headless --export-release "$$preset" \
-	    "../$$out_dir/index.html"; \
-	  status=$$?; cd - >/dev/null; \
-	  if [ $$status -ne 0 ]; then \
-	    echo ""; \
-	    echo "ERROR: Godot export of preset '$$preset' failed (exit $$status)."; \
-	    echo "  Common cause: export templates not installed for your Godot version."; \
-	    echo "  Fix: Godot → Editor → Manage Export Templates → download."; \
-	    exit $$status; \
-	  fi; \
-	  python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	@for game in $(GAME_PROJECTS); do \
+	  case "$$game" in \
+	    three-wizards-in-a-trenchcoat) presets="Cave Field";; \
+	    dodecahedron-demo)             presets="Dodecahedron";; \
+	    *)                             presets="";; \
+	  esac; \
+	  for preset in $$presets; do \
+	    slug=$$(echo $$preset | tr '[:upper:]' '[:lower:]'); \
+	    out_dir=$(GODOT_EXPORT_ROOT)/$$slug; \
+	    mkdir -p $$out_dir; \
+	    echo "→ [$$game] preset '$$preset' → $$out_dir/"; \
+	    cd $(GAMES_DIR)/$$game && $(GODOT) --headless --export-release "$$preset" \
+	      "../../$$out_dir/index.html"; \
+	    status=$$?; cd - >/dev/null; \
+	    if [ $$status -ne 0 ]; then \
+	      echo "ERROR: Godot export of preset '$$preset' failed (exit $$status)."; \
+	      echo "  Common cause: export templates not installed for your Godot version."; \
+	      echo "  Fix: Godot → Editor → Manage Export Templates → download."; \
+	      exit $$status; \
+	    fi; \
+	    python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	  done; \
 	done
-	@echo "✓ All levels exported under $(GODOT_EXPORT_ROOT)/"
+	@echo "✓ All bundles exported under $(GODOT_EXPORT_ROOT)/"
 
 # ── Post-export index.html patches ───────────────────────────────────────────
 # Godot regenerates index.html on every export. This target re-applies custom
@@ -87,12 +108,19 @@ build-godot: build-rust
 
 patch-godot:
 	@echo "→ Patching exported index.html files..."
-	@for preset in $(GODOT_LEVELS); do \
-	  slug=$$(echo $$preset | tr '[:upper:]' '[:lower:]'); \
-	  out_dir=$(GODOT_EXPORT_ROOT)/$$slug; \
-	  if [ -f $$out_dir/index.html ]; then \
-	    python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
-	  fi; \
+	@for game in $(GAME_PROJECTS); do \
+	  case "$$game" in \
+	    three-wizards-in-a-trenchcoat) presets="Cave Field";; \
+	    dodecahedron-demo)             presets="Dodecahedron";; \
+	    *)                             presets="";; \
+	  esac; \
+	  for preset in $$presets; do \
+	    slug=$$(echo $$preset | tr '[:upper:]' '[:lower:]'); \
+	    out_dir=$(GODOT_EXPORT_ROOT)/$$slug; \
+	    if [ -f $$out_dir/index.html ]; then \
+	      python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	    fi; \
+	  done; \
 	done
 
 # ── Spring Boot Backend ───────────────────────────────────────────────────────
@@ -102,6 +130,58 @@ build-backend:
 	@command -v mvn >/dev/null 2>&1 || { echo "ERROR: mvn not found"; exit 1; }
 	cd $(BACKEND_DIR) && ./mvnw -q package -DskipTests
 	@echo "✓ Backend build done → $(BACKEND_JAR)"
+
+# ── Native AOT build (GraalVM) ────────────────────────────────────────────────
+# Produces a single statically-linked binary — sub-second cold start, ~150 MB
+# image. Build is slow (~5–10 min) and memory-hungry (~6–8 GB). The JVM build
+# (`make build-backend`) remains the default; this target is opt-in until the
+# native path is proven end-to-end.
+#
+# Phase-2 plan: docs/PLAN-module-federation-and-native.md (section D).
+NATIVE_IMAGE = snapdragon-gaming-bff:native
+
+build-backend-native:
+	@echo "→ Building native-image (GraalVM, ~5–10 min)…"
+	docker build -f $(BACKEND_DIR)/Dockerfile.native -t $(NATIVE_IMAGE) $(BACKEND_DIR)
+	@echo "✓ Native image built → $(NATIVE_IMAGE)"
+
+# ── End-to-end test against the native-image stack ───────────────────────────
+# Same Playwright suite as `make e2e` but with the JVM api swapped for
+# the GraalVM native binary via docker-compose.native.yml. Use this to
+# surface any reflection / resource hint gaps that the AOT processor
+# missed; fold the fixes into SnapdragonRuntimeHints.
+
+E2E_NATIVE_FILES = $(E2E_FILES) -f docker-compose.native.yml
+
+e2e-native: gen-certs build-backend-native
+	@echo "→ Building remaining e2e images on top of the native api…"
+	docker compose $(E2E_NATIVE_FILES) build frontend e2e
+	@echo "→ Starting native-image stack with TLS…"
+	docker compose $(E2E_NATIVE_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
+	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"
+	@for i in $$(seq 1 60); do \
+	  api_ok=0; web_ok=0; \
+	  docker compose $(E2E_NATIVE_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
+	  if [ $$((i % 6)) -eq 0 ]; then \
+	    echo "  … attempt $$i/60: api=$$api_ok web=$$web_ok"; \
+	  fi; \
+	  if [ $$i -eq 60 ]; then echo "  ✗ native stack failed to come up"; \
+	    docker compose $(E2E_NATIVE_FILES) logs --tail 50 api; exit 1; fi; \
+	  sleep 5; \
+	done
+	@echo "→ Running Playwright suite against native-image…"
+	@set +e; \
+	docker compose $(E2E_NATIVE_FILES) run --rm \
+	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
+	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  e2e; \
+	status=$$?; \
+	echo "→ Tearing down…"; \
+	docker compose $(E2E_NATIVE_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	if [ $$status -eq 0 ]; then echo "✓ E2E (native) PASSED"; \
+	else echo "✗ E2E (native) FAILED (status $$status) — see e2e/results/"; exit $$status; fi
 
 # ── OpenAPI model generation ──────────────────────────────────────────────────
 # Fetches the live OpenAPI spec and regenerates TypeScript models in src/app/api/.
@@ -137,6 +217,15 @@ build-frontend: deps-frontend gen-api
 	cd $(FRONTEND_DIR) && npm run build:prod
 	@echo "✓ Frontend build done → $(FRONTEND_DIST)/"
 
+# Build the host shell + every federated remote bundle (login, admin,
+# games-three-wizards, games-dodecahedron). Useful for catching
+# per-remote build breakage locally — `docker compose build` would
+# also catch it, but at the cost of spinning up an image per project.
+build-frontend-all: deps-frontend gen-api
+	@echo "→ Building Angular host + 4 remote bundles..."
+	cd $(FRONTEND_DIR) && npm run build:all
+	@echo "✓ Full frontend build done (host + remotes) → $(FRONTEND_DIR)/dist/"
+
 deps-frontend:
 	@command -v node >/dev/null 2>&1 || { echo "ERROR: node not found"; exit 1; }
 	@[ -d $(FRONTEND_DIR)/node_modules ] || (cd $(FRONTEND_DIR) && npm install)
@@ -157,6 +246,44 @@ install:
 # Against compose directly:   docker compose exec -T postgres \
 #                               psql -U threewizards -d threewizards \
 #                               -f /dev/stdin < scripts/seed-games.sql
+
+# ── Per-game Casdoor roles ────────────────────────────────────────────────────
+# Idempotently creates one `play-<slug>` role per game slug in Casdoor. The
+# GameAccess admin endpoint can then narrow a game to that role
+# (scope='role', scope_value='play-<slug>') so the available-games API
+# only surfaces it to permitted users. Initial seed for the bundled games
+# is in casdoor/init_data.json.tpl; this target is for games added AFTER
+# first deploy (e.g. uploaded via the admin console).
+#
+# Requires: jq + curl on the host. Reads CASDOOR_ENDPOINT (default
+# http://localhost:8000) and an admin password from CASDOOR_ADMIN_PASS.
+
+CASDOOR_ENDPOINT ?= http://localhost:8000
+
+seed-roles:
+	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found"; exit 1; }
+	@command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found — install jq for JSON shaping"; exit 1; }
+	@if [ -z "$$CASDOOR_ADMIN_PASS" ]; then \
+	  echo "ERROR: CASDOOR_ADMIN_PASS not set — copy from 'docker logs <casdoor-container>' line 'Admin user : admin / …'"; \
+	  exit 1; \
+	fi
+	@echo "→ Seeding per-game Casdoor roles via $(CASDOOR_ENDPOINT)…"
+	@token=$$(curl -ksf -X POST $(CASDOOR_ENDPOINT)/api/login/oauth/access_token \
+	    -d "grant_type=password" -d "client_id=$${CASDOOR_CLIENT_ID:-twclient001}" \
+	    -d "client_secret=$${CASDOOR_CLIENT_SECRET:-}" \
+	    -d "username=admin" -d "password=$$CASDOOR_ADMIN_PASS" 2>/dev/null \
+	  | jq -r '.access_token // empty'); \
+	if [ -z "$$token" ]; then echo "ERROR: Casdoor admin login failed"; exit 1; fi; \
+	for slug in $(GAME_SLUGS); do \
+	  role_name="play-$$slug"; \
+	  echo "  - upsert role $$role_name"; \
+	  curl -ksf -X POST "$(CASDOOR_ENDPOINT)/api/add-role" \
+	    -H "Authorization: Bearer $$token" \
+	    -H "Content-Type: application/json" \
+	    -d "{\"owner\":\"threewizards\",\"name\":\"$$role_name\",\"displayName\":\"Play: $$slug\",\"description\":\"Auto-seeded by make seed-roles\",\"isEnabled\":true}" \
+	    >/dev/null 2>&1 || true; \
+	done
+	@echo "✓ Per-game roles seeded"
 
 seed-db:
 	@echo "→ Seeding game records into $(DB_HOST):$(DB_PORT)/$(DB_NAME)..."
@@ -197,7 +324,7 @@ gen-certs:
 
 e2e: gen-certs
 	@echo "→ Building images with TLS layer…"
-	docker compose $(E2E_FILES) build api frontend e2e
+	docker compose $(E2E_FILES) build api frontend e2e wasm-fragment
 	@echo "→ Starting stack with TLS…"
 	docker compose $(E2E_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
 	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"
@@ -242,7 +369,7 @@ e2e-logs:
 # Each subproject runs its own native test framework. `make test` runs them
 # all sequentially. Each one is also runnable in isolation (CI fan-out).
 #
-#   test-rust      → cargo test in game/rust (host toolchain; needs cargo)
+#   test-rust      → cargo test in extensions/snapdragon-bridge (host toolchain; needs cargo)
 #   test-backend   → mvnw test in backend/   (host toolchain; needs JDK 21)
 #   test-frontend  → ng test in a Docker container (Chromium baked in,
 #                    so the host doesn't need a browser)

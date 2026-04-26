@@ -87,7 +87,26 @@ public class GameController {
             ```
             """)
     @GetMapping("/available/{characterId}")
-    public Flux<GameWithLevelsDto> available(@PathVariable Long characterId) {
-        return progression.availableGamesWithLevels(characterId);
+    public Flux<GameWithLevelsDto> available(@PathVariable Long characterId,
+                                             @org.springframework.security.core.annotation.AuthenticationPrincipal
+                                             org.springframework.security.oauth2.jwt.Jwt jwt) {
+        // Casdoor-side roles + user id come from the JWT. The progression
+        // service intersects the catalog against game_access policies before
+        // returning. With no JWT (legacy unauthenticated callers), only
+        // scope='all' games are returned.
+        java.util.List<String> roles = (jwt == null) ? java.util.List.of()
+                : extractRoles(jwt);
+        String userId = (jwt == null) ? null : jwt.getSubject();
+        return progression.availableGamesWithLevels(characterId, roles, userId);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.List<String> extractRoles(org.springframework.security.oauth2.jwt.Jwt jwt) {
+        Object claim = jwt.getClaim("roles");
+        if (claim instanceof java.util.List<?> list) {
+            return list.stream().filter(java.util.Objects::nonNull)
+                    .map(Object::toString).toList();
+        }
+        return java.util.List.of();
     }
 }

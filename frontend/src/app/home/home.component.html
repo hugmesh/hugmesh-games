@@ -75,9 +75,42 @@
         </div>
       </div>
       <div class="canvas-container" #canvasContainer>
-        <app-game-canvas
-          [game]="activeLevel"
-          (levelTransition)="onLevelTransition($event)"></app-game-canvas>
+        <!--
+          Host shell bootstraps under @angular-architects/native-
+          federation:build (post-process strips modulepreload + flips
+          polyfills script type to module-shim; main/bootstrap split
+          breaks the import-map chicken-and-egg). Federated levels
+          mount via the registered <app-<slug>-remote> Web Component
+          (loadRemoteModule + createCustomElement, see
+          RemoteLoaderService); levels whose sceneType isn't in
+          SCENE_TYPE_TO_GAME_SLUG fall through to the legacy
+          <app-game-canvas> iframe path. Level-transition postMessage
+          is caught at window level on HomeComponent, so the renderer
+          fork doesn't have to forward it.
+        -->
+        @if (isFederated(activeLevel)) {
+          @switch (activeRemoteSlug) {
+            @case ('dodecahedron') {
+              <app-dodecahedron-remote
+                class="remote-mount"
+                [launchUid]="activeLaunchUid"></app-dodecahedron-remote>
+            }
+            @case ('three-wizards') {
+              <!-- The custom element tag matches what RemoteLoaderService
+                   registers: app-${remote.gameSlug}-remote.
+                   launchUid is set after `POST /api/games/three-wizards/launch`
+                   resolves; until then the remote falls back to a
+                   blank uid (no enforcement, just an audit-trail value). -->
+              <app-three-wizards-remote
+                class="remote-mount"
+                [levelSlug]="activeLevel.sceneType"
+                [levelId]="activeLevel.id"
+                [launchUid]="activeLaunchUid"></app-three-wizards-remote>
+            }
+          }
+        } @else {
+          <app-game-canvas [game]="activeLevel"></app-game-canvas>
+        }
         @if (!isChromeless(activeLevel)) {
           <div class="hud-layer">
             <app-game-hud></app-game-hud>

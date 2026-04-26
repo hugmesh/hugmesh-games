@@ -1,0 +1,56 @@
+# GraalVM native-image build of the Snapdragon Gaming BFF.
+# Drop-in replacement for backend/Dockerfile — same listening port, same
+# config file resolution, same env vars. Tradeoffs:
+#
+#   ✓ Cold start ~50–100 ms (vs ~3 s on the JVM)
+#   ✓ RSS ~100 MB (vs ~400 MB)
+#   ✓ Final image ~150 MB (vs ~430 MB on eclipse-temurin:21-jre)
+#   ✗ Build is slow (~5–10 min) and memory-hungry (~6–8 GB)
+#   ✗ No JIT / class hot-swap; reflection requires explicit hints
+#     (see backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java)
+#
+# Build standalone:
+#   docker build -f backend/Dockerfile.native -t snapdragon-gaming-bff:native ./backend
+#
+# Build via make (preferred — caches Maven offline deps):
+#   make build-backend-native
+#
+# The JVM Dockerfile (backend/Dockerfile) is still the default for `make e2e`
+# and the docker-compose build until native is proven across the full stack.
+# See docs/PLAN-module-federation-and-native.md (section D) for the rollout
+# plan + open issues.
+
+FROM ghcr.io/graalvm/native-image-community:21 AS build
+
+# native-image's bundled Maven is fine, but we use the project's mvnw to
+# stay version-locked with what `mvn package` builds on the JVM side.
+WORKDIR /app
+COPY .mvn .mvn
+COPY mvnw pom.xml ./
+RUN ./mvnw -B -q dependency:go-offline
+
+COPY src src
+
+# `process-aot` runs first (handled by spring-boot-maven-plugin under the
+# `native` profile), then `native:compile` produces the binary. -DskipTests
+# matches the JVM build; the unit tests run separately via `make test-backend`.
+RUN ./mvnw -B -Pnative -DskipTests native:compile
+
+# Slim runtime stage — debian:bookworm-slim has libc + the few system libs
+# the native binary needs. distroless is even smaller but lacks bash for
+# debugging. Revisit once the native build is stable.
+FROM debian:bookworm-slim
+
+# `wget` is needed by the make e2e-native wait loop's health check
+# (`docker compose exec api sh -c 'wget -qO- http://localhost:8080/actuator/health'`).
+# ca-certificates so the binary can verify the Casdoor JWKS endpoint
+# over HTTPS once we move that off http://casdoor:8000.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /app/target/snapdragon-gaming-bff app.bin
+
+EXPOSE 8080
+ENTRYPOINT ["/app/app.bin"]
