@@ -4,6 +4,21 @@
 >
 > **Audience:** future-me / a fresh agent picking this up after a context reset. Skim this top-to-bottom — every section ends with a "left off at" line that can be flipped to "done" as work lands.
 
+## Status snapshot
+
+| Section | State | Notes |
+|---|---|---|
+| A. Module Federation | **Done** | All routes (`/login`, `/admin`, `/admin/games`) federated; cave + field via `<app-three-wizards-remote>`; dodecahedron via `<app-dodecahedron-remote>`; wasm-fragment direct-serves Godot bundles. |
+| B. Godot editor plugin | **Done** | `Project → Tools → Snapdragon → Export…` produces a v2 manifest + register.sql + bundle zip. |
+| C. Hot upload API + admin UI | **Done bar one** | Backend + admin UI live + active-version pinning + disk-pressure cap. Open: integration test (Testcontainers infra, deferred). |
+| D. GraalVM native-image | **Done** | Build profile + Dockerfile + native-overlay compose + e2e-native target + README docs. |
+| E. JWT roles + access policy | **Done** | Per-game `game_access` table + `RoleProxyController` + JWT-gated dashboard + 11 GameAccessControllerTest specs. |
+| F. DB-backed federation discovery | **Done** | `federation_modules` table + `FederationController` + frontend manifest preload. |
+| G. Per-game project layout | **Done bar one** | `extensions/snapdragon-bridge/` + per-game projects + HostBridge migration. Open: WASM cargo target (gated on emscripten tooling). |
+| H. Cryptographic launch UIDs | **Done bar one** | Launch endpoint + UID minting + admin revoke + sweeper. Open: `app.assets.require-launch-uid=true` flip — formally closed (architectural conflict with section A's wasm-fragment direct-serve; documented). |
+
+Three threads remain genuinely open and each is a deliberate infrastructure decision (Testcontainers adoption, emscripten tooling, asset-tier auth philosophy) — not code that fits an autonomous continuation. See per-section "Open follow-ups" for the trade-off notes.
+
 ---
 
 ## Why this batch
@@ -514,12 +529,20 @@ Target: an admin uploads a zip from the browser → BFF unpacks, validates, regi
   (all/role/user) using the existing Casdoor role-list proxy.
 
 **Open follow-ups:**
-1. **Deferred** — Integration test that POSTs a fixture zip through
-   the upload endpoint, verifies the rows landed in `games_uploads` +
-   `games` + `federation_modules` + `game_access`, and that the
-   asset resolver serves from the new version dir. Pulling in
-   Testcontainers + a sizeable fixture zip is too big for an
-   autonomous slice; `GameUploadServiceTest` covers the validation
+1. **Deferred — needs Testcontainers infrastructure.** The intended
+   shape is a `@SpringBootTest` + `@Testcontainers` test that runs
+   migrations against an ephemeral Postgres, builds a fixture zip
+   in-memory (manifest.json schema_version=2 + register.sql + a
+   minimal `bundle/` tree), POSTs it via `WebTestClient`, and
+   verifies the rows landed in `games_uploads` + `games` +
+   `federation_modules` + `game_access` plus the asset resolver
+   serves from the new version dir. New deps:
+   `org.testcontainers:postgresql`, `:r2dbc`, `:junit-jupiter`,
+   plus `org.springframework.boot:spring-boot-testcontainers`. The
+   codebase has no Testcontainers tests yet — adopting it for one
+   spec is a deliberate infrastructure choice better made from
+   "let's add integration tests for the BFF" rather than an
+   autonomous slice. `GameUploadServiceTest` covers the validation
    paths at the unit level (7 specs).
 2. **Done.** Active-version pinning lands via the `version_dir`
    column on `game_launches` (migration 020 + the GameLaunch entity
@@ -799,10 +822,14 @@ Target reached this branch:
   parked as a future refactor.
 
 **Open follow-ups:**
-1. Web target for the Rust bridge: the WASM cargo target falls through
-   with a warning if emscripten isn't installed; per-export-preset
-   `extensions_support` stays false. Light-weight; fix when emscripten
-   tooling is set up.
+1. **Gated on emscripten tooling.** Web target for the Rust bridge:
+   the WASM cargo target (`wasm32-unknown-emscripten`) falls through
+   with a warning if emscripten isn't on `PATH`; per-export-preset
+   `extensions_support` stays false. Today the Web build runs without
+   the bridge; the GDScript-only path covers HostBridge events through
+   `JavaScriptBridge.eval`. Land emscripten in the dev image before
+   wiring up the cargo target — the install footprint (emsdk activate
+   + ~700 MB) is bigger than the autonomous loop should sweep in.
 
 ---
 
@@ -853,12 +880,20 @@ Target reached this branch:
 
 ### Left off at
 **Done in this branch.** Open follow-ups:
-1. **Still open** — Flip `app.assets.require-launch-uid=true` once the
-   federated remote actually mints + uses a uid. Today the iframe-based
-   path (which now routes through wasm-fragment after section A's
-   completion) still doesn't carry a uid, so flipping would 403 every
-   game card. Wiring the launch-uid mint into the federated remote's
-   iframe URL is the next slice on this thread.
+1. **Architectural conflict — formally closed.** The launch-uid was
+   designed to gate `/api/assets/levels/{slug}/{uid}/...` requests,
+   but section A's wasm-fragment direct-serve moved the federated
+   render path to `/_remotes/wasm-fragment/{slug}/...` which bypasses
+   the api entirely. Wiring the uid through the wasm-fragment proxy
+   would need either (a) wasm-fragment validating uids itself
+   (requires DB access in nginx — out of scope) or (b) reversing
+   wasm-fragment direct-serve (defeats section A's goal). Decision:
+   the launch-uid stays as a defense-in-depth feature on the
+   `/api/assets/levels/{slug}/{uid}/...` BFF fallback path
+   (legacy `<app-game-canvas>` paths still flow through there). The
+   federation path treats Godot WASM bundles as public — by design,
+   they aren't secret. `app.assets.require-launch-uid=false` stays
+   the production default.
 2. ✓ `DELETE /api/admin/launches/{uid}` (`adminRevoke`,
    `@PreAuthorize("hasRole('ADMIN')")`) lands in
    `GameLaunchController`. Self-termination via `DELETE /launches/{uid}`
