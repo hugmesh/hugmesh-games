@@ -1,4 +1,4 @@
-<div class="canvas-wrapper">
+<div class="canvas-wrapper" #wrapper>
   <iframe
     #gameFrame
     class="game-frame"
@@ -7,6 +7,39 @@
     allow="fullscreen; pointer-lock; autoplay"
     (load)="onFrameLoad()"
   ></iframe>
+
+  <!-- Floating window controls. Fullscreen, pop-out (new tab), reload. -->
+  <div class="canvas-controls" role="toolbar" aria-label="Game window controls">
+    <button type="button"
+            class="ctrl"
+            (click)="reload()"
+            title="Reload game">
+      <span aria-hidden="true">↻</span>
+      <span class="sr">Reload</span>
+    </button>
+    <button type="button"
+            class="ctrl"
+            (click)="openInNewTab()"
+            title="Open game in a new tab">
+      <span aria-hidden="true">↗</span>
+      <span class="sr">Open in new tab</span>
+    </button>
+    <button type="button"
+            class="ctrl"
+            (click)="openInPopupWindow()"
+            title="Open game in a separate window">
+      <span aria-hidden="true">⧉</span>
+      <span class="sr">Open in new window</span>
+    </button>
+    <button type="button"
+            class="ctrl"
+            (click)="toggleFullscreen()"
+            [title]="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'">
+      <span aria-hidden="true">{{ isFullscreen ? '⛶' : '⛶' }}</span>
+      <span class="sr">{{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}</span>
+    </button>
+  </div>
+
   @if (!gameLoaded) {
     <div class="loading-overlay">
       <div class="loading-spinner"></div>

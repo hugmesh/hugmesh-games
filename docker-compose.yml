@@ -80,6 +80,7 @@ services:
     restart: "no"
 
   api:
+    image: snapdragon-games/bff:${SNAPDRAGON_TAG:-dev}
     build: ./backend
     depends_on:
       postgres:
@@ -117,6 +118,7 @@ services:
     restart: on-failure
 
   frontend:
+    image: snapdragon-games/portal-host:${SNAPDRAGON_TAG:-dev}
     build: ./frontend
     depends_on:
       # nginx resolves every upstream at startup; without these the
@@ -148,12 +150,14 @@ services:
   # origin (same COOP/COEP, same TLS termination, no CORS gymnastics).
 
   login:
+    image: snapdragon-games/login-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/login/Dockerfile
     expose: ["8080"]
 
   admin:
+    image: snapdragon-games/admin-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/admin/Dockerfile
@@ -163,18 +167,21 @@ services:
   # replacement generated from the BFF's OpenAPI spec. Mounted at
   # /admin/docs in the host. Same image pattern as login + admin.
   api-docs:
+    image: snapdragon-games/api-docs-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/api-docs/Dockerfile
     expose: ["8080"]
 
   games-three-wizards:
+    image: snapdragon-games/three-wizards-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/games-three-wizards/Dockerfile
     expose: ["8080"]
 
   games-dodecahedron:
+    image: snapdragon-games/dodecahedron-remote:${SNAPDRAGON_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/games-dodecahedron/Dockerfile
@@ -189,6 +196,7 @@ services:
   # + threaded WASM; .wasm gets the right application/wasm MIME so
   # WebAssembly.instantiateStreaming doesn't fall back to ArrayBuffer.
   wasm-fragment:
+    image: snapdragon-games/wasm-fragment:${SNAPDRAGON_TAG:-dev}
     build:
       context: .
       dockerfile: wasm-fragment/Dockerfile

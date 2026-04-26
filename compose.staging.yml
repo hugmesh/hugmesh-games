@@ -1,0 +1,83 @@
+# Snapdragon Games — staging overlay
+#
+# Apply on top of the base compose.yml:
+#   docker compose -f compose.yml -f compose.staging.yml up -d
+#
+# Routing model on staging:
+#   <service>.staging.snapdragon.games            (each remote / API / wasm)
+#   staging.snapdragon.games                      (host shell)
+#
+# This file is OPINIONATED about three things:
+#
+#   1. Image tags. Staging containers pin the immutable digest produced
+#      by CI rather than `:dev` so a redeploy is reproducible. Override
+#      $SNAPDRAGON_TAG (e.g. SNAPDRAGON_TAG=2026-04-26.42) before
+#      `docker compose up -d`.
+#
+#   2. Public origins. Spring Boot reads SPRING_WEB_CORS_ALLOWED_ORIGINS
+#      so the BFF only accepts requests whose Origin header is on
+#      staging.snapdragon.games. The host nginx isn't reverse-proxied
+#      here — a load balancer fronts the stack and terminates TLS for
+#      *.staging.snapdragon.games — so we expose the host on a high
+#      internal port (8080) and let the LB connect to it.
+#
+#   3. Casdoor base URL. The login flow needs an absolute redirect URI
+#      that matches the public DNS so Casdoor accepts the callback.
+#
+# Production: see compose.prod.yml for the *.snapdragon.games equivalent.
+
+services:
+  postgres:
+    # Staging keeps a managed Postgres on a separate volume so a wipe
+    # never crosses with prod restore.
+    volumes:
+      - pgdata-staging:/var/lib/postgresql/data
+    ports: !reset []   # don't expose Postgres publicly even via the LB
+
+  cassandra:
+    ports: !reset []
+    volumes:
+      - cassandra-staging:/var/lib/cassandra
+
+  casdoor:
+    environment:
+      CASDOOR_ORIGIN: "https://login.staging.snapdragon.games"
+      CASDOOR_PUBLIC_BASE_URL: "https://login.staging.snapdragon.games"
+
+  api:
+    image: snapdragon-games/bff:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
+    environment:
+      SPRING_PROFILES_ACTIVE: staging
+      SPRING_WEB_CORS_ALLOWED_ORIGINS: "https://staging.snapdragon.games,https://*.staging.snapdragon.games"
+      APP_PUBLIC_HOST: staging.snapdragon.games
+      APP_PUBLIC_SCHEME: https
+      CASDOOR_PUBLIC_BASE_URL: https://login.staging.snapdragon.games
+    expose: ["8080"]
+
+  frontend:
+    image: snapdragon-games/portal-host:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
+    environment:
+      # Consumed by frontend/nginx.conf via envsubst on container start.
+      PUBLIC_HOSTNAME: staging.snapdragon.games
+      ALLOW_ORIGIN: "https://*.staging.snapdragon.games"
+    ports:
+      # Bound only to localhost — the load balancer talks to this port
+      # over the staging private network.
+      - "127.0.0.1:8081:8080"
+
+  login:
+    image: snapdragon-games/login-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
+  admin:
+    image: snapdragon-games/admin-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
+  api-docs:
+    image: snapdragon-games/api-docs-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
+  games-three-wizards:
+    image: snapdragon-games/three-wizards-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
+  games-dodecahedron:
+    image: snapdragon-games/dodecahedron-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
+  wasm-fragment:
+    image: snapdragon-games/wasm-fragment:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
+
+volumes:
+  pgdata-staging:
+  cassandra-staging:
