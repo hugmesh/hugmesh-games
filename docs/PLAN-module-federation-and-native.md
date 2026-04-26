@@ -194,23 +194,58 @@ Done in this branch:
   `<app-game-canvas>`. Today only `dodecahedron` takes the federated
   branch; cave + field still iframe through `<app-game-canvas>`.
 
-**Next session — wiring the host's routing through the real remotes:**
-1. Switch `app.routes.ts`'s `/login` route from the in-tree
-   `LoginComponent` to `loadComponent: () => loadRemoteModule({
-     remoteName: 'login', exposedModule: './LoginComponent' }).then(m =>
-   m.LoginRemoteComponent)`. Wire host's `AuthService.login()` into the
-   remote's `(submitCredentials)` event. Then delete `src/app/login/`.
-2. Same for `/admin` against `./AdminShell` behind a ROLE_ADMIN guard.
-   Migrate the upload UI from the host's in-tree admin component into
-   the remote's pill-driven action shell (or split it into a separate
-   `admin-uploads` remote).
-3. Add `'three-wizards'` (the games table slug, not the level slug)
-   to `FEDERATED_GAME_SLUGS` in home.component.ts and let
-   `<app-games-three-wizards-remote>` take over cave + field. Once
-   that's green, delete `src/app/game-canvas/` and its iframe.
-4. `wasm-fragment` could grow to actually proxy/serve Godot bundles
-   from a per-game volume so the api service stops being on the asset
-   path; deferred until the asset-tier split lands.
+Now done in this branch:
+- `/login` route lazy-loads `LoginRemoteComponent` from the federated
+  `login` remote via `loadComponent` + a `loadRemote(...)` helper that
+  pulls `loadRemoteModule` from `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`.
+  The federated remote owns the full login UI (host's branding ported
+  over) and the inline `/api/auth/token` call; storage shape mirrors
+  `AuthService.StoredAuth` byte-for-byte so the host's interceptor +
+  guard pick up the token without a second auth round.
+- `/admin` route lazy-loads `AdminRemoteComponent` (stats grid, per-user
+  usage, active sessions, kick action). HttpClient is shared via
+  `shareAll`; AdminService isn't shared, so its calls are inlined in
+  the remote. AdminStats / PerUserStats / PlayerSession interfaces are
+  redeclared inside the remote (TypeScript types are erased at runtime
+  so federation can't share them — both sides own a copy and the BFF
+  DTO is the contract).
+- `src/app/login/`, `src/app/admin/admin.component.*`, the orphaned
+  `services/admin.service.ts`, and `models/{admin-stats,session}.model.ts`
+  all deleted. `admin/game-upload.*` stays — `/admin/games` is a
+  separate route still served by the in-tree component.
+- `wasm-fragment` `/fragment?slug=` rewrites to
+  `/api/assets/levels/<slug>/index.html` (727ca3a).
+
+**Next session — finish the federated cutover:**
+1. `/admin/games` (the GameUploadComponent file-upload feature) still
+   runs in-tree. Either fold it into the federated `AdminRemoteComponent`
+   as a sub-section or split into its own `admin-uploads` remote.
+   Inline FormData uploads against `/api/admin/games/upload` the same
+   way `AdminRemoteComponent` inlines its admin/* calls; the
+   GameUploadService class itself isn't shared.
+2. Add `'cave'` and `'field'` (or the umbrella games-table slug
+   `'three-wizards'`) to `FEDERATED_GAME_SLUGS` in `home.component.ts`
+   and let `<app-games-three-wizards-remote>` take over cave + field.
+   This is harder than dodecahedron: the legacy `<app-game-canvas>`
+   listens for `TW_LEVEL_TRANSITION` postMessage from Godot, calls
+   `library.getLevel()` for the next level, and remounts the iframe;
+   it also drives `GameStateService.state$ → frame.postMessage('GAME_STATE')`.
+   Two paths to land that:
+     a. **Wrapper**: keep the postMessage / SessionService /
+        GameStateService logic on the host in a thin wrapper component
+        that renders `<app-games-three-wizards-remote>` for the iframe
+        and forwards events. Almost no value over `<app-game-canvas>`,
+        but unblocks the cutover with no shared package.
+     b. **Token-based DI**: define injection tokens for
+        `LEVEL_LIBRARY`, `GAME_STATE`, `SESSION_HANDLE` in a small
+        `@snapdragon/host-tokens` package; both host and remote depend
+        on it. Remote `inject(LEVEL_LIBRARY)` gets the host's wrapper.
+        Cleaner long-term, but requires the shared package layer that
+        federation otherwise dodges.
+3. Delete `src/app/game-canvas/` once (2) lands.
+4. `wasm-fragment` could grow to actually serve Godot bundles from a
+   per-game volume so the api service stops being on the asset path
+   for those URLs; asset-tier work, parked.
 
 ---
 
