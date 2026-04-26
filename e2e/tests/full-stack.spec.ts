@@ -26,7 +26,14 @@ test.describe('full-stack smoke', () => {
     page.on('console', msg => consoleLines.push(`[${msg.type()}] ${msg.text()}`));
     page.on('response', resp => {
       const url = resp.url();
-      if (/\/api\/assets\/levels\/[^/]+\/index\.(html|wasm|pck|js)$/.test(url)) {
+      // Asset bytes flow through the federated wasm-fragment service
+      // now (see wasm-fragment/Dockerfile + frontend/nginx.conf
+      // /_remotes/wasm-fragment/ proxy). The legacy
+      // /api/assets/levels/* path stays as a fallback for any future
+      // sceneType not in SCENE_TYPE_TO_GAME_SLUG, so accept either
+      // shape here — what we're really testing is that the bytes
+      // came down with HTTP 200 from somewhere reasonable.
+      if (/\/(_remotes\/wasm-fragment|api\/assets\/levels)\/[^/]+\/index\.(html|wasm|pck|js)$/.test(url)) {
         if (resp.status() === 200) seenAssetUrls.add(url);
       }
       if (/\/api\/levels\/\d+\/scene$/.test(url)) {
@@ -35,7 +42,7 @@ test.describe('full-stack smoke', () => {
     });
 
     const dodecaAssets = () =>
-      [...seenAssetUrls].filter(u => u.includes('/levels/dodecahedron/'));
+      [...seenAssetUrls].filter(u => u.includes('/dodecahedron/'));
 
     // Step 1: visit /login (auth guard sends unauthenticated users here).
     await page.goto('/login', { waitUntil: 'networkidle' });
@@ -73,12 +80,12 @@ test.describe('full-stack smoke', () => {
     // Give it a generous window — the wasm is 30+ MB.
     await expect.poll(
       () => Array.from(seenAssetUrls).filter(u => u.endsWith('.wasm')).length,
-      { timeout: 90_000, message: 'expected at least one /api/assets/levels/*/index.wasm with HTTP 200' },
+      { timeout: 90_000, message: 'expected at least one .wasm asset (wasm-fragment or BFF fallback) with HTTP 200' },
     ).toBeGreaterThan(0);
 
     await expect.poll(
       () => Array.from(seenAssetUrls).filter(u => u.endsWith('.pck')).length,
-      { timeout: 90_000, message: 'expected /api/assets/levels/*/index.pck' },
+      { timeout: 90_000, message: 'expected at least one .pck asset (wasm-fragment or BFF fallback) with HTTP 200' },
     ).toBeGreaterThan(0);
 
     await expect.poll(
@@ -108,7 +115,8 @@ test.describe('full-stack smoke', () => {
 
     // Federated mount: the host registered the custom element via
     // loadRemoteModule + createCustomElement; the upgraded element holds
-    // the iframe pointing at /api/assets/levels/dodecahedron/index.html.
+    // the iframe pointing at /_remotes/wasm-fragment/dodecahedron/index.html
+    // (asset bytes flow through the wasm-fragment service now, not the BFF).
     await expect(page.locator('app-dodecahedron-remote')).toBeAttached({ timeout: 30_000 });
     await expect(page.locator('app-game-canvas')).toHaveCount(0);
 
@@ -120,11 +128,11 @@ test.describe('full-stack smoke', () => {
     // Dodecahedron WASM bundle is ~37 MB — give it a wide window.
     await expect.poll(
       () => dodecaAssets().filter(u => u.endsWith('.wasm')).length,
-      { timeout: 90_000, message: 'expected /api/assets/levels/dodecahedron/index.wasm' },
+      { timeout: 90_000, message: 'expected dodecahedron index.wasm via /_remotes/wasm-fragment/dodecahedron/ or /api/assets/levels/dodecahedron/' },
     ).toBeGreaterThan(0);
     await expect.poll(
       () => dodecaAssets().filter(u => u.endsWith('.pck')).length,
-      { timeout: 90_000, message: 'expected /api/assets/levels/dodecahedron/index.pck' },
+      { timeout: 90_000, message: 'expected dodecahedron index.pck via /_remotes/wasm-fragment/dodecahedron/ or /api/assets/levels/dodecahedron/' },
     ).toBeGreaterThan(0);
 
     // ── Step 7: federated /admin route renders for non-admin too ───────────

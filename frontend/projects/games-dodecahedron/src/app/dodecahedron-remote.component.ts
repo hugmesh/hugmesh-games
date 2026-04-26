@@ -38,7 +38,10 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 })
 export class DodecahedronRemoteComponent {
   private readonly sanitizer = inject(DomSanitizer);
+  // Asset bytes come from the federated wasm-fragment service — the
+  // host's nginx proxies /_remotes/wasm-fragment/ to that container,
+  // which serves the Godot bundles directly (no api round-trip).
   readonly safeUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
-    '/api/assets/levels/dodecahedron/index.html',
+    '/_remotes/wasm-fragment/dodecahedron/index.html',
   );
 }

@@ -324,7 +324,7 @@ gen-certs:
 
 e2e: gen-certs
 	@echo "→ Building images with TLS layer…"
-	docker compose $(E2E_FILES) build api frontend e2e
+	docker compose $(E2E_FILES) build api frontend e2e wasm-fragment
 	@echo "→ Starting stack with TLS…"
 	docker compose $(E2E_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
 	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"

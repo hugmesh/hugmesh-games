@@ -170,16 +170,19 @@ services:
       dockerfile: projects/games-dodecahedron/Dockerfile
     expose: ["8080"]
 
-  # wasm-fragment is the shared bundle streamer the game remotes call
-  # with `?slug=&level=`. It needs COOP/COEP for SharedArrayBuffer +
-  # threaded WASM; it does NOT need an Angular build because it's a
-  # storage/transport tier, not a UI tier. Keep on nginx-stub config.
+  # wasm-fragment is the shared asset-tier service: it serves the
+  # Godot bundles (index.html / index.js / index.wasm / index.pck)
+  # directly from its own nginx, taking the api service off the
+  # binary asset path. Build context is the repo root so the
+  # classpath bundles in backend/src/main/resources/assets/levels/
+  # bake in at image build time. COOP/COEP set for SharedArrayBuffer
+  # + threaded WASM; .wasm gets the right application/wasm MIME so
+  # WebAssembly.instantiateStreaming doesn't fall back to ArrayBuffer.
   wasm-fragment:
-    image: nginx:1.27-alpine
+    build:
+      context: .
+      dockerfile: wasm-fragment/Dockerfile
     expose: ["8080"]
-    volumes:
-      - ./frontend/federation-stubs/wasm-fragment.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./frontend/federation-stubs/remote-stub.html:/usr/share/nginx/html/index.html:ro
 
 volumes:
   pgdata:

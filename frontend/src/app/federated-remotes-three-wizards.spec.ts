@@ -30,20 +30,20 @@ describe('ThreeWizardsRemoteComponent', () => {
     return trustSpy.calls.mostRecent().args[0] as string;
   }
 
-  it('defaults to /api/assets/levels/cave/index.html before any input is set', () => {
-    expect(lastUrl()).toBe('/api/assets/levels/cave/index.html');
+  it('defaults to /_remotes/wasm-fragment/cave/index.html before any input is set', () => {
+    expect(lastUrl()).toBe('/_remotes/wasm-fragment/cave/index.html');
   });
 
   it('updates the iframe URL when levelSlug input changes', () => {
     component.levelSlug = 'field';
     const url = lastUrl();
-    expect(url).toMatch(/^\/api\/assets\/levels\/field\/index\.html\?/);
+    expect(url).toMatch(/^\/_remotes\/wasm-fragment\/field\/index\.html\?/);
   });
 
   it('falls back to cave when levelSlug is empty (handles unset host input)', () => {
     component.levelSlug = '';
     const url = lastUrl();
-    expect(url).toMatch(/^\/api\/assets\/levels\/cave\/index\.html\?/);
+    expect(url).toMatch(/^\/_remotes\/wasm-fragment\/cave\/index\.html\?/);
   });
 
   it('threads levelId into the level_id query so the prefetch script picks it up', () => {
@@ -53,7 +53,7 @@ describe('ThreeWizardsRemoteComponent', () => {
     // The patched Godot index.html reads URLSearchParams.get('level_id')
     // — without this query, scene prefetch defaults to level 1.
     expect(url).toContain('level_id=7');
-    expect(url).toContain('/api/assets/levels/cave/index.html?');
+    expect(url).toContain('/_remotes/wasm-fragment/cave/index.html?');
   });
 
   it('omits level_id value when the input is null (host hasn\'t set it yet)', () => {

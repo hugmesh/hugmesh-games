@@ -79,14 +79,17 @@ export class ThreeWizardsRemoteComponent {
   private _levelId: number | null = null;
 
   safeUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
-    '/api/assets/levels/cave/index.html',
+    '/_remotes/wasm-fragment/cave/index.html',
   );
 
   private _refresh(): void {
     const id = this._levelId ?? '';
-    // Cache-bust on every (slug,id) change so the iframe remounts
-    // cleanly — the legacy GameCanvasComponent did the same.
-    const url = `/api/assets/levels/${this._levelSlug}/index.html?level_id=${id}&t=${Date.now()}`;
+    // Asset bytes come from the federated wasm-fragment service —
+    // the host's nginx proxies /_remotes/wasm-fragment/ to that
+    // container, which serves the Godot bundles directly (no api
+    // round-trip). Cache-bust on every (slug,id) change so the
+    // iframe remounts cleanly across cave→field transitions.
+    const url = `/_remotes/wasm-fragment/${this._levelSlug}/index.html?level_id=${id}&t=${Date.now()}`;
     this.safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
   }
 }
