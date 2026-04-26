@@ -60,7 +60,7 @@
           <h3 class="umbrella-name">{{ game.name }}</h3>
           <p class="umbrella-desc">{{ game.description }}</p>
           <div class="game-grid">
-            @for (g of game.levels; track g.id) {
+            @for (g of game.chapters; track g.id) {
               <div class="game-card" [class.locked]="!g.unlocked">
                 <div class="card-badge">
                   @if (g.unlocked) {

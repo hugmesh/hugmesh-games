@@ -92,7 +92,7 @@ export class PlayerDashboardComponent implements OnInit, OnDestroy {
 
   /** Flatten nested games→levels to a single list for the Levels section. */
   allLevels(): AvailableGame[] {
-    return (this.dashboard?.games ?? []).flatMap(g => g.levels);
+    return (this.dashboard?.games ?? []).flatMap(g => g.chapters);
   }
 
   unlockedLevels(): AvailableGame[] {

@@ -3,63 +3,128 @@
   <section class="hero">
     <div class="hero-inner">
       <h1 class="hero-title">Snapdragon<br><span>Games</span></h1>
-      <p class="hero-sub">Choose a world to enter</p>
+      <p class="hero-sub">Choose a game to enter</p>
     </div>
   </section>
 
-  <section class="game-grid-section">
-    <h2 class="section-label">Levels</h2>
-    <div class="game-grid">
-      @for (level of levels$ | async; track level.id) {
-        <div class="game-card"
-             [class.active]="activeLevel?.id === level.id"
-             [class.locked]="!level.unlocked"
-             (click)="selectLevel(level)">
+  <section class="game-grid-section" aria-labelledby="games-heading">
+    <h2 id="games-heading" class="section-label">Games</h2>
+    <div class="game-grid" role="list">
+      @for (game of games$ | async; track game.id) {
+        @let unlocked = unlockedChapterCount(game);
+        <button
+            class="game-card"
+            type="button"
+            role="listitem"
+            [class.locked]="unlocked === 0"
+            [disabled]="unlocked === 0"
+            [attr.aria-haspopup]="'dialog'"
+            [attr.aria-label]="'Open chapter list for ' + game.name + (unlocked === 0 ? ' (no chapters unlocked)' : ' (' + unlocked + ' of ' + game.chapters.length + ' chapters unlocked)')"
+            (click)="openGame(game)">
           <div class="card-thumb">
             <div class="card-thumb-placeholder">
-              <span class="level-num">{{ level.sortOrder }}</span>
-              <span class="thumb-icon">{{ sceneIcon(level) }}</span>
-              @if (!level.unlocked) {
-                <span class="lock-overlay">🔒</span>
+              <span class="thumb-icon" aria-hidden="true">{{ gameIcon(game) }}</span>
+              @if (unlocked === 0) {
+                <span class="lock-overlay" aria-hidden="true">🔒</span>
               }
             </div>
           </div>
           <div class="card-body">
             <div class="card-meta">
-              <span class="scene-tag scene-tag--{{ level.sceneType }}">{{ level.sceneType }}</span>
-              @if (level.unlocked) {
-                <span class="chip chip--unlocked">Unlocked</span>
+              <span class="chip chip--game-slug">{{ game.slug }}</span>
+              @if (unlocked > 0) {
+                <span class="chip chip--unlocked">{{ unlocked }} / {{ game.chapters.length }} chapters</span>
               } @else {
-                <span class="chip chip--locked">Locked</span>
+                <span class="chip chip--locked">All chapters locked</span>
               }
             </div>
-            <h3 class="card-title">{{ level.name }}</h3>
-            <p class="card-desc">{{ level.description }}</p>
-            @if (level.totalQuests > 0) {
-              <div class="progress">
-                <div class="progress-bar">
-                  <div class="progress-fill" [style.width.%]="(level.completedQuests * 100 / level.totalQuests)"></div>
-                </div>
-                <span class="progress-text">{{ level.completedQuests }} / {{ level.totalQuests }} quests</span>
-              </div>
-            }
-            @if (level.unlocked) {
-              <button class="play-btn" (click)="selectLevel(level); $event.stopPropagation()">
-                &#9654; Play
-              </button>
+            <h3 class="card-title">{{ game.name }}</h3>
+            <p class="card-desc">{{ game.description }}</p>
+            @if (unlocked > 0) {
+              <span class="play-btn">
+                &#9654; Open chapters
+              </span>
             } @else {
-              <button class="play-btn play-btn--locked" disabled>
+              <span class="play-btn play-btn--locked">
                 &#128274; Complete earlier quests to unlock
-              </button>
+              </span>
             }
           </div>
-        </div>
+        </button>
       }
-      @if ((levels$ | async)?.length === 0) {
-        <p class="empty-state">No levels available — make sure the API is running.</p>
+      @if ((games$ | async)?.length === 0) {
+        <p class="empty-state">No games available — make sure the API is running.</p>
       }
     </div>
   </section>
+
+  @if (modalGame) {
+    <!-- Chapter selection modal — opened from a game card.
+         The backdrop is the dialog wrapper so click-outside closes it.
+         role=dialog + aria-modal=true + aria-labelledby on the title
+         keeps screen readers in step. Esc-to-close lives on the
+         component (HostListener document:keydown.escape). -->
+    <div class="modal-backdrop"
+         role="dialog"
+         aria-modal="true"
+         [attr.aria-labelledby]="'modal-title-' + modalGame.id"
+         (click)="onModalBackdrop($event)">
+      <div class="modal-card">
+        <header class="modal-header">
+          <h2 [id]="'modal-title-' + modalGame.id" class="modal-title">
+            {{ gameIcon(modalGame) }} {{ modalGame.name }}
+          </h2>
+          <button class="icon-btn close-btn"
+                  type="button"
+                  aria-label="Close chapter list"
+                  (click)="closeModal()">&#10005;</button>
+        </header>
+        <p class="modal-sub">{{ modalGame.description }}</p>
+        <ul class="chapter-list" role="list">
+          @for (chapter of modalGame.chapters; track chapter.id) {
+            <li class="chapter-row" role="listitem"
+                [class.locked]="!chapter.unlocked">
+              <div class="chapter-thumb" aria-hidden="true">
+                <span class="chapter-num">{{ chapter.sortOrder }}</span>
+                <span class="chapter-icon">{{ sceneIcon(chapter) }}</span>
+                @if (!chapter.unlocked) {
+                  <span class="lock-overlay">🔒</span>
+                }
+              </div>
+              <div class="chapter-meta">
+                <span class="scene-tag scene-tag--{{ chapter.sceneType }}">{{ chapter.sceneType }}</span>
+                @if (chapter.unlocked) {
+                  <span class="chip chip--unlocked">Unlocked</span>
+                } @else {
+                  <span class="chip chip--locked">Locked</span>
+                }
+                @if (chapter.totalQuests > 0) {
+                  <span class="quest-count">{{ chapter.completedQuests }} / {{ chapter.totalQuests }} quests</span>
+                }
+              </div>
+              <h3 class="chapter-title">{{ chapter.name }}</h3>
+              <p class="chapter-desc">{{ chapter.description }}</p>
+              @if (chapter.unlocked) {
+                <button class="play-btn"
+                        type="button"
+                        [attr.aria-label]="'Play ' + chapter.name"
+                        (click)="selectChapter(chapter)">
+                  &#9654; Play
+                </button>
+              } @else {
+                <button class="play-btn play-btn--locked"
+                        type="button"
+                        disabled
+                        aria-label="Locked — complete prerequisite quests to unlock">
+                  &#128274; Complete earlier quests
+                </button>
+              }
+            </li>
+          }
+        </ul>
+      </div>
+    </div>
+  }
 
   @if (activeLevel) {
     <section class="canvas-section" #canvasSection>
@@ -75,19 +140,6 @@
         </div>
       </div>
       <div class="canvas-container" #canvasContainer>
-        <!--
-          Host shell bootstraps under @angular-architects/native-
-          federation:build (post-process strips modulepreload + flips
-          polyfills script type to module-shim; main/bootstrap split
-          breaks the import-map chicken-and-egg). Federated levels
-          mount via the registered <app-<slug>-remote> Web Component
-          (loadRemoteModule + createCustomElement, see
-          RemoteLoaderService); levels whose sceneType isn't in
-          SCENE_TYPE_TO_GAME_SLUG fall through to the legacy
-          <app-game-canvas> iframe path. Level-transition postMessage
-          is caught at window level on HomeComponent, so the renderer
-          fork doesn't have to forward it.
-        -->
         @if (isFederated(activeLevel)) {
           @switch (activeRemoteSlug) {
             @case ('dodecahedron') {
@@ -96,11 +148,6 @@
                 [launchUid]="activeLaunchUid"></app-dodecahedron-remote>
             }
             @case ('three-wizards') {
-              <!-- The custom element tag matches what RemoteLoaderService
-                   registers: app-${remote.gameSlug}-remote.
-                   launchUid is set after `POST /api/games/three-wizards/launch`
-                   resolves; until then the remote falls back to a
-                   blank uid (no enforcement, just an audit-trail value). -->
               <app-three-wizards-remote
                 class="remote-mount"
                 [chapterSlug]="activeLevel.sceneType"
