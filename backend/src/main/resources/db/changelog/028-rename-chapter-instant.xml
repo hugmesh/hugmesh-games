@@ -130,4 +130,33 @@
     <sql>ALTER INDEX ix_level_prerequisites_level RENAME TO ix_chapter_prerequisites_chapter</sql>
   </changeSet>
 
+  <!-- 028-12 catches `scene_elements.level_id`. Symptom: 500 from
+       /api/chapters/{id}/scene with R2DBC BadGrammarException
+       `column scene_elements.chapter_id does not exist`, which
+       breaks the in-game scene prefetch (the wizard cave bundle's
+       index.html fetches /api/levels/{id}/scene at boot — see the
+       backwards-compat alias on ChapterController). -->
+  <changeSet id="028-12-rename-level-id-on-scene-elements" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="scene_elements" columnName="level_id"/>
+    </preConditions>
+    <renameColumn tableName="scene_elements"
+                  oldColumnName="level_id" newColumnName="chapter_id"/>
+  </changeSet>
+
+  <!-- 028-13 catches `quests.level_id` — the QuestRepository can hit
+       the same column-not-found symptom on /api/quests/character/{id}
+       once a player accrues quests. Found via:
+         SELECT table_name, column_name FROM information_schema.columns
+         WHERE column_name LIKE '%level%';
+       which also returned routines.* (system catalog, ignored) and
+       player_characters.level (XP level, intentionally preserved). -->
+  <changeSet id="028-13-rename-level-id-on-quests" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="quests" columnName="level_id"/>
+    </preConditions>
+    <renameColumn tableName="quests"
+                  oldColumnName="level_id" newColumnName="chapter_id"/>
+  </changeSet>
+
 </databaseChangeLog>

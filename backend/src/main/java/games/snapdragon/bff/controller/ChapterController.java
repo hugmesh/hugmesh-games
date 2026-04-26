@@ -11,10 +11,22 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-@Tag(name = "Levels",
-     description = "Individual playable levels — each level is its own compiled Godot WASM bundle served from /api/assets/levels/{slug}/.")
+/**
+ * Chapter (formerly "level") metadata + scene endpoint.
+ *
+ * <p>Both URL prefixes are accepted: the canonical {@code /api/chapters/*}
+ * path and the legacy {@code /api/levels/*} path. The dual mapping
+ * exists because the patched Godot bundle's {@code index.html} hardcodes
+ * the URL it prefetches the scene from at export time — every WASM
+ * bundle currently in the wild calls {@code /api/levels/{id}/scene}.
+ * Keeping the legacy alias means the rename ships without a forced
+ * re-export of every game bundle. New callers should prefer the
+ * canonical {@code /api/chapters} prefix.
+ */
+@Tag(name = "Chapters",
+     description = "Individual playable chapters — each chapter is its own compiled Godot WASM bundle served from /api/assets/chapters/{slug}/. Legacy `/api/levels/*` paths still work.")
 @RestController
-@RequestMapping("/api/chapters")
+@RequestMapping({ "/api/chapters", "/api/levels" })
 public class ChapterController {
 
     private final ChapterRepository levels;
