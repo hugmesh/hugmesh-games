@@ -209,21 +209,22 @@ Now done in this branch:
   redeclared inside the remote (TypeScript types are erased at runtime
   so federation can't share them — both sides own a copy and the BFF
   DTO is the contract).
-- `src/app/login/`, `src/app/admin/admin.component.*`, the orphaned
-  `services/admin.service.ts`, and `models/{admin-stats,session}.model.ts`
-  all deleted. `admin/game-upload.*` stays — `/admin/games` is a
-  separate route still served by the in-tree component.
+- `src/app/login/` and `src/app/admin/` (entire directory) are gone,
+  along with the orphaned `services/admin.service.ts`,
+  `services/game-upload.service.ts` (lived under admin/), and the
+  `models/{admin-stats,session}.model.ts` shapes that only those two
+  services consumed.
+- `/admin/games` (the file-upload feature) is now served by the admin
+  remote's second exposed module: `./UploadShell`. Both `AdminShell`
+  and `UploadShell` ship from the same admin nginx — single image,
+  same admin role gate, same /admin nav. Re-export both from
+  `projects/admin/src/main.ts` so esbuild's TS pipeline walks the
+  second module.
 - `wasm-fragment` `/fragment?slug=` rewrites to
   `/api/assets/levels/<slug>/index.html` (727ca3a).
 
 **Next session — finish the federated cutover:**
-1. `/admin/games` (the GameUploadComponent file-upload feature) still
-   runs in-tree. Either fold it into the federated `AdminRemoteComponent`
-   as a sub-section or split into its own `admin-uploads` remote.
-   Inline FormData uploads against `/api/admin/games/upload` the same
-   way `AdminRemoteComponent` inlines its admin/* calls; the
-   GameUploadService class itself isn't shared.
-2. Add `'cave'` and `'field'` (or the umbrella games-table slug
+1. Add `'cave'` and `'field'` (or the umbrella games-table slug
    `'three-wizards'`) to `FEDERATED_GAME_SLUGS` in `home.component.ts`
    and let `<app-games-three-wizards-remote>` take over cave + field.
    This is harder than dodecahedron: the legacy `<app-game-canvas>`
@@ -242,8 +243,8 @@ Now done in this branch:
         on it. Remote `inject(LEVEL_LIBRARY)` gets the host's wrapper.
         Cleaner long-term, but requires the shared package layer that
         federation otherwise dodges.
-3. Delete `src/app/game-canvas/` once (2) lands.
-4. `wasm-fragment` could grow to actually serve Godot bundles from a
+2. Delete `src/app/game-canvas/` once (1) lands.
+3. `wasm-fragment` could grow to actually serve Godot bundles from a
    per-game volume so the api service stops being on the asset path
    for those URLs; asset-tier work, parked.
 
