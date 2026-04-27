@@ -14,7 +14,11 @@ The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cav
 |---|---|
 | Issue Tracker | [Snapdragon-Systems/snapdragon.games/issues](https://github.com/Snapdragon-Systems/snapdragon.games/issues) |
 | Pull Requests | [Snapdragon-Systems/snapdragon.games/pulls](https://github.com/Snapdragon-Systems/snapdragon.games/pulls) |
+| **Wiki (in-repo)** | [docs/wiki/](docs/wiki/) — architecture chapters, audience guides, how-to recipes, decisions |
 | Godot developer guide | [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md) |
+| Contributor onboarding | [CLAUDE.md](CLAUDE.md) |
+
+The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with [Intro for coders](docs/wiki/guides/intro-for-coders.md) for an orientation, [Architecture overview](docs/wiki/architecture/01-overview.md) for the typeset reference, or jump straight to a [how-to](docs/wiki/howto/) for a specific task.
 
 ---
 
