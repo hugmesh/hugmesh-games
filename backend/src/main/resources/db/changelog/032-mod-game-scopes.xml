@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Per-game mod scoping. Casdoor owns the role membership ("alice has
+    role mod") and Postgres owns the per-game scope ("alice can mod
+    three-wizards but not dodecahedron"). The mod role without a row in
+    this table is effectively a no-op — the BFF rejects every mod
+    action whose target session's game_slug isn't in the caller's
+    scope.
+
+    Granted by admins or by publishers (publishers can only grant for
+    games they own). granted_by stamped for audit; revoked rows are
+    kept (soft-delete via revoked_at) so an audit trail survives.
+  -->
+
+  <changeSet id="032-1-create-mod-game-scopes" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="mod_game_scopes"/></not>
+    </preConditions>
+    <createTable tableName="mod_game_scopes">
+      <column name="id" type="bigint" autoIncrement="true">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="casdoor_id" type="varchar(128)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="game_slug" type="varchar(64)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="granted_by_casdoor_id" type="varchar(128)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="granted_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+        <constraints nullable="false"/>
+      </column>
+      <column name="revoked_at" type="timestamp with time zone"/>
+      <column name="revoked_by_casdoor_id" type="varchar(128)"/>
+    </createTable>
+    <createIndex indexName="ix_mod_game_scopes_casdoor"
+                 tableName="mod_game_scopes">
+      <column name="casdoor_id"/>
+      <column name="revoked_at"/>
+    </createIndex>
+    <createIndex indexName="ix_mod_game_scopes_game"
+                 tableName="mod_game_scopes">
+      <column name="game_slug"/>
+      <column name="revoked_at"/>
+    </createIndex>
+    <sql>
+      CREATE UNIQUE INDEX uq_mod_game_scopes_active
+      ON mod_game_scopes (casdoor_id, game_slug)
+      WHERE revoked_at IS NULL;
+    </sql>
+  </changeSet>
+
+  <!--
+    Likewise for publishers: Casdoor's publisher role grants the basic
+    capability; this table scopes it to specific games. A publisher
+    without a row here can grant mod role to no one. Admins grant
+    publisher scope; publishers cannot self-promote or scope-up.
+  -->
+
+  <changeSet id="032-2-create-publisher-game-scopes" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="publisher_game_scopes"/></not>
+    </preConditions>
+    <createTable tableName="publisher_game_scopes">
+      <column name="id" type="bigint" autoIncrement="true">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="casdoor_id" type="varchar(128)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="game_slug" type="varchar(64)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="granted_by_casdoor_id" type="varchar(128)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="granted_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+        <constraints nullable="false"/>
+      </column>
+      <column name="revoked_at" type="timestamp with time zone"/>
+      <column name="revoked_by_casdoor_id" type="varchar(128)"/>
+    </createTable>
+    <createIndex indexName="ix_publisher_game_scopes_casdoor"
+                 tableName="publisher_game_scopes">
+      <column name="casdoor_id"/>
+      <column name="revoked_at"/>
+    </createIndex>
+    <sql>
+      CREATE UNIQUE INDEX uq_publisher_game_scopes_active
+      ON publisher_game_scopes (casdoor_id, game_slug)
+      WHERE revoked_at IS NULL;
+    </sql>
+  </changeSet>
+
+  <!--
+    Seed the per-game mod / publisher users from the Casdoor template
+    with their natural game scope. Idempotent on the active-row unique
+    index; a re-run finds the existing rows and skips.
+  -->
+
+  <changeSet id="032-3-seed-mod-publisher-game-scopes" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <tableExists tableName="mod_game_scopes"/>
+      <tableExists tableName="publisher_game_scopes"/>
+    </preConditions>
+    <sql>
+      INSERT INTO mod_game_scopes (casdoor_id, game_slug, granted_by_casdoor_id)
+      VALUES
+        ('mod-three-wizards', 'three-wizards', 'system-seed'),
+        ('mod-dodecahedron',  'dodecahedron',  'system-seed')
+      ON CONFLICT DO NOTHING;
+
+      INSERT INTO publisher_game_scopes (casdoor_id, game_slug, granted_by_casdoor_id)
+      VALUES
+        ('publisher-three-wizards', 'three-wizards', 'system-seed'),
+        ('publisher-dodecahedron',  'dodecahedron',  'system-seed')
+      ON CONFLICT DO NOTHING;
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

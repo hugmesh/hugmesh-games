@@ -52,9 +52,14 @@ public class GameUploadController {
             back the DB transaction and removes the staged dir.
             """)
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','PUBLISHER')")
     public Mono<InstalledUpload> upload(@RequestPart("bundle") FilePart bundle,
                                         @AuthenticationPrincipal Jwt jwt) {
+        // Admins can upload bundles for any game; publishers must hold a
+        // publisher_game_scopes row for the slug carried in the manifest.
+        // Per-game scope check happens inside install() once the manifest
+        // is parsed (the slug is not knowable from the multipart wrapper
+        // alone).
         String uploadedBy = jwt != null ? jwt.getSubject() : "system:anonymous-admin";
         return collectBytes(bundle)
                 .flatMap(bytes -> uploadService.install(bytes, uploadedBy));
@@ -62,7 +67,7 @@ public class GameUploadController {
 
     @Operation(summary = "Upload history for one slug (newest first).")
     @GetMapping("/{slug}/uploads")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','PUBLISHER')")
     public Flux<GameUpload> history(@PathVariable String slug) {
         return uploads.findBySlugOrderByUploadedAtDesc(slug);
     }

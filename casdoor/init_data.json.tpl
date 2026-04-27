@@ -100,6 +100,90 @@
       "isDeleted": false,
       "score": 2000,
       "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "player1",
+      "id": "tw-player-002",
+      "type": "normal-user",
+      "password": "CASDOOR_PLAYER1_PASS_VALUE",
+      "displayName": "Player 1",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "player2",
+      "id": "tw-player-003",
+      "type": "normal-user",
+      "password": "CASDOOR_PLAYER2_PASS_VALUE",
+      "displayName": "Player 2",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "player3",
+      "id": "tw-player-004",
+      "type": "normal-user",
+      "password": "CASDOOR_PLAYER3_PASS_VALUE",
+      "displayName": "Player 3",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "mod-three-wizards",
+      "id": "tw-mod-twiat-001",
+      "type": "normal-user",
+      "password": "CASDOOR_MOD_TWIAT_PASS_VALUE",
+      "displayName": "Mod — Three Wizards",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "mod-dodecahedron",
+      "id": "tw-mod-dodec-001",
+      "type": "normal-user",
+      "password": "CASDOOR_MOD_DODEC_PASS_VALUE",
+      "displayName": "Mod — Dodecahedron",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "publisher-three-wizards",
+      "id": "tw-pub-twiat-001",
+      "type": "normal-user",
+      "password": "CASDOOR_PUB_TWIAT_PASS_VALUE",
+      "displayName": "Publisher — Three Wizards",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "publisher-dodecahedron",
+      "id": "tw-pub-dodec-001",
+      "type": "normal-user",
+      "password": "CASDOOR_PUB_DODEC_PASS_VALUE",
+      "displayName": "Publisher — Dodecahedron",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
     }
   ],
   "roles": [
@@ -116,7 +200,12 @@
       "name": "player",
       "displayName": "Player",
       "description": "Standard player; can access the portal and play unlocked levels.",
-      "users": ["threewizards/player"],
+      "users": [
+        "threewizards/player",
+        "threewizards/player1",
+        "threewizards/player2",
+        "threewizards/player3"
+      ],
       "isEnabled": true
     },
     {
@@ -132,7 +221,11 @@
       "name": "mod",
       "displayName": "Moderator",
       "description": "Per-game moderator: can stop sessions and kick players for the games an admin or publisher has scoped them to (mod_game_scopes table). Cannot upload games or grant roles.",
-      "users": ["threewizards/mod"],
+      "users": [
+        "threewizards/mod",
+        "threewizards/mod-three-wizards",
+        "threewizards/mod-dodecahedron"
+      ],
       "isEnabled": true
     },
     {
@@ -140,7 +233,11 @@
       "name": "publisher",
       "displayName": "Publisher",
       "description": "Can upload game bundles AND grant the mod role to other users for those games. Cannot grant publisher role; that's admin-only.",
-      "users": ["threewizards/publisher"],
+      "users": [
+        "threewizards/publisher",
+        "threewizards/publisher-three-wizards",
+        "threewizards/publisher-dodecahedron"
+      ],
       "isEnabled": true
     },
     {
@@ -148,7 +245,13 @@
       "name": "play-three-wizards",
       "displayName": "Play: Three Wizards",
       "description": "Permits launching the Three Wizards in a Trenchcoat game.",
-      "users": ["threewizards/admin", "threewizards/player"],
+      "users": [
+        "threewizards/admin",
+        "threewizards/player",
+        "threewizards/player1",
+        "threewizards/player2",
+        "threewizards/player3"
+      ],
       "isEnabled": true
     },
     {
@@ -156,7 +259,13 @@
       "name": "play-dodecahedron",
       "displayName": "Play: Dodecahedron Demo",
       "description": "Permits launching the Dodecahedron Demo game.",
-      "users": ["threewizards/admin", "threewizards/player"],
+      "users": [
+        "threewizards/admin",
+        "threewizards/player",
+        "threewizards/player1",
+        "threewizards/player2",
+        "threewizards/player3"
+      ],
       "isEnabled": true
     }
   ],
