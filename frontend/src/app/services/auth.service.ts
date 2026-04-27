@@ -58,7 +58,19 @@ export class AuthService {
   }
 
   isAdmin(): boolean {
-    return this.getClaims()?.['isAdmin'] === true;
+    return this.hasRole('admin') || this.getClaims()?.['isAdmin'] === true;
+  }
+
+  /** True when Casdoor's `mod` role is present in the JWT roles claim. */
+  isMod(): boolean { return this.hasRole('mod'); }
+
+  /** True when Casdoor's `publisher` role is present in the JWT roles claim. */
+  isPublisher(): boolean { return this.hasRole('publisher'); }
+
+  private hasRole(name: string): boolean {
+    const roles = this.getClaims()?.['roles'];
+    if (!Array.isArray(roles)) return false;
+    return roles.some(r => typeof r === 'string' && r.toLowerCase() === name);
   }
 
   displayName(): string | null {

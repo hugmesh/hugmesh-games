@@ -177,6 +177,26 @@ services:
       dockerfile: projects/admin/Dockerfile
     expose: ["8080"]
 
+  # Per-game moderator console — list scoped games + open sessions, with
+  # stop-session and per-player kick actions. Authz is BFF-side via
+  # mod_game_scopes; this service just ships the UI.
+  mod:
+    image: snapdragon-games/mod-remote:${SNAPDRAGON_TAG:-dev}
+    build:
+      context: ./frontend
+      dockerfile: projects/mod/Dockerfile
+    expose: ["8080"]
+
+  # Per-game publisher console — owned-games list + bundle upload form +
+  # mod-grant card. Authz via publisher_game_scopes; the upload route
+  # accepts ROLE_PUBLISHER as well as ROLE_ADMIN.
+  publisher:
+    image: snapdragon-games/publisher-remote:${SNAPDRAGON_TAG:-dev}
+    build:
+      context: ./frontend
+      dockerfile: projects/publisher/Dockerfile
+    expose: ["8080"]
+
   # Federated API docs explorer — a navigator-style swagger/javadoc
   # replacement generated from the BFF's OpenAPI spec. Mounted at
   # /admin/docs in the host. Same image pattern as login + admin.

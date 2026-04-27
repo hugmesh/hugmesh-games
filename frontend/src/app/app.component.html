@@ -14,6 +14,12 @@
       <li><a routerLink="/admin" routerLinkActive="active">Admin</a></li>
       <li><a routerLink="/admin/games" routerLinkActive="active">Game uploads</a></li>
     }
+    @if (isMod) {
+      <li><a routerLink="/mod" routerLinkActive="active">Moderator</a></li>
+    }
+    @if (isPublisher) {
+      <li><a routerLink="/publisher" routerLinkActive="active">Publisher</a></li>
+    }
     <li><a routerLink="/about" routerLinkActive="active">About</a></li>
   </ul>
   <div class="nav-user">

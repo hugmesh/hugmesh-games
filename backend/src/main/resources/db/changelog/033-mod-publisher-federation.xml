@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Register the new mod and publisher federated remotes with the
+    federation manifest endpoint. The host shell fetches
+    /api/federation/manifest at bootstrap and installs the import map
+    from the rows here, so once these land both /mod and /publisher
+    routes resolve without a host redeploy.
+  -->
+
+  <changeSet id="033-1-seed-mod-remote" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM federation_modules WHERE slug = 'mod'
+      </sqlCheck>
+    </preConditions>
+    <insert tableName="federation_modules">
+      <column name="slug"             value="mod"/>
+      <column name="kind"             value="remote-shell"/>
+      <column name="remote_entry_url" value="/_remotes/mod/remoteEntry.json"/>
+      <column name="exposed_module"   value="./ModShell"/>
+      <column name="display_name"     value="Moderator console"/>
+      <column name="version"          value="1.0.0"/>
+      <column name="enabled"          valueBoolean="true"/>
+    </insert>
+  </changeSet>
+
+  <changeSet id="033-2-seed-publisher-remote" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM federation_modules WHERE slug = 'publisher'
+      </sqlCheck>
+    </preConditions>
+    <insert tableName="federation_modules">
+      <column name="slug"             value="publisher"/>
+      <column name="kind"             value="remote-shell"/>
+      <column name="remote_entry_url" value="/_remotes/publisher/remoteEntry.json"/>
+      <column name="exposed_module"   value="./PublisherShell"/>
+      <column name="display_name"     value="Publisher console"/>
+      <column name="version"          value="1.0.0"/>
+      <column name="enabled"          valueBoolean="true"/>
+    </insert>
+  </changeSet>
+
+</databaseChangeLog>

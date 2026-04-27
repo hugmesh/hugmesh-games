@@ -42,5 +42,12 @@ export const routes: Routes = [
   { path: 'admin', loadComponent: () => loadRemote('admin', './AdminShell', 'AdminRemoteComponent'), canActivate: [authGuard] },
   { path: 'admin/games', loadComponent: () => loadRemote('admin', './UploadShell', 'UploadRemoteComponent'), canActivate: [authGuard] },
   { path: 'admin/docs', loadComponent: () => loadRemote('api-docs', './DocsShell', 'DocsShellComponent'), canActivate: [authGuard] },
+  // Per-game moderator console — ROLE_MOD or ROLE_ADMIN. The BFF
+  // controllers @PreAuthorize so the route mounts for any authenticated
+  // user; non-mod / non-admin callers see a 403 banner inside the shell.
+  { path: 'mod', loadComponent: () => loadRemote('mod', './ModShell', 'ModRemoteComponent'), canActivate: [authGuard] },
+  // Per-game publisher console — ROLE_PUBLISHER or ROLE_ADMIN. Same
+  // BFF-side enforcement pattern as /mod.
+  { path: 'publisher', loadComponent: () => loadRemote('publisher', './PublisherShell', 'PublisherRemoteComponent'), canActivate: [authGuard] },
   { path: '**', redirectTo: '' },
 ];

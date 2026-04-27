@@ -20,6 +20,8 @@ const FEDERATED_ROUTE_LABELS: ReadonlyArray<{ prefix: string; label: string }> =
   { prefix: '/admin/games',  label: 'Game uploads' },
   { prefix: '/admin/docs',   label: 'API docs' },
   { prefix: '/admin',        label: 'Admin console' },
+  { prefix: '/mod',          label: 'Moderator console' },
+  { prefix: '/publisher',    label: 'Publisher console' },
 ];
 
 @Component({
@@ -45,8 +47,10 @@ export class AppComponent implements OnInit {
    */
   readonly federationLoadError = signal<{ url: string; label: string } | null>(null);
 
-  get isLoggedIn(): boolean { return this.auth.isAuthenticated(); }
-  get isAdmin(): boolean    { return this.auth.isAdmin(); }
+  get isLoggedIn(): boolean  { return this.auth.isAuthenticated(); }
+  get isAdmin(): boolean     { return this.auth.isAdmin(); }
+  get isMod(): boolean       { return this.auth.isMod() || this.auth.isAdmin(); }
+  get isPublisher(): boolean { return this.auth.isPublisher() || this.auth.isAdmin(); }
   get displayName(): string | null { return this.auth.displayName(); }
 
   ngOnInit(): void {
