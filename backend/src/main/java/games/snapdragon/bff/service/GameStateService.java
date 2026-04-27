@@ -108,6 +108,20 @@ public class GameStateService {
     private final Sinks.Many<InputEvent>      audioSink       = Sinks.many().multicast().onBackpressureBuffer(64, false);
     private final Sinks.Many<WasmConsoleLine> wasmConsoleSink = Sinks.many().multicast().onBackpressureBuffer(64, false);
 
+    /**
+     * Per-multiplayer-session sink bundles. Lazy-allocated on first emit
+     * or stream access for a given session. The map is never pruned at
+     * runtime (sessions are bounded by Postgres) — a SessionSweeper job
+     * can {@code remove} expired sessions but does not exist yet because
+     * the in-memory cost is small (4 sinks × tens of sessions).
+     *
+     * <p><strong>Isolation invariant:</strong>
+     * {@link #applyControl(ControlEvent, Long, String)} routes to the
+     * keyed bundle ONLY; a subscriber of session A never sees session
+     * B's emissions. Tested in {@code SessionIsolationTest}.
+     */
+    private final ConcurrentHashMap<String, SessionSinks> sessionSinks = new ConcurrentHashMap<>();
+
     private final String sessionId = UUID.randomUUID().toString();
 
     /** {@code positionCacheProvider} is an ObjectProvider so the
@@ -164,6 +178,18 @@ public class GameStateService {
      *   3) {@link #DEFAULT_LEVEL_ID}.
      */
     public void applyControl(ControlEvent event, Long characterId) {
+        applyControl(event, characterId, null);
+    }
+
+    /**
+     * Multiplayer-aware overload. When {@code sessionId} is non-null, the
+     * resulting movement event also fans out on the session-scoped sinks
+     * keyed by {@code sessionId}, so a subscriber to
+     * {@code /api/game/stream?sessionId=X} sees only session X's events.
+     * The legacy global sinks still emit so the admin firehose at
+     * {@code /api/game/stream} (no session filter) keeps working.
+     */
+    public void applyControl(ControlEvent event, Long characterId, String sessionIdOpt) {
         Long chapterId = resolveLevelId(characterId, event.chapterId());
         AtomicReference<PlayerState> ref = ensureState(characterId, chapterId);
         Key key = new Key(characterId, chapterId);
@@ -198,7 +224,10 @@ public class GameStateService {
                     event.action(), event.pressed(), t);
 
             movementSink.tryEmitNext(movement);
-            emitWorldStateForLevel(chapterId, t);
+            if (sessionIdOpt != null) {
+                sessionSinksFor(sessionIdOpt).movement.tryEmitNext(movement);
+            }
+            emitWorldStateForLevel(chapterId, t, sessionIdOpt);
 
             if (posChanged) {
                 persistPositionAsync(characterId, chapterId, after);
@@ -261,6 +290,43 @@ public class GameStateService {
     public Flux<InputEvent>      inputStream()       { return inputSink.asFlux(); }
     public Flux<InputEvent>      audioStream()       { return audioSink.asFlux(); }
     public Flux<WasmConsoleLine> wasmConsoleStream() { return wasmConsoleSink.asFlux(); }
+
+    /** Per-session movement stream — only events from {@code sessionId}. */
+    public Flux<PlayerMovement>  movementStream(String sessionId)  { return sessionSinksFor(sessionId).movement.asFlux(); }
+    /** Per-session world-snapshot stream — only events from {@code sessionId}. */
+    public Flux<WorldState>      worldStream(String sessionId)     { return sessionSinksFor(sessionId).world.asFlux(); }
+    /** Per-session character-stat stream — only events from {@code sessionId}. */
+    public Flux<CharacterDto>    charStatStream(String sessionId)  { return sessionSinksFor(sessionId).character.asFlux(); }
+    /** Per-session player-view stream — admin watches each slot's camera. */
+    public Flux<PlayerViewEvent> viewStream(String sessionId)      { return sessionSinksFor(sessionId).view.asFlux(); }
+
+    /**
+     * Push a per-player view event onto the session-scoped {@code view}
+     * channel. Called by the diagnostics / view-egress controller when
+     * the Rust GDExtension's {@code view_egress} signal forwards a
+     * camera + orientation sample.
+     */
+    public void emitView(PlayerViewEvent ev) {
+        if (ev.sessionId() != null) {
+            sessionSinksFor(ev.sessionId()).view.tryEmitNext(ev);
+        }
+    }
+
+    /**
+     * Notify the per-session character channel of a stat change. The
+     * legacy global {@link #charStatSink} is also emitted so the admin
+     * firehose retains its single-stream view.
+     */
+    public void notifyCharacterStatChange(CharacterDto dto, String sessionIdOpt) {
+        charStatSink.tryEmitNext(dto);
+        if (sessionIdOpt != null) {
+            sessionSinksFor(sessionIdOpt).character.tryEmitNext(dto);
+        }
+    }
+
+    private SessionSinks sessionSinksFor(String sessionId) {
+        return sessionSinks.computeIfAbsent(sessionId, id -> new SessionSinks());
+    }
 
     /** Push a generalised input event onto the SSE channel. The audio
      *  kind also fan-outs to the audio sink so a subscriber can opt
@@ -334,6 +400,10 @@ public class GameStateService {
      *     (so cross-pod players appear without local activity).
      */
     private void emitWorldStateForLevel(long chapterId, long t) {
+        emitWorldStateForLevel(chapterId, t, null);
+    }
+
+    private void emitWorldStateForLevel(long chapterId, long t, String sessionIdOpt) {
         Set<Long> roster = new HashSet<>();
         characterStates.forEach((cid, perLevel) -> {
             if (perLevel.containsKey(chapterId)) roster.add(cid);
@@ -354,13 +424,21 @@ public class GameStateService {
                     List<PlayerMovement> snapshot = all.stream()
                             .map(cid -> snapshotFor(cid, chapterId, t))
                             .toList();
-                    worldSink.tryEmitNext(new WorldState(chapterId, snapshot, t));
+                    WorldState world = new WorldState(chapterId, snapshot, t);
+                    worldSink.tryEmitNext(world);
+                    if (sessionIdOpt != null) {
+                        sessionSinksFor(sessionIdOpt).world.tryEmitNext(world);
+                    }
                 }, err -> {
                     // Cassandra unreachable — emit local-only roster.
                     List<PlayerMovement> snapshot = roster.stream()
                             .map(cid -> snapshotFor(cid, chapterId, t))
                             .toList();
-                    worldSink.tryEmitNext(new WorldState(chapterId, snapshot, t));
+                    WorldState world = new WorldState(chapterId, snapshot, t);
+                    worldSink.tryEmitNext(world);
+                    if (sessionIdOpt != null) {
+                        sessionSinksFor(sessionIdOpt).world.tryEmitNext(world);
+                    }
                 });
     }
 

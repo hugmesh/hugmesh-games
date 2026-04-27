@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Multiplayer sessions:
+      game_sessions   = durable session ledger (one per concurrent multiplayer
+                        instance). The session creator names it; the game menu
+                        lists open sessions per game so players can join.
+      session_members = membership ledger. One row per (session, player) pair
+                        with an explicit slot_index for slot-based games like
+                        three-wizards. left_at = NULL means active.
+
+    The legacy player_sessions table is preserved for the admin dashboard
+    activity history; new multiplayer code paths target game_sessions +
+    session_members exclusively. Hot-path control fan-out stays in-memory
+    (per-session Sinks.Many in GameStateService) — these tables are read
+    on session list/create/join/leave, NOT on every control event.
+  -->
+
+  <changeSet id="030-1-create-game-sessions" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="game_sessions"/></not>
+    </preConditions>
+    <createTable tableName="game_sessions">
+      <column name="id" type="varchar(36)">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="name" type="varchar(120)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="game_slug" type="varchar(64)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="creator_casdoor_id" type="varchar(128)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="max_players" type="int" defaultValueNumeric="3">
+        <constraints nullable="false"/>
+      </column>
+      <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+        <constraints nullable="false"/>
+      </column>
+      <column name="closed_at" type="timestamp with time zone"/>
+    </createTable>
+    <createIndex indexName="ix_game_sessions_game_slug_open"
+                 tableName="game_sessions">
+      <column name="game_slug"/>
+      <column name="closed_at"/>
+    </createIndex>
+    <createIndex indexName="ix_game_sessions_creator"
+                 tableName="game_sessions">
+      <column name="creator_casdoor_id"/>
+    </createIndex>
+  </changeSet>
+
+  <changeSet id="030-2-create-session-members" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="session_members"/></not>
+    </preConditions>
+    <createTable tableName="session_members">
+      <column name="id" type="bigint" autoIncrement="true">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="session_id" type="varchar(36)">
+        <constraints nullable="false"
+                     foreignKeyName="fk_session_members_session"
+                     references="game_sessions(id)"/>
+      </column>
+      <column name="casdoor_id" type="varchar(128)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="character_id" type="bigint">
+        <constraints nullable="true"
+                     foreignKeyName="fk_session_members_character"
+                     references="player_characters(id)"/>
+      </column>
+      <column name="slot_index" type="int">
+        <constraints nullable="true"/>
+      </column>
+      <column name="is_creator" type="boolean" defaultValueBoolean="false">
+        <constraints nullable="false"/>
+      </column>
+      <column name="joined_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+        <constraints nullable="false"/>
+      </column>
+      <column name="left_at" type="timestamp with time zone"/>
+    </createTable>
+    <createIndex indexName="ix_session_members_session_active"
+                 tableName="session_members">
+      <column name="session_id"/>
+      <column name="left_at"/>
+    </createIndex>
+    <createIndex indexName="ix_session_members_casdoor_active"
+                 tableName="session_members">
+      <column name="casdoor_id"/>
+      <column name="left_at"/>
+    </createIndex>
+    <!--
+      Active members must hold a unique (session, slot) pair so two players
+      can't simultaneously claim the same wizard. Departed members
+      (left_at IS NOT NULL) are excluded so a player rejoining the same slot
+      after leaving is fine.
+    -->
+    <sql>
+      CREATE UNIQUE INDEX uq_session_members_active_slot
+      ON session_members (session_id, slot_index)
+      WHERE left_at IS NULL AND slot_index IS NOT NULL;
+
+      CREATE UNIQUE INDEX uq_session_members_active_casdoor
+      ON session_members (session_id, casdoor_id)
+      WHERE left_at IS NULL;
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

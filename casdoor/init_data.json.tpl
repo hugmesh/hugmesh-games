@@ -70,6 +70,36 @@
       "isDeleted": false,
       "score": 2000,
       "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "mod",
+      "id": "tw-mod-001",
+      "type": "normal-user",
+      "password": "CASDOOR_MOD_PASS_VALUE",
+      "displayName": "Moderator",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false,
+      "isForbidden": false,
+      "isDeleted": false,
+      "score": 2000,
+      "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "publisher",
+      "id": "tw-publisher-001",
+      "type": "normal-user",
+      "password": "CASDOOR_PUBLISHER_PASS_VALUE",
+      "displayName": "Publisher",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false,
+      "isForbidden": false,
+      "isDeleted": false,
+      "score": 2000,
+      "ranking": 1
     }
   ],
   "roles": [
@@ -99,6 +129,22 @@
     },
     {
       "owner": "threewizards",
+      "name": "mod",
+      "displayName": "Moderator",
+      "description": "Per-game moderator: can stop sessions and kick players for the games an admin or publisher has scoped them to (mod_game_scopes table). Cannot upload games or grant roles.",
+      "users": ["threewizards/mod"],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "publisher",
+      "displayName": "Publisher",
+      "description": "Can upload game bundles AND grant the mod role to other users for those games. Cannot grant publisher role; that's admin-only.",
+      "users": ["threewizards/publisher"],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
       "name": "play-three-wizards",
       "displayName": "Play: Three Wizards",
       "description": "Permits launching the Three Wizards in a Trenchcoat game.",
@@ -121,8 +167,32 @@
       "displayName": "Upload games",
       "description": "POST /api/admin/games/upload + replace registered games.",
       "users": [],
-      "roles": ["threewizards/admin", "threewizards/uploader"],
+      "roles": ["threewizards/admin", "threewizards/uploader", "threewizards/publisher"],
       "resource": "/api/admin/games/upload",
+      "actions": ["Read", "Write"],
+      "effect": "Allow",
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "moderate-sessions",
+      "displayName": "Moderate sessions",
+      "description": "Stop sessions and kick players for the games scoped via mod_game_scopes. Per-game scoping enforced at the BFF layer; this permission only signals the role exists.",
+      "users": [],
+      "roles": ["threewizards/admin", "threewizards/mod"],
+      "resource": "/api/mod/**",
+      "actions": ["Read", "Write"],
+      "effect": "Allow",
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
+      "name": "publish-games",
+      "displayName": "Publish games",
+      "description": "Upload bundles + grant the mod role to other users for the publisher's games.",
+      "users": [],
+      "roles": ["threewizards/admin", "threewizards/publisher"],
+      "resource": "/api/publisher/**",
       "actions": ["Read", "Write"],
       "effect": "Allow",
       "isEnabled": true

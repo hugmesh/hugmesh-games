@@ -96,3 +96,41 @@ CREATE TABLE IF NOT EXISTS level_membership (
     last_seen      timestamp,
     PRIMARY KEY (level_id, character_id)
 ) WITH default_time_to_live = 60;
+
+-- Per-session presence index: which casdoor users are currently in a given
+-- multiplayer session, on which pod, and in which slot. Postgres
+-- (session_members) is the source of truth for membership history;
+-- this Cassandra table is the cross-pod heartbeat used by the admin SSE
+-- stream and the session-picker presence indicator.
+--
+-- 30-second TTL; each pod refreshes the rows of its own connected members
+-- on every SSE keepalive tick so a pod crash drops the rows naturally.
+CREATE TABLE IF NOT EXISTS session_membership (
+    session_id     text,
+    casdoor_id     text,
+    slot_index     int,
+    character_id   bigint,
+    pod_id         text,
+    joined_at      timestamp,
+    last_ping      timestamp,
+    PRIMARY KEY ((session_id), casdoor_id)
+) WITH default_time_to_live = 30;
+
+-- Per-(session, slot) ring of recent player-view egress events. The Rust
+-- GDExtension's view_egress signal pushes a small camera+orientation
+-- payload at ~10 Hz; the BFF persists it here so admins joining the
+-- per-session view stream see the most recent view immediately instead
+-- of waiting for the next tick. 60-second TTL is enough for a brief
+-- replay window without growing unbounded.
+--
+-- Clustering by occurred_at DESC so the most recent row is the cheap
+-- read; LIMIT 1 lookup is the common path.
+CREATE TABLE IF NOT EXISTS session_view_state (
+    session_id     text,
+    slot_index     int,
+    occurred_at    timestamp,
+    payload_json   text,
+    pod_id         text,
+    PRIMARY KEY ((session_id, slot_index), occurred_at)
+) WITH CLUSTERING ORDER BY (occurred_at DESC)
+   AND default_time_to_live = 60;

@@ -3,11 +3,13 @@ package games.snapdragon.bff.controller;
 import games.snapdragon.bff.service.GameStateService;
 import games.snapdragon.bff.service.GameTimeService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
@@ -63,16 +65,28 @@ public class GameStreamController {
             ```
             """)
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<Object>> stream() {
+    public Flux<ServerSentEvent<Object>> stream(
+            @Parameter(description = "Optional multiplayer session id. When supplied, movement / world / character events are filtered to this session only — subscribers of session A never see session B's emissions. Time / scene / input / audio / wasm-console channels remain global because they're not session-scoped.")
+            @RequestParam(value = "sessionId", required = false) String sessionId) {
         AtomicLong sseId = new AtomicLong(0);
 
-        Flux<ServerSentEvent<Object>> movement = gameStateService.movementStream()
+        // Per-session sinks isolate sessions from one another. Time, scene,
+        // input, audio, and WASM-console channels stay global — they're
+        // shared infrastructure (game clock, scene transitions, dev-tools)
+        // not session state.
+        Flux<ServerSentEvent<Object>> movement = (sessionId != null && !sessionId.isBlank()
+                        ? gameStateService.movementStream(sessionId)
+                        : gameStateService.movementStream())
                 .map(m -> sse(sseId, "movement", m));
 
-        Flux<ServerSentEvent<Object>> world = gameStateService.worldStream()
+        Flux<ServerSentEvent<Object>> world = (sessionId != null && !sessionId.isBlank()
+                        ? gameStateService.worldStream(sessionId)
+                        : gameStateService.worldStream())
                 .map(w -> sse(sseId, "world", w));
 
-        Flux<ServerSentEvent<Object>> stats = gameStateService.charStatStream()
+        Flux<ServerSentEvent<Object>> stats = (sessionId != null && !sessionId.isBlank()
+                        ? gameStateService.charStatStream(sessionId)
+                        : gameStateService.charStatStream())
                 .map(c -> sse(sseId, "character", c));
 
         Flux<ServerSentEvent<Object>> time = gameTimeService.timeStream()
