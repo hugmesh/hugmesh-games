@@ -22,6 +22,7 @@ func _ready() -> void:
 	_host_bridge = get_parent().get_node_or_null("HostBridge")
 
 	if OS.has_feature("web"):
+		_thread_multiplayer_url_params()
 		_fetch_game_config()
 		_connect_sse_web()
 	else:
@@ -45,6 +46,41 @@ func _ready() -> void:
 func _dispatch(event_type: String, payload: Dictionary) -> void:
 	if _host_bridge != null:
 		_host_bridge.dispatch_event(event_type, JSON.stringify(payload))
+
+# Thread multiplayer context from the iframe URL into HostBridge:
+#   ?session_id=<uuid>     active multiplayer session
+#   ?character_id=<long>   character this slot is driving
+#   ?slot_index=<int>      slot 0..maxPlayers-1
+# All three are optional — when absent the bridge stays in legacy
+# single-player mode and send_input falls back to the global control
+# path. The session id is what flips the BFF into per-session sink
+# routing for every subsequent control event.
+func _thread_multiplayer_url_params() -> void:
+	if _host_bridge == null:
+		return
+	var raw: Variant = JavaScriptBridge.eval("""
+(function() {
+	var params = new URLSearchParams(window.location.search);
+	return JSON.stringify({
+		sessionId:   params.get('session_id')   || '',
+		characterId: parseInt(params.get('character_id') || '-1', 10),
+		slotIndex:   parseInt(params.get('slot_index')   || '-1', 10)
+	});
+})();
+	""")
+	if not raw or raw == "null":
+		return
+	var parsed = JSON.parse_string(str(raw))
+	if not (parsed is Dictionary):
+		return
+	var sid: String  = parsed.get("sessionId", "")
+	var cid: int     = int(parsed.get("characterId", -1))
+	var slot: int    = int(parsed.get("slotIndex", -1))
+	if sid != "":
+		_host_bridge.set_session_id(sid)
+	if slot >= 0 and cid >= 0:
+		_host_bridge.register_player_slot(slot, cid, true)
+		print("[GameBridge] multiplayer mode — slot=%d, characterId=%d, sessionId=%s" % [slot, cid, sid])
 
 func _fetch_game_config() -> void:
 	JavaScriptBridge.eval("""
