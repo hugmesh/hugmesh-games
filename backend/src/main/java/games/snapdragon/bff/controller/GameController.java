@@ -3,6 +3,7 @@ package games.snapdragon.bff.controller;
 import games.snapdragon.bff.model.*;
 import games.snapdragon.bff.repository.GameRepository;
 import games.snapdragon.bff.repository.ChapterRepository;
+import games.snapdragon.bff.security.Roles;
 import games.snapdragon.bff.service.ProgressionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -94,19 +95,8 @@ public class GameController {
         // service intersects the catalog against game_access policies before
         // returning. With no JWT (legacy unauthenticated callers), only
         // scope='all' games are returned.
-        java.util.List<String> roles = (jwt == null) ? java.util.List.of()
-                : extractRoles(jwt);
+        java.util.List<String> roles = Roles.fromJwt(jwt);
         String userId = (jwt == null) ? null : jwt.getSubject();
         return progression.availableGamesWithLevels(characterId, roles, userId);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static java.util.List<String> extractRoles(org.springframework.security.oauth2.jwt.Jwt jwt) {
-        Object claim = jwt.getClaim("roles");
-        if (claim instanceof java.util.List<?> list) {
-            return list.stream().filter(java.util.Objects::nonNull)
-                    .map(Object::toString).toList();
-        }
-        return java.util.List.of();
     }
 }

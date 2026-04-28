@@ -14,7 +14,6 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * Keeps the Cassandra cache in step with the authoritative Postgres state.
@@ -44,7 +43,7 @@ public class CassandraSyncService {
     private final SessionService sessionService;
     private final ReactiveCassandraTemplate cassandra;
     private final ReactiveCqlTemplate cql;
-    private final String podId = "pod-" + UUID.randomUUID().toString().substring(0, 8);
+    private final String podId = "pod-" + games.snapdragon.bff.util.Crypto.mintShortUid(8);
 
     @Value("${spring.boot.version:unknown}")
     private String version;

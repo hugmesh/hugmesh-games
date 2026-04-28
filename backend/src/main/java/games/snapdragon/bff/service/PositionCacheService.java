@@ -12,7 +12,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * Cross-pod position cache backed by Cassandra. Pod A writes through
@@ -39,7 +38,7 @@ public class PositionCacheService {
 
     private final ReactiveCassandraTemplate cassandra;
     private final ReactiveCqlTemplate cql;
-    private final String podId = "pod-" + UUID.randomUUID().toString().substring(0, 8);
+    private final String podId = "pod-" + games.snapdragon.bff.util.Crypto.mintShortUid(8);
 
     public PositionCacheService(ReactiveCassandraTemplate cassandra,
                                 ReactiveCqlTemplate cql) {

@@ -16,7 +16,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -43,7 +42,10 @@ public class SessionService {
             return Mono.error(new IllegalStateException("Server is full (max " + MAX_SESSIONS + " players)"));
         }
 
-        String token = UUID.randomUUID().toString();
+        // Session token surfaces in the URL the iframe carries on
+        // every API call — derive via SHA3-256 + the SP800 DRBG so
+        // every user-visible identifier in the BFF shares one mint.
+        String token = games.snapdragon.bff.util.Crypto.mintUid();
         PlayerSession session = new PlayerSession();
         session.setSessionToken(token);
         session.setCasdoorId(casdoorId);

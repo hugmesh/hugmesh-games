@@ -18,7 +18,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -122,7 +121,7 @@ public class GameStateService {
      */
     private final ConcurrentHashMap<String, SessionSinks> sessionSinks = new ConcurrentHashMap<>();
 
-    private final String sessionId = UUID.randomUUID().toString();
+    private final String sessionId = games.snapdragon.bff.util.Crypto.mintUid();
 
     /** {@code positionCacheProvider} is an ObjectProvider so the
      *  Cassandra-backed cache stays optional — under Postgres-only

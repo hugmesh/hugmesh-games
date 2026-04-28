@@ -15,7 +15,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * Multiplayer session lifecycle: create / list / join / leave / close.
@@ -73,7 +72,12 @@ public class GameSessionService {
         }
         String vis = normaliseVisibility(visibility);
         GameSession s = new GameSession();
-        s.setId(UUID.randomUUID().toString());
+        // Session id is what threads through the iframe URL
+        // (?session_id=…) and lands on the wire as the per-session
+        // sink key. Mint via the central Crypto utility so the
+        // identifier shape stays uniform with launch UIDs +
+        // session tokens — base64url(SHA3-256(entropy)).
+        s.setId(games.snapdragon.bff.util.Crypto.mintUid());
         s.setName(trimmed);
         s.setGameSlug(gameSlug);
         s.setCreatorCasdoorId(creatorCasdoorId);
