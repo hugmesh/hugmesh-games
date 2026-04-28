@@ -20,18 +20,18 @@ export class GameLibraryService {
     return this.http.get<GameListing>(`${this.base}/api/games/${id}`);
   }
 
-  /** All levels across all games. */
-  listLevels(): Observable<Level[]> {
-    return this.http.get<Level[]>(`${this.base}/api/levels`);
+  /** All chapters across all games. */
+  listChapters(): Observable<Level[]> {
+    return this.http.get<Level[]>(`${this.base}/api/chapters`);
   }
 
-  /** Levels belonging to one umbrella game. */
-  listLevelsByGame(gameId: number): Observable<Level[]> {
-    return this.http.get<Level[]>(`${this.base}/api/games/${gameId}/levels`);
+  /** Chapters belonging to one umbrella game. */
+  listChaptersByGame(gameId: number): Observable<Level[]> {
+    return this.http.get<Level[]>(`${this.base}/api/games/${gameId}/chapters`);
   }
 
-  /** One level (WASM bundle metadata). */
-  getLevel(id: number): Observable<Level> {
+  /** One chapter (WASM bundle metadata). */
+  getChapter(id: number): Observable<Level> {
     return this.http.get<Level>(`${this.base}/api/chapters/${id}`);
   }
 

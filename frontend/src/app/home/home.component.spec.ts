@@ -89,22 +89,22 @@ describe('HomeComponent helpers', () => {
   });
 
   describe('onWindowMessage', () => {
-    // The federation cutover put TW_LEVEL_TRANSITION at the window
+    // The federation cutover put TW_CHAPTER_TRANSITION at the window
     // level on HomeComponent so it fires regardless of which renderer
     // mounts the iframe. Pinning the predicate keeps stray window
     // messages (extension chatter, dev-tools messages) from reaching
-    // onLevelTransition.
-    it('forwards a well-formed TW_LEVEL_TRANSITION to onLevelTransition', () => {
-      const spy = spyOn(component, 'onLevelTransition');
+    // onChapterTransition.
+    it('forwards a well-formed TW_CHAPTER_TRANSITION to onChapterTransition', () => {
+      const spy = spyOn(component, 'onChapterTransition');
       const ev = new MessageEvent('message', {
-        data: { type: 'TW_LEVEL_TRANSITION', slug: 'field', chapterId: 2 },
+        data: { type: 'TW_CHAPTER_TRANSITION', slug: 'field', chapterId: 2 },
       });
       component.onWindowMessage(ev);
       expect(spy).toHaveBeenCalledWith({ slug: 'field', chapterId: 2 });
     });
 
     it('ignores messages with the wrong type', () => {
-      const spy = spyOn(component, 'onLevelTransition');
+      const spy = spyOn(component, 'onChapterTransition');
       component.onWindowMessage(new MessageEvent('message', {
         data: { type: 'GAME_STATE', slug: 'field', chapterId: 2 },
       }));
@@ -112,14 +112,14 @@ describe('HomeComponent helpers', () => {
     });
 
     it('ignores messages with missing or wrong-typed slug/chapterId', () => {
-      const spy = spyOn(component, 'onLevelTransition');
+      const spy = spyOn(component, 'onChapterTransition');
       // chapterId is a string, not a number
       component.onWindowMessage(new MessageEvent('message', {
-        data: { type: 'TW_LEVEL_TRANSITION', slug: 'field', chapterId: '2' },
+        data: { type: 'TW_CHAPTER_TRANSITION', slug: 'field', chapterId: '2' },
       }));
       // missing slug
       component.onWindowMessage(new MessageEvent('message', {
-        data: { type: 'TW_LEVEL_TRANSITION', chapterId: 2 },
+        data: { type: 'TW_CHAPTER_TRANSITION', chapterId: 2 },
       }));
       // null payload (chrome extension noise)
       component.onWindowMessage(new MessageEvent('message', { data: null }));

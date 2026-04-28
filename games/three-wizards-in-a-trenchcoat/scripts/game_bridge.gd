@@ -90,9 +90,9 @@ func _fetch_game_config() -> void:
 		return;
 	}
 	var params = new URLSearchParams(window.location.search);
-	var levelId = params.get('chapter_id') || params.get('game_id') || '1';
+	var chapterId = params.get('chapter_id') || params.get('game_id') || '1';
 	window._twSceneReady = false;
-	fetch('/api/levels/' + levelId + '/scene')
+	fetch('/api/chapters/' + chapterId + '/scene')
 		.then(function(r) { return r.json(); })
 		.then(function(scene) {
 			window._twSceneConfig = scene;
@@ -209,27 +209,27 @@ func send_control(action: String, pressed: bool) -> void:
 	if not OS.has_feature("web"):
 		return
 	var ts: int = int(Time.get_unix_time_from_system() * 1000)
-	# Read level_id off the iframe URL so the BFF can scope the
-	# (character, level) position cache. Liquibase 027 made
-	# player_positions composite-keyed; without level_id the BFF
-	# falls back to the character's current_level_id from PG, but
+	# Read chapter_id off the iframe URL so the BFF can scope the
+	# (character, chapter) position cache. Liquibase 027 made
+	# player_positions composite-keyed; without chapter_id the BFF
+	# falls back to the character's current_chapter_id from PG, but
 	# threading it through here keeps the read path inside one tier.
-	var level_id_js: String = JavaScriptBridge.eval(
+	var chapter_id_js: String = JavaScriptBridge.eval(
 		"new URLSearchParams(window.location.search).get('chapter_id') || ''")
-	var level_id_str := str(level_id_js)
+	var chapter_id_str := str(chapter_id_js)
 	var body: String
-	if level_id_str.is_empty() or not level_id_str.is_valid_int():
+	if chapter_id_str.is_empty() or not chapter_id_str.is_valid_int():
 		body = '{"action":"%s","pressed":%s,"timestamp":%d}' % [
 			action,
 			"true" if pressed else "false",
 			ts
 		]
 	else:
-		body = '{"action":"%s","pressed":%s,"timestamp":%d,"levelId":%d}' % [
+		body = '{"action":"%s","pressed":%s,"timestamp":%d,"chapterId":%d}' % [
 			action,
 			"true" if pressed else "false",
 			ts,
-			int(level_id_str)
+			int(chapter_id_str)
 		]
 	# Read the parent SPA's stored JWT (AuthService.STORAGE_KEY = 'tw_auth')
 	# and attach it as `Authorization: Bearer <token>` so the BFF can
@@ -261,18 +261,18 @@ func send_control(action: String, pressed: bool) -> void:
 """ % body)
 
 
-## Request the Angular host to unload this WASM and mount the next level's bundle.
+## Request the Angular host to unload this WASM and mount the next chapter's bundle.
 ## Called by in-game transition triggers (portal touched, quest complete, etc).
 ## The postMessage is received by game-canvas.component.ts which swaps the iframe src.
-func request_level_transition(level_slug: String, level_id: int = -1) -> void:
+func request_chapter_transition(chapter_slug: String, chapter_id: int = -1) -> void:
 	if not OS.has_feature("web"):
-		print("[bridge] Level transition requested but not running in web mode: %s" % level_slug)
+		print("[bridge] Chapter transition requested but not running in web mode: %s" % chapter_slug)
 		return
-	var payload := '{"type":"TW_LEVEL_TRANSITION","slug":"%s","levelId":%d}' % [level_slug, level_id]
+	var payload := '{"type":"TW_CHAPTER_TRANSITION","slug":"%s","chapterId":%d}' % [chapter_slug, chapter_id]
 	JavaScriptBridge.eval("""
 (function(){
 	try {
 		window.parent.postMessage(%s, '*');
-	} catch (e) { console.warn('level transition post failed', e); }
+	} catch (e) { console.warn('chapter transition post failed', e); }
 })();
 """ % payload)

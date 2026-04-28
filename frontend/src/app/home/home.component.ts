@@ -9,8 +9,9 @@ import { CharacterService } from '../services/character.service';
 import { RemoteLoaderService } from '../services/remote-loader.service';
 import { SessionService } from '../services/session.service';
 import {
-  MultiplayerSessionService, GameSession,
+  MultiplayerSessionService, GameSession, SessionVisibility,
 } from '../services/multiplayer-session.service';
+import { NotificationService } from '../services/notification.service';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { GameCanvasComponent } from '../game-canvas/game-canvas.component';
 import { GameHudComponent } from '../game-hud/game-hud.component';
@@ -75,6 +76,7 @@ export class HomeComponent implements OnInit {
   private readonly session = inject(SessionService);
   private readonly multiplayer = inject(MultiplayerSessionService);
   private readonly http = inject(HttpClient);
+  private readonly notify = inject(NotificationService);
 
   characterId = 1;
   /** Game-level cards on the home page. Each carries its embedded
@@ -97,6 +99,7 @@ export class HomeComponent implements OnInit {
   modalSessionsError: string | null = null;
   newSessionName = '';
   newSessionMaxPlayers = 3;
+  newSessionVisibility: SessionVisibility = 'public';
   /** Set when the player has joined / created a session for the open
    *  modal-game. Null = solo / legacy launch. */
   activeSessionId: string | null = null;
@@ -162,11 +165,11 @@ export class HomeComponent implements OnInit {
   refreshModalSessions(gameSlug: string): void {
     this.modalSessionsLoading = true;
     this.modalSessionsError = null;
+    // The error interceptor surfaces a friendly toast on failure; the
+    // catchError below just hides the resolved value so the picker
+    // shows "no open sessions" rather than a stale list.
     this.multiplayer.listOpen(gameSlug).pipe(
-      catchError(err => {
-        this.modalSessionsError = `Couldn't load sessions: ${err?.message ?? err}`;
-        return of([] as GameSession[]);
-      }),
+      catchError(() => of([] as GameSession[])),
     ).subscribe(list => {
       this.modalSessions = list;
       this.modalSessionsLoading = false;
@@ -191,32 +194,37 @@ export class HomeComponent implements OnInit {
   joinSession(s: GameSession): void {
     const slot = this.firstFreeSlot(s);
     if (slot < 0) {
-      this.modalSessionsError = 'Session is full.';
+      this.notify.warn('That session is full.');
       return;
     }
+    // The error interceptor handles the toast on failure; we only need
+    // success-side state updates here.
     this.multiplayer.join(s.id, { characterId: this.characterId, slotIndex: slot }).subscribe({
       next: updated => {
         this.activeSessionId = updated.id;
         this.activeSlotIndex = slot;
+        this.notify.success(`Joined "${updated.name}"`);
         this.refreshModalSessions(s.gameSlug);
       },
-      error: err => this.modalSessionsError = `Join failed: ${err?.error?.message ?? err?.message ?? err}`,
+      error: () => { /* friendly toast already shown by interceptor */ },
     });
   }
 
   /** Create a new named session for the modal-game and auto-join it
-   *  as creator + slot 0. */
+   *  as creator + slot 0. Visibility defaults to public; the form
+   *  exposes friends + private. */
   createSession(): void {
     if (!this.modalGame) return;
     const name = this.newSessionName.trim();
     if (!name) {
-      this.modalSessionsError = 'Session name required.';
+      this.notify.warn('Session name required.', 'Pick something so other players know what they\'re joining.');
       return;
     }
     this.multiplayer.create({
       gameSlug: this.modalGame.slug,
       name,
       maxPlayers: this.newSessionMaxPlayers,
+      visibility: this.newSessionVisibility,
       characterId: this.characterId,
       slotIndex: 0,
     }).subscribe({
@@ -224,9 +232,10 @@ export class HomeComponent implements OnInit {
         this.activeSessionId = created.id;
         this.activeSlotIndex = 0;
         this.newSessionName = '';
+        this.notify.success(`Session "${created.name}" created`);
         this.refreshModalSessions(created.gameSlug);
       },
-      error: err => this.modalSessionsError = `Create failed: ${err?.error?.message ?? err?.message ?? err}`,
+      error: () => { /* friendly toast already shown by interceptor */ },
     });
   }
 
@@ -243,17 +252,17 @@ export class HomeComponent implements OnInit {
   @HostListener('window:message', ['$event'])
   onWindowMessage(ev: MessageEvent): void {
     const data = ev.data as { type?: string; slug?: string; chapterId?: number } | null;
-    if (!data || data.type !== 'TW_LEVEL_TRANSITION') return;
+    if (!data || data.type !== 'TW_CHAPTER_TRANSITION') return;
     if (typeof data.slug !== 'string' || typeof data.chapterId !== 'number') return;
-    this.onLevelTransition({ slug: data.slug, chapterId: data.chapterId });
+    this.onChapterTransition({ slug: data.slug, chapterId: data.chapterId });
   }
 
-  onLevelTransition(e: { slug: string; chapterId: number }): void {
+  onChapterTransition(e: { slug: string; chapterId: number }): void {
     this.games$ = this.library.listAvailable(this.characterId).pipe(
       map(games => [...games].sort((a, b) => a.sortOrder - b.sortOrder)),
       catchError(() => of([]))
     );
-    this.library.getLevel(e.chapterId).subscribe(chapter => {
+    this.library.getChapter(e.chapterId).subscribe(chapter => {
       this.activeLevel = {
         id: chapter.id,
         gameId: chapter.gameId,

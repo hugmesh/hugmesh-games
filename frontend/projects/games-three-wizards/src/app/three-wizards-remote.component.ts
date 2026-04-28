@@ -23,11 +23,11 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
  * (`app-${remote.gameSlug}-remote`, where `remote.gameSlug` is
  * 'three-wizards' from the federation_modules seed).
  *
- * `level_id=<id>` query goes onto the iframe URL because the patched
+ * `chapter_id=<id>` query goes onto the iframe URL because the patched
  * Godot index.html inside each bundle reads
- * `URLSearchParams.get('level_id')` to prefetch
+ * `URLSearchParams.get('chapter_id')` to prefetch
  * `/api/chapters/{id}/scene` before the WASM finishes compiling. Without
- * the param the prefetch defaults to level 1 — fine for cave but
+ * the param the prefetch defaults to chapter 1 — fine for cave but
  * wrong for field.
  */
 @Component({
@@ -156,11 +156,11 @@ export class ThreeWizardsRemoteComponent {
    *  Godot index.html can prefetch /api/chapters/{id}/scene. */
   @Input()
   set chapterId(value: number | null | undefined) {
-    this._levelId = value ?? null;
+    this._chapterId = value ?? null;
     this._refresh();
   }
-  get chapterId(): number | null { return this._levelId; }
-  private _levelId: number | null = null;
+  get chapterId(): number | null { return this._chapterId; }
+  private _chapterId: number | null = null;
 
   /** Launch UID minted by `POST /api/games/three-wizards/launch`.
    *  Threaded through as a query param for audit/traceability —
@@ -212,14 +212,14 @@ export class ThreeWizardsRemoteComponent {
   );
 
   private _refresh(): void {
-    const id = this._levelId ?? '';
+    const id = this._chapterId ?? '';
     // Asset bytes come from the federated wasm-fragment service —
     // the host's nginx proxies /_remotes/wasm-fragment/ to that
     // container, which serves the Godot bundles directly (no api
     // round-trip). Cache-bust on every (slug,id) change so the
     // iframe remounts cleanly across cave→field transitions.
     const params = new URLSearchParams();
-    if (id !== '') params.set('level_id', String(id));
+    if (id !== '') params.set('chapter_id', String(id));
     if (this._launchUid) params.set('launch_uid', this._launchUid);
     // Multiplayer threading: when the host's session picker has
     // assigned the player to a session + slot, propagate to Godot.

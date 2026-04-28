@@ -37,4 +37,5 @@
     <include file="db/changelog/031-system-settings.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/032-mod-game-scopes.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/033-mod-publisher-federation.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/034-friendships-and-session-visibility.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

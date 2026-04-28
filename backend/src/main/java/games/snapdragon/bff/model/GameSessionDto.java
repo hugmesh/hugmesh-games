@@ -20,6 +20,7 @@ public record GameSessionDto(
         String creatorCasdoorId,
         int    maxPlayers,
         int    activePlayers,
+        String visibility,
         Instant createdAt,
         Instant closedAt,
         List<MemberDto> members
@@ -42,6 +43,7 @@ public record GameSessionDto(
         return new GameSessionDto(
                 s.getId(), s.getName(), s.getGameSlug(), s.getCreatorCasdoorId(),
                 s.getMaxPlayers(), activePlayers,
+                s.getVisibility() != null ? s.getVisibility() : "public",
                 s.getCreatedAt(), s.getClosedAt(), members);
     }
 }

@@ -70,9 +70,9 @@ public class PositionCacheService {
      *  caller falls through to the durable Postgres lookup. */
     public Mono<CharacterPositionCache> findOne(long characterId, long chapterId) {
         return cql.queryForObject(
-                "SELECT character_id, level_id, pos_x, pos_y, pos_z, rotation_y, " +
+                "SELECT character_id, chapter_id, pos_x, pos_y, pos_z, rotation_y, " +
                 "       last_action, last_pressed, pod_id, updated_at, tick " +
-                "FROM character_position_cache WHERE character_id = ? AND level_id = ?",
+                "FROM character_position_cache WHERE character_id = ? AND chapter_id = ?",
                 (row, idx) -> {
                     CharacterPositionCache c = new CharacterPositionCache();
                     c.setCharacterId(row.getLong("character_id"));
@@ -102,21 +102,21 @@ public class PositionCacheService {
      *  active level when a new SSE subscriber connects. Membership is
      *  TTL'd at 60s so a player who disconnected from a previous pod
      *  drops off membership without needing an explicit DELETE. */
-    public Flux<Long> charactersInLevel(long chapterId) {
+    public Flux<Long> charactersInChapter(long chapterId) {
         return cql.queryForFlux(
-                "SELECT character_id FROM level_membership WHERE level_id = ?",
+                "SELECT character_id FROM chapter_membership WHERE chapter_id = ?",
                 Long.class, chapterId)
                 .onErrorResume(err -> {
-                    log.debug("[position-cache] charactersInLevel failed: {}", err.toString());
+                    log.debug("[position-cache] charactersInChapter failed: {}", err.toString());
                     return Flux.empty();
                 });
     }
 
-    /** Mark a (level, character) tuple as present. Called once per
+    /** Mark a (chapter, character) tuple as present. Called once per
      *  movement tick so a TTL'd row stays alive for active players. */
     private Mono<Void> markPresent(long characterId, long chapterId) {
         return cql.execute(
-                "INSERT INTO level_membership (level_id, character_id, pod_id, last_seen) " +
+                "INSERT INTO chapter_membership (chapter_id, character_id, pod_id, last_seen) " +
                 "VALUES (?, ?, ?, ?) USING TTL 60",
                 chapterId, characterId, podId, Instant.now())
                 .onErrorResume(err -> {
@@ -126,12 +126,12 @@ public class PositionCacheService {
                 .then();
     }
 
-    /** Explicitly drop membership for a (level, character) tuple — used
-     *  when a player intentionally leaves a level (level-transition
+    /** Explicitly drop membership for a (chapter, character) tuple — used
+     *  when a player intentionally leaves a chapter (chapter-transition
      *  postMessage handler). The TTL fallback handles missed deletes. */
     public Mono<Void> markDeparted(long characterId, long chapterId) {
         return cql.execute(
-                "DELETE FROM level_membership WHERE level_id = ? AND character_id = ?",
+                "DELETE FROM chapter_membership WHERE chapter_id = ? AND character_id = ?",
                 chapterId, characterId)
                 .onErrorResume(err -> {
                     log.debug("[position-cache] markDeparted failed: {}", err.toString());

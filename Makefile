@@ -77,14 +77,18 @@ build-rust: deps-rust build-rust-wasm sync-bridge-addon
 # per-game copies.
 .PHONY: sync-bridge-addon
 sync-bridge-addon:
-	@echo "→ Syncing snapdragon_bridge addon into game projects..."
+	@echo "→ Syncing snapdragon_bridge + snapdragon_export addons into game projects..."
 	@for game in $(GAME_PROJECTS); do \
 	  mkdir -p $(GAMES_DIR)/$$game/addons/snapdragon_bridge; \
 	  rsync -a --delete --exclude='.gitkeep' \
 	    $(RUST_DIR)/addons/snapdragon_bridge/ \
 	    $(GAMES_DIR)/$$game/addons/snapdragon_bridge/ ; \
+	  mkdir -p $(GAMES_DIR)/$$game/addons/snapdragon_export; \
+	  rsync -a --delete --exclude='.gitkeep' \
+	    $(RUST_DIR)/addons/snapdragon_export/ \
+	    $(GAMES_DIR)/$$game/addons/snapdragon_export/ ; \
 	done
-	@echo "✓ snapdragon_bridge addon synced"
+	@echo "✓ snapdragon_bridge + snapdragon_export addons synced"
 
 # WASM build runs inside a Docker image (rust + emsdk pinned) so the
 # host doesn't need emscripten installed — the Gentoo / system Rust

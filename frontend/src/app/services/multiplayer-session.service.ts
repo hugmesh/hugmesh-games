@@ -11,6 +11,11 @@ export interface SessionMember {
   joinedAt: string;
 }
 
+/** Session visibility tier. {@code public} sessions are listed for any
+ *  player; {@code friends} are listed only for the creator's friends;
+ *  {@code private} are invite-only (the creator shares the id manually). */
+export type SessionVisibility = 'public' | 'friends' | 'private';
+
 /** DTO mirror of GameSessionDto on the BFF. */
 export interface GameSession {
   id: string;
@@ -19,6 +24,7 @@ export interface GameSession {
   creatorCasdoorId: string;
   maxPlayers: number;
   activePlayers: number;
+  visibility: SessionVisibility;
   createdAt: string;
   closedAt: string | null;
   members: SessionMember[];
@@ -28,6 +34,7 @@ export interface CreateSessionRequest {
   gameSlug: string;
   name: string;
   maxPlayers?: number;
+  visibility?: SessionVisibility;
   characterId?: number;
   slotIndex?: number;
 }

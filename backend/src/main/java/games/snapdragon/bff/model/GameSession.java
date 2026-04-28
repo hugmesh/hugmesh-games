@@ -1,6 +1,8 @@
 package games.snapdragon.bff.model;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
+import org.springframework.data.domain.Persistable;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
@@ -17,10 +19,19 @@ import java.time.Instant;
  *
  * <p>{@code closedAt = null} marks the session as open. {@code maxPlayers}
  * caps concurrent membership; for slot-based games like three-wizards the
- * cap matches the slot count (three).
+ * cap matches the slot count (three). {@code visibility} is one of
+ * {@code public} / {@code friends} / {@code private}: public sessions are
+ * always discoverable, {@code friends} sessions are only visible to the
+ * creator's friends, and {@code private} sessions are invite-only (joined
+ * via direct link / id).
+ *
+ * <p>This entity implements {@link Persistable} because the id is assigned
+ * by the application (UUID), not the database. Without that, R2DBC's
+ * generic {@code save()} can't tell whether a pre-id'd row is new and
+ * issues an UPDATE that affects zero rows.
  */
 @Table("game_sessions")
-public class GameSession {
+public class GameSession implements Persistable<String> {
 
     @Id
     private String id;
@@ -31,16 +42,22 @@ public class GameSession {
     private String creatorCasdoorId;
     @Column("max_players")
     private int maxPlayers;
+    @Column("visibility")
+    private String visibility;
     @Column("created_at")
     private Instant createdAt;
     @Column("closed_at")
     private Instant closedAt;
+
+    @Transient
+    private boolean newRecord;
 
     public String  getId() { return id; }
     public String  getName() { return name; }
     public String  getGameSlug() { return gameSlug; }
     public String  getCreatorCasdoorId() { return creatorCasdoorId; }
     public int     getMaxPlayers() { return maxPlayers; }
+    public String  getVisibility() { return visibility; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getClosedAt() { return closedAt; }
 
@@ -49,6 +66,12 @@ public class GameSession {
     public void setGameSlug(String gameSlug) { this.gameSlug = gameSlug; }
     public void setCreatorCasdoorId(String creatorCasdoorId) { this.creatorCasdoorId = creatorCasdoorId; }
     public void setMaxPlayers(int maxPlayers) { this.maxPlayers = maxPlayers; }
+    public void setVisibility(String visibility) { this.visibility = visibility; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public void setClosedAt(Instant closedAt) { this.closedAt = closedAt; }
+
+    public GameSession markNew() { this.newRecord = true; return this; }
+
+    @Override
+    public boolean isNew() { return newRecord; }
 }

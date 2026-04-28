@@ -33,13 +33,15 @@ class GameSessionServiceTest {
 
     private GameSessionRepository sessions;
     private SessionMemberRepository members;
+    private UserRelationshipService relationships;
     private GameSessionService service;
 
     @BeforeEach
     void setUp() {
-        sessions = mock(GameSessionRepository.class);
-        members  = mock(SessionMemberRepository.class);
-        service  = new GameSessionService(sessions, members);
+        sessions      = mock(GameSessionRepository.class);
+        members       = mock(SessionMemberRepository.class);
+        relationships = mock(UserRelationshipService.class);
+        service       = new GameSessionService(sessions, members, relationships);
 
         // Generic save echoes — most tests only care about the resulting
         // DTO shape; if a test cares about the row's id it sets a more
@@ -48,11 +50,13 @@ class GameSessionServiceTest {
         lenient().when(members.save(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         lenient().when(members.findActiveBySession(anyString())).thenReturn(Flux.empty());
         lenient().when(members.countBySessionIdAndLeftAtIsNull(anyString())).thenReturn(Mono.just(0L));
+        lenient().when(relationships.friendsOf(anyString())).thenReturn(Mono.just(java.util.Set.of()));
+        lenient().when(relationships.blocklistFor(anyString())).thenReturn(Mono.just(java.util.Set.of()));
     }
 
     @Test
     void createPersistsSessionAndCreatorMember() {
-        StepVerifier.create(service.create("alice", "three-wizards", "Tower run", 3, 1L, 0))
+        StepVerifier.create(service.create("alice", "three-wizards", "Tower run", 3, "public", 1L, 0))
                 .assertNext(dto -> {
                     assertThat(dto.id()).isNotBlank();
                     assertThat(dto.name()).isEqualTo("Tower run");
@@ -65,7 +69,7 @@ class GameSessionServiceTest {
 
     @Test
     void createRejectsBlankName() {
-        StepVerifier.create(service.create("alice", "three-wizards", "  ", 3, 1L, 0))
+        StepVerifier.create(service.create("alice", "three-wizards", "  ", 3, "public", 1L, 0))
                 .expectErrorSatisfies(err -> {
                     assertThat(err).isInstanceOf(ResponseStatusException.class);
                     assertThat(err.getMessage()).contains("session name");
@@ -75,11 +79,11 @@ class GameSessionServiceTest {
 
     @Test
     void createClampsMaxPlayersToOneSixteen() {
-        StepVerifier.create(service.create("alice", "g", "Big", 999, null, null))
+        StepVerifier.create(service.create("alice", "g", "Big", 999, "public", null, null))
                 .assertNext(dto -> assertThat(dto.maxPlayers()).isEqualTo(16))
                 .verifyComplete();
 
-        StepVerifier.create(service.create("alice", "g", "Tiny", 0, null, null))
+        StepVerifier.create(service.create("alice", "g", "Tiny", 0, "public", null, null))
                 .assertNext(dto -> assertThat(dto.maxPlayers()).isEqualTo(1))
                 .verifyComplete();
     }

@@ -2,7 +2,7 @@
 -- Reactive Spring Data Cassandra binds to this from the api container.
 --
 -- Why Cassandra alongside Postgres?
---   • Postgres holds authoritative game state (characters, levels, quests).
+--   • Postgres holds authoritative game state (characters, chapters, quests).
 --   • Cassandra holds high-write ephemeral data: per-pod session leases,
 --     active-controller arbitration, the aggregate counters the admin
 --     /api/admin/stream serves. Linear-scalable across pods + tunable
@@ -55,21 +55,21 @@ CREATE TABLE IF NOT EXISTS pod_heartbeats (
     PRIMARY KEY (pod_id)
 ) WITH default_time_to_live = 30;
 
--- Per-(character, level) position cache. Postgres remains the source of
+-- Per-(character, chapter) position cache. Postgres remains the source of
 -- truth (player_positions) for durability + analytics; this Cassandra
 -- table is the cross-pod read cache that lets pod B see a position
 -- updated on pod A within the round-trip of the SSE fan-out.
 --
--- Composite partition key (character_id, level_id) so a player walking
+-- Composite partition key (character_id, chapter_id) so a player walking
 -- cave → field → cave finds their cave coordinates exactly where they
--- left them (the prior single-row schema overwrote across levels).
+-- left them (the prior single-row schema overwrote across chapters).
 --
 -- 5-minute TTL so a long-idle character doesn't pin a row that the
 -- player abandoned; durable storage in Postgres backs the cache when
 -- it expires.
 CREATE TABLE IF NOT EXISTS character_position_cache (
     character_id   bigint,
-    level_id       bigint,
+    chapter_id     bigint,
     pos_x          double,
     pos_y          double,
     pos_z          double,
@@ -79,22 +79,22 @@ CREATE TABLE IF NOT EXISTS character_position_cache (
     pod_id         text,
     updated_at     timestamp,
     tick           bigint,
-    PRIMARY KEY ((character_id, level_id))
+    PRIMARY KEY ((character_id, chapter_id))
 ) WITH default_time_to_live = 300;
 
--- Per-level membership index: which characters are currently present
--- in a given level. Used by GameStateService.emitWorldState to scope
+-- Per-chapter membership index: which characters are currently present
+-- in a given chapter. Used by GameStateService.emitWorldState to scope
 -- broadcasts so a player in cave doesn't see a player in field. The
 -- TTL is shorter than the position cache because membership is more
--- volatile (a character rapidly traversing levels needs prompt
+-- volatile (a character rapidly traversing chapters needs prompt
 -- invalidation), and a single missed write reverses on the next
 -- movement tick.
-CREATE TABLE IF NOT EXISTS level_membership (
-    level_id       bigint,
+CREATE TABLE IF NOT EXISTS chapter_membership (
+    chapter_id     bigint,
     character_id   bigint,
     pod_id         text,
     last_seen      timestamp,
-    PRIMARY KEY (level_id, character_id)
+    PRIMARY KEY (chapter_id, character_id)
 ) WITH default_time_to_live = 60;
 
 -- Per-session presence index: which casdoor users are currently in a given

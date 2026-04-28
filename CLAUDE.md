@@ -124,6 +124,18 @@ A multi-phase feature batch landed on `feature/multiplayer-sessions` that's wort
 
 Casdoor seed users for testing: `player`, `player1`, `player2`, `player3`, `mod`, `publisher`, plus per-game `mod-three-wizards`, `mod-dodecahedron`, `publisher-three-wizards`, `publisher-dodecahedron`. Passwords printed by `casdoor/entrypoint.sh` on first boot.
 
+## Friends, blocks, visibility (Phase 8)
+
+Decision: see [`docs/wiki/decisions/015-friends-blocks-and-session-visibility.md`](docs/wiki/decisions/015-friends-blocks-and-session-visibility.md).
+
+- `game_sessions.visibility` is one of `public` / `friends` / `private`. The `MultiplayerSessionController` filters the lobby list against the caller's friend graph + blocklist; no leaks to the network.
+- `user_relationships` is a single graph table. Friends are mutual (two `friend` rows); blocks are one-directional (`blocked` row, target invisible to the block). Publishers are not blockable at the data layer; admins are not blockable at the controller.
+- `/api/session-logs/{me|admin/...|scoped/...}` reads the per-user history off `session_members`. `@PreAuthorize` gates the admin/scoped paths.
+- **R2DBC `save()` quirk**: entities whose id is application-assigned (e.g. `GameSession`'s UUID) MUST implement `Persistable<T>` with a `@Transient boolean isNew` flag, otherwise `save()` issues an UPDATE that affects zero rows and throws `TransientDataAccessResourceException: Row with Id ... does not exist`.
+- Frontend toast UX is via `NotificationService` + `errorInterceptor` — components subscribe with empty `error: () => {}` blocks and let the interceptor surface the friendly message.
+- The level→chapter rename is now complete in source: `chapter_id` URL param, `/api/chapters/...` endpoint, `chapter_membership` Cassandra table, `TW_CHAPTER_TRANSITION` postMessage. Only the `assets/levels/<slug>/` filesystem path stays per the original holdout. After pulling, run `make build-rust && make build-godot` to re-export the bundles with the new URL contract — already-exported bundles will silently 404 their scene fetch.
+- The `snapdragon_export` Godot addon now lives canonically in `extensions/snapdragon-bridge/addons/snapdragon_export/` alongside `snapdragon_bridge/`; `make sync-bridge-addon` copies both into each `games/<slug>/addons/` and the per-game copies are gitignored.
+
 ## Workflow conventions
 
 - **Branches**: `feature/<short-slug>` for new work, `fix/<short-slug>` for bug-fixes, `docs/<slug>` for doc-only changes, `chore/<slug>` for tooling.

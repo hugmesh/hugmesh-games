@@ -1,0 +1,42 @@
+<section class="session-log" aria-label="Session history">
+  @if (loading()) {
+    <p class="session-log-loading">Loading session history…</p>
+  } @else if (error()) {
+    <p class="session-log-error" role="alert">{{ error() }}</p>
+  } @else if (rows().length === 0) {
+    <p class="session-log-empty">No sessions on record yet.</p>
+  } @else {
+    <table class="session-log-table">
+      <caption class="visually-hidden">Past sessions</caption>
+      <thead>
+        <tr>
+          <th scope="col">Game</th>
+          <th scope="col">Session</th>
+          <th scope="col">Visibility</th>
+          <th scope="col">Slot</th>
+          <th scope="col">Joined</th>
+          <th scope="col">Duration</th>
+          <th scope="col">Role</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (r of rows(); track r.sessionId + ':' + r.joinedAt) {
+          <tr>
+            <td>{{ r.gameSlug }}</td>
+            <td>{{ r.sessionName }}</td>
+            <td>
+              <span class="vis-tag vis-{{ r.visibility }}">{{ r.visibility }}</span>
+            </td>
+            <td>{{ r.slotIndex ?? '—' }}</td>
+            <td>{{ r.joinedAt | date:'medium' }}</td>
+            <td>{{ duration(r) }}</td>
+            <td>
+              @if (r.wasCreator) { <span class="role-tag role-creator">Creator</span> }
+              @else { <span class="role-tag">Player</span> }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</section>

@@ -28,7 +28,7 @@ describe('ThreeWizardsRemoteComponent', () => {
     comp.chapterId   = 1;
     const url = urlString();
     expect(url).toContain('/_remotes/wasm-fragment/cave/index.html');
-    expect(url).toContain('level_id=1');
+    expect(url).toContain('chapter_id=1');
     expect(url).not.toContain('session_id=');
     expect(url).not.toContain('slot_index=');
   });

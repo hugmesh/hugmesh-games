@@ -14,7 +14,7 @@ const PASSWORD = process.env.E2E_PLAYER_PASSWORD ?? 'e2e-player-pass';
  *   4. Selecting a level mounts the iframe and the WASM bundle requests
  *      (index.html, index.wasm, index.pck) all return 200
  *   5. The Godot prefetch-script JSON `[TW] scene prefetched` fires in the
- *      iframe console, confirming /api/levels/{id}/scene is reachable
+ *      iframe console, confirming /api/chapters/{id}/scene is reachable
  *      through the in-iframe origin too.
  */
 test.describe('full-stack smoke', () => {

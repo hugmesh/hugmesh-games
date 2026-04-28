@@ -26,6 +26,7 @@ signal session_joined(session_id: String, slot_index: int)
 
 var _api: BridgeApiClient = null
 var _sessions: Array = []
+var _visibility: String = "public"
 
 @onready var _list_root: VBoxContainer = $Layout/Sessions/List
 @onready var _name_input: LineEdit       = $Layout/Create/NameInput
@@ -52,10 +53,15 @@ func _refresh() -> void:
 		path += "?gameSlug=" + game_slug.uri_encode()
 	_api.get(path, func(status, body):
 		if status != 200 or not (body is Array):
-			_set_status("Couldn't load sessions (status %d)" % status)
+			# The host shell's NotificationService renders the friendly
+			# toast on a non-2xx; here we just relax the local label.
+			_set_status("We couldn't load sessions just now — try again in a moment.")
 			return
 		_sessions = body
-		_set_status("%d open session%s" % [_sessions.size(), "s" if _sessions.size() != 1 else ""])
+		if _sessions.is_empty():
+			_set_status("No open sessions yet — be the first to start one.")
+		else:
+			_set_status("%d open session%s" % [_sessions.size(), "s" if _sessions.size() != 1 else ""])
 		_render_sessions()
 	)
 
@@ -98,8 +104,12 @@ func _join(session: Dictionary) -> void:
 		func(status, _body):
 			if status >= 200 and status < 300:
 				emit_signal("session_joined", sid, slot)
+			elif status == 409:
+				_set_status("Someone took that slot — try another session.")
+			elif status == 410:
+				_set_status("That session has already closed.")
 			else:
-				_set_status("Join failed (status %d)" % status)
+				_set_status("We couldn't join that session — try again in a moment.")
 	)
 
 
@@ -114,13 +124,23 @@ func _create() -> void:
 	var max_players := int(_max_input.value) if _max_input else 3
 	_api.post("/api/sessions",
 		{"gameSlug": game_slug, "name": name, "maxPlayers": max_players,
+		 "visibility": _visibility,
 		 "characterId": character_id, "slotIndex": 0},
 		func(status, body):
 			if status >= 200 and status < 300 and body is Dictionary:
 				emit_signal("session_joined", str(body.get("id", "")), 0)
+			elif status == 400:
+				_set_status("That session name didn't work — pick another and try again.")
 			else:
-				_set_status("Create failed (status %d)" % status)
+				_set_status("We couldn't start a new session — try again in a moment.")
 	)
+
+
+## Set the visibility tier for the next createSession call. Bind from a
+## Dropdown / OptionButton — values: 'public' (default), 'friends', 'private'.
+func set_visibility(value: String) -> void:
+	if value == "public" or value == "friends" or value == "private":
+		_visibility = value
 
 
 func _first_free_slot(session: Dictionary) -> int:

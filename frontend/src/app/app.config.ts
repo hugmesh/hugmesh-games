@@ -3,10 +3,13 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
 import { authInterceptor } from './http-auth.interceptor';
+import { errorInterceptor } from './services/error-interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    provideHttpClient(withInterceptors([authInterceptor])),
+    // Order matters: auth first (attaches the JWT), then errors so the
+    // error interceptor can observe the post-auth response.
+    provideHttpClient(withInterceptors([authInterceptor, errorInterceptor])),
     provideRouter(routes),
   ]
 };

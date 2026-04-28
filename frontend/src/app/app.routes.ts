@@ -4,6 +4,8 @@ import { HomeComponent } from './home/home.component';
 import { AboutComponent } from './about/about.component';
 import { PlayerDashboardComponent } from './player-dashboard/player-dashboard.component';
 import { BannedPageComponent } from './banned-page/banned-page.component';
+import { FriendsComponent } from './friends/friends.component';
+import { SessionLogPageComponent } from './session-log/session-log-page.component';
 import { authGuard } from './auth.guard';
 
 // Federated route loaders. main.ts stashes
@@ -36,6 +38,8 @@ export function loadRemote<T>(remoteName: string, exposedModule: string, exportN
 export const routes: Routes = [
   { path: '', component: HomeComponent, canActivate: [authGuard] },
   { path: 'dashboard', component: PlayerDashboardComponent, canActivate: [authGuard] },
+  { path: 'friends', component: FriendsComponent, canActivate: [authGuard] },
+  { path: 'sessions/log', component: SessionLogPageComponent, canActivate: [authGuard] },
   { path: 'login', loadComponent: () => loadRemote('login', './LoginComponent', 'LoginRemoteComponent') },
   { path: 'about', component: AboutComponent },
   { path: 'banned', component: BannedPageComponent },

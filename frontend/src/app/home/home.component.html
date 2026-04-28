@@ -88,57 +88,98 @@
              selectChapter() reads to thread session context onto the
              iframe URL. Skipping this section launches solo / legacy. -->
         <section class="session-picker" aria-label="Multiplayer sessions">
-          <h3 class="session-picker-title">Multiplayer sessions</h3>
-          @if (modalSessionsError) {
-            <p class="session-picker-error" role="alert">{{ modalSessionsError }}</p>
-          }
+          <header class="session-picker-header">
+            <h3 class="session-picker-title">Play together</h3>
+            <p class="session-picker-sub">
+              Join an open session for this game, or start your own. Skip
+              this to launch solo — the chapter buttons below always work.
+            </p>
+          </header>
+
           @if (activeSessionId) {
-            <p class="session-picker-active">
-              ✓ Joined session — slot {{ activeSlotIndex }}.
-              You can pick a chapter below to launch.
+            <p class="session-picker-active" role="status">
+              ✓ You're in this session as slot <strong>{{ activeSlotIndex }}</strong>.
+              Pick a chapter below to launch.
             </p>
           } @else {
-            @if (modalSessionsLoading) {
-              <p class="session-picker-loading">Loading sessions…</p>
-            } @else if (modalSessions.length === 0) {
-              <p class="session-picker-empty">No open sessions for this game.</p>
-            } @else {
-              <ul class="session-list" role="list">
-                @for (s of modalSessions; track s.id) {
-                  <li class="session-row">
-                    <span class="session-name">{{ s.name }}</span>
-                    <span class="session-meta">
-                      by {{ s.creatorCasdoorId }} ·
-                      {{ s.activePlayers }} / {{ s.maxPlayers }} players
-                    </span>
-                    <button class="join-btn"
-                            type="button"
-                            [disabled]="s.activePlayers >= s.maxPlayers"
-                            (click)="joinSession(s)">Join</button>
-                  </li>
+            <div class="session-list-wrap">
+              <div class="session-list-head">
+                <span>Open sessions</span>
+                @if (modalSessionsLoading) {
+                  <span class="session-loading-dot" aria-hidden="true"></span>
                 }
-              </ul>
-            }
-            <form class="session-create" (submit)="$event.preventDefault(); createSession()">
-              <label class="visually-hidden" for="session-name-input">Session name</label>
-              <input id="session-name-input"
-                     [(ngModel)]="newSessionName"
-                     name="newSessionName"
-                     placeholder="Name a new session"
-                     maxlength="120" />
-              <label class="visually-hidden" for="session-max-input">Max players</label>
-              <input id="session-max-input"
-                     type="number"
-                     min="1" max="16"
-                     [(ngModel)]="newSessionMaxPlayers"
-                     name="newSessionMaxPlayers" />
+              </div>
+              @if (!modalSessionsLoading && modalSessions.length === 0) {
+                <p class="session-picker-empty">
+                  No open sessions yet — be the first to start one below.
+                </p>
+              } @else {
+                <ul class="session-list" role="list">
+                  @for (s of modalSessions; track s.id) {
+                    <li class="session-row">
+                      <div class="session-row-main">
+                        <span class="session-name">{{ s.name }}</span>
+                        <span class="session-vis-tag session-vis-{{ s.visibility }}">
+                          {{ s.visibility }}
+                        </span>
+                      </div>
+                      <span class="session-meta">
+                        by {{ s.creatorCasdoorId }} ·
+                        {{ s.activePlayers }} / {{ s.maxPlayers }} players
+                      </span>
+                      <button class="join-btn"
+                              type="button"
+                              [disabled]="s.activePlayers >= s.maxPlayers"
+                              (click)="joinSession(s)">Join</button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+
+            <form class="session-create" (submit)="$event.preventDefault(); createSession()"
+                  aria-label="Start a new multiplayer session">
+              <h4 class="session-create-title">Start a new session</h4>
+              <div class="session-create-row">
+                <label for="session-name-input">Session name</label>
+                <input id="session-name-input"
+                       [(ngModel)]="newSessionName"
+                       name="newSessionName"
+                       placeholder="e.g. Friday raid"
+                       maxlength="120" />
+              </div>
+              <div class="session-create-row">
+                <label for="session-max-input">Max players</label>
+                <input id="session-max-input"
+                       type="number"
+                       min="1" max="16"
+                       [(ngModel)]="newSessionMaxPlayers"
+                       name="newSessionMaxPlayers" />
+              </div>
+              <fieldset class="session-create-vis">
+                <legend>Who can see this session?</legend>
+                <label class="vis-option">
+                  <input type="radio" name="newSessionVisibility"
+                         [(ngModel)]="newSessionVisibility" value="public" />
+                  <span>Public</span>
+                  <em>Anyone can find and join.</em>
+                </label>
+                <label class="vis-option">
+                  <input type="radio" name="newSessionVisibility"
+                         [(ngModel)]="newSessionVisibility" value="friends" />
+                  <span>Friends only</span>
+                  <em>Only your friends see this session in the list.</em>
+                </label>
+                <label class="vis-option">
+                  <input type="radio" name="newSessionVisibility"
+                         [(ngModel)]="newSessionVisibility" value="private" />
+                  <span>Private</span>
+                  <em>Invite-only — share the session id manually.</em>
+                </label>
+              </fieldset>
               <button class="create-btn" type="submit"
-                      [disabled]="!newSessionName.trim()">Start new session</button>
+                      [disabled]="!newSessionName.trim()">Start session</button>
             </form>
-            <p class="session-picker-hint">
-              Or skip to launch solo — the chapter buttons below still work
-              without a session.
-            </p>
           }
         </section>
 

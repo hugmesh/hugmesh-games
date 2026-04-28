@@ -125,7 +125,7 @@ class SessionIsolationTest {
 
         // The world snapshot is fired async via the Cassandra-roster Mono;
         // stepVerifier with a small wait covers the gap when the cache
-        // provider is null (the err-path branch in emitWorldStateForLevel).
+        // provider is null (the err-path branch in emitWorldStateForChapter).
         StepVerifier.create(state.worldStream("session-A").take(1))
                 .expectNextCount(0)            // already received via the eager subscriber
                 .thenCancel().verify(Duration.ofMillis(50));

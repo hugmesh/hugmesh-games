@@ -8,12 +8,12 @@ import java.time.Instant;
 
 /**
  * Cassandra row in {@code character_position_cache} — one per
- * (character_id, level_id). Cross-pod read cache so pod B can see a
+ * (character_id, chapter_id). Cross-pod read cache so pod B can see a
  * position updated on pod A without a round-trip to Postgres on every
  * SSE fan-out.
  *
  * <p>Composite partition key: queries are always by full
- * (character_id, level_id) tuple — no range scans — so a single
+ * (character_id, chapter_id) tuple — no range scans — so a single
  * compound partition gives O(1) lookups + writes. The keyspace's
  * 5-minute TTL means a long-idle row eventually drops; the durable
  * Postgres row backs the cache when it does.

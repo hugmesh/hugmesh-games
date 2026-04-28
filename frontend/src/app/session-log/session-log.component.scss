@@ -1,0 +1,47 @@
+.session-log {
+  background: #161823;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 14px 18px;
+  color: #d8dde6;
+}
+.session-log-loading,
+.session-log-empty,
+.session-log-error {
+  margin: 0; color: #8b94a8; font-size: 13px; padding: 6px 0;
+}
+.session-log-error { color: #f0a83a; }
+.session-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.session-log-table th,
+.session-log-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.session-log-table th {
+  font-weight: 600; color: #aab1c1;
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px;
+}
+.session-log-table tr:hover td { background: rgba(255,255,255,0.02); }
+.vis-tag {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: 999px;
+}
+.vis-public  { background: rgba(93,169,255,0.14); color: #5da9ff; }
+.vis-friends { background: rgba(76,175,80,0.14);  color: #6dd66c; }
+.vis-private { background: rgba(176,131,255,0.14); color: #b388ff; }
+.role-tag {
+  font-size: 11px; padding: 2px 6px; border-radius: 4px;
+  background: rgba(255,255,255,0.05); color: #aab1c1;
+}
+.role-creator {
+  background: rgba(124,77,255,0.18); color: #b388ff;
+}
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}

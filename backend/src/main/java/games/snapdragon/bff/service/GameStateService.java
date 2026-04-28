@@ -24,10 +24,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * <p>Per-level position state, keyed by (characterId, chapterId). A
+ * <p>Per-chapter position state, keyed by (characterId, chapterId). A
  * character traversing cave → field → cave is restored to the cave
  * coordinates they last had on re-entry — the prior single-row
- * layout clobbered position across levels and lost the per-level
+ * layout clobbered position across chapters and lost the per-chapter
  * pose every transition.
  *
  * <p>Three storage tiers, ordered by hotness:
@@ -43,11 +43,11 @@ import java.util.concurrent.atomic.AtomicReference;
  *       restart with empty Cassandra still hydrates correctly.</li>
  * </ol>
  *
- * <p>SSE fan-out is per level: when a character moves in level L,
+ * <p>SSE fan-out is per chapter: when a character moves in chapter L,
  * the {@link WorldState} carries {@code chapterId=L} and the full
- * roster of characters currently active at L. Subscribers in level
+ * roster of characters currently active at L. Subscribers in chapter
  * M ignore the event because their renderer keys off the matching
- * level id.
+ * chapter id.
  *
  * <p>{@code @DependsOn("liquibase")} gates the {@code @PostConstruct}
  * character lookup on Liquibase finishing — see GameTimeService for
@@ -63,10 +63,10 @@ public class GameStateService {
     private static final double MOVE_STEP = 0.1;
     private static final double JUMP_STEP = 1.0;
 
-    /** Default level id used when a control arrives without an
-     *  explicit level and the character has no current_level_id
+    /** Default chapter id used when a control arrives without an
+     *  explicit chapter and the character has no current_chapter_id
      *  populated yet. Matches the cave row in 002-seed-data. */
-    private static final long DEFAULT_LEVEL_ID = 1L;
+    private static final long DEFAULT_CHAPTER_ID = 1L;
 
     private final PlayerCharacterRepository characterRepo;
     private final PlayerPositionRepository  positionRepo;
@@ -79,7 +79,7 @@ public class GameStateService {
 
     /** Per-(characterId, chapterId) in-memory state. Map of map so the
      *  outer key gives O(1) lookup on the hot movement path; the
-     *  inner map's small size (one entry per level the character has
+     *  inner map's small size (one entry per chapter the character has
      *  visited this session) keeps overhead negligible. */
     private final ConcurrentHashMap<Long, ConcurrentHashMap<Long, AtomicReference<PlayerState>>> characterStates =
             new ConcurrentHashMap<>();
@@ -89,11 +89,11 @@ public class GameStateService {
      *  even when neither the position nor the action label changes. */
     private final ConcurrentHashMap<Key, String>  lastActions  = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Key, Boolean> lastPressed  = new ConcurrentHashMap<>();
-    /** Last level id observed for each character — used as the
+    /** Last chapter id observed for each character — used as the
      *  fallback when a control event arrives without an explicit
-     *  chapterId. Updated on every move and on every TW_LEVEL_TRANSITION
-     *  hook (see {@link #onLevelEnter}). */
-    private final ConcurrentHashMap<Long, Long> activeLevel = new ConcurrentHashMap<>();
+     *  chapterId. Updated on every move and on every TW_CHAPTER_TRANSITION
+     *  hook (see {@link #onChapterEnter}). */
+    private final ConcurrentHashMap<Long, Long> activeChapter = new ConcurrentHashMap<>();
 
     private final AtomicLong tick = new AtomicLong(0);
 
@@ -142,14 +142,14 @@ public class GameStateService {
 
     @PostConstruct
     public void init() {
-        // Seed the default character on the default level so the
+        // Seed the default character on the default chapter so the
         // single-player local-play case has state from the moment the
         // first SSE subscriber connects. Multi-player connects hydrate
         // additional characters lazily via applyControl / hydrate(...).
         characterRepo.findById(1L)
                 .flatMap(c -> {
-                    long chapterId = c.getCurrentChapterId() != null ? c.getCurrentChapterId() : DEFAULT_LEVEL_ID;
-                    activeLevel.put(c.getId(), chapterId);
+                    long chapterId = c.getCurrentChapterId() != null ? c.getCurrentChapterId() : DEFAULT_CHAPTER_ID;
+                    activeChapter.put(c.getId(), chapterId);
                     return positionRepo.findByCharacterIdAndChapterId(c.getId(), chapterId)
                             .map(pos -> PlayerState.defaults().fromCharacter(c)
                                     .withPosition(pos.getPosX(), pos.getPosY(), pos.getPosZ()))
@@ -170,12 +170,12 @@ public class GameStateService {
 
     /**
      * Apply a control event for {@code characterId}, resolving its
-     * level via (in priority order):
-     *   1) {@code event.chapterId()} — the iframe's URL has a level_id
+     * chapter via (in priority order):
+     *   1) {@code event.chapterId()} — the iframe's URL has a chapter_id
      *      query param the patched Godot bundle threads through;
-     *   2) {@link #activeLevel} — last level observed for this
+     *   2) {@link #activeChapter} — last chapter observed for this
      *      character;
-     *   3) {@link #DEFAULT_LEVEL_ID}.
+     *   3) {@link #DEFAULT_CHAPTER_ID}.
      */
     public void applyControl(ControlEvent event, Long characterId) {
         applyControl(event, characterId, null);
@@ -190,7 +190,7 @@ public class GameStateService {
      * {@code /api/game/stream} (no session filter) keeps working.
      */
     public void applyControl(ControlEvent event, Long characterId, String sessionIdOpt) {
-        Long chapterId = resolveLevelId(characterId, event.chapterId());
+        Long chapterId = resolveChapterId(characterId, event.chapterId());
         AtomicReference<PlayerState> ref = ensureState(characterId, chapterId);
         Key key = new Key(characterId, chapterId);
 
@@ -215,7 +215,7 @@ public class GameStateService {
             ref.set(after);
             lastActions.put(key, event.action());
             lastPressed.put(key, event.pressed());
-            activeLevel.put(characterId, chapterId);
+            activeChapter.put(characterId, chapterId);
             long t = tick.incrementAndGet();
 
             PlayerMovement movement = new PlayerMovement(
@@ -227,7 +227,7 @@ public class GameStateService {
             if (sessionIdOpt != null) {
                 sessionSinksFor(sessionIdOpt).movement.tryEmitNext(movement);
             }
-            emitWorldStateForLevel(chapterId, t, sessionIdOpt);
+            emitWorldStateForChapter(chapterId, t, sessionIdOpt);
 
             if (posChanged) {
                 persistPositionAsync(characterId, chapterId, after);
@@ -257,22 +257,22 @@ public class GameStateService {
         return loadState(characterId, chapterId)
                 .doOnNext(state -> {
                     putState(characterId, chapterId, state);
-                    activeLevel.put(characterId, chapterId);
+                    activeChapter.put(characterId, chapterId);
                     long t = tick.incrementAndGet();
-                    emitWorldStateForLevel(chapterId, t);
+                    emitWorldStateForChapter(chapterId, t);
                 });
     }
 
     /**
-     * Hook called by the host on a TW_LEVEL_TRANSITION — drops the
-     * character's previous-level membership and seeds the new level
+     * Hook called by the host on a TW_CHAPTER_TRANSITION — drops the
+     * character's previous-chapter membership and seeds the new chapter
      * from cache. Idempotent; missing membership is a no-op.
      */
-    public void onLevelEnter(long characterId, long fromLevel, long toLevel) {
-        if (positionCache != null && fromLevel != toLevel) {
-            positionCache.markDeparted(characterId, fromLevel).subscribe();
+    public void onChapterEnter(long characterId, long fromChapterId, long toChapterId) {
+        if (positionCache != null && fromChapterId != toChapterId) {
+            positionCache.markDeparted(characterId, fromChapterId).subscribe();
         }
-        hydrate(characterId, toLevel).subscribe();
+        hydrate(characterId, toChapterId).subscribe();
     }
 
     public void notifyCharacterStatChange(CharacterDto dto) {
@@ -346,7 +346,7 @@ public class GameStateService {
     }
 
     public GameState currentState() {
-        long chapterId = activeLevel.getOrDefault(1L, DEFAULT_LEVEL_ID);
+        long chapterId = activeChapter.getOrDefault(1L, DEFAULT_CHAPTER_ID);
         AtomicReference<PlayerState> ref = ensureState(1L, chapterId);
         Key key = new Key(1L, chapterId);
         return new GameState(sessionId, ref.get(), lastActions.get(key),
@@ -355,10 +355,10 @@ public class GameStateService {
 
     // ── helpers ───────────────────────────────────────────────────
 
-    private Long resolveLevelId(long characterId, Long explicit) {
+    private Long resolveChapterId(long characterId, Long explicit) {
         if (explicit != null) return explicit;
-        Long known = activeLevel.get(characterId);
-        return known != null ? known : DEFAULT_LEVEL_ID;
+        Long known = activeChapter.get(characterId);
+        return known != null ? known : DEFAULT_CHAPTER_ID;
     }
 
     private AtomicReference<PlayerState> ensureState(long characterId, long chapterId) {
@@ -376,7 +376,7 @@ public class GameStateService {
     /**
      * Cassandra-first read with PG fallback. Returns defaults when
      * neither tier has a row yet (first time this character touches
-     * this level).
+     * this chapter).
      */
     private Mono<PlayerState> loadState(long characterId, long chapterId) {
         Mono<PlayerState> fromCache = positionCache != null
@@ -399,14 +399,14 @@ public class GameStateService {
      *   - every character known to the Cassandra membership index
      *     (so cross-pod players appear without local activity).
      */
-    private void emitWorldStateForLevel(long chapterId, long t) {
-        emitWorldStateForLevel(chapterId, t, null);
+    private void emitWorldStateForChapter(long chapterId, long t) {
+        emitWorldStateForChapter(chapterId, t, null);
     }
 
-    private void emitWorldStateForLevel(long chapterId, long t, String sessionIdOpt) {
+    private void emitWorldStateForChapter(long chapterId, long t, String sessionIdOpt) {
         Set<Long> roster = new HashSet<>();
-        characterStates.forEach((cid, perLevel) -> {
-            if (perLevel.containsKey(chapterId)) roster.add(cid);
+        characterStates.forEach((cid, perChapter) -> {
+            if (perChapter.containsKey(chapterId)) roster.add(cid);
         });
 
         // Add cross-pod characters from Cassandra membership. The Mono
@@ -414,7 +414,7 @@ public class GameStateService {
         // the local roster only for this tick, the next move catches
         // the cross-pod member up.
         Flux<Long> cassandraRoster = positionCache != null
-                ? positionCache.charactersInLevel(chapterId)
+                ? positionCache.charactersInChapter(chapterId)
                 : Flux.empty();
 
         cassandraRoster.collectList()
@@ -443,8 +443,8 @@ public class GameStateService {
     }
 
     private PlayerMovement snapshotFor(long characterId, long chapterId, long t) {
-        ConcurrentHashMap<Long, AtomicReference<PlayerState>> perLevel = characterStates.get(characterId);
-        AtomicReference<PlayerState> ref = perLevel != null ? perLevel.get(chapterId) : null;
+        ConcurrentHashMap<Long, AtomicReference<PlayerState>> perChapter = characterStates.get(characterId);
+        AtomicReference<PlayerState> ref = perChapter != null ? perChapter.get(chapterId) : null;
         PlayerState ps = ref != null ? ref.get() : PlayerState.defaults();
         Key key = new Key(characterId, chapterId);
         return new PlayerMovement(
@@ -472,6 +472,6 @@ public class GameStateService {
                 .subscribe();
     }
 
-    /** Composite key for the per-(character, level) maps. */
+    /** Composite key for the per-(character, chapter) maps. */
     private record Key(long characterId, long chapterId) {}
 }

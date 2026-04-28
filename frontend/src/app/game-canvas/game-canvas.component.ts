@@ -19,7 +19,7 @@ export interface PlayableGame {
  * dodecahedron all route through their federated remotes now.
  *
  * Session role binding (SessionService.connect / claimControl) and
- * window-level TW_LEVEL_TRANSITION handling moved up to HomeComponent
+ * window-level TW_CHAPTER_TRANSITION handling moved up to HomeComponent
  * because they have to fire regardless of which renderer mounts. The
  * GAME_STATE postMessage emit was dead code (no listener inside the
  * Godot index.html) so it's gone too.
@@ -132,9 +132,9 @@ export class GameCanvasComponent implements OnChanges {
       ?? (level.slug ? `/api/assets/levels/${level.slug}/index.html`
                       : '/api/assets/levels/cave/index.html');
     // Cache-bust on actual mount only — the timestamp changes only when the
-    // level id changes, so stable in-place renders don't recycle the iframe
+    // chapter id changes, so stable in-place renders don't recycle the iframe
     // (which would kill the SSE channels and WASM state).
-    const url = `${base}?level_id=${level.id}&t=${Date.now()}`;
+    const url = `${base}?chapter_id=${level.id}&t=${Date.now()}`;
     this._frameUrl = url;
     this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(url);
   }

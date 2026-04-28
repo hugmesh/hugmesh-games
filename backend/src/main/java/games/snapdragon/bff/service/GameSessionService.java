@@ -36,23 +36,33 @@ public class GameSessionService {
 
     private static final Logger log = LoggerFactory.getLogger(GameSessionService.class);
 
+    private static final String VIS_PUBLIC  = "public";
+    private static final String VIS_FRIENDS = "friends";
+    private static final String VIS_PRIVATE = "private";
+
     private final GameSessionRepository    sessions;
     private final SessionMemberRepository  members;
+    private final UserRelationshipService  relationships;
 
-    public GameSessionService(GameSessionRepository sessions, SessionMemberRepository members) {
-        this.sessions = sessions;
-        this.members  = members;
+    public GameSessionService(GameSessionRepository sessions,
+                              SessionMemberRepository members,
+                              UserRelationshipService relationships) {
+        this.sessions      = sessions;
+        this.members       = members;
+        this.relationships = relationships;
     }
 
     /**
      * Create a new session for a game; the caller becomes the first member
      * and is flagged as creator. {@code maxPlayers} is clamped to [1, 16].
+     * {@code visibility} defaults to {@code public} when null/blank.
      */
     public Mono<GameSessionDto> create(
             String creatorCasdoorId,
             String gameSlug,
             String name,
             int    maxPlayers,
+            String visibility,
             Long   characterId,
             Integer slotIndex) {
 
@@ -61,27 +71,81 @@ public class GameSessionService {
         if (trimmed.isEmpty() || trimmed.length() > 120) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "session name 1..120 chars"));
         }
+        String vis = normaliseVisibility(visibility);
         GameSession s = new GameSession();
         s.setId(UUID.randomUUID().toString());
         s.setName(trimmed);
         s.setGameSlug(gameSlug);
         s.setCreatorCasdoorId(creatorCasdoorId);
         s.setMaxPlayers(cap);
+        s.setVisibility(vis);
         s.setCreatedAt(Instant.now());
+        s.markNew();
 
         SessionMember firstMember = newMember(s.getId(), creatorCasdoorId, characterId, slotIndex, true);
 
         return sessions.save(s)
                 .flatMap(saved -> members.save(firstMember).thenReturn(saved))
-                .doOnNext(saved -> log.info("Session created: {} ({}) by {}", saved.getId(), saved.getName(), creatorCasdoorId))
+                .doOnNext(saved -> log.info("Session created: {} ({}, vis={}) by {}",
+                        saved.getId(), saved.getName(), vis, creatorCasdoorId))
                 .flatMap(this::toDtoWithMembers);
     }
 
-    public Flux<GameSessionDto> listOpen(String gameSlug) {
+    /** Lobby list scoped to the caller's friend graph + blocklist. */
+    public Flux<GameSessionDto> listOpen(String gameSlug, String callerCasdoorId) {
+        Flux<GameSession> source = (gameSlug == null || gameSlug.isBlank())
+                ? sessions.findAllOpen()
+                : sessions.findOpenByGameSlug(gameSlug);
+        if (callerCasdoorId == null || callerCasdoorId.isBlank()) {
+            // Anonymous — show only public sessions.
+            return source.filter(s -> VIS_PUBLIC.equals(s.getVisibility()))
+                    .flatMap(this::toDtoWithMembers);
+        }
+        Mono<java.util.Set<String>> friends = relationships.friendsOf(callerCasdoorId);
+        Mono<java.util.Set<String>> blocked = relationships.blocklistFor(callerCasdoorId);
+        return Mono.zip(friends, blocked).flatMapMany(t -> {
+            java.util.Set<String> friendIds  = t.getT1();
+            java.util.Set<String> blockedIds = t.getT2();
+            return source.flatMap(s -> {
+                if (blockedIds.contains(s.getCreatorCasdoorId())) return Mono.<GameSession>empty();
+                if (VIS_PRIVATE.equals(s.getVisibility())) {
+                    if (!callerCasdoorId.equals(s.getCreatorCasdoorId())) return Mono.<GameSession>empty();
+                }
+                if (VIS_FRIENDS.equals(s.getVisibility())) {
+                    if (!callerCasdoorId.equals(s.getCreatorCasdoorId())
+                            && !friendIds.contains(s.getCreatorCasdoorId())) {
+                        return Mono.<GameSession>empty();
+                    }
+                }
+                return Mono.just(s);
+            }).flatMap(toDtoWithMembersFiltered(blockedIds));
+        });
+    }
+
+    /** Unfiltered listing — admin/mod/publisher-only call site. */
+    public Flux<GameSessionDto> listAllOpenForOversight(String gameSlug) {
         Flux<GameSession> source = (gameSlug == null || gameSlug.isBlank())
                 ? sessions.findAllOpen()
                 : sessions.findOpenByGameSlug(gameSlug);
         return source.flatMap(this::toDtoWithMembers);
+    }
+
+    private static String normaliseVisibility(String v) {
+        if (v == null) return VIS_PUBLIC;
+        String trimmed = v.trim().toLowerCase();
+        return switch (trimmed) {
+            case VIS_FRIENDS, VIS_PRIVATE -> trimmed;
+            default -> VIS_PUBLIC;
+        };
+    }
+
+    private java.util.function.Function<GameSession, Mono<GameSessionDto>> toDtoWithMembersFiltered(
+            java.util.Set<String> blockedIds) {
+        return s -> members.findActiveBySession(s.getId())
+                .filter(m -> !blockedIds.contains(m.getCasdoorId()))
+                .map(GameSessionDto.MemberDto::from)
+                .collectList()
+                .map(list -> GameSessionDto.from(s, list.size(), list));
     }
 
     public Mono<GameSessionDto> get(String sessionId) {

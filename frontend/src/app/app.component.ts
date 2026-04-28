@@ -7,6 +7,7 @@ import { GamepadService } from './services/gamepad.service';
 import { WasmConsoleForwarderService } from './services/wasm-console-forwarder.service';
 import { AdminActionsListenerService } from './services/admin-actions-listener.service';
 import { ApiBridgeService } from './services/api-bridge.service';
+import { NotificationService } from './services/notification.service';
 
 // Routes whose component is fetched at runtime via loadRemoteModule.
 // A NavigationError on one of these is almost always a federation
@@ -40,6 +41,7 @@ export class AppComponent implements OnInit {
   private readonly wasmConsoleForwarder = inject(WasmConsoleForwarderService);
   private readonly apiBridge = inject(ApiBridgeService);
   private readonly adminActions = inject(AdminActionsListenerService);
+  readonly notify = inject(NotificationService);
 
   /**
    * Set when the router fails to activate a federated route — the

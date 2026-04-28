@@ -43,6 +43,7 @@ public class MultiplayerSessionController {
             String  gameSlug,
             String  name,
             Integer maxPlayers,
+            String  visibility,
             Long    characterId,
             Integer slotIndex
     ) {}
@@ -79,6 +80,7 @@ public class MultiplayerSessionController {
                 req.gameSlug(),
                 req.name(),
                 max,
+                req.visibility(),
                 req.characterId(),
                 req.slotIndex());
     }
@@ -92,9 +94,11 @@ public class MultiplayerSessionController {
             """)
     @GetMapping
     public Flux<GameSessionDto> listOpen(
+            @AuthenticationPrincipal Jwt jwt,
             @Parameter(description = "Filter to one game's slug. Omit to list all open sessions.")
             @RequestParam(required = false) String gameSlug) {
-        return service.listOpen(gameSlug);
+        String me = jwt != null ? jwt.getSubject() : null;
+        return service.listOpen(gameSlug, me);
     }
 
     @Operation(summary = "Get one session with its active members")
