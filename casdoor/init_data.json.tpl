@@ -220,7 +220,7 @@
       "owner": "threewizards",
       "name": "mod",
       "displayName": "Moderator",
-      "description": "Per-game moderator: can stop sessions and kick players for the games an admin or publisher has scoped them to (mod_game_scopes table). Cannot upload games or grant roles.",
+      "description": "Per-game moderator: stop sessions and kick players for games scoped via mod_game_scopes.",
       "users": [
         "threewizards/mod",
         "threewizards/mod-three-wizards",
@@ -232,7 +232,7 @@
       "owner": "threewizards",
       "name": "publisher",
       "displayName": "Publisher",
-      "description": "Can upload game bundles AND grant the mod role to other users for those games. Cannot grant publisher role; that's admin-only.",
+      "description": "Upload game bundles + grant mod role for owned games. Cannot grant publisher role.",
       "users": [
         "threewizards/publisher",
         "threewizards/publisher-three-wizards",
@@ -286,7 +286,7 @@
       "owner": "threewizards",
       "name": "moderate-sessions",
       "displayName": "Moderate sessions",
-      "description": "Stop sessions and kick players for the games scoped via mod_game_scopes. Per-game scoping enforced at the BFF layer; this permission only signals the role exists.",
+      "description": "Stop sessions and kick players for games scoped via mod_game_scopes.",
       "users": [],
       "roles": ["threewizards/admin", "threewizards/mod"],
       "resource": "/api/mod/**",

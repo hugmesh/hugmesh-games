@@ -6,6 +6,7 @@ import { AuthService } from './services/auth.service';
 import { GamepadService } from './services/gamepad.service';
 import { WasmConsoleForwarderService } from './services/wasm-console-forwarder.service';
 import { AdminActionsListenerService } from './services/admin-actions-listener.service';
+import { ApiBridgeService } from './services/api-bridge.service';
 
 // Routes whose component is fetched at runtime via loadRemoteModule.
 // A NavigationError on one of these is almost always a federation
@@ -37,6 +38,7 @@ export class AppComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly gamepads = inject(GamepadService);
   private readonly wasmConsoleForwarder = inject(WasmConsoleForwarderService);
+  private readonly apiBridge = inject(ApiBridgeService);
   private readonly adminActions = inject(AdminActionsListenerService);
 
   /**
@@ -65,6 +67,13 @@ export class AppComponent implements OnInit {
     //     and forwards to /api/diagnostics/wasm-console.
     this.gamepads.start();
     this.wasmConsoleForwarder.start();
+    //   - ApiBridgeService catches SD_API_REQUEST + SD_VIEW_EGRESS
+    //     postMessages from any Godot iframe, performs the matching
+    //     HttpClient call (so the auth interceptor + X-Session-Id
+    //     header flow uniformly), and posts SD_API_RESPONSE back.
+    //     This is the host-side seam for the snapdragon_bridge addon's
+    //     BridgeApiClient.
+    this.apiBridge.start();
     // AdminActionsListener subscribes to the per-user SSE stream and
     // closes the game iframe / redirects to /banned on a kick or ban.
     // Idempotent — safe to re-call on auth state changes.

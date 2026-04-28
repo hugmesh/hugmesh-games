@@ -54,6 +54,10 @@ pub struct HostBridge {
     /// `input_egress` payloads so the BFF can scope the control write
     /// to one session's per-session sinks.
     session_id: GString,
+    /// Monotonic counter for [`request_api`] correlation. The wrap point
+    /// is i64::MAX requests per bridge instance — well beyond any
+    /// realistic session lifetime.
+    next_request_id: i64,
 }
 
 #[godot_api]
@@ -65,6 +69,7 @@ impl INode for HostBridge {
             local_slot: -1,
             local_character_id: -1,
             session_id: GString::new(),
+            next_request_id: 1,
         }
     }
 
@@ -139,6 +144,26 @@ impl HostBridge {
     /// leave during the session.
     #[signal] fn slot_registered(slot: i64, character_id: i64, is_local: bool);
     #[signal] fn slot_released(slot: i64);
+
+    /// Outbound API request — the GDScript glue forwards each payload
+    /// to the parent host shell which performs the actual HTTP call
+    /// (so the host's HttpClient interceptor + X-Session-Id header
+    /// flow naturally) and posts the response back via
+    /// `api_response_received`.
+    ///
+    /// Payload JSON: `{requestId, method, path, sessionId, body}`.
+    /// `body` is already a JSON value (object / array / null), not an
+    /// escaped string. Game scripts use the addon's
+    /// `BridgeApiClient.gd` which wraps this signal with a
+    /// Callable-based callback API; nobody calls `HTTPRequest`
+    /// directly any more.
+    #[signal] fn api_request_egress(payload: GString);
+
+    /// Inbound API response from the host. Payload JSON:
+    /// `{requestId, status, body}`. `BridgeApiClient` indexes pending
+    /// requests by `requestId` and dispatches to the matching caller
+    /// callback.
+    #[signal] fn api_response_received(payload: GString);
 
     /// Called by the GDScript glue once it confirms a parent module is
     /// present. Flips the bridge into streaming mode so [`send_input`]
@@ -347,5 +372,53 @@ impl HostBridge {
         );
         self.base_mut()
             .emit_signal("view_egress", &[GString::from(payload.as_str()).to_variant()]);
+    }
+
+    // ── API bridge ─────────────────────────────────────────────────────
+    //
+    // All Godot → BFF networking flows through here. The bridge owns
+    // the contract (request id, session/auth context); the host shell
+    // owns the transport (HttpClient with interceptors). The addon's
+    // `BridgeApiClient.gd` wraps these primitives with a Callable-based
+    // callback API so game scripts never touch `HTTPRequest`.
+
+    /// Emit an outbound API request on the egress channel. Returns the
+    /// request id so the caller can correlate the eventual
+    /// `api_response_received` signal back to its callback.
+    ///
+    /// `body_json` is the literal JSON value to send (e.g. `"null"`,
+    /// `"{\"x\":1}"`, `"[1,2,3]"`). Pass `"null"` for GET requests.
+    #[func]
+    fn request_api(&mut self, method: GString, path: GString, body_json: GString) -> i64 {
+        let id = self.next_request_id;
+        self.next_request_id += 1;
+
+        let method_s = method.to_string().replace('"', "\\\"");
+        let path_s   = path.to_string().replace('"', "\\\"");
+        let session_s = self.session_id.to_string().replace('"', "\\\"");
+        let body_s   = body_json.to_string();
+        let body_eff = if body_s.is_empty() { "null".to_string() } else { body_s };
+
+        let payload = format!(
+            "{{\"requestId\":{},\"method\":\"{}\",\"path\":\"{}\",\"sessionId\":\"{}\",\"body\":{}}}",
+            id, method_s, path_s, session_s, body_eff
+        );
+        self.base_mut().emit_signal(
+            "api_request_egress",
+            &[GString::from(payload.as_str()).to_variant()],
+        );
+        id
+    }
+
+    /// Called by the GDScript glue when a `SD_API_RESPONSE` payload
+    /// arrives from the host. Re-emits as `api_response_received` so
+    /// `BridgeApiClient`'s pending-request map can dispatch to the
+    /// matching callback.
+    #[func]
+    fn dispatch_api_response(&mut self, payload: GString) {
+        self.base_mut().emit_signal(
+            "api_response_received",
+            &[payload.to_variant()],
+        );
     }
 }

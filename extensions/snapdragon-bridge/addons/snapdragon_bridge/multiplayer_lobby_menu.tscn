@@ -1,0 +1,54 @@
+[gd_scene load_steps=2 format=3 uid="uid://snapdragon_lobby_menu_v1"]
+
+[ext_resource type="Script" path="res://addons/snapdragon_bridge/multiplayer_lobby_menu.gd" id="1_lobby"]
+
+[node name="SnapdragonLobbyMenu" type="Control"]
+script = ExtResource("1_lobby")
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 0
+
+[node name="Layout" type="VBoxContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 32.0
+offset_top = 32.0
+offset_right = -32.0
+offset_bottom = -32.0
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="Layout"]
+text = "Multiplayer lobby"
+
+[node name="Sessions" type="VBoxContainer" parent="Layout"]
+size_flags_vertical = 3
+
+[node name="HeaderRow" type="HBoxContainer" parent="Layout/Sessions"]
+
+[node name="Header" type="Label" parent="Layout/Sessions/HeaderRow"]
+text = "Open sessions"
+size_flags_horizontal = 3
+
+[node name="RefreshBtn" type="Button" parent="Layout/Sessions/HeaderRow"]
+text = "Refresh"
+
+[node name="List" type="VBoxContainer" parent="Layout/Sessions"]
+size_flags_vertical = 3
+
+[node name="Create" type="HBoxContainer" parent="Layout"]
+
+[node name="NameInput" type="LineEdit" parent="Layout/Create"]
+placeholder_text = "New session name"
+size_flags_horizontal = 3
+
+[node name="MaxInput" type="SpinBox" parent="Layout/Create"]
+min_value = 1.0
+max_value = 16.0
+value = 3.0
+
+[node name="CreateBtn" type="Button" parent="Layout/Create"]
+text = "Create"
+
+[node name="StatusLabel" type="Label" parent="Layout"]
+text = ""
+modulate = Color(0.7, 0.7, 0.7, 1)

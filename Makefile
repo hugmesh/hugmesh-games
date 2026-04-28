@@ -54,7 +54,7 @@ build: build-rust build-godot build-backend build-frontend
 
 # ── Rust GDExtension ──────────────────────────────────────────────────────────
 
-build-rust: deps-rust build-rust-wasm
+build-rust: deps-rust build-rust-wasm sync-bridge-addon
 	@echo "→ Building Snapdragon Bridge GDExtension (native)..."
 	cd $(RUST_DIR) && cargo build --release
 	@# One canonical binary in the extension dir; copy into every game project's
@@ -67,6 +67,24 @@ build-rust: deps-rust build-rust-wasm
 	  cp $(RUST_DIR)/bin/snapdragon_bridge.wasm $(GAMES_DIR)/$$game/bin/snapdragon_bridge.wasm 2>/dev/null || true; \
 	done
 	@echo "✓ Rust build done"
+
+# Mirror the Snapdragon Bridge addon into every game project's
+# `addons/snapdragon_bridge/` so each game opens standalone in the
+# Godot editor and the addon's GDScript surface (BridgeApiClient,
+# MultiplayerLobby, default lobby UI) is reachable as
+# `res://addons/snapdragon_bridge/...`. Source of truth is the
+# canonical copy under the extension dir; never hand-edit the
+# per-game copies.
+.PHONY: sync-bridge-addon
+sync-bridge-addon:
+	@echo "→ Syncing snapdragon_bridge addon into game projects..."
+	@for game in $(GAME_PROJECTS); do \
+	  mkdir -p $(GAMES_DIR)/$$game/addons/snapdragon_bridge; \
+	  rsync -a --delete --exclude='.gitkeep' \
+	    $(RUST_DIR)/addons/snapdragon_bridge/ \
+	    $(GAMES_DIR)/$$game/addons/snapdragon_bridge/ ; \
+	done
+	@echo "✓ snapdragon_bridge addon synced"
 
 # WASM build runs inside a Docker image (rust + emsdk pinned) so the
 # host doesn't need emscripten installed — the Gentoo / system Rust

@@ -1,86 +1,59 @@
 extends Node
-## API client for loading level metadata, scene configs, and user-registered
-## assets (textures/plugins) from the Spring Boot backend.
+## Three-Wizards-specific API helpers — typed wrappers around the
+## generic `BridgeApiClient` from the snapdragon_bridge addon.
 ##
-## Works in both runtime modes:
-##   • Web export  — base URL inferred from window.location (same origin as host)
-##   • Editor / native — falls back to API_BASE_DEV (override via env if needed)
-##
-## Usage from scene_loader.gd or a level main scene:
-##     var api := ApiClient.new()
-##     add_child(api)
-##     api.fetch_scene(1, func(scene_dto): _apply(scene_dto))
-##     api.fetch_level_assets(1, func(assets): ...)
-##     api.resolve_asset(1, "oak-bark-texture", func(url): ...)
+## All networking flows through HostBridge → host shell → BFF; this
+## class never calls HTTPRequest directly. The wrappers exist so
+## scene_loader.gd / level scripts can keep their named-method API
+## (fetch_scene / fetch_level_assets / resolve_asset) and the bridge
+## handles auth + session routing transparently.
 
 class_name ApiClient
 
-const API_BASE_DEV := "http://localhost:8080"
+const _BridgeApiClient = preload("res://addons/snapdragon_bridge/bridge_api_client.gd")
 
 signal scene_received(scene: Dictionary)
 signal level_assets_received(assets: Array)
 signal error(message: String)
 
-
-func _base_url() -> String:
-	if OS.has_feature("web"):
-		# Same-origin: Angular → nginx → api. Leave empty so paths stay relative.
-		return ""
-	return API_BASE_DEV
+var _api: Node = null
 
 
-## GET /api/levels/{id}/scene
-func fetch_scene(level_id: int, on_done: Callable = Callable()) -> void:
-	_get("/api/levels/%d/scene" % level_id, func(body):
-		var parsed = JSON.parse_string(body)
-		if parsed is Dictionary:
-			scene_received.emit(parsed)
-			if on_done.is_valid():
-				on_done.call(parsed)
-		else:
-			error.emit("scene: malformed JSON")
-	)
+func _ready() -> void:
+	_api = _BridgeApiClient.new()
+	add_child(_api)
 
 
-## GET /api/levels/{id}/assets — list of registered textures/plugins for this level
-func fetch_level_assets(level_id: int, on_done: Callable = Callable()) -> void:
-	_get("/api/levels/%d/assets" % level_id, func(body):
-		var parsed = JSON.parse_string(body)
-		if parsed is Array:
-			level_assets_received.emit(parsed)
-			if on_done.is_valid():
-				on_done.call(parsed)
-		else:
-			error.emit("level-assets: malformed JSON")
-	)
-
-
-## GET /api/levels/{id}/assets/by-label/{label} → full asset URL for loading
-func resolve_asset(level_id: int, label: String, on_done: Callable) -> void:
-	_get("/api/levels/%d/assets/by-label/%s" % [level_id, label.uri_encode()], func(body):
-		var parsed = JSON.parse_string(body)
-		if parsed is Dictionary and parsed.has("filePath"):
-			# filePath is relative to classpath assets/levels/{slug}/;
-			# AssetController serves it back at /api/assets/levels/{slug}/{file}.
-			# If slug isn't known here, callers should resolve via the scene DTO first.
-			on_done.call(_base_url() + str(parsed["filePath"]))
-		else:
-			error.emit("resolve: label not found")
-	)
-
-
-## Generic GET helper with JSON Accept. Swallows transport errors onto the error signal.
-func _get(path: String, on_body: Callable) -> void:
-	var http := HTTPRequest.new()
-	add_child(http)
-	http.request_completed.connect(func(result, code, _headers, body):
-		http.queue_free()
-		if result != HTTPRequest.RESULT_SUCCESS or code >= 400:
-			error.emit("http %s %d" % [path, code])
+## GET /api/chapters/{id}/scene  (legacy /api/levels alias also accepted by the BFF).
+func fetch_scene(chapter_id: int, on_done: Callable = Callable()) -> void:
+	_api.get("/api/chapters/%d/scene" % chapter_id, func(status, body):
+		if status != 200 or not (body is Dictionary):
+			error.emit("scene: status %d" % status)
 			return
-		on_body.call(body.get_string_from_utf8())
+		scene_received.emit(body)
+		if on_done.is_valid():
+			on_done.call(body)
 	)
-	var err := http.request(_base_url() + path, ["Accept: application/json"])
-	if err != OK:
-		http.queue_free()
-		error.emit("request init failed for %s" % path)
+
+
+## GET /api/chapters/{id}/assets — list of registered textures/plugins for this chapter.
+func fetch_level_assets(chapter_id: int, on_done: Callable = Callable()) -> void:
+	_api.get("/api/chapters/%d/assets" % chapter_id, func(status, body):
+		if status != 200 or not (body is Array):
+			error.emit("level-assets: status %d" % status)
+			return
+		level_assets_received.emit(body)
+		if on_done.is_valid():
+			on_done.call(body)
+	)
+
+
+## GET /api/chapters/{id}/assets/by-label/{label} → resolved asset URL.
+func resolve_asset(chapter_id: int, label: String, on_done: Callable) -> void:
+	var path := "/api/chapters/%d/assets/by-label/%s" % [chapter_id, label.uri_encode()]
+	_api.get(path, func(status, body):
+		if status != 200 or not (body is Dictionary) or not body.has("filePath"):
+			error.emit("resolve: %s -> status %d" % [label, status])
+			return
+		on_done.call(str(body["filePath"]))
+	)

@@ -39,3 +39,4 @@ We picked option 2.
 - [ViewEgressController](../architecture/05-api-reference.md)
 - [AdminSessionStreamController](../architecture/05-api-reference.md)
 - Phase 3 commit `5713f2b` (Rust HostBridge + GDScript wiring).
+- [Decision 014 — All Godot networking through the bridge](014-bridge-routed-networking.md).

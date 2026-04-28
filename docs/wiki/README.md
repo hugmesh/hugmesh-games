@@ -66,6 +66,7 @@ Why the system has the shape it has. Each entry is one decision, the constraint 
 - [011 — Mod / publisher roles with per-game Postgres scoping](decisions/011-mod-publisher-rbac.md)
 - [012 — Admin-only debug-mode gate on WASM console capture](decisions/012-debug-mode-gate.md)
 - [013 — Per-player view egress channel for admin observation](decisions/013-player-view-channel.md)
+- [014 — All Godot networking flows through the bridge](decisions/014-bridge-routed-networking.md)
 
 ## Where the canonical sources live
 
