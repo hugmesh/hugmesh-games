@@ -22,7 +22,21 @@
     { "name": "Game access" },
     { "name": "Roles" },
     { "name": "Input events" },
-    { "name": "Diagnostics" }
+    { "name": "Diagnostics" },
+    { "name": "Multiplayer sessions",
+      "description": "Named multiplayer sessions — create, list, join, leave, close. Hot-path control fan-out via per-session SSE sinks." },
+    { "name": "View egress",
+      "description": "Per-player camera/orientation samples streamed by the Rust GDExtension." },
+    { "name": "Admin session stream",
+      "description": "Per-session SSE merge for admin observation." },
+    { "name": "Admin debug mode",
+      "description": "Admin-only runtime toggles for diagnostics ingest." },
+    { "name": "Moderation",
+      "description": "Per-game moderator actions: stop a session, kick a player." },
+    { "name": "Publisher",
+      "description": "Per-game publisher actions: list owned games, grant/revoke mod role." },
+    { "name": "Admin role grants",
+      "description": "Admin-only management of per-game mod and publisher scopes." }
   ],
   "paths": {
     "/api/auth/token": {
@@ -248,6 +262,191 @@
         "summary": "Proxy Casdoor's role catalog (live).",
         "responses": { "200": { "description": "OK" } }
       }
+    },
+    "/api/sessions": {
+      "get": {
+        "tags": ["Multiplayer sessions"],
+        "summary": "List open multiplayer sessions, optionally filtered by gameSlug.",
+        "parameters": [
+          { "name": "gameSlug", "in": "query", "required": false,
+            "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Multiplayer sessions"],
+        "summary": "Create a new named multiplayer session; caller becomes the creator member.",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/sessions/{id}": {
+      "get": {
+        "tags": ["Multiplayer sessions"],
+        "summary": "Get one session with active members.",
+        "parameters": [{ "name": "id", "in": "path", "required": true,
+                          "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["Multiplayer sessions"],
+        "summary": "Force-close a session (creator only).",
+        "parameters": [{ "name": "id", "in": "path", "required": true,
+                          "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "204": { "description": "No Content" } }
+      }
+    },
+    "/api/sessions/{id}/join": {
+      "post": {
+        "tags": ["Multiplayer sessions"],
+        "summary": "Join a session at an optional slot. Idempotent on (sessionId, casdoorId).",
+        "parameters": [{ "name": "id", "in": "path", "required": true,
+                          "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "OK" },
+          "409": { "description": "Slot already claimed or session full" },
+          "410": { "description": "Session already closed" }
+        }
+      }
+    },
+    "/api/sessions/{id}/me": {
+      "delete": {
+        "tags": ["Multiplayer sessions"],
+        "summary": "Leave a session (auto-closes when last active member leaves).",
+        "parameters": [{ "name": "id", "in": "path", "required": true,
+                          "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "204": { "description": "No Content" } }
+      }
+    },
+    "/api/view": {
+      "post": {
+        "tags": ["View egress"],
+        "summary": "Submit a player-view sample (per-slot camera + orientation).",
+        "responses": {
+          "202": { "description": "Accepted" },
+          "403": { "description": "Caller is not the active session_member who owns characterId" }
+        }
+      }
+    },
+    "/api/admin/sessions/{id}/stream": {
+      "get": {
+        "tags": ["Admin session stream"],
+        "summary": "Per-session SSE merge — movement / world / character / view, scoped to one session id (ROLE_ADMIN).",
+        "parameters": [{ "name": "id", "in": "path", "required": true,
+                          "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "text/event-stream" } }
+      }
+    },
+    "/api/admin/debug-mode": {
+      "get": {
+        "tags": ["Admin debug mode"],
+        "summary": "Read current debug-mode flags (ROLE_ADMIN).",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/admin/debug-mode/wasm-console": {
+      "put": {
+        "tags": ["Admin debug mode"],
+        "summary": "Toggle WASM console capture (ROLE_ADMIN).",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/mod/scopes": {
+      "get": {
+        "tags": ["Moderation"],
+        "summary": "List the games this caller may moderate (ROLE_MOD or ROLE_ADMIN).",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/mod/sessions/{id}/stop": {
+      "post": {
+        "tags": ["Moderation"],
+        "summary": "Force-close a session (ROLE_MOD scoped to the session's game, or ROLE_ADMIN).",
+        "parameters": [{ "name": "id", "in": "path", "required": true,
+                          "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "OK" },
+          "403": { "description": "Caller is not scoped to the target session's game" }
+        }
+      }
+    },
+    "/api/mod/sessions/{id}/kick": {
+      "post": {
+        "tags": ["Moderation"],
+        "summary": "Kick a single player from a session.",
+        "parameters": [{ "name": "id", "in": "path", "required": true,
+                          "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "OK" },
+          "403": { "description": "Caller is not scoped to the target session's game" },
+          "404": { "description": "Target is not an active member" }
+        }
+      }
+    },
+    "/api/publisher/scopes": {
+      "get": {
+        "tags": ["Publisher"],
+        "summary": "List the games the caller publishes (ROLE_PUBLISHER or ROLE_ADMIN).",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/publisher/games/{gameSlug}/mods": {
+      "get": {
+        "tags": ["Publisher"],
+        "summary": "List active mods for one of the caller's games.",
+        "parameters": [{ "name": "gameSlug", "in": "path", "required": true,
+                          "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/publisher/grant-mod": {
+      "post": {
+        "tags": ["Publisher"],
+        "summary": "Grant the mod role for a game the caller owns. Idempotent.",
+        "responses": {
+          "200": { "description": "OK" },
+          "403": { "description": "Caller does not own the target game" }
+        }
+      }
+    },
+    "/api/publisher/revoke-mod": {
+      "post": {
+        "tags": ["Publisher"],
+        "summary": "Revoke a previously-granted mod scope (soft-delete).",
+        "responses": {
+          "200": { "description": "OK" },
+          "404": { "description": "No active mod scope to revoke" }
+        }
+      }
+    },
+    "/api/admin/role-grants/publishers": {
+      "get": { "tags": ["Admin role grants"],
+               "summary": "List every active publisher scope (ROLE_ADMIN).",
+               "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/admin/role-grants/mods": {
+      "get": { "tags": ["Admin role grants"],
+               "summary": "List every active mod scope (ROLE_ADMIN).",
+               "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/admin/role-grants/grant-publisher": {
+      "post": { "tags": ["Admin role grants"],
+                "summary": "Grant publisher scope for a game (ROLE_ADMIN).",
+                "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/admin/role-grants/revoke-publisher": {
+      "post": { "tags": ["Admin role grants"],
+                "summary": "Revoke publisher scope (soft-delete).",
+                "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/admin/role-grants/grant-mod": {
+      "post": { "tags": ["Admin role grants"],
+                "summary": "Grant mod scope for a game (ROLE_ADMIN).",
+                "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/admin/role-grants/revoke-mod": {
+      "post": { "tags": ["Admin role grants"],
+                "summary": "Revoke mod scope (soft-delete).",
+                "responses": { "200": { "description": "OK" } } }
     },
     "/api/input/{characterId}": {
       "post": {

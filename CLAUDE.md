@@ -112,6 +112,18 @@ PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tabl
 - **A scenario or runbook** — six user guides under `docs/publishing/userguides/<audience>/`. Built into PDFs by `make docs-userguides`.
 - **What's currently in flight** — open PRs on https://github.com/Snapdragon-Systems/snapdragon.games/pulls.
 
+## Multiplayer + roles (post-PR)
+
+A multi-phase feature batch landed on `feature/multiplayer-sessions` that's worth knowing before grepping:
+
+- **Per-session SSE sinks.** `GameStateService` keeps a `ConcurrentHashMap<String, SessionSinks>` lazy-allocated by `sessionId`. `applyControl(event, characterId, sessionId)` is the multiplayer-aware overload; the 2-arg form remains the legacy single-player path. `GameStreamController` accepts `?sessionId=` to scope subscribers; `/api/admin/sessions/{id}/stream` merges movement + world + character + view for admin observation. **The isolation contract is locked in by [`SessionIsolationTest`](backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java)** — emit on session A's sinks, assert session B's per-session subscriber sees nothing.
+- **Mod / publisher roles.** Casdoor owns role membership (`mod`, `publisher`); Postgres owns per-game scope (`mod_game_scopes`, `publisher_game_scopes`). The BFF rejects any mod/publisher action whose target game isn't in the caller's active scope. Admins manage both layers via `/api/admin/role-grants/*`.
+- **Frontend remotes per role.** `frontend/projects/{admin,mod,publisher}/` are independently-built nginx-shipped Angular remotes federated under `/admin`, `/mod`, `/publisher`. The host shell shows role-conditional nav links via `AuthService.isMod() / isPublisher()`.
+- **Per-player view channel.** Rust HostBridge gained `register_player_slot` + `view_egress`; the GDScript `multiplayer_lobby.gd` spawns one wizard `CharacterBody3D` per registered slot. Camera samples (~10 Hz) post to `/api/view`, which fans out on the per-session `view` SSE channel admins watch via `SessionsShell`.
+- **Diagnostics is admin-only and off by default.** `POST /api/diagnostics/wasm-console` requires `ROLE_ADMIN` AND `wasm_console_debug_enabled=true` (admin-toggled at `PUT /api/admin/debug-mode/wasm-console`). Frontend `WasmConsoleForwarderService` mirrors the gate so non-admins never even attempt the POST.
+
+Casdoor seed users for testing: `player`, `player1`, `player2`, `player3`, `mod`, `publisher`, plus per-game `mod-three-wizards`, `mod-dodecahedron`, `publisher-three-wizards`, `publisher-dodecahedron`. Passwords printed by `casdoor/entrypoint.sh` on first boot.
+
 ## Workflow conventions
 
 - **Branches**: `feature/<short-slug>` for new work, `fix/<short-slug>` for bug-fixes, `docs/<slug>` for doc-only changes, `chore/<slug>` for tooling.

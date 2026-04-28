@@ -95,9 +95,49 @@ Anonymous endpoint for forwarded WASM-iframe console captures. Stamps a server t
 
 ## Authenticated surface (JWT required)
 
-### `SessionController` — `/api/sessions`
+### `SessionController` — `/api/sessions/{connect,control,me,history}`
 
-Session connect / disconnect / control-claim / history. **Capacity is hard-capped at three concurrent players**; first connect auto-claims controller. *409 server_full* when full.
+Legacy single-session connect / disconnect / control-claim / history — retained for the single-player path. **Capacity is hard-capped at three concurrent players**; first connect auto-claims controller. *409 server_full* when full.
+
+### `MultiplayerSessionController` — `/api/sessions` (multiplayer)
+
+Named multiplayer sessions. Distinct from the legacy single-session path above.
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/api/sessions` | `{gameSlug, name, maxPlayers?, characterId?, slotIndex?}` → mint UUID + write `game_sessions` row + first `session_members` row flagged `is_creator=true`. |
+| `GET` | `/api/sessions?gameSlug=` | Open sessions (`closed_at IS NULL`), optionally filtered. Used by the home-page picker. |
+| `GET` | `/api/sessions/{id}` | Session detail with active members. |
+| `POST` | `/api/sessions/{id}/join` | `{characterId?, slotIndex?}`. Idempotent on `(sessionId, casdoorId)`; slot collisions resolve as *409* via the partial unique index. |
+| `DELETE` | `/api/sessions/{id}/me` | Leave. Auto-closes the session if the leaver was the last active member. |
+| `DELETE` | `/api/sessions/{id}` | Force-close. Creator-only. |
+
+See [decision 010 — per-session SSE sinks](../decisions/010-per-session-sse-sinks.md) for the isolation contract.
+
+### `ViewEgressController` — `POST /api/view`
+
+Per-player camera/orientation sample ingest. Authorized via `session_members.findActiveOwnerOfCharacter` — JWT subject must be the active member who owns `characterId`. Fans out on the per-session `view` SSE channel admins watch via `/api/admin/sessions/{id}/stream`.
+
+### `ModerationController` — `/api/mod/*` (`ROLE_MOD` or `ROLE_ADMIN`)
+
+Per-game moderator actions. Casdoor's `mod` role grants the capability; `mod_game_scopes` decides which games. The BFF rejects every action whose target session's `game_slug` isn't in the caller's active scope.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/mod/scopes` | Caller's active mod scopes. |
+| `POST` | `/api/mod/sessions/{id}/stop` | Force-close a session; *403* if mod isn't scoped to the session's game. |
+| `POST` | `/api/mod/sessions/{id}/kick` | `{targetCasdoorId, reason}`. Stamps `left_at` on the target's session_members row. |
+
+### `PublisherController` — `/api/publisher/*` (`ROLE_PUBLISHER` or `ROLE_ADMIN`)
+
+Per-game publisher actions. `publisher_game_scopes` decides which games.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/publisher/scopes` | Caller's active publisher scopes. |
+| `GET` | `/api/publisher/games/{slug}/mods` | List active mods for a game the caller owns. |
+| `POST` | `/api/publisher/grant-mod` | `{targetCasdoorId, gameSlug}`. Idempotent. |
+| `POST` | `/api/publisher/revoke-mod` | Soft-delete (`revoked_at`). |
 
 ### `CharacterController` — `/api/characters`
 
@@ -131,6 +171,33 @@ Generalised input ingestion — gamepad / mouse / keyboard / touch / audio / wor
 | `POST` | `/api/games/{slug}/launch` | Mints a `launch_uid`, snapshots `games.current_version_dir`, returns `{uid, expiresAt, gameSlug, versionDir}`. |
 | `DELETE` | `/api/games/launches/{uid}` | Owner self-terminate. |
 | `DELETE` | `/api/admin/launches/{uid}` | Admin force-terminate. |
+
+### `RoleAdminController` — `/api/admin/role-grants/*` (`ROLE_ADMIN`)
+
+Admin variant of the publisher role-grant endpoints, plus publisher-scope grants. Bypasses `requireOwns` since admins have global authority.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET`  | `/api/admin/role-grants/{publishers,mods}` | List all active scope rows. |
+| `POST` | `/api/admin/role-grants/grant-publisher` | `{targetCasdoorId, gameSlug}`. |
+| `POST` | `/api/admin/role-grants/revoke-publisher` | Soft-delete. |
+| `POST` | `/api/admin/role-grants/grant-mod` | Admin-grants-mod variant. |
+| `POST` | `/api/admin/role-grants/revoke-mod` | Soft-delete. |
+
+### `DebugModeController` — `/api/admin/debug-mode/*` (`ROLE_ADMIN`)
+
+Runtime toggle for diagnostic ingest from the WASM iframe. Default OFF.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET`  | `/api/admin/debug-mode` | `{wasmConsoleEnabled: boolean}`. |
+| `PUT`  | `/api/admin/debug-mode/wasm-console` | `{enabled: boolean}`. Persists in `system_settings`. |
+
+`DiagnosticsController.POST /api/diagnostics/wasm-console` is now `ROLE_ADMIN` + flag-gated; non-admin callers always get *403*. See [decision 012](../decisions/012-debug-mode-gate.md).
+
+### `AdminSessionStreamController` — `/api/admin/sessions/{id}/stream` (`ROLE_ADMIN`)
+
+Per-session SSE merge — movement / world / character / view channels scoped to one session id. The `view` channel is the per-player camera/orientation feed driven by the Rust GDExtension's `view_egress` signal. See [decision 013](../decisions/013-player-view-channel.md).
 
 ## Admin-only surface (`ROLE_ADMIN`)
 

@@ -1,0 +1,42 @@
+% AdminSessionStreamController — GET /api/admin/sessions/{id}/stream
+%   Per-session merge of movement / world / character / view + 15 s
+%   keepalive. Each upstream Flux is keyed by sessionId so subscribers
+%   never see other sessions' events.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{m}{2.4}{Flux movement(α)}{0}{12.6}
+  \node[marbleFlux] (m1) at (2.0,2.4) {●};
+  \node[marbleFlux] (m2) at (4.6,2.4) {●};
+  \node[marbleFlux] (m3) at (8.4,2.4) {●};
+
+  \snapmarbleline{w}{1.0}{Flux world(α)}{0}{12.6}
+  \node[marbleFlux] (w1) at (3.6,1.0) {●};
+  \node[marbleFlux] (w2) at (7.6,1.0) {●};
+
+  \snapmarbleline{c}{-0.4}{Flux character(α)}{0}{12.6}
+  \node[marbleFlux] (c1) at (5.0,-0.4) {●};
+
+  \snapmarbleline{v}{-1.8}{Flux view(α)}{0}{12.6}
+  \node[marbleFlux] (v1) at (1.6,-1.8) {●};
+  \node[marbleFlux] (v2) at (3.0,-1.8) {●};
+  \node[marbleFlux] (v3) at (4.4,-1.8) {●};
+  \node[marbleFlux] (v4) at (6.0,-1.8) {●};
+  \node[marbleFlux] (v5) at (7.6,-1.8) {●};
+  \node[marbleFlux] (v6) at (9.2,-1.8) {●};
+
+  \snapmarbleline{k}{-3.0}{ping (15 s)}{0}{12.6}
+  \node[marbleSig] (k1) at (1.0,-3.0) {p};
+  \node[marbleSig] (k2) at (8.4,-3.0) {p};
+
+  \node[marbleop] (merge) at (10.6,-1.0) {merge};
+
+  \draw[marbleline] (m3) -- (merge);
+  \draw[marbleline] (w2) -- (merge);
+  \draw[marbleline] (c1) -- (merge);
+  \draw[marbleline] (v6) -- (merge);
+  \draw[marbleline] (k2) -- (merge);
+
+  \snapmarbleline{out}{-4.4}{ServerSentEvent}{0}{12.6}
+  \node[marbleSSE] (s1) at (11.6,-4.4) {●};
+  \draw[marbleline] (merge.south) -| (s1.north);
+\end{tikzpicture}

@@ -22,6 +22,39 @@ The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with 
 
 ---
 
+## Multiplayer sessions
+
+The portal supports multiple concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker; pick an existing session or start a new one. The Three Wizards game spawns one wizard `CharacterBody3D` per registered slot — the local player drives their slot via `/api/controls/{characterId}` while remote-slot movement events arriving on the per-session SSE stream drive the other wizards.
+
+| Surface | What it does |
+|---|---|
+| `POST /api/sessions` | Create a named session for a game (creator becomes slot 0). |
+| `GET /api/sessions?gameSlug=` | List open sessions for the game-menu picker. |
+| `POST /api/sessions/{id}/join` | Join an existing session at a free slot. |
+| `GET /api/game/stream?sessionId=` | Per-session SSE stream — only this session's movement / world / character / view events. |
+| `GET /api/admin/sessions/{id}/stream` | Admin-only per-session merged stream including the `view` channel. |
+
+The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)) — a subscriber to session A never sees session B's events. The contract is locked in by [`SessionIsolationTest`](backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java).
+
+## Roles
+
+| Role | Capability | Scope |
+|---|---|---|
+| `player` | Play unlocked games, create/join sessions. | Global. |
+| `mod` | Stop sessions + kick players. | Per-game (`mod_game_scopes`). |
+| `publisher` | Upload game bundles + grant the `mod` role. | Per-game (`publisher_game_scopes`). |
+| `admin` | Everything, including granting publisher / mod scope. | Global. |
+
+Casdoor owns role membership; per-game scope rows in Postgres decide which games each mod / publisher may act on. Admins manage both via `/api/admin/role-grants/*`. Per-game seeded users (`mod-three-wizards`, `publisher-dodecahedron`, etc.) are pre-loaded on first boot — passwords printed by `casdoor/entrypoint.sh`. See [decision 011](docs/wiki/decisions/011-mod-publisher-rbac.md) and [howto/grant-mod-or-publisher.md](docs/wiki/howto/grant-mod-or-publisher.md).
+
+The frontend ships **separate federated remotes** for each role — `/admin`, `/mod`, `/publisher` — each loaded by the host shell only when the matching role is in the JWT.
+
+## Diagnostic capture is admin-only and off by default
+
+`POST /api/diagnostics/wasm-console` is gated on `ROLE_ADMIN` AND a runtime flag `wasm_console_debug_enabled` (default off). Admins flip the flag at `PUT /api/admin/debug-mode/wasm-console` while triaging an iframe issue. Non-admin players' iframe console captures are never forwarded to the BFF. See [decision 012](docs/wiki/decisions/012-debug-mode-gate.md).
+
+---
+
 ## Content hierarchy — games → levels → scenes
 
 The project is organised in three tiers:

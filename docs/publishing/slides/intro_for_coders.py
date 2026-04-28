@@ -153,6 +153,29 @@ SECTIONS = [
         ],
     },
     {
+        "title": "Multiplayer sessions, one paragraph",
+        "body": [
+            "Players click a game card → modal shows open sessions for that game + a 'start new' form.",
+            "Joining picks the lowest free slot; the session id + slot index thread onto the iframe URL.",
+            "GameStateService keeps a per-session SessionSinks bundle on top of the legacy global sinks.",
+            "Subscribers to /api/game/stream?sessionId=A see only A's events — never B's.",
+            "Three-wizards spawns one wizard CharacterBody3D per registered slot via multiplayer_lobby.gd.",
+            "SessionIsolationTest pins the cross-session non-leakage in both directions.",
+        ],
+    },
+    {
+        "title": "Roles: admin / publisher / mod / player",
+        "body": [
+            "Casdoor owns role membership; Postgres owns per-game scope (mod_game_scopes / publisher_game_scopes).",
+            "publisher: upload bundles + grant the mod role on games they own.",
+            "mod: stop sessions + kick players for games an admin or publisher has scoped them to.",
+            "admin: everything, including granting publisher and scoped mod across games.",
+            "Each role has its own federated remote: /admin, /mod, /publisher.",
+            "Per-game seeded users out of the box — see casdoor/init_data.json.tpl.",
+        ],
+        "dark": True,
+    },
+    {
         "title": "Common gotchas",
         "body": [
             "Sinks without autoCancel=false die on the first reconnect.",

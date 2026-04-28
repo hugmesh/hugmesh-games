@@ -1,0 +1,59 @@
+% Per-session SSE sink isolation diagram.
+%
+% Two players in distinct sessions α and β each POST controls;
+% GameStateService routes each emit to the global sink (admin firehose)
+% AND the matching per-session sink. Per-session subscribers see only
+% their session's events — the SessionIsolationTest pins this contract.
+
+\begin{tikzpicture}[
+  every node/.style={font=\sffamily\footnotesize},
+  arr/.style={->,>=stealth,thick,snapAccent},
+  noleak/.style={->,>=stealth,thick,red!70!black,dashed},
+]
+  % Players
+  \node[snapdarknode,minimum width=44mm,minimum height=11mm] (pa)
+    {Player A\\ \tiny session $\alpha$};
+  \node[snapdarknode,minimum width=44mm,minimum height=11mm,right=42mm of pa] (pb)
+    {Player B\\ \tiny session $\beta$};
+
+  % BFF
+  \node[snapnode,minimum width=110mm,minimum height=14mm,below=22mm of $(pa)!0.5!(pb)$] (bff)
+    {BFF — \texttt{GameStateService.applyControl(event, characterId, sessionId)}};
+
+  \draw[arr] (pa) -- node[left,xshift=-2mm,align=right]
+    {\texttt{POST /api/controls/\{cid\_A\}}\\\texttt{X-Session-Id: $\alpha$}} (pa |- bff.north);
+  \draw[arr] (pb) -- node[right,xshift=2mm,align=left]
+    {\texttt{POST /api/controls/\{cid\_B\}}\\\texttt{X-Session-Id: $\beta$}} (pb |- bff.north);
+
+  % Sinks
+  \node[snapnode,minimum width=42mm,minimum height=11mm,below=18mm of bff,xshift=-44mm] (sa)
+    {SessionSinks $\alpha$\\ \tiny movement / world / view};
+  \node[snapnode,minimum width=42mm,minimum height=11mm,below=18mm of bff] (gl)
+    {Global sink\\ \tiny admin firehose};
+  \node[snapnode,minimum width=42mm,minimum height=11mm,below=18mm of bff,xshift=44mm] (sb)
+    {SessionSinks $\beta$\\ \tiny movement / world / view};
+
+  \draw[arr] (bff.south) -- (gl.north);
+  \draw[arr] (bff.south west) -- (sa.north);
+  \draw[arr] (bff.south east) -- (sb.north);
+
+  % Subscribers
+  \node[snapdarknode,minimum width=42mm,minimum height=11mm,below=14mm of sa] (suba)
+    {\texttt{?sessionId=$\alpha$}\\ \tiny session $\alpha$ subscriber};
+  \node[snapdarknode,minimum width=42mm,minimum height=11mm,below=14mm of gl] (subadm)
+    {\texttt{/api/admin/stream}\\ \tiny admin firehose};
+  \node[snapdarknode,minimum width=42mm,minimum height=11mm,below=14mm of sb] (subb)
+    {\texttt{?sessionId=$\beta$}\\ \tiny session $\beta$ subscriber};
+
+  \draw[arr] (sa) -- (suba);
+  \draw[arr] (gl) -- (subadm);
+  \draw[arr] (sb) -- (subb);
+
+  % Isolation: no leak between α and β.
+  \draw[noleak] (sa.south east) to[bend right=15] node[below,sloped,font=\tiny\sffamily\itshape] {never reaches} (subb.north west);
+  \draw[noleak] (sb.south west) to[bend left=15]  node[above,sloped,font=\tiny\sffamily\itshape] {never reaches} (suba.north east);
+
+  % Caption strip
+  \node[font=\sffamily\tiny\itshape,below=8mm of subadm,text=gray] (cap)
+    {Isolation locked in by \texttt{SessionIsolationTest} — emit on $\alpha$, assert $\beta$ subscriber sees nothing.};
+\end{tikzpicture}

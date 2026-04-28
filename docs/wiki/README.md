@@ -45,6 +45,9 @@ Recipe cards. Each one is a task you've done before and want to do again without
 - [Add a database column](howto/add-db-column.md)
 - [Hot-upload and roll back a game bundle](howto/upload-and-rollback-game.md)
 - [Kick or ban a player](howto/kick-or-ban.md)
+- [Create or join a multiplayer session](howto/create-or-join-session.md)
+- [Grant the mod or publisher role for a game](howto/grant-mod-or-publisher.md)
+- [Toggle WASM-console debug mode](howto/toggle-wasm-debug-mode.md)
 
 ## Decisions and notes
 
@@ -59,6 +62,10 @@ Why the system has the shape it has. Each entry is one decision, the constraint 
 - [007 — Cassandra position cache, keyed by `(character, chapter)`](decisions/007-cassandra-position-cache.md)
 - [008 — Casdoor never exposed; BFF reverse-proxies the login flow](decisions/008-casdoor-internal.md)
 - [009 — Three additive scopes for `game_access`](decisions/009-game-access-scopes.md)
+- [010 — Per-session SSE sink isolation](decisions/010-per-session-sse-sinks.md)
+- [011 — Mod / publisher roles with per-game Postgres scoping](decisions/011-mod-publisher-rbac.md)
+- [012 — Admin-only debug-mode gate on WASM console capture](decisions/012-debug-mode-gate.md)
+- [013 — Per-player view egress channel for admin observation](decisions/013-player-view-channel.md)
 
 ## Where the canonical sources live
 
