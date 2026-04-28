@@ -56,7 +56,13 @@ build: build-rust build-godot build-backend build-frontend
 
 build-rust: deps-rust build-rust-wasm sync-bridge-addon
 	@echo "→ Building Snapdragon Bridge GDExtension (native)..."
-	cd $(RUST_DIR) && cargo build --release
+	@# api-custom: regenerate the extension_api.json against the
+	@# user's actual Godot binary. Without this, gdext's baked-in
+	@# 4.6-stable bindings panic on a 4.6.x patch release with
+	@# "Failed to load class method … Make sure gdext and Godot are
+	@# compatible". GODOT4_BIN is what gdext's build.rs reads.
+	GODOT4_BIN="$(shell command -v $(GODOT) 2>/dev/null || echo $(GODOT))" \
+	  cd $(RUST_DIR) && cargo build --release --features api-custom
 	@# One canonical binary in the extension dir; copy into every game project's
 	@# bin/ so each project opens standalone in the Godot editor.
 	mkdir -p $(RUST_DIR)/bin

@@ -16,6 +16,22 @@ crate-type = ["cdylib"]
 default = ["wasm-opt-in"]
 wasm-opt-in = ["godot/experimental-wasm"]
 
+# Opt-in: bind against the user's locally-installed Godot binary
+# instead of gdext's baked-in `extension_api.json`. Required when
+# the user runs a Godot patch release (e.g. 4.6.1) — gdext's
+# defaults pin to 4.6 stable and the patch-release method-bind
+# hashes don't match, panicking with
+#   "Failed to load class method TranslationServer::get_translation_object …
+#    Make sure gdext and Godot are compatible".
+#
+# Enable from the Makefile's native build step (`cargo build --release
+# --features api-custom`) AND export GODOT4_BIN=/path/to/godot so
+# gdext's build.rs can dump extension_api.json from your runtime.
+# Don't use this for the wasm target — the Docker builder has no
+# Godot installed and the wasm binding only needs to match the web
+# export template (currently 4.6 stable).
+api-custom = ["godot/api-custom"]
+
 [dependencies]
 godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
 
