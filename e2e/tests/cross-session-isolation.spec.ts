@@ -1,6 +1,6 @@
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import {
-  SEED_USERS, login, createSession, sendControl, newE2eContext,
+  SEED_USERS, login, sendControl, newE2eContext,
 } from './helpers/roles';
 import { captureIframeSseEvents, drainCapturedEvents } from './helpers/sse-bridge';
 
@@ -29,30 +29,26 @@ test.describe('cross-session isolation', () => {
     await login(pA, PLAYER1);
     await login(pB, PLAYER2);
 
-    const sessionA = await createSession(pA, {
-      gameSlug:    'three-wizards',
-      name:        `iso-A-${Date.now()}`,
-      maxPlayers:  3,
-      visibility:  'public',
-      characterId: 1,
-      slotIndex:   0,
-    });
-    const sessionB = await createSession(pB, {
-      gameSlug:    'three-wizards',
-      name:        `iso-B-${Date.now()}`,
-      maxPlayers:  3,
-      visibility:  'public',
-      characterId: 2,
-      slotIndex:   0,
-    });
-    expect(sessionA.id).not.toBe(sessionB.id);
+    // Drive each player through the lobby-modal UI so the home
+    // component's `activeSessionId` is actually populated. The
+    // chapter launcher reads it and threads `?session_id=…` onto
+    // the iframe URL — that's what the wrapper needs to open an
+    // EventSource scoped to the per-session sink. (Earlier
+    // iteration of this test created sessions via the API helper
+    // which left the home component blind to the session id, so
+    // the iframe URL had no session_id and the wrapper subscribed
+    // to the unscoped global stream — the bleed we're trying to
+    // pin against.)
+    const sessionAId = await createSessionViaLobby(pA, `iso-A-${Date.now()}`);
+    const sessionBId = await createSessionViaLobby(pB, `iso-B-${Date.now()}`);
+    expect(sessionAId).not.toEqual(sessionBId);
 
-    // Both players open their own chapter — same scene, different
-    // session. The iframe URL carries `?session_id=<own>` which
-    // the bridge_glue sends as SD_SSE_SUBSCRIBE; the Angular wrapper
-    // opens an EventSource scoped to that session.
-    await openFirstChapter(pA);
-    await openFirstChapter(pB);
+    // Both players already have the modal open with the chapter
+    // list visible (the create-session flow leaves it that way);
+    // click Play on the first chapter to mount the iframe with
+    // the session id threaded onto the URL.
+    await launchFirstChapter(pA);
+    await launchFirstChapter(pB);
 
     await Promise.all([
       pA.waitForFunction(() => document.querySelectorAll('iframe.wasm-frame').length > 0, undefined, { timeout: 30_000 }),
@@ -74,7 +70,7 @@ test.describe('cross-session isolation', () => {
       action:    'MOVE_RIGHT',
       pressed:   true,
       chapterId: 1,
-      sessionId: sessionA.id,
+      sessionId: sessionAId,
     });
 
     // Wait long enough for the SSE delivery — roughly two ticks of
@@ -167,16 +163,54 @@ test.describe('cross-session isolation', () => {
   });
 });
 
-async function openFirstChapter(page: Page): Promise<void> {
-  // domcontentloaded — networkidle never settles because the
-  // Angular wrapper's EventSource is intentionally long-lived.
+/**
+ * Drive the lobby modal: opens the first game's modal, fills the
+ * create-session form (public visibility, a unique name), submits,
+ * waits for the picker to flip into the "active session" state, and
+ * returns the resulting session id by reading it back via the
+ * `/api/sessions` listing.
+ *
+ * Leaves the modal open with the chapter list still visible so the
+ * caller can click Play.
+ */
+async function createSessionViaLobby(page: Page, sessionName: string): Promise<string> {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const card = page.locator('.game-card').first();
   await card.waitFor({ state: 'visible', timeout: 20_000 });
   await card.click();
-  // Modal scoped — the home card's "Open chapters" span shares the
-  // .play-btn class, so be explicit about the button inside the modal.
+
+  const nameInput = page.locator('#session-name-input');
+  await nameInput.waitFor({ state: 'visible', timeout: 10_000 });
+  await nameInput.fill(sessionName);
+  // Public visibility — anyone-can-see, but the test still drives
+  // a separate iframe per player so they only ever see their own
+  // session via the wrapper's subscription scope.
+  await page.locator('input[type="radio"][value="public"]').check();
+  await page.locator('button.create-btn').click();
+
+  // The home component flips into the "session active" branch and
+  // shows the slot indicator; that's the cue that activeSessionId
+  // is populated on the component. We then read the freshest
+  // matching session id off /api/sessions for return.
+  await page.locator('.session-picker-active').waitFor({ state: 'visible', timeout: 15_000 });
+
+  return await page.evaluate(async (name: string) => {
+    const raw = window.sessionStorage.getItem('tw_auth');
+    const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
+    const r = await fetch('/api/sessions?gameSlug=three-wizards', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const list = (await r.json()) as Array<{ id: string; name: string }>;
+    return (list.find(s => s.name === name) ?? list[0]).id;
+  }, sessionName);
+}
+
+async function launchFirstChapter(page: Page): Promise<void> {
+  // Modal is still open from createSessionViaLobby — click the
+  // first available Play button to mount the iframe with
+  // ?session_id=<own session> threaded onto the URL.
   const play = page.locator('.modal-backdrop button.play-btn:not([disabled])').first();
   await play.waitFor({ state: 'visible', timeout: 15_000 });
   await play.click();
 }
+

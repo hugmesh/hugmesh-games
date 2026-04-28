@@ -1,6 +1,6 @@
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import {
-  SEED_USERS, login, createSession, joinSession, sendControl, newE2eContext,
+  SEED_USERS, login, sendControl, newE2eContext,
 } from './helpers/roles';
 import { captureIframeSseEvents, drainCapturedEvents } from './helpers/sse-bridge';
 
@@ -36,25 +36,24 @@ test.describe('multiplayer — two players in the same session', () => {
     await login(p1, PLAYER1);
     await login(p2, PLAYER2);
 
-    // P1 creates a public session for three-wizards.
-    const session = await createSession(p1, {
-      gameSlug:    'three-wizards',
-      name:        `e2e-multi-${Date.now()}`,
-      maxPlayers:  3,
-      visibility:  'public',
-      characterId: 1,
-      slotIndex:   0,
-    });
+    // P1 creates the session via the lobby modal — this populates
+    // `activeSessionId` on the home component so the iframe URL
+    // gets `?session_id=` threaded onto it. Without that flow the
+    // wrapper subscribes to the unscoped /api/game/stream and the
+    // strict positive assertion below can't tell whether P2 saw the
+    // movement because of the per-session sink or because both
+    // iframes are global subscribers.
+    const sessionName = `e2e-multi-${Date.now()}`;
+    const sessionId = await createSessionViaLobby(p1, sessionName);
 
-    // P2 joins the session at slot 1 with their own character.
-    await joinSession(p2, session.id, { characterId: 2, slotIndex: 1 });
+    // P2 joins the same session via the lobby's join button.
+    await joinSessionViaLobby(p2, sessionName);
 
-    // Both players open the chapter modal + click play. The first
-    // available chapter is whatever the home page shows — clicking
-    // it through the UI exercises the full launch flow, including
-    // the session id flowing onto the iframe URL.
-    await openFirstChapter(p1);
-    await openFirstChapter(p2);
+    // Both players click Play on the first chapter. The chapter
+    // modal stays open after the create / join flow so we just
+    // click the first non-disabled play button.
+    await launchFirstChapter(p1);
+    await launchFirstChapter(p2);
 
     // Wait for both iframes to mount + start streaming bundle bytes.
     await Promise.all([
@@ -79,7 +78,7 @@ test.describe('multiplayer — two players in the same session', () => {
       action:    'MOVE_RIGHT',
       pressed:   true,
       chapterId: 1,
-      sessionId: session.id,
+      sessionId: sessionId,
     });
 
     // P2's iframe should see a `world` event carrying P1 in the
@@ -125,17 +124,48 @@ function bumpAsset(set: Set<string>, url: string, status: number): void {
   }
 }
 
-async function openFirstChapter(page: Page): Promise<void> {
-  // Re-render the home cards (the join/create sequence may have
-  // navigated away). Click the first card; pick the first Play. The
-  // modal Play is a `<button class="play-btn">` while the home card
-  // exposes a `<span class="play-btn">` — scope to the modal
-  // explicitly so we don't click the wrong layer.
-  // domcontentloaded — the long-lived SSE keeps networkidle from settling.
+/** Open the lobby modal, fill the create-session form, submit,
+ *  return the resulting session id once the picker is in the
+ *  active-session state. Modal stays open with the chapter list
+ *  visible. */
+async function createSessionViaLobby(page: Page, sessionName: string): Promise<string> {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const card = page.locator('.game-card').first();
   await card.waitFor({ state: 'visible', timeout: 20_000 });
   await card.click();
+  await page.locator('#session-name-input').fill(sessionName);
+  await page.locator('input[type="radio"][value="public"]').check();
+  await page.locator('button.create-btn').click();
+  await page.locator('.session-picker-active').waitFor({ state: 'visible', timeout: 15_000 });
+  return await page.evaluate(async (name: string) => {
+    const raw = window.sessionStorage.getItem('tw_auth');
+    const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
+    const r = await fetch('/api/sessions?gameSlug=three-wizards', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const list = (await r.json()) as Array<{ id: string; name: string }>;
+    return (list.find(s => s.name === name) ?? list[0]).id;
+  }, sessionName);
+}
+
+/** Open the lobby modal and click Join on the row matching
+ *  {@code sessionName}. Modal flips into the active-session state. */
+async function joinSessionViaLobby(page: Page, sessionName: string): Promise<void> {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  const card = page.locator('.game-card').first();
+  await card.waitFor({ state: 'visible', timeout: 20_000 });
+  await card.click();
+  // Each .session-row has the session name + a Join button. Filter
+  // to the row whose name matches and click its Join.
+  const row = page.locator('.session-row', {
+    has: page.locator('.session-name', { hasText: sessionName }),
+  }).first();
+  await row.waitFor({ state: 'visible', timeout: 15_000 });
+  await row.locator('button.join-btn').click();
+  await page.locator('.session-picker-active').waitFor({ state: 'visible', timeout: 15_000 });
+}
+
+async function launchFirstChapter(page: Page): Promise<void> {
   const play = page.locator('.modal-backdrop button.play-btn:not([disabled])').first();
   await play.waitFor({ state: 'visible', timeout: 15_000 });
   await play.click();
