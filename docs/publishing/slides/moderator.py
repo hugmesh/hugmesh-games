@@ -41,6 +41,7 @@ SECTIONS = [
             "Federated console: frontend/projects/mod, mounted via loadRemoteModule.",
             "Non-mods see a 403 banner. /admin remains gated to ROLE_ADMIN.",
         ],
+        "image": "screenshot:mod-console",
     },
     {
         "title": "What you can do",

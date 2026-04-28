@@ -39,6 +39,7 @@ SECTIONS = [
             "Live sessions — read-only for your games (kick is mod-only).",
             "Federated console: frontend/projects/publisher.",
         ],
+        "image": "screenshot:publisher-console",
     },
     {
         "title": "Upload pipeline",

@@ -18,7 +18,7 @@
 
   % BFF
   \node[snapnode,minimum width=110mm,minimum height=14mm,below=22mm of $(pa)!0.5!(pb)$] (bff)
-    {BFF — \texttt{GameStateService.applyControl(event, characterId, sessionId)}};
+    {BFF --- \texttt{GameStateService.applyControl(event, characterId, sessionId)}};
 
   \draw[arr] (pa) -- node[left,xshift=-2mm,align=right]
     {\texttt{POST /api/controls/\{cid\_A\}}\\\texttt{X-Session-Id: $\alpha$}} (pa |- bff.north);
@@ -55,5 +55,5 @@
 
   % Caption strip
   \node[font=\sffamily\tiny\itshape,below=8mm of subadm,text=gray] (cap)
-    {Isolation locked in by \texttt{SessionIsolationTest} — emit on $\alpha$, assert $\beta$ subscriber sees nothing.};
+    {Isolation locked in by \texttt{SessionIsolationTest} --- emit on $\alpha$, assert $\beta$ subscriber sees nothing.};
 \end{tikzpicture}

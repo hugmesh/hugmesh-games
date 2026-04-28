@@ -17,7 +17,7 @@
   \node[snapnode,minimum width=36mm,below=24mm of mainTs,xshift=12mm]
                                                            (boot)        {dynamic import\\ bootstrap.ts};
   \node[snapnode,minimum width=40mm,right=of boot]         (app)         {bootstrapApplication\\ AppComponent};
-  \node[snapdarknode,minimum width=40mm,right=of app]      (route)       {Router → /login\\ loadComponent};
+  \node[snapdarknode,minimum width=40mm,right=of app]      (route)       {Router $\to$ /login\\ loadComponent};
   \node[snapnode,minimum width=40mm,right=of route]        (loadRemote)  {loadRemote(\textquotesingle login\textquotesingle ,\\ \textquotesingle ./LoginComponent\textquotesingle)};
 
   % Vertical connector between phases (centred under stash)
@@ -36,10 +36,10 @@
     \node[fit=(mainTs)(fetch)(fed)(stash),
           fill=snapAccent!4,rounded corners=6pt,inner sep=10pt,
           label={[font=\sffamily\bfseries\small\color{snapAccent},
-                  yshift=2pt]above:Phase 1 — federation runtime}] {};
+                  yshift=2pt]above:Phase 1 --- federation runtime}] {};
     \node[fit=(boot)(app)(route)(loadRemote),
           fill=snapAccentTwo!10,rounded corners=6pt,inner sep=10pt,
           label={[font=\sffamily\bfseries\small\color{snapAccent},
-                  yshift=-2pt]below:Phase 2 — Angular bootstrap}] {};
+                  yshift=-2pt]below:Phase 2 --- Angular bootstrap}] {};
   \end{scope}
 \end{tikzpicture}
