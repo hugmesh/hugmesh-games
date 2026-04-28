@@ -136,6 +136,16 @@ Decision: see [`docs/wiki/decisions/015-friends-blocks-and-session-visibility.md
 - The level→chapter rename is now complete in source: `chapter_id` URL param, `/api/chapters/...` endpoint, `chapter_membership` Cassandra table, `TW_CHAPTER_TRANSITION` postMessage. Only the `assets/levels/<slug>/` filesystem path stays per the original holdout. After pulling, run `make build-rust && make build-godot` to re-export the bundles with the new URL contract — already-exported bundles will silently 404 their scene fetch.
 - The `snapdragon_export` Godot addon now lives canonically in `extensions/snapdragon-bridge/addons/snapdragon_export/` alongside `snapdragon_bridge/`; `make sync-bridge-addon` copies both into each `games/<slug>/addons/` and the per-game copies are gitignored.
 
+## Integration-testing profile + multi-user e2e (Phase 9)
+
+- `make e2e` brings up the full stack with the `integration-test` Spring profile (TLS, deterministic Casdoor seed, verbose multiplayer logging) and runs the Playwright suite under `e2e/tests/`.
+- Every Casdoor seed user (`player` / `player1..3` / `admin` / `mod` / `mod-three-wizards` / `mod-dodecahedron` / `publisher` / `publisher-three-wizards` / `publisher-dodecahedron`) gets a deterministic password, default `e2e-pass`. Override individually via the matching `E2E_*_PASSWORD` env or change the shared default with `E2E_PASSWORD=…`.
+- `e2e/tests/helpers/roles.ts` is the catalogue Playwright iterates; `helpers/sse-bridge.ts` installs an iframe-side `window.message` capture so a spec can assert on the `SD_SSE_EVENT` deliveries the BridgeGlue would normally drain.
+- New specs:
+    - `per-role-assets.spec.ts` — every seed role logs in, opens the first chapter, asserts the WASM bundle bytes (index.html / index.wasm / index.pck) come down with HTTP 200.
+    - `multiplayer-same-session.spec.ts` — two players in one session both load the bundle and player2's iframe receives an SSE event after player1 emits a control.
+    - `cross-session-isolation.spec.ts` — two sessions for the same game; player1 moves in session A, player2 in session B sees no event carrying P1's character. The e2e flip-side of `SessionIsolationTest`.
+
 ## Workflow conventions
 
 - **Branches**: `feature/<short-slug>` for new work, `fix/<short-slug>` for bug-fixes, `docs/<slug>` for doc-only changes, `chore/<slug>` for tooling.

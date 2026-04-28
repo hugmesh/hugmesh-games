@@ -4,10 +4,15 @@ const baseURL = process.env.E2E_BASE_URL ?? 'https://host.docker.internal:8080';
 
 export default defineConfig({
   testDir: './tests',
-  fullyParallel: false,
-  workers: 1,
+  // Per-spec parallelism — each spec opens its own browser contexts and
+  // doesn't share state with the others, so running multiple in parallel
+  // keeps the per-role matrix from blowing the wall-clock budget. The
+  // WASM bundle is heavy; cap at 2 workers so memory on the e2e
+  // container stays sane.
+  fullyParallel: true,
+  workers: 2,
   retries: 0,
-  timeout: 120_000,
+  timeout: 180_000,
   reporter: [
     ['list'],
     ['html', { outputFolder: '/work/results/html', open: 'never' }],

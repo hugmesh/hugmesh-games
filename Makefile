@@ -379,7 +379,13 @@ deploy: build-godot seed-db
 
 E2E_FILES        = -f docker-compose.yml -f docker-compose.e2e.yml
 E2E_PLAYER_USER ?= player
-E2E_PLAYER_PASS ?= e2e-player-pass
+E2E_PLAYER_PASS ?= e2e-pass
+# Shared password for every Casdoor seed user under the integration-test
+# profile. Each per-role env var defaults to E2E_PASSWORD so a single
+# override flips them all. See docker-compose.e2e.yml for the full
+# CASDOOR_*_PASS list and e2e/tests/helpers/roles.ts for the matching
+# Playwright catalogue.
+E2E_PASSWORD    ?= e2e-pass
 
 gen-certs:
 	@echo "→ Generating self-signed certs (or reusing CERT_PATH if set)…"
@@ -415,6 +421,7 @@ e2e: gen-certs
 	docker compose $(E2E_FILES) run --rm \
 	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
 	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  -e E2E_PASSWORD="$(E2E_PASSWORD)" \
 	  e2e; \
 	status=$$?; \
 	echo "→ Tearing down…"; \

@@ -36,13 +36,40 @@ services:
       KEYSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
       TRUSTSTORE_PATH: /etc/api/certs/truststore.p12
       TRUSTSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
-      # E2E player credentials — surfaced into Casdoor seeding so the
-      # Playwright spec knows what to log in with.
-      CASDOOR_PLAYER_PASS: ${E2E_PLAYER_PASSWORD:-e2e-player-pass}
+      # Integration-testing profile: every Casdoor seed user gets a
+      # deterministic password so the Playwright suite can log each
+      # role in without reading the random first-boot dump. Override
+      # individual passwords by exporting the matching env var; the
+      # E2E_PASSWORD default is what the specs hard-code as a fallback.
+      CASDOOR_ADMIN_PASS:        ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PLAYER_PASS:       ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PLAYER1_PASS:      ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PLAYER2_PASS:      ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PLAYER3_PASS:      ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_MOD_PASS:          ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_MOD_TWIAT_PASS:    ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_MOD_DODEC_PASS:    ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PUBLISHER_PASS:    ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PUB_TWIAT_PASS:    ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PUB_DODEC_PASS:    ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      # Spring profile that toggles the integration-testing seed
+      # (ChapterController fixtures + a known controller character so
+      # the multi-user specs can drive deterministic positions).
+      SPRING_PROFILES_ACTIVE: integration-test
 
   casdoor:
     environment:
-      CASDOOR_PLAYER_PASS: ${E2E_PLAYER_PASSWORD:-e2e-player-pass}
+      CASDOOR_ADMIN_PASS:        ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PLAYER_PASS:       ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PLAYER1_PASS:      ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PLAYER2_PASS:      ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PLAYER3_PASS:      ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_MOD_PASS:          ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_MOD_TWIAT_PASS:    ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_MOD_DODEC_PASS:    ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PUBLISHER_PASS:    ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PUB_TWIAT_PASS:    ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_PUB_DODEC_PASS:    ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
 
   e2e:
     build:
@@ -59,7 +86,22 @@ services:
       # exercise the same nginx + TLS + /api proxy path — just one hop shorter.
       E2E_BASE_URL: ${E2E_BASE_URL:-https://frontend:8443}
       E2E_PLAYER_USERNAME: ${E2E_PLAYER_USERNAME:-player}
-      E2E_PLAYER_PASSWORD: ${E2E_PLAYER_PASSWORD:-e2e-player-pass}
+      # All e2e roles default to the same password unless the host
+      # exports a per-role override. The Playwright specs read these
+      # off process.env so changing the password in one place flows
+      # everywhere.
+      E2E_PASSWORD:           ${E2E_PASSWORD:-e2e-pass}
+      E2E_PLAYER_PASSWORD:    ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_PLAYER1_PASSWORD:   ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_PLAYER2_PASSWORD:   ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_PLAYER3_PASSWORD:   ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_ADMIN_PASSWORD:     ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_MOD_PASSWORD:       ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_PUBLISHER_PASSWORD: ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_MOD_TWIAT_PASSWORD: ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_MOD_DODEC_PASSWORD: ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_PUB_TWIAT_PASSWORD: ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      E2E_PUB_DODEC_PASSWORD: ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
     volumes:
       - ./e2e/results:/work/results
     profiles:
