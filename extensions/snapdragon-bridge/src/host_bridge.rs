@@ -54,9 +54,7 @@ pub struct HostBridge {
     /// `input_egress` payloads so the BFF can scope the control write
     /// to one session's per-session sinks.
     session_id: GString,
-    /// Monotonic counter for [`request_api`] correlation. The wrap point
-    /// is i64::MAX requests per bridge instance — well beyond any
-    /// realistic session lifetime.
+    /// Monotonic counter for `request_api` correlation.
     next_request_id: i64,
 }
 
@@ -145,31 +143,35 @@ impl HostBridge {
     #[signal] fn slot_registered(slot: i64, character_id: i64, is_local: bool);
     #[signal] fn slot_released(slot: i64);
 
-    /// Outbound API request — the GDScript glue forwards each payload
-    /// to the parent host shell which performs the actual HTTP call
-    /// (so the host's HttpClient interceptor + X-Session-Id header
-    /// flow naturally) and posts the response back via
-    /// `api_response_received`.
+    /// Outbound API request — `BridgeGlue` postMessages each payload
+    /// to the Angular wrapper, which performs the actual HTTP call (so
+    /// the host's HttpClient interceptor + auth header flow apply
+    /// uniformly) and posts the response back via
+    /// `api_response_received`. Game scripts use the addon's
+    /// `BridgeApiClient` rather than touching this signal directly.
     ///
     /// Payload JSON: `{requestId, method, path, sessionId, body}`.
-    /// `body` is already a JSON value (object / array / null), not an
-    /// escaped string. Game scripts use the addon's
-    /// `BridgeApiClient.gd` which wraps this signal with a
-    /// Callable-based callback API; nobody calls `HTTPRequest`
-    /// directly any more.
     #[signal] fn api_request_egress(payload: GString);
 
-    /// Inbound API response from the host. Payload JSON:
+    /// Inbound API response from the Angular wrapper. Payload JSON:
     /// `{requestId, status, body}`. `BridgeApiClient` indexes pending
-    /// requests by `requestId` and dispatches to the matching caller
-    /// callback.
+    /// requests by id and dispatches to the matching caller callback.
     #[signal] fn api_response_received(payload: GString);
+
+    /// Inbound SSE event from the Angular wrapper. The wrapper owns
+    /// the `EventSource` connection (one per mounted wrapper) and
+    /// postMessages each event into the iframe; `BridgeGlue` routes
+    /// the postMessage in via this signal. Payload JSON shape matches
+    /// the BFF's per-channel DTO. The wrapper owns the SSE plumbing
+    /// so the iframe stays a passive data consumer — Rust handles
+    /// the processing.
+    #[signal] fn sse_event_received(event_type: GString, payload: GString);
 
     /// Called by the GDScript glue once it confirms a parent module is
     /// present. Flips the bridge into streaming mode so [`send_input`]
     /// stops echoing locally and instead emits `input_egress`.
     #[func]
-    fn set_streaming_mode(&mut self, on: bool) {
+    pub fn set_streaming_mode(&mut self, on: bool) {
         self.streaming = on;
         let label = if on {
             "streaming (parent module attached)"
@@ -182,7 +184,7 @@ impl HostBridge {
     /// Reports whether the bridge is in streaming mode. Useful for
     /// HUD/debug overlays.
     #[func]
-    fn is_streaming(&self) -> bool {
+    pub fn is_streaming(&self) -> bool {
         self.streaming
     }
 
@@ -197,7 +199,7 @@ impl HostBridge {
     /// whether the event came from the BFF SSE or a host-tier
     /// gamepad poll relayed through postMessage.
     #[func]
-    fn dispatch_event(&mut self, event_type: GString, payload: GString) {
+    pub fn dispatch_event(&mut self, event_type: GString, payload: GString) {
         let signal = match event_type.to_string().as_str() {
             "movement"    => "movement_received",
             "world"       => "world_received",
@@ -295,7 +297,7 @@ impl HostBridge {
     /// Re-registering the same slot updates the character_id (covers
     /// the lobby flow where a player picks their wizard before launch).
     #[func]
-    fn register_player_slot(
+    pub fn register_player_slot(
         &mut self,
         slot: i64,
         character_id: i64,
@@ -333,7 +335,7 @@ impl HostBridge {
     /// GDScript reads this on scene start to figure out which wizard
     /// to attach the camera + input handling to.
     #[func]
-    fn local_slot(&self) -> i64 { self.local_slot }
+    pub fn local_slot(&self) -> i64 { self.local_slot }
 
     /// Returns the local-player's bound character_id (or -1).
     #[func]
@@ -350,7 +352,7 @@ impl HostBridge {
 
     /// Returns the active session id (empty string when single-player).
     #[func]
-    fn session_id(&self) -> GString { self.session_id.clone() }
+    pub fn session_id(&self) -> GString { self.session_id.clone() }
 
     /// Per-player camera / orientation sample. The local-player camera
     /// script calls this at ~10 Hz; the GDScript glue forwards the
@@ -376,20 +378,22 @@ impl HostBridge {
 
     // ── API bridge ─────────────────────────────────────────────────────
     //
-    // All Godot → BFF networking flows through here. The bridge owns
-    // the contract (request id, session/auth context); the host shell
-    // owns the transport (HttpClient with interceptors). The addon's
-    // `BridgeApiClient.gd` wraps these primitives with a Callable-based
-    // callback API so game scripts never touch `HTTPRequest`.
+    // The Angular wrapper component (`<app-{slug}-remote>`) owns both
+    // the SSE subscription and the API call transport. The wasm /
+    // Godot / Rust iframe is a data consumer only: it receives SSE
+    // events + API responses via postMessage, routed through
+    // `BridgeGlue` into typed signals here. Rust handles the actual
+    // data processing.
 
-    /// Emit an outbound API request on the egress channel. Returns the
-    /// request id so the caller can correlate the eventual
+    /// Emit an outbound API request on the egress channel. Returns
+    /// the request id so the caller correlates the eventual
     /// `api_response_received` signal back to its callback.
     ///
-    /// `body_json` is the literal JSON value to send (e.g. `"null"`,
-    /// `"{\"x\":1}"`, `"[1,2,3]"`). Pass `"null"` for GET requests.
+    /// `body_json` is the literal JSON value (`"null"`, `"{\"x\":1}"`,
+    /// `"[1,2,3]"`); `BridgeApiClient` does the variant-to-JSON
+    /// stringify before calling.
     #[func]
-    fn request_api(&mut self, method: GString, path: GString, body_json: GString) -> i64 {
+    pub fn request_api(&mut self, method: GString, path: GString, body_json: GString) -> i64 {
         let id = self.next_request_id;
         self.next_request_id += 1;
 
@@ -410,12 +414,12 @@ impl HostBridge {
         id
     }
 
-    /// Called by the GDScript glue when a `SD_API_RESPONSE` payload
-    /// arrives from the host. Re-emits as `api_response_received` so
-    /// `BridgeApiClient`'s pending-request map can dispatch to the
-    /// matching callback.
+    /// Called by `BridgeGlue` when an `SD_API_RESPONSE` payload
+    /// arrives from the Angular wrapper. Re-emits as
+    /// `api_response_received` so `BridgeApiClient`'s pending map
+    /// can dispatch to the matching callback.
     #[func]
-    fn dispatch_api_response(&mut self, payload: GString) {
+    pub fn dispatch_api_response(&mut self, payload: GString) {
         self.base_mut().emit_signal(
             "api_response_received",
             &[payload.to_variant()],

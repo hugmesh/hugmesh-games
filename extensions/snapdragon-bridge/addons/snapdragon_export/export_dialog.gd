@@ -5,7 +5,10 @@ extends Window
 # to a temp directory, and produces a deploy-ready zip:
 #
 #   <slug>-snapdragon-bundle.zip
-#   ├── manifest.json     (schema_version 1 — see ManifestBuilder)
+#   ├── manifest.json     (schema_version 2 — see ManifestBuilder)
+#   ├── register.sql      (INSERT rows the BFF executes in-tx)
+#   ├── federation/       (federated remote stub — see _write_federation_stub)
+#   │   └── remoteEntry.json
 #   └── bundle/           (Godot Web export output verbatim)
 #       ├── index.html
 #       ├── index.wasm
@@ -15,6 +18,12 @@ extends Window
 # The zip is what the Snapdragon BFF's /api/admin/games/upload endpoint
 # accepts; nothing else here knows about HTTP — uploading is a separate
 # step the operator does from the admin UI.
+#
+# Federation contract: the BFF unpacks federation/ under
+# /_remotes/<slug>/ and inserts a row in federation_modules whose
+# remote_entry_url points at /_remotes/<slug>/remoteEntry.json. The
+# host shell's RemoteLoaderService picks that up on the next
+# /api/federation/manifest fetch — no frontend rebuild required.
 
 const MANIFEST_SCHEMA_VERSION := 2
 const ManifestBuilder := preload("res://addons/snapdragon_export/manifest_builder.gd")
@@ -46,6 +55,13 @@ func _ready() -> void:
 	root.offset_bottom = -16
 	add_child(root)
 
+	root.add_child(_make_label("Snapdragon Export — package this game for upload", 16, true))
+	root.add_child(_make_label(
+		"Pick a Web export preset, fill in the metadata, and the dialog produces a single zip "
+		+ "containing the Godot bundle, the federation stub, and the SQL the BFF runs to "
+		+ "self-register the new game across the games / chapters / federation_modules tables.",
+		12, false))
+
 	root.add_child(_make_label("Export preset (Web platform only)", 14, true))
 	_preset_dropdown = OptionButton.new()
 	_populate_preset_dropdown()
@@ -54,11 +70,15 @@ func _ready() -> void:
 	root.add_child(_make_label("Game slug (lowercase, dash-separated)", 14, true))
 	_slug_edit = LineEdit.new()
 	_slug_edit.placeholder_text = "dodecahedron"
+	# Auto-fill from the project name so a fresh dev gets a sensible
+	# default. The dev can still edit before exporting.
+	_slug_edit.text = _suggested_slug()
 	root.add_child(_slug_edit)
 
 	root.add_child(_make_label("Display name", 14, true))
 	_name_edit = LineEdit.new()
 	_name_edit.placeholder_text = "Dodecahedron Demo"
+	_name_edit.text = String(ProjectSettings.get_setting("application/config/name", ""))
 	root.add_child(_name_edit)
 
 	root.add_child(_make_label("Description", 14, true))
@@ -70,6 +90,10 @@ func _ready() -> void:
 	root.add_child(_make_label("scene_type tag (matches frontend SCENE_ICONS / CHROMELESS_SCENE_TYPES)", 14, true))
 	_scene_type_edit = LineEdit.new()
 	_scene_type_edit.placeholder_text = "dodecahedron"
+	# Default scene_type to the slug — most single-chapter demos want
+	# the two to match. Devs override only when the game has several
+	# distinct scene flavours that share a slug.
+	_scene_type_edit.text = _suggested_slug()
 	root.add_child(_scene_type_edit)
 
 	_chromeless_check = CheckBox.new()
@@ -232,7 +256,7 @@ func _on_export_pressed() -> void:
 
 	# v2: emit register.sql so the BFF's upload endpoint can run it inside
 	# the install transaction and self-register the new game (rows in
-	# games / levels / federation_modules / game_access). The BFF still
+	# games / chapters / federation_modules / game_access). The BFF still
 	# validates schema_version + slug before executing.
 	var sql_path := ProjectSettings.globalize_path(staging + "/register.sql")
 	var sql_file := FileAccess.open(sql_path, FileAccess.WRITE)
@@ -242,6 +266,19 @@ func _on_export_pressed() -> void:
 		return
 	sql_file.store_string(ManifestBuilder.to_register_sql(manifest))
 	sql_file.close()
+
+	# Federation stub — gives the BFF something to mount under
+	# /_remotes/<slug>/ so the federation runtime can resolve the
+	# game without a frontend rebuild. The stub points at the
+	# wasm-fragment iframe wrapper (the same path three-wizards +
+	# dodecahedron use today via SCENE_TYPE_TO_GAME_SLUG).
+	var fed_dir := staging + "/federation"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(fed_dir))
+	var fed_err := _write_federation_stub(slug, scene_type, fed_dir)
+	if fed_err != OK:
+		_set_status("Could not write federation stub (Godot error %d)." % fed_err, true)
+		_export_btn.disabled = false
+		return
 
 	# Pack staging/ into a zip at output_path.
 	var abs_output := output_path
@@ -256,7 +293,15 @@ func _on_export_pressed() -> void:
 	# Best-effort cleanup of staging dir.
 	_recursive_delete(ProjectSettings.globalize_path(staging))
 
-	_set_status("✓ Bundle written to %s\nUpload via /api/admin/games/upload (admin UI: /admin/games)." % abs_output, false)
+	_set_status(
+		"✓ Bundle written to %s\n\n"
+		% abs_output
+		+ "Next: open the host UI at /admin/games (sign in as admin) and "
+		+ "drop the zip into the upload form. The BFF unpacks bundle/ + "
+		+ "federation/ into the static asset path, runs register.sql in a "
+		+ "transaction, and the new game shows up on the home page on the "
+		+ "next /api/games/available fetch — no frontend rebuild needed.",
+		false)
 	_export_btn.disabled = false
 
 
@@ -286,13 +331,13 @@ func _zip_directory_recursive(packer: ZIPPacker, abs_dir: String, rel_prefix: St
 		return ERR_CANT_OPEN
 	d.list_dir_begin()
 	while true:
-		var name := d.get_next()
-		if name == "":
+		var entry := d.get_next()
+		if entry == "":
 			break
-		if name == "." or name == "..":
+		if entry == "." or entry == "..":
 			continue
-		var abs_path := abs_dir + "/" + name
-		var rel_path := name if rel_prefix == "" else rel_prefix + "/" + name
+		var abs_path := abs_dir + "/" + entry
+		var rel_path := entry if rel_prefix == "" else rel_prefix + "/" + entry
 		if d.current_is_dir():
 			var sub_err := _zip_directory_recursive(packer, abs_path, rel_path)
 			if sub_err != OK:
@@ -320,15 +365,75 @@ func _recursive_delete(abs_dir: String) -> void:
 		return
 	d.list_dir_begin()
 	while true:
-		var name := d.get_next()
-		if name == "":
+		var entry := d.get_next()
+		if entry == "":
 			break
-		if name == "." or name == "..":
+		if entry == "." or entry == "..":
 			continue
-		var abs_path := abs_dir + "/" + name
+		var abs_path := abs_dir + "/" + entry
 		if d.current_is_dir():
 			_recursive_delete(abs_path)
 		else:
 			DirAccess.remove_absolute(abs_path)
 	d.list_dir_end()
 	DirAccess.remove_absolute(abs_dir)
+
+
+# Best-effort default slug — strip non-[a-z0-9-] characters from the
+# project's display name so a fresh dev gets a sensible value pre-filled
+# in the dialog. The user can still edit before exporting.
+func _suggested_slug() -> String:
+	var raw := String(ProjectSettings.get_setting("application/config/name", ""))
+	var lower := raw.to_lower()
+	var out := ""
+	for i in range(lower.length()):
+		var c := lower.substr(i, 1)
+		if c >= "a" and c <= "z":
+			out += c
+		elif c >= "0" and c <= "9":
+			out += c
+		elif c == " " or c == "-" or c == "_":
+			out += "-"
+	# Collapse repeated dashes and trim leading/trailing.
+	while out.find("--") >= 0:
+		out = out.replace("--", "-")
+	out = out.lstrip("-").rstrip("-")
+	return out
+
+
+# Federation stub generator. The BFF unpacks federation/ into
+# /_remotes/<slug>/ at install time and the host shell's
+# RemoteLoaderService picks up the new slug on the next
+# /api/federation/manifest fetch — no Angular rebuild required.
+#
+# Schema mirrors what native-federation expects: a remoteEntry.json
+# pointing at the wasm-fragment iframe wrapper. Games that need a
+# richer Angular wrapper (per-chapter HUD, custom controls overlay)
+# can ship their own remoteEntry.json + chunks alongside this stub by
+# adding files to federation/ before exporting; the dialog only
+# overwrites remoteEntry.json when it doesn't already exist.
+func _write_federation_stub(slug: String, scene_type: String, fed_dir: String) -> int:
+	var path := ProjectSettings.globalize_path(fed_dir + "/remoteEntry.json")
+	if FileAccess.file_exists(path):
+		# Dev shipped their own stub — leave it alone.
+		return OK
+	var stub := {
+		"name": slug,
+		"shared": [],
+		"exposes": [
+			{
+				"key": "./Component",
+				"outFileName": "wasm-fragment-shell.js",
+				"sceneType": scene_type,
+			}
+		],
+		"version": "1.0",
+		"kind": "wasm-fragment",
+		"description": "Auto-generated by Snapdragon Export — wraps the bundle/ iframe for the federation runtime.",
+	}
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return FileAccess.get_open_error()
+	f.store_string(JSON.stringify(stub, "  "))
+	f.close()
+	return OK

@@ -24,7 +24,10 @@ extends Control
 
 signal session_joined(session_id: String, slot_index: int)
 
-var _api: BridgeApiClient = null
+# BridgeApiClient is the Rust class registered by snapdragon_bridge;
+# kept untyped here so the GDScript class loader doesn't try to
+# resolve it at parse time when the extension hasn't loaded yet.
+var _api: Node = null
 var _sessions: Array = []
 var _visibility: String = "public"
 
@@ -51,7 +54,7 @@ func _refresh() -> void:
 	var path := "/api/sessions"
 	if game_slug != "":
 		path += "?gameSlug=" + game_slug.uri_encode()
-	_api.get(path, func(status, body):
+	_api.http_get(path, func(status, body):
 		if status != 200 or not (body is Array):
 			# The host shell's NotificationService renders the friendly
 			# toast on a non-2xx; here we just relax the local label.
@@ -99,7 +102,7 @@ func _join(session: Dictionary) -> void:
 	if slot < 0:
 		_set_status("Session is full.")
 		return
-	_api.post("/api/sessions/%s/join" % sid,
+	_api.http_post("/api/sessions/%s/join" % sid,
 		{"characterId": character_id, "slotIndex": slot},
 		func(status, _body):
 			if status >= 200 and status < 300:
@@ -122,7 +125,7 @@ func _create() -> void:
 		_set_status("Session name required.")
 		return
 	var max_players := int(_max_input.value) if _max_input else 3
-	_api.post("/api/sessions",
+	_api.http_post("/api/sessions",
 		{"gameSlug": game_slug, "name": name, "maxPlayers": max_players,
 		 "visibility": _visibility,
 		 "characterId": character_id, "slotIndex": 0},

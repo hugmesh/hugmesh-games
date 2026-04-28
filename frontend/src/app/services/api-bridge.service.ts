@@ -18,6 +18,15 @@ interface ViewEgressPayload {
   yaw: number; pitch: number; fov: number;
 }
 
+/** Channels the SSE relay forwards into the iframe via SD_SSE_EVENT. */
+const SSE_CHANNELS = ['movement', 'world', 'character', 'time', 'scene'] as const;
+type SseChannel = typeof SSE_CHANNELS[number];
+
+interface SseSubscribeRequest {
+  /** Optional session id — when set, scopes the stream to per-session sinks. */
+  sessionId?: string;
+}
+
 /**
  * Host-shell side of the Snapdragon bridge's API egress channel.
  *
@@ -50,6 +59,16 @@ export class ApiBridgeService {
   private readonly http = inject(HttpClient);
   private started = false;
 
+  /**
+   * One EventSource per origin Window. The iframe sends
+   * `SD_SSE_SUBSCRIBE` once on boot; we open the EventSource and pipe
+   * each typed event back via `SD_SSE_EVENT` so the iframe's Rust
+   * BridgeGlue can dispatch it through HostBridge into typed signals.
+   * Tearing down the EventSource is keyed by the source Window so
+   * remounting an iframe (cave → field) closes the prior stream.
+   */
+  private readonly sseStreams = new WeakMap<Window, EventSource>();
+
   start(): void {
     if (this.started || typeof window === 'undefined') return;
     this.started = true;
@@ -67,6 +86,14 @@ export class ApiBridgeService {
     }
     if (data.type === 'SD_VIEW_EGRESS') {
       void this.handleViewEgress(data.payload as ViewEgressPayload);
+      return;
+    }
+    if (data.type === 'SD_SSE_SUBSCRIBE') {
+      this.handleSseSubscribe(e, (data.payload as SseSubscribeRequest) ?? {});
+      return;
+    }
+    if (data.type === 'SD_SSE_UNSUBSCRIBE') {
+      this.handleSseUnsubscribe(e);
       return;
     }
   };
@@ -123,5 +150,55 @@ export class ApiBridgeService {
       type: 'SD_API_RESPONSE',
       payload: { requestId, status, body },
     }, '*');
+  }
+
+  /**
+   * Open an EventSource on the iframe's behalf and pipe typed events
+   * back as `SD_SSE_EVENT`. The iframe runs as a passive consumer —
+   * Rust handles the data once it lands.
+   *
+   * One stream per iframe Window; remounting (chapter swap) replaces
+   * the prior stream so we don't leak connections.
+   */
+  private handleSseSubscribe(e: MessageEvent, req: SseSubscribeRequest): void {
+    const target = e.source as Window | null;
+    if (!target) return;
+    this.handleSseUnsubscribe(e);
+
+    const url = req.sessionId
+      ? `/api/game/stream?sessionId=${encodeURIComponent(req.sessionId)}`
+      : '/api/game/stream';
+    const source = new EventSource(url);
+    for (const channel of SSE_CHANNELS) {
+      source.addEventListener(channel, (ev: MessageEvent) => {
+        let parsed: unknown = null;
+        try {
+          parsed = ev.data ? JSON.parse(ev.data as string) : null;
+        } catch {
+          parsed = ev.data;
+        }
+        target.postMessage({
+          type: 'SD_SSE_EVENT',
+          payload: { type: channel, payload: parsed },
+        }, '*');
+      });
+    }
+    source.onerror = () => {
+      // EventSource auto-reconnects; only log so a transient blip
+      // doesn't drown the console.
+      // eslint-disable-next-line no-console
+      console.warn('[api-bridge] SSE stream error — auto-reconnecting');
+    };
+    this.sseStreams.set(target, source);
+  }
+
+  private handleSseUnsubscribe(e: MessageEvent): void {
+    const target = e.source as Window | null;
+    if (!target) return;
+    const existing = this.sseStreams.get(target);
+    if (existing) {
+      existing.close();
+      this.sseStreams.delete(target);
+    }
   }
 }

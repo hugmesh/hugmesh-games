@@ -10,7 +10,8 @@ extends Node
 
 class_name ApiClient
 
-const _BridgeApiClient = preload("res://addons/snapdragon_bridge/bridge_api_client.gd")
+# BridgeApiClient is a Rust class registered by the snapdragon_bridge
+# GDExtension; instantiated by name (no preload needed).
 
 signal scene_received(scene: Dictionary)
 signal chapter_assets_received(assets: Array)
@@ -20,13 +21,13 @@ var _api: Node = null
 
 
 func _ready() -> void:
-	_api = _BridgeApiClient.new()
+	_api = BridgeApiClient.new()
 	add_child(_api)
 
 
 ## GET /api/chapters/{id}/scene
 func fetch_scene(chapter_id: int, on_done: Callable = Callable()) -> void:
-	_api.get("/api/chapters/%d/scene" % chapter_id, func(status, body):
+	_api.http_get("/api/chapters/%d/scene" % chapter_id, func(status, body):
 		if status != 200 or not (body is Dictionary):
 			error.emit("scene: status %d" % status)
 			return
@@ -38,7 +39,7 @@ func fetch_scene(chapter_id: int, on_done: Callable = Callable()) -> void:
 
 ## GET /api/chapters/{id}/assets — list of registered textures/plugins for this chapter.
 func fetch_chapter_assets(chapter_id: int, on_done: Callable = Callable()) -> void:
-	_api.get("/api/chapters/%d/assets" % chapter_id, func(status, body):
+	_api.http_get("/api/chapters/%d/assets" % chapter_id, func(status, body):
 		if status != 200 or not (body is Array):
 			error.emit("chapter-assets: status %d" % status)
 			return
@@ -51,7 +52,7 @@ func fetch_chapter_assets(chapter_id: int, on_done: Callable = Callable()) -> vo
 ## GET /api/chapters/{id}/assets/by-label/{label} → resolved asset URL.
 func resolve_asset(chapter_id: int, label: String, on_done: Callable) -> void:
 	var path := "/api/chapters/%d/assets/by-label/%s" % [chapter_id, label.uri_encode()]
-	_api.get(path, func(status, body):
+	_api.http_get(path, func(status, body):
 		if status != 200 or not (body is Dictionary) or not body.has("filePath"):
 			error.emit("resolve: %s -> status %d" % [label, status])
 			return

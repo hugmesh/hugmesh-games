@@ -68,6 +68,7 @@ Why the system has the shape it has. Each entry is one decision, the constraint 
 - [013 — Per-player view egress channel for admin observation](decisions/013-player-view-channel.md)
 - [014 — All Godot networking flows through the bridge](decisions/014-bridge-routed-networking.md)
 - [015 — Friends, blocks, session visibility, and per-user session log](decisions/015-friends-blocks-and-session-visibility.md)
+- [016 — Rust GDExtension owns the bridge; Angular wrapper relays SSE + HTTP](decisions/016-rust-extension-and-fragment-relay.md)
 
 ## Where the canonical sources live
 

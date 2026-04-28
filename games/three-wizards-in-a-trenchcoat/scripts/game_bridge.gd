@@ -24,7 +24,13 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		_thread_multiplayer_url_params()
 		_fetch_game_config()
-		_connect_sse_web()
+		# SSE subscription now lives in the Angular wrapper — ask it
+		# to open the EventSource and pipe typed events back as
+		# SD_SSE_EVENT postMessages. BridgeGlue (Rust) drains the
+		# resulting JS-side queue per frame and dispatches through
+		# HostBridge.dispatch_event into the typed signals scene
+		# scripts already consume.
+		_request_sse_subscription()
 	else:
 		# Local-play mode (Godot editor F5, headless export). No JS bridge,
 		# no parent module, no API. Fake a scene event so scene_loader
@@ -103,75 +109,22 @@ func _fetch_game_config() -> void:
 })();
 """)
 
-func _connect_sse_web() -> void:
-	JavaScriptBridge.eval("""
-(function() {
-	if (window._twGameSSE) { window._twGameSSE.close(); }
-	// Movement queued (not latest-wins) so a rapid keydown→keyup pair doesn't
-	// collapse into just the keyup — spells only fire on pressed=true and get
-	// lost between Godot's ~16ms polls otherwise.
-	window._twMovementQueue   = [];
-	window._twLatestWorld     = null;
-	window._twLatestCharacter = null;
-	window._twLatestTime      = null;
-	window._twLatestScene     = null;
-	var base = (window.location.host === 'localhost:4200') ? 'http://localhost:8080' : '';
-	var src = new EventSource(base + '/api/game/stream');
-	window._twGameSSE = src;
-	src.addEventListener('movement',  function(e) {
-		try {
-			window._twMovementQueue.push(JSON.parse(e.data));
-			if (window._twMovementQueue.length > 32) window._twMovementQueue.shift();
-		} catch(ex) {}
-	});
-	src.addEventListener('world',     function(e) { try { window._twLatestWorld     = JSON.parse(e.data); } catch(ex) {} });
-	src.addEventListener('character', function(e) { try { window._twLatestCharacter = JSON.parse(e.data); } catch(ex) {} });
-	src.addEventListener('time',      function(e) { try { window._twLatestTime      = JSON.parse(e.data); } catch(ex) {} });
-	src.addEventListener('scene',     function(e) { try { window._twLatestScene     = JSON.parse(e.data); } catch(ex) {} });
-	src.onerror = function() { console.warn('[GameBridge] SSE error'); };
-})();
-""")
-
-func _poll(js_var: String) -> Dictionary:
-	var raw: Variant = JavaScriptBridge.eval("JSON.stringify(%s)" % js_var)
-	if not raw or raw == "null":
-		return {}
-	var parsed = JSON.parse_string(str(raw))
-	JavaScriptBridge.eval("%s = null" % js_var)
-	return parsed if parsed is Dictionary else {}
-
-# Pull every queued movement event in order so spells (which only fire on
-# pressed==true) and controller-role changes aren't swallowed when keydown
-# and keyup land in the same poll window.
-func _drain_movement_queue() -> void:
-	var raw: Variant = JavaScriptBridge.eval(
-		"JSON.stringify((window._twMovementQueue && window._twMovementQueue.splice(0, window._twMovementQueue.length)) || [])"
+## Ask the Angular wrapper to subscribe to /api/game/stream on this
+## iframe's behalf and forward each event back as SD_SSE_EVENT. The
+## wrapper owns the EventSource so the iframe stays a passive
+## consumer; Rust BridgeGlue catches the postMessages and routes
+## them through HostBridge.dispatch_event.
+func _request_sse_subscription() -> void:
+	var sid_raw: Variant = JavaScriptBridge.eval(
+		"new URLSearchParams(window.location.search).get('session_id') || ''")
+	var sid := str(sid_raw) if sid_raw != null else ""
+	JavaScriptBridge.eval(
+		"window.parent.postMessage({type:'SD_SSE_SUBSCRIBE', payload: {sessionId: '%s'}}, '*')" % sid
 	)
-	if not raw or raw == "null":
-		return
-	var parsed = JSON.parse_string(str(raw))
-	if not (parsed is Array):
-		return
-	for item in parsed:
-		if item is Dictionary:
-			_dispatch("movement", item)
 
-func _process(_delta: float) -> void:
-	if not OS.has_feature("web"):
-		return
-	_drain_movement_queue()
-	var w := _poll("window._twLatestWorld")
-	if not w.is_empty():
-		_dispatch("world", w)
-	var c := _poll("window._twLatestCharacter")
-	if not c.is_empty():
-		_dispatch("character", c)
-	var t := _poll("window._twLatestTime")
-	if not t.is_empty():
-		_dispatch("time", t)
-	var s := _poll("window._twLatestScene")
-	if not s.is_empty():
-		_dispatch("scene", s)
+# SSE polling moved to the Angular wrapper + Rust BridgeGlue. This
+# script no longer needs a per-frame drain — the typed signals on
+# HostBridge fire whenever the wrapper postMessages a SD_SSE_EVENT.
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and not event.is_echo():
