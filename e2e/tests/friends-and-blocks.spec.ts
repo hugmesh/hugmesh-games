@@ -11,14 +11,19 @@ import { test, expect, Page } from '@playwright/test';
  */
 const PLAYER1 = process.env.E2E_PLAYER_USERNAME  ?? 'player1';
 const PLAYER2 = process.env.E2E_PLAYER2_USERNAME ?? 'player2';
-const PASS    = process.env.E2E_PLAYER_PASSWORD  ?? 'e2e-player-pass';
+const PASS    = process.env.E2E_PLAYER_PASSWORD  ?? (process.env.E2E_PASSWORD ?? 'e2e-pass');
 
 async function login(page: Page, user: string, pass: string): Promise<void> {
-  await page.goto('/login', { waitUntil: 'networkidle' });
+  await page.goto('/login', { waitUntil: 'domcontentloaded' });
   await page.fill('input[formControlName="username"]', user);
   await page.fill('input[formControlName="password"]', pass);
   await page.click('button.login-btn');
-  await page.waitForURL('**/', { timeout: 30_000 });
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+  await page.waitForFunction(() => {
+    const raw = window.sessionStorage.getItem('tw_auth');
+    if (!raw) return false;
+    try { return Boolean(JSON.parse(raw).accessToken); } catch { return false; }
+  }, undefined, { timeout: 15_000 });
 }
 
 test.describe('friends + blocking', () => {
@@ -42,8 +47,8 @@ test.describe('friends + blocking', () => {
     await p2.locator('button.accept-btn').first().click();
 
     // Refresh both — both should see the other in the friends list
-    await p1.reload({ waitUntil: 'networkidle' });
-    await p2.reload({ waitUntil: 'networkidle' });
+    await p1.reload({ waitUntil: 'domcontentloaded' });
+    await p2.reload({ waitUntil: 'domcontentloaded' });
 
     await expect(p1.locator('section[aria-label="Your friends"]')).toContainText(PLAYER2);
     await expect(p2.locator('section[aria-label="Your friends"]')).toContainText(PLAYER1);
@@ -62,7 +67,7 @@ test.describe('friends + blocking', () => {
     await login(blocked, PLAYER2, PASS);
 
     // blocked creates a public session
-    await blocked.click('text=Three Wizards');
+    await blocked.locator('.game-card').first().click();
     await blocked.fill('#session-name-input', 'block-test-session');
     await blocked.locator('input[type="radio"][value="public"]').check();
     await blocked.click('button.create-btn');
@@ -85,7 +90,7 @@ test.describe('friends + blocking', () => {
 
     // blocker opens Three Wizards lobby — blocked's session should NOT be listed
     await blocker.goto('/');
-    await blocker.click('text=Three Wizards');
+    await blocker.locator('.game-card').first().click();
     await expect(blocker.locator('text=block-test-session')).toHaveCount(0, { timeout: 10_000 });
 
     await ctxBlocker.close();

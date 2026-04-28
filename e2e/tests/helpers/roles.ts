@@ -55,15 +55,32 @@ export function passwordFor(user: SeedUser): string {
       ?? 'e2e-pass';
 }
 
-/** Drive the federated login form and wait for the home route. The
- *  inputs hang off `formControlName` because the login bundle is its
- *  own federated remote and that's the public selector contract. */
+/** Drive the federated login form and wait for the home route + a
+ *  populated `tw_auth` in sessionStorage. The form inputs hang off
+ *  `formControlName` because the login bundle is its own federated
+ *  remote and that's the public selector contract. The
+ *  `waitForFunction` after the URL transition guards against a race
+ *  where the spec's first API call lands before AuthService has
+ *  written the token. */
 export async function login(page: Page, user: SeedUser): Promise<void> {
-  await page.goto('/login', { waitUntil: 'networkidle' });
+  await page.goto('/login', { waitUntil: 'domcontentloaded' });
   await page.fill('input[formControlName="username"]', user.username);
   await page.fill('input[formControlName="password"]', passwordFor(user));
   await page.click('button.login-btn');
-  await page.waitForURL('**/', { timeout: 30_000 });
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+  await page.waitForFunction(
+    () => {
+      const raw = window.sessionStorage.getItem('tw_auth');
+      if (!raw) return false;
+      try {
+        return Boolean(JSON.parse(raw).accessToken);
+      } catch {
+        return false;
+      }
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
 }
 
 export async function logout(page: Page): Promise<void> {
@@ -105,7 +122,7 @@ export async function createSession(
     slotIndex?:   number;
   },
 ): Promise<{ id: string; name: string; gameSlug: string; visibility: string; maxPlayers: number; }> {
-  return await page.evaluate(async (req) => {
+  const result = await page.evaluate(async (req) => {
     const raw = window.sessionStorage.getItem('tw_auth');
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch('/api/sessions', {
@@ -113,9 +130,15 @@ export async function createSession(
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(req),
     });
-    if (!r.ok) throw new Error(`createSession failed: status ${r.status}`);
-    return await r.json();
+    const text = await r.text();
+    let json: unknown = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = text; }
+    return { status: r.status, body: json };
   }, body);
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error(`createSession failed: status ${result.status} body=${JSON.stringify(result.body)}`);
+  }
+  return result.body as { id: string; name: string; gameSlug: string; visibility: string; maxPlayers: number; };
 }
 
 /** Join a session by id. Returns the updated GameSession DTO. */

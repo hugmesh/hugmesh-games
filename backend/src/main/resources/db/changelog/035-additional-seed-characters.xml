@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Seeds two extra character rows alongside the existing 'Hero' (id=1)
+    so the multi-user e2e specs (multiplayer-same-session,
+    cross-session-isolation) can hand each player a distinct
+    character without inventing characters at test time.
+
+    Why static rows: characters are FK targets for session_members,
+    player_positions, character_skills, character_quests etc. — adding
+    them at test time would require multiple coordinated INSERTs.
+    Pre-seeding two more keeps the e2e specs self-contained.
+
+    The new rows have NULL casdoor_id (matching the 'Hero' default) so
+    they're available to any caller; the BFF's authorizeControl is
+    keyed on the active session_member who claimed the character, not
+    a static ownership column.
+  -->
+
+  <changeSet id="035-1-seed-multiplayer-characters" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="1">
+        SELECT CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END
+          FROM player_characters
+      </sqlCheck>
+    </preConditions>
+    <sql>
+INSERT INTO player_characters
+    (name, level, xp, xp_to_next, max_hp, current_hp, max_mp, current_mp,
+     attack, defense, speed, magic_power, current_chapter_id, created_at)
+VALUES
+    ('Wizard Two',   1, 0, 100, 100, 100, 50, 50, 10, 5, 8, 12, 1, NOW()),
+    ('Wizard Three', 1, 0, 100, 100, 100, 50, 50, 10, 5, 8, 12, 1, NOW());
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

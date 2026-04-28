@@ -45,8 +45,12 @@ test.describe('per-role login + asset load', () => {
       const firstGameCard = gameCards.first();
       await firstGameCard.click();
 
-      // Wait for the chapter modal to open + click the first Play button.
-      const playBtn = page.locator('.play-btn').first();
+      // Wait for the chapter modal to open + click the first Play
+      // button. The home cards expose `<span class="play-btn">Open
+      // chapters</span>` which the modal sits on top of, so the
+      // selector must scope to the actual `<button class="play-btn">`
+      // inside the modal — `button.play-btn` distinguishes them.
+      const playBtn = page.locator('.modal-backdrop button.play-btn:not([disabled])').first();
       await playBtn.waitFor({ state: 'visible', timeout: 15_000 });
       await playBtn.click();
 

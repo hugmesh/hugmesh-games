@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 
 const USERNAME = process.env.E2E_PLAYER_USERNAME ?? 'player';
-const PASSWORD = process.env.E2E_PLAYER_PASSWORD ?? 'e2e-player-pass';
+const PASSWORD = process.env.E2E_PLAYER_PASSWORD ?? 'e2e-pass';
 
 /**
  * Full cross-stack smoke. Asserts every layer between Playwright and the
@@ -45,7 +45,7 @@ test.describe('full-stack smoke', () => {
       [...seenAssetUrls].filter(u => u.includes('/dodecahedron/'));
 
     // Step 1: visit /login (auth guard sends unauthenticated users here).
-    await page.goto('/login', { waitUntil: 'networkidle' });
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('input[formControlName="username"]')).toBeVisible();
 
     // Step 2: log in as the seeded player.
@@ -144,7 +144,7 @@ test.describe('full-stack smoke', () => {
     // boundary is exercised even when the API rejects. (The /login route
     // is implicitly exercised earlier when we logged in via the federated
     // form.)
-    await page.goto('/admin', { waitUntil: 'networkidle' });
+    await page.goto('/admin', { waitUntil: 'domcontentloaded' });
     // The federated AdminShell renders its own header — `app-admin-remote`
     // is the selector createCustomElement registered, but loadComponent
     // attaches it as a normal Angular host element with the same selector.
