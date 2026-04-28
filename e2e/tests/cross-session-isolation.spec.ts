@@ -2,7 +2,7 @@ import { test, expect, BrowserContext, Page } from '@playwright/test';
 import {
   SEED_USERS, login, sendControl, newE2eContext,
 } from './helpers/roles';
-import { captureIframeSseEvents, drainCapturedEvents } from './helpers/sse-bridge';
+import { captureIframeSseEvents, drainCapturedEvents, installSseCapture } from './helpers/sse-bridge';
 
 const PLAYER1 = SEED_USERS.find(u => u.username === 'player1')!;
 const PLAYER2 = SEED_USERS.find(u => u.username === 'player2')!;
@@ -23,6 +23,11 @@ test.describe('cross-session isolation', () => {
   test('two sessions for the same game don\'t cross-stream events', async ({ browser }) => {
     const ctxA: BrowserContext = await newE2eContext(browser);
     const ctxB: BrowserContext = await newE2eContext(browser);
+    // Init-script capture so every iframe gets the listener before
+    // its own scripts run — eliminates the race where BridgeGlue
+    // drains the SSE queue before our capture attaches.
+    await installSseCapture(ctxA);
+    await installSseCapture(ctxB);
     const pA: Page = await ctxA.newPage();
     const pB: Page = await ctxB.newPage();
 
@@ -61,6 +66,24 @@ test.describe('cross-session isolation', () => {
 
     await captureIframeSseEvents(pA);
     await captureIframeSseEvents(pB);
+
+    // Wait for both wrappers to actually open their session-scoped
+    // EventSource. Without this guard we race the in-iframe wasm boot —
+    // the wrapper's `?sessionId=` GET fires only after game_bridge.gd's
+    // _request_sse_subscription posts SD_SSE_SUBSCRIBE, which only
+    // happens once the WASM compile finishes (15-30s on a cold image).
+    // If we send the control before B has subscribed, B's empty buffer
+    // is meaningless — it would just mean B wasn't listening yet.
+    await Promise.all([
+      pA.waitForResponse(
+        r => r.url().includes(`/api/game/stream?sessionId=${sessionAId}`),
+        { timeout: 60_000 },
+      ),
+      pB.waitForResponse(
+        r => r.url().includes(`/api/game/stream?sessionId=${sessionBId}`),
+        { timeout: 60_000 },
+      ),
+    ]);
 
     // Drain whatever queued during boot so the post-control assertion
     // only sees fresh deliveries.
@@ -133,34 +156,26 @@ test.describe('cross-session isolation', () => {
       return blob.includes('"characterId":1') || blob.includes('"slot":0,"characterId":1');
     });
 
-    if (sseB.length > 0 && !sessionScoped) {
-      // The iframe never got a session_id in its URL, so the
-      // wrapper's EventSource is unscoped. Pinned at the unit
-      // layer; re-exporting bundles + wiring the lobby flow into
-      // this spec restores the strict assertion.
-      console.warn(
-        '[isolation] session B observed ' + sseB.length + ' events from session A — ' +
-        'the iframe URL has no session_id query, so the wrapper subscribed to the ' +
-        'unscoped global stream. SessionIsolationTest pins the BFF-side contract; ' +
-        're-export Godot bundles and route the test through the lobby modal to ' +
-        'exercise the full e2e path.'
-      );
-    } else {
-      expect(
-        sseB,
-        `session B must NOT receive session A's events (got ${sseB.length})`,
-      ).toEqual([]);
-    }
-
-    // Surface a soft warning if A heard nothing — likely means the
-    // WASM bundle predates the SD_SSE_SUBSCRIBE refactor.
+    // Strict positive: session A must hear its own movement. The
+    // BridgeGlue queue drain (helpers/sse-bridge.ts) catches both
+    // events captured by our listener AND events queued by Rust
+    // BridgeGlue itself, so the assertion isn't racy with the
+    // wrapper's first postMessage.
+    expect(
+      sessionScoped,
+      'iframe URL must include session_id (lobby flow must populate activeSessionId)',
+    ).toBe(true);
     const sseA = eventsA.filter(e => e.type === 'SD_SSE_EVENT');
-    if (sseA.length === 0) {
-      console.warn(
-        '[isolation] session A heard 0 SSE events — re-export the Godot bundles ' +
-        '(make build-rust && make build-godot) to exercise the full SSE relay.'
-      );
-    }
+    expect(
+      sseA.length,
+      'session A must hear at least one SSE event from its own movement',
+    ).toBeGreaterThan(0);
+
+    // Strict negative: session B must NOT see session A's events.
+    expect(
+      sseB,
+      `session B must NOT receive session A's events (got ${sseB.length})`,
+    ).toEqual([]);
 
     await ctxA.close();
     await ctxB.close();

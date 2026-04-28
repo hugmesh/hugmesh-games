@@ -2,7 +2,7 @@ import { test, expect, BrowserContext, Page } from '@playwright/test';
 import {
   SEED_USERS, login, sendControl, newE2eContext,
 } from './helpers/roles';
-import { captureIframeSseEvents, drainCapturedEvents } from './helpers/sse-bridge';
+import { captureIframeSseEvents, drainCapturedEvents, installSseCapture } from './helpers/sse-bridge';
 
 const PLAYER1 = SEED_USERS.find(u => u.username === 'player1')!;
 const PLAYER2 = SEED_USERS.find(u => u.username === 'player2')!;
@@ -25,6 +25,12 @@ test.describe('multiplayer — two players in the same session', () => {
   test('both players load the WASM bundle and see each other\'s movement', async ({ browser }) => {
     const ctx1: BrowserContext = await newE2eContext(browser);
     const ctx2: BrowserContext = await newE2eContext(browser);
+    // Install the SSE capture listener at context init-time so every
+    // iframe that mounts later picks it up before its own scripts
+    // run — eliminates the race where BridgeGlue drains before our
+    // listener attaches.
+    await installSseCapture(ctx1);
+    await installSseCapture(ctx2);
     const p1: Page = await ctx1.newPage();
     const p2: Page = await ctx2.newPage();
 
@@ -75,9 +81,18 @@ test.describe('multiplayer — two players in the same session', () => {
     await captureIframeSseEvents(p1);
     await captureIframeSseEvents(p2);
 
-    // P1 emits a MOVE_RIGHT control with the session id attached so
-    // the BFF routes it onto the per-session sink. The X-Session-Id
-    // header is what flips the controller into multi-player mode.
+    // Wait for the wrapper to actually open the session-scoped
+    // EventSource — without this guard we race the in-iframe wasm
+    // boot. The wrapper's `?sessionId=` GET fires only after
+    // game_bridge.gd's _request_sse_subscription posts
+    // SD_SSE_SUBSCRIBE, which only happens once the WASM compile
+    // finishes (15-30s on a cold image).
+    await p2.waitForResponse(
+      r => r.url().includes(`/api/game/stream?sessionId=${sessionId}`),
+      { timeout: 60_000 },
+    );
+
+    // The wrapper is now hot. Move P1.
     await sendControl(p1, /* characterId */ 1, {
       action:    'MOVE_RIGHT',
       pressed:   true,
@@ -85,24 +100,13 @@ test.describe('multiplayer — two players in the same session', () => {
       sessionId: sessionId,
     });
 
-    // P2's iframe should see a `world` event carrying P1 in the
-    // roster — that's the proof of (a) BFF per-session sink fan-out,
-    // (b) the Angular wrapper SSE relay, (c) BridgeGlue dispatch.
-    //
-    // Conditional: only fires when the WASM bundle has been re-exported
-    // with the SD_SSE_SUBSCRIBE refactor (`make build-rust && make
-    // build-godot`). When the bundle is stale, the wrapper never gets
-    // a subscribe request and no events flow — we surface a soft
-    // warning instead of failing. The asset-load + session-create
-    // chunks above are the strict assertions that always run.
-    const events = await pollSseFor(p2, 8_000);
-    if (events === 0) {
-      console.warn(
-        '[multiplayer] P2 heard 0 SSE events after P1 moved — re-export ' +
-        'the Godot bundles (make build-rust && make build-godot) to ' +
-        'exercise the full SSE relay.'
-      );
-    }
+    // Strict positive: P2's iframe must see at least one
+    // SD_SSE_EVENT after P1's movement.
+    const events = await pollSseFor(p2, 12_000);
+    expect(
+      events,
+      'P2 must receive at least one SSE event after P1 moved',
+    ).toBeGreaterThan(0);
 
     await ctx1.close();
     await ctx2.close();
