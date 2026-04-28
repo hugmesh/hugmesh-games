@@ -37,7 +37,13 @@ test.describe('full-stack smoke', () => {
       if (/\/(_remotes\/wasm-fragment|api\/assets\/levels)\/[^/]+\/index\.(html|wasm|pck|js)$/.test(url)) {
         if (resp.status() === 200) seenAssetUrls.add(url);
       }
-      if (/\/api\/levels\/\d+\/scene$/.test(url)) {
+      // Post-export bundles call /api/chapters/{id}/scene (patcher
+       // updates the marker in scripts/patch-godot-html.py); the
+       // legacy /api/levels/{id}/scene path stays accepted by the BFF
+       // for back-compat with any pre-rename bundle that's still in
+       // the wild. Capture both so the strict assertion below holds
+       // through either bundle vintage.
+      if (/\/api\/(chapters|levels)\/\d+\/scene$/.test(url)) {
         if (resp.status() === 200) seenSceneUrls.add(url);
       }
     });
@@ -100,13 +106,15 @@ test.describe('full-stack smoke', () => {
       { timeout: 90_000, message: 'expected at least one .pck asset (wasm-fragment or BFF fallback) with HTTP 200' },
     ).toBeGreaterThan(0);
 
-    // The scene-prefetch fetch lives inside the WASM bundle's
-    // game_bridge.gd. After the level→chapter rename it calls
-    // /api/chapters/{id}/scene, but the cached WASM bytes still
-    // request /api/levels/{id}/scene until the bundle is re-exported
-    // (`make build-rust && make build-godot`). Soft-warn instead of
-    // fail so the asset-load assertions above don't get held hostage
-    // by a build-tooling step the test runner can't perform.
+    // The scene-prefetch fetch lives in the patched index.html (see
+    // scripts/patch-godot-html.py). It fires from inside the iframe,
+    // which Playwright's page-level response listener does see — but
+    // only when the iframe is mounted at the same origin as the host.
+    // The federated wasm-fragment service serves the iframe under the
+    // host's origin via the /_remotes/ proxy, so the listener catches
+    // it. When it doesn't, that means the patcher didn't run on the
+    // last export — soft-warn so the asset-load assertions above don't
+    // get held hostage by build-tooling timing.
     await page.waitForTimeout(2_000);
     if (seenSceneUrls.size === 0) {
       // eslint-disable-next-line no-console
