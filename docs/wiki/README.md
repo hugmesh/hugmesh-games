@@ -22,7 +22,7 @@ Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/archit
 
 ## Audience guides
 
-Six audience-targeted condensations. Mirror of [`docs/publishing/userguides/`](../publishing/userguides/).
+Eight audience-targeted condensations. Mirror of [`docs/publishing/userguides/`](../publishing/userguides/).
 
 | Audience | Page | When to read it |
 |---|---|---|
@@ -32,6 +32,8 @@ Six audience-targeted condensations. Mirror of [`docs/publishing/userguides/`](.
 | Data architect | [Data architect overview](guides/data-architect-overview.md) | Where data lives, what the SLAs are. |
 | Administrator | [Administration manual](guides/administration.md) | You hold `ROLE_ADMIN` and run the stack. |
 | On-call / SRE | [Maintainer runbook](guides/maintainer-runbook.md) | The lights are red, fix it. |
+| Moderator | [Moderator guide](guides/moderator.md) | You hold `ROLE_MOD` for one or more games and need to keep sessions healthy. |
+| Publisher | [Publisher guide](guides/publisher.md) | You hold `ROLE_PUBLISHER` for one or more games — upload, pin, edit access. |
 
 ## How-tos
 
@@ -48,6 +50,7 @@ Recipe cards. Each one is a task you've done before and want to do again without
 - [Create or join a multiplayer session](howto/create-or-join-session.md)
 - [Grant the mod or publisher role for a game](howto/grant-mod-or-publisher.md)
 - [Toggle WASM-console debug mode](howto/toggle-wasm-debug-mode.md)
+- [Run + extend multi-user e2e specs](howto/run-multi-user-e2e.md)
 
 ## Decisions and notes
 

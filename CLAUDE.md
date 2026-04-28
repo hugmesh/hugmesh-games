@@ -141,10 +141,20 @@ Decision: see [`docs/wiki/decisions/015-friends-blocks-and-session-visibility.md
 - `make e2e` brings up the full stack with the `integration-test` Spring profile (TLS, deterministic Casdoor seed, verbose multiplayer logging) and runs the Playwright suite under `e2e/tests/`.
 - Every Casdoor seed user (`player` / `player1..3` / `admin` / `mod` / `mod-three-wizards` / `mod-dodecahedron` / `publisher` / `publisher-three-wizards` / `publisher-dodecahedron`) gets a deterministic password, default `e2e-pass`. Override individually via the matching `E2E_*_PASSWORD` env or change the shared default with `E2E_PASSWORD=…`.
 - `e2e/tests/helpers/roles.ts` is the catalogue Playwright iterates; `helpers/sse-bridge.ts` installs an iframe-side `window.message` capture so a spec can assert on the `SD_SSE_EVENT` deliveries the BridgeGlue would normally drain.
+- **Race-free capture**: `installSseCapture(context)` in `helpers/sse-bridge.ts` uses `BrowserContext.addInitScript` so the listener attaches in every iframe BEFORE its own scripts. Without this, BridgeGlue drains the queue before the test's listener attaches.
+- **WASM-boot timing**: gate every `sendControl` in a multi-user spec on `waitForResponse(r => r.url().includes('/api/game/stream?sessionId=…'))` — the Angular wrapper opens its session-scoped EventSource only AFTER WASM compile finishes (15-30s on a cold image), and a `sendControl` before then races the subscription.
+- **Multi-user lobby flow**: drive sessions through the lobby modal (`createSessionViaLobby` / `joinSessionViaLobby` in the spec) — direct API calls to `/api/sessions` leave the home component's `activeSessionId` blind, so the iframe URL has no `?session_id=` and the wrapper subscribes to the unscoped global stream. See [`docs/wiki/howto/run-multi-user-e2e.md`](docs/wiki/howto/run-multi-user-e2e.md) for the full pattern.
 - New specs:
     - `per-role-assets.spec.ts` — every seed role logs in, opens the first chapter, asserts the WASM bundle bytes (index.html / index.wasm / index.pck) come down with HTTP 200.
-    - `multiplayer-same-session.spec.ts` — two players in one session both load the bundle and player2's iframe receives an SSE event after player1 emits a control.
-    - `cross-session-isolation.spec.ts` — two sessions for the same game; player1 moves in session A, player2 in session B sees no event carrying P1's character. The e2e flip-side of `SessionIsolationTest`.
+    - `multiplayer-same-session.spec.ts` — two players in one session both load the bundle and player2's iframe receives an SSE event after player1 emits a control. Strict positive assertion.
+    - `cross-session-isolation.spec.ts` — two sessions for the same game; player1 moves in session A, player2 in session B sees no event carrying P1's character. The e2e flip-side of `SessionIsolationTest`. Strict negative assertion.
+
+## Security primitives
+
+- **All UI-facing UIDs and URL tokens come through one call**: `Crypto.mintUid()` in `backend/src/main/java/games/snapdragon/bff/util/Crypto.java`. Output: 43-character URL-safe base64 of `SHA3-256(64 random bytes from BouncyCastle SP800-90A HMAC-SHA256 DRBG)`. No more `UUID.randomUUID()` or raw `SecureRandom` in this codebase. If you need bytes, ask `Crypto.randomBytes(n)`. If you need a hash, ask `Crypto.sha3_256(...)`. The DRBG state is process-singleton so callers don't have to thread it.
+- **Liquibase 036** widens session id columns from `varchar(36)` to `varchar(64)` to fit the new SHA3 shape (43 chars). Pre-existing UUID-shape rows continue to fit.
+- **JWT role extraction** is centralised in `backend/src/main/java/games/snapdragon/bff/security/Roles.java`. Use `Roles.has(jwt, "ADMIN")` / `Roles.fromAuthentication(auth)` / `Roles.isAdmin(jwt)` rather than copying the claim-walk. Controller-level access checks should use `@PreAuthorize("hasRole('ADMIN')")`; method-internal checks fall through to `Roles`.
+- **Session-scoped control authorization**: when two players use the same `character_id` in different sessions, the unscoped `findActiveOwnerOfCharacter(character_id)` races on Postgres' first-row pick and one side 403s. The fix is `findActiveOwnerInSession(sessionId, characterId)` + the 3-arg `authorizeControl(casdoorId, characterId, sessionIdOpt)` overload — `ControlController` threads `X-Session-Id` through. Pin in `GameSessionServiceTest`.
 
 ## Workflow conventions
 

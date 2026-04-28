@@ -58,7 +58,8 @@ BUILD_STAMP_TEX := $(ARCH_DIR)/build-stamp.tex
 .PHONY: all pdf slides javadocs clean help bundle \
         venv pdf-once diagrams screenshots userguides openapi-spec openapi-latex \
         slides-intro slides-admin slides-godot \
-        slides-fullstack slides-maintainer slides-data-architect
+        slides-fullstack slides-maintainer slides-data-architect \
+        slides-moderator slides-publisher
 
 help:
 	@echo "Snapdragon Games publishing pipeline"
@@ -67,8 +68,8 @@ help:
 	@echo "  make screenshots — capture UI screenshots (Selenium; falls back"
 	@echo "                     to placeholders if compose isn't reachable)"
 	@echo "  make pdf         — typeset architecture/architecture.tex"
-	@echo "  make slides      — generate six .pptx decks (with diagrams)"
-	@echo "  make userguides  — six user-guide PDFs (one per deck)"
+	@echo "  make slides      — generate eight .pptx decks (with diagrams)"
+	@echo "  make userguides  — eight user-guide PDFs (one per deck)"
 	@echo "  make javadocs    — themed Javadoc HTML for the BFF"
 	@echo "  make bundle      — zip every produced doc into"
 	@echo "                     docs/$(BUNDLE_NAME) (an all-docs/"
@@ -116,7 +117,8 @@ build-stamp:
 
 # ── PowerPoint decks (python-pptx) ────────────────────────────────────────
 slides: venv slides-intro slides-admin slides-godot \
-        slides-fullstack slides-maintainer slides-data-architect
+        slides-fullstack slides-maintainer slides-data-architect \
+        slides-moderator slides-publisher
 
 slides-intro:
 	@mkdir -p $(SLIDES_BUILD)
@@ -153,6 +155,18 @@ slides-data-architect:
 	$(PYTHON) $(SLIDES_DIR)/data_architect_overview.py \
 	  --output $(SLIDES_BUILD)/data-architect-overview.pptx
 	@echo "✓ $(SLIDES_BUILD)/data-architect-overview.pptx"
+
+slides-moderator:
+	@mkdir -p $(SLIDES_BUILD)
+	$(PYTHON) $(SLIDES_DIR)/moderator.py \
+	  --output $(SLIDES_BUILD)/moderator.pptx
+	@echo "✓ $(SLIDES_BUILD)/moderator.pptx"
+
+slides-publisher:
+	@mkdir -p $(SLIDES_BUILD)
+	$(PYTHON) $(SLIDES_DIR)/publisher.py \
+	  --output $(SLIDES_BUILD)/publisher.pptx
+	@echo "✓ $(SLIDES_BUILD)/publisher.pptx"
 
 venv:
 	@if [ ! -x "$(PYTHON)" ]; then \

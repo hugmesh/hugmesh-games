@@ -34,7 +34,9 @@ The portal supports multiple concurrent **named sessions** per game, each with i
 | `GET /api/game/stream?sessionId=` | Per-session SSE stream — only this session's movement / world / character / view events. |
 | `GET /api/admin/sessions/{id}/stream` | Admin-only per-session merged stream including the `view` channel. |
 
-The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)) — a subscriber to session A never sees session B's events. The contract is locked in by [`SessionIsolationTest`](backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java).
+The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)) — a subscriber to session A never sees session B's events. The contract is locked in at three layers: [`SessionIsolationTest`](backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) (BFF unit), [`multiplayer-same-session.spec.ts`](e2e/tests/multiplayer-same-session.spec.ts) (two players, one session — strict positive), and [`cross-session-isolation.spec.ts`](e2e/tests/cross-session-isolation.spec.ts) (two players, two sessions — strict negative). The e2e suite passes 21/21; see [howto/run-multi-user-e2e.md](docs/wiki/howto/run-multi-user-e2e.md) for adding new specs.
+
+When two players legitimately use the same `character_id` in different sessions, the BFF resolves the ambiguity via [`findActiveOwnerInSession(sessionId, characterId)`](backend/src/main/java/games/snapdragon/bff/repository/SessionMemberRepository.java) — `POST /api/controls/{id}` threads the `X-Session-Id` header through to a session-scoped overload of `authorizeControl` so neither side 403s.
 
 ## Roles
 
@@ -47,7 +49,13 @@ The per-session SSE sinks are **isolated by construction** ([decision 010](docs/
 
 Casdoor owns role membership; per-game scope rows in Postgres decide which games each mod / publisher may act on. Admins manage both via `/api/admin/role-grants/*`. Per-game seeded users (`mod-three-wizards`, `publisher-dodecahedron`, etc.) are pre-loaded on first boot — passwords printed by `casdoor/entrypoint.sh`. See [decision 011](docs/wiki/decisions/011-mod-publisher-rbac.md) and [howto/grant-mod-or-publisher.md](docs/wiki/howto/grant-mod-or-publisher.md).
 
-The frontend ships **separate federated remotes** for each role — `/admin`, `/mod`, `/publisher` — each loaded by the host shell only when the matching role is in the JWT.
+The frontend ships **separate federated remotes** for each role — `/admin`, `/mod`, `/publisher` — each loaded by the host shell only when the matching role is in the JWT. A fourth federated remote, `/admin/docs`, embeds an OpenAPI explorer (live `/v3/api-docs` with a static `openapi.fallback.json` backup) and is gated to admins via the federation manifest's `requires: ROLE_ADMIN` metadata. Per-audience guides cover each role end-to-end: [admin](docs/wiki/guides/administration.md), [mod](docs/wiki/guides/moderator.md), [publisher](docs/wiki/guides/publisher.md), plus the [maintainer runbook](docs/wiki/guides/maintainer-runbook.md) for on-call.
+
+## Security primitives
+
+All URL-facing identifiers are derived through [`Crypto.mintUid()`](backend/src/main/java/games/snapdragon/bff/util/Crypto.java) — a SHA3-256 digest of 64 random bytes drawn from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as 43-character URL-safe base64. Launch tokens, session ids, session tokens, and pod ids all share this shape, so a leak through a log line is equally hard to backtrack regardless of category. Liquibase 036 widens legacy `varchar(36)` columns to fit; old UUID-shape rows continue to work.
+
+JWT role extraction goes through one seam — [`Roles`](backend/src/main/java/games/snapdragon/bff/security/Roles.java). New role checks call `Roles.has(jwt, "ADMIN")` or `Roles.fromAuthentication(auth)`; `@PreAuthorize("hasRole('ADMIN')")` is the preferred form at controller boundaries. No copy-pasted extraction helpers anywhere else in the codebase.
 
 ## Diagnostic capture is admin-only and off by default
 

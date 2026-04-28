@@ -30,6 +30,8 @@ GUIDES=(
   fullstack-developer
   maintainer-runbook
   data-architect-overview
+  moderator
+  publisher
 )
 
 for g in "${GUIDES[@]}"; do
