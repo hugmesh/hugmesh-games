@@ -102,7 +102,7 @@ public class MultiplayerSessionController {
     }
 
     @Operation(summary = "Get one session with its active members")
-    @GetMapping("/{id:[0-9a-fA-F-]{36}}")
+    @GetMapping("/{id:[A-Za-z0-9_\\-]{16,86}}")
     public Mono<GameSessionDto> get(@PathVariable String id) {
         return service.get(id);
     }
@@ -115,7 +115,7 @@ public class MultiplayerSessionController {
             creating a duplicate. Slot collisions resolve as 409 Conflict via
             the `uq_session_members_active_slot` partial unique index.
             """)
-    @PostMapping("/{id:[0-9a-fA-F-]{36}}/join")
+    @PostMapping("/{id:[A-Za-z0-9_\\-]{16,86}}/join")
     public Mono<GameSessionDto> join(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String id,
@@ -130,7 +130,7 @@ public class MultiplayerSessionController {
             calling twice is a no-op. If the caller was the last active member,
             the session itself is auto-closed.
             """)
-    @DeleteMapping("/{id:[0-9a-fA-F-]{36}}/me")
+    @DeleteMapping("/{id:[A-Za-z0-9_\\-]{16,86}}/me")
     public Mono<Void> leave(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String id) {
@@ -144,7 +144,7 @@ public class MultiplayerSessionController {
             endpoint. Only the creator may call this (admins force-close via
             `/api/admin/sessions/{id}`).
             """)
-    @DeleteMapping("/{id:[0-9a-fA-F-]{36}}")
+    @DeleteMapping("/{id:[A-Za-z0-9_\\-]{16,86}}")
     public Mono<Void> close(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String id) {

@@ -4,14 +4,16 @@ const baseURL = process.env.E2E_BASE_URL ?? 'https://host.docker.internal:8080';
 
 export default defineConfig({
   testDir: './tests',
-  // Per-spec parallelism — each spec opens its own browser contexts and
-  // doesn't share state with the others, so running multiple in parallel
-  // keeps the per-role matrix from blowing the wall-clock budget. The
-  // WASM bundle is heavy; cap at 2 workers so memory on the e2e
-  // container stays sane.
-  fullyParallel: true,
-  workers: 2,
-  retries: 0,
+  // Single-worker. Two workers cause flaky failures: per-role login
+  // through Casdoor + federation manifest fetches contend on a small
+  // dev stack and `waitForURL` after `button.login-btn` click stalls
+  // intermittently. Serial execution keeps the matrix reliable;
+  // total wall-clock is ~2 min for the full suite.
+  fullyParallel: false,
+  workers: 1,
+  // One retry catches the rare login-page flake without papering
+  // over real regressions — a deterministic bug fails twice in a row.
+  retries: 1,
   timeout: 180_000,
   reporter: [
     ['list'],
