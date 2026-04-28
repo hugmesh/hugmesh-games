@@ -36,10 +36,17 @@ public interface SessionMemberRepository extends ReactiveCrudRepository<SessionM
     Flux<SessionMember> findActiveByCasdoor(String casdoorId);
 
     /**
-     * The session_member that owns a particular character right now (if any).
-     * Used by ControlController to authorize a multi-player control write —
-     * the JWT subject must match the active owner of the targeted character
-     * for some session.
+     * The session_member that owns a particular character right now
+     * (if any). Used by ControlController to authorize a multi-player
+     * control write — the JWT subject must match the active owner of
+     * the targeted character for some session.
+     *
+     * <p>Unscoped form. When a control comes in with X-Session-Id the
+     * caller should prefer {@link #findActiveOwnerInSession} so the
+     * authz lookup pins to the correct session. Without it, two
+     * players each using {@code character_id=1} in different sessions
+     * race and the loser sees "character not owned by caller" on
+     * every move.
      */
     @Query("""
         SELECT * FROM session_members
@@ -48,6 +55,20 @@ public interface SessionMemberRepository extends ReactiveCrudRepository<SessionM
          LIMIT 1
         """)
     Mono<SessionMember> findActiveOwnerOfCharacter(Long characterId);
+
+    /**
+     * Scoped form — the (session, character) tuple is unique among
+     * active members thanks to the partial slot constraint, so this
+     * always returns the right row for X-Session-Id-bearing controls.
+     */
+    @Query("""
+        SELECT * FROM session_members
+         WHERE session_id = :sessionId
+           AND character_id = :characterId
+           AND left_at IS NULL
+         LIMIT 1
+        """)
+    Mono<SessionMember> findActiveOwnerInSession(String sessionId, Long characterId);
 
     Mono<Long> countBySessionIdAndLeftAtIsNull(String sessionId);
 }

@@ -245,7 +245,22 @@ public class GameSessionService {
      * row on success; emits 403 on miss.
      */
     public Mono<SessionMember> authorizeControl(String casdoorId, Long characterId) {
-        return members.findActiveOwnerOfCharacter(characterId)
+        return authorizeControl(casdoorId, characterId, null);
+    }
+
+    /**
+     * Session-scoped overload — when a control arrives with
+     * {@code X-Session-Id}, scope the membership lookup to that
+     * session. Two players each using {@code character_id=1} in
+     * different sessions race on the unscoped query; the loser hits
+     * "character not owned by caller" on every move. The controller
+     * passes its X-Session-Id header through here.
+     */
+    public Mono<SessionMember> authorizeControl(String casdoorId, Long characterId, String sessionIdOpt) {
+        Mono<SessionMember> lookup = (sessionIdOpt != null && !sessionIdOpt.isBlank())
+                ? members.findActiveOwnerInSession(sessionIdOpt, characterId)
+                : members.findActiveOwnerOfCharacter(characterId);
+        return lookup
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "no active session member owns this character")))
                 .flatMap(m -> {
                     if (!casdoorId.equals(m.getCasdoorId())) {

@@ -130,6 +130,18 @@ export class HomeComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // ?characterId= URL override — lets multi-user tests put each
+    // player on a different character without UI plumbing for a
+    // character picker. Defaults to 1 (the seeded Hero) when the
+    // query param is absent or unparsable.
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = parseInt(params.get('characterId') ?? '', 10);
+      if (Number.isFinite(fromUrl) && fromUrl > 0) {
+        this.characterId = fromUrl;
+      }
+    }
+
     this.games$ = this.library.listAvailable(this.characterId).pipe(
       map(games => [...games].sort((a, b) => a.sortOrder - b.sortOrder)),
       catchError(() => of([]))

@@ -43,11 +43,15 @@ test.describe('multiplayer — two players in the same session', () => {
     // strict positive assertion below can't tell whether P2 saw the
     // movement because of the per-session sink or because both
     // iframes are global subscribers.
+    // P1 = character 1, P2 = character 2 — `findActiveOwnerOfCharacter`
+    // keys on character_id, so duplicates would cause the BFF's
+    // authorize-control check to 403 P1's MOVE_RIGHT below.
     const sessionName = `e2e-multi-${Date.now()}`;
-    const sessionId = await createSessionViaLobby(p1, sessionName);
+    const sessionId = await createSessionViaLobby(p1, sessionName, 1);
 
-    // P2 joins the same session via the lobby's join button.
-    await joinSessionViaLobby(p2, sessionName);
+    // P2 joins the same session via the lobby's join button (with
+    // their own character 2).
+    await joinSessionViaLobby(p2, sessionName, 2);
 
     // Both players click Play on the first chapter. The chapter
     // modal stays open after the create / join flow so we just
@@ -128,8 +132,8 @@ function bumpAsset(set: Set<string>, url: string, status: number): void {
  *  return the resulting session id once the picker is in the
  *  active-session state. Modal stays open with the chapter list
  *  visible. */
-async function createSessionViaLobby(page: Page, sessionName: string): Promise<string> {
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
+async function createSessionViaLobby(page: Page, sessionName: string, characterId = 1): Promise<string> {
+  await page.goto('/?characterId=' + characterId, { waitUntil: 'domcontentloaded' });
   const card = page.locator('.game-card').first();
   await card.waitFor({ state: 'visible', timeout: 20_000 });
   await card.click();
@@ -150,8 +154,8 @@ async function createSessionViaLobby(page: Page, sessionName: string): Promise<s
 
 /** Open the lobby modal and click Join on the row matching
  *  {@code sessionName}. Modal flips into the active-session state. */
-async function joinSessionViaLobby(page: Page, sessionName: string): Promise<void> {
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
+async function joinSessionViaLobby(page: Page, sessionName: string, characterId = 1): Promise<void> {
+  await page.goto('/?characterId=' + characterId, { waitUntil: 'domcontentloaded' });
   const card = page.locator('.game-card').first();
   await card.waitFor({ state: 'visible', timeout: 20_000 });
   await card.click();

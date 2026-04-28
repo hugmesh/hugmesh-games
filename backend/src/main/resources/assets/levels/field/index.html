@@ -118,9 +118,9 @@ const engine = new Engine(GODOT_CONFIG);
 // is ready long before GDScript polls for window._twSceneReady.
 (function(){
 	var p = new URLSearchParams(window.location.search);
-	var levelId = p.get('level_id') || p.get('game_id') || '1';
+	var chapterId = p.get('chapter_id') || p.get('level_id') || p.get('game_id') || '1';
 	// Always relative — nginx (compose) and the dev proxy both forward /api correctly.
-	fetch('/api/levels/' + levelId + '/scene')
+	fetch('/api/chapters/' + chapterId + '/scene')
 		.then(function(r) { return r.json(); })
 		.then(function(scene) {
 			window._twSceneConfig = scene;

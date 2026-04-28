@@ -294,6 +294,52 @@ class GameSessionServiceTest {
                 .verifyComplete();
     }
 
+    @Test
+    void authorizeControlScopedFormPicksTheRightSessionRow() {
+        // Pinning regression: when two players each own character 1
+        // in different sessions, the unscoped lookup races and the
+        // loser hits "character not owned by caller". The scoped
+        // overload must look up the (session_id, character_id) row
+        // so each player's own membership wins.
+        SessionMember alicesMembership = newMember("sess-A", "alice", 1L, 0, true);
+        SessionMember bobsMembership   = newMember("sess-B", "bob",   1L, 0, true);
+        when(members.findActiveOwnerInSession("sess-A", 1L)).thenReturn(Mono.just(alicesMembership));
+        when(members.findActiveOwnerInSession("sess-B", 1L)).thenReturn(Mono.just(bobsMembership));
+
+        StepVerifier.create(service.authorizeControl("alice", 1L, "sess-A"))
+                .assertNext(m -> assertThat(m.getCasdoorId()).isEqualTo("alice"))
+                .verifyComplete();
+        StepVerifier.create(service.authorizeControl("bob", 1L, "sess-B"))
+                .assertNext(m -> assertThat(m.getCasdoorId()).isEqualTo("bob"))
+                .verifyComplete();
+    }
+
+    @Test
+    void authorizeControlScopedRejectsWhenCallerIsntInThatSession() {
+        SessionMember alicesMembership = newMember("sess-A", "alice", 1L, 0, true);
+        when(members.findActiveOwnerInSession("sess-A", 1L)).thenReturn(Mono.just(alicesMembership));
+
+        StepVerifier.create(service.authorizeControl("bob", 1L, "sess-A"))
+                .expectErrorSatisfies(err -> {
+                    assertThat(err).isInstanceOf(ResponseStatusException.class);
+                    assertThat(((ResponseStatusException) err).getStatusCode().value()).isEqualTo(403);
+                })
+                .verify();
+    }
+
+    @Test
+    void authorizeControlScopedFallsBackToUnscopedWhenSessionIdBlank() {
+        SessionMember m = newMember("sess-X", "alice", 1L, 0, true);
+        when(members.findActiveOwnerOfCharacter(1L)).thenReturn(Mono.just(m));
+        // null + "" both flow through to the unscoped query.
+        StepVerifier.create(service.authorizeControl("alice", 1L, null))
+                .assertNext(r -> assertThat(r.getCasdoorId()).isEqualTo("alice"))
+                .verifyComplete();
+        StepVerifier.create(service.authorizeControl("alice", 1L, ""))
+                .assertNext(r -> assertThat(r.getCasdoorId()).isEqualTo("alice"))
+                .verifyComplete();
+    }
+
     private static GameSession sample() {
         GameSession s = new GameSession();
         s.setId("00000000-0000-0000-0000-000000000001");

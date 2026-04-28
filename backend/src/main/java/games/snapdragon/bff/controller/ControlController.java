@@ -99,7 +99,7 @@ public class ControlController {
                 return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "JWT required for multiplayer controls"));
             }
             String sid = sessionIdHeader;
-            return gameSessionService.authorizeControl(casdoorId, characterId)
+            return gameSessionService.authorizeControl(casdoorId, characterId, sid)
                     .flatMap(member -> dispatch(event, characterId, sid));
         }
 

@@ -39,8 +39,12 @@ test.describe('cross-session isolation', () => {
     // the iframe URL had no session_id and the wrapper subscribed
     // to the unscoped global stream — the bleed we're trying to
     // pin against.)
-    const sessionAId = await createSessionViaLobby(pA, `iso-A-${Date.now()}`);
-    const sessionBId = await createSessionViaLobby(pB, `iso-B-${Date.now()}`);
+    // Distinct characters per player — `findActiveOwnerOfCharacter`
+    // is keyed on `character_id`, so two players on the same character
+    // collide in the BFF's authorize-control check (the latest member
+    // wins; the other side's POST /api/controls/1 returns 403).
+    const sessionAId = await createSessionViaLobby(pA, `iso-A-${Date.now()}`, 1);
+    const sessionBId = await createSessionViaLobby(pB, `iso-B-${Date.now()}`, 2);
     expect(sessionAId).not.toEqual(sessionBId);
 
     // Both players already have the modal open with the chapter
@@ -173,8 +177,8 @@ test.describe('cross-session isolation', () => {
  * Leaves the modal open with the chapter list still visible so the
  * caller can click Play.
  */
-async function createSessionViaLobby(page: Page, sessionName: string): Promise<string> {
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
+async function createSessionViaLobby(page: Page, sessionName: string, characterId = 1): Promise<string> {
+  await page.goto('/?characterId=' + characterId, { waitUntil: 'domcontentloaded' });
   const card = page.locator('.game-card').first();
   await card.waitFor({ state: 'visible', timeout: 20_000 });
   await card.click();
