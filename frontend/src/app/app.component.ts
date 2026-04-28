@@ -16,12 +16,13 @@ import { AdminActionsListenerService } from './services/admin-actions-listener.s
 // callbacks. Updating this when a new federated route lands keeps
 // the user-visible message accurate.
 const FEDERATED_ROUTE_LABELS: ReadonlyArray<{ prefix: string; label: string }> = [
-  { prefix: '/login',        label: 'Login' },
-  { prefix: '/admin/games',  label: 'Game uploads' },
-  { prefix: '/admin/docs',   label: 'API docs' },
-  { prefix: '/admin',        label: 'Admin console' },
-  { prefix: '/mod',          label: 'Moderator console' },
-  { prefix: '/publisher',    label: 'Publisher console' },
+  { prefix: '/login',           label: 'Login' },
+  { prefix: '/admin/games',     label: 'Game uploads' },
+  { prefix: '/admin/sessions',  label: 'Live sessions' },
+  { prefix: '/admin/docs',      label: 'API docs' },
+  { prefix: '/admin',           label: 'Admin console' },
+  { prefix: '/mod',             label: 'Moderator console' },
+  { prefix: '/publisher',       label: 'Publisher console' },
 ];
 
 @Component({

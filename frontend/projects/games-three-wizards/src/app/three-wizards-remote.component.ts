@@ -174,6 +174,39 @@ export class ThreeWizardsRemoteComponent {
   get launchUid(): string | null { return this._launchUid; }
   private _launchUid: string | null = null;
 
+  /**
+   * Multiplayer session id (UUID) — when set, written to the iframe URL
+   * as `?session_id=<uuid>` so the Godot bundle's game_bridge.gd can
+   * forward it to HostBridge.set_session_id. The control + view egress
+   * paths then carry it through to the BFF, which routes them onto the
+   * per-session SSE sinks.
+   */
+  @Input()
+  set sessionId(value: string | null | undefined) {
+    this._sessionId = value || null;
+    this._refresh();
+  }
+  get sessionId(): string | null { return this._sessionId; }
+  private _sessionId: string | null = null;
+
+  /** This player's slot inside the multiplayer session (0..maxPlayers-1). */
+  @Input()
+  set slotIndex(value: number | null | undefined) {
+    this._slotIndex = (value ?? null);
+    this._refresh();
+  }
+  get slotIndex(): number | null { return this._slotIndex; }
+  private _slotIndex: number | null = null;
+
+  /** Character id this player is driving in the session. */
+  @Input()
+  set localCharacterId(value: number | null | undefined) {
+    this._localCharacterId = (value ?? null);
+    this._refresh();
+  }
+  get localCharacterId(): number | null { return this._localCharacterId; }
+  private _localCharacterId: number | null = null;
+
   safeUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
     '/_remotes/wasm-fragment/cave/index.html',
   );
@@ -188,6 +221,15 @@ export class ThreeWizardsRemoteComponent {
     const params = new URLSearchParams();
     if (id !== '') params.set('level_id', String(id));
     if (this._launchUid) params.set('launch_uid', this._launchUid);
+    // Multiplayer threading: when the host's session picker has
+    // assigned the player to a session + slot, propagate to Godot.
+    // game_bridge.gd reads these on _ready and calls
+    // HostBridge.set_session_id + register_player_slot, which flips
+    // every subsequent control + view egress payload into the
+    // per-session sinks on the BFF.
+    if (this._sessionId) params.set('session_id', this._sessionId);
+    if (this._slotIndex !== null) params.set('slot_index', String(this._slotIndex));
+    if (this._localCharacterId !== null) params.set('character_id', String(this._localCharacterId));
     params.set('t', String(Date.now()));
     const url = `/_remotes/wasm-fragment/${this._levelSlug}/index.html?${params}`;
     this._frameUrl = url;

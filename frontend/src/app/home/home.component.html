@@ -80,6 +80,68 @@
                   (click)="closeModal()">&#10005;</button>
         </header>
         <p class="modal-sub">{{ modalGame.description }}</p>
+
+        <!-- Multiplayer session picker. Two paths:
+               1. Pick an existing open session (joinSession).
+               2. Start a new named session (createSession).
+             Both flows set activeSessionId / activeSlotIndex which
+             selectChapter() reads to thread session context onto the
+             iframe URL. Skipping this section launches solo / legacy. -->
+        <section class="session-picker" aria-label="Multiplayer sessions">
+          <h3 class="session-picker-title">Multiplayer sessions</h3>
+          @if (modalSessionsError) {
+            <p class="session-picker-error" role="alert">{{ modalSessionsError }}</p>
+          }
+          @if (activeSessionId) {
+            <p class="session-picker-active">
+              ✓ Joined session — slot {{ activeSlotIndex }}.
+              You can pick a chapter below to launch.
+            </p>
+          } @else {
+            @if (modalSessionsLoading) {
+              <p class="session-picker-loading">Loading sessions…</p>
+            } @else if (modalSessions.length === 0) {
+              <p class="session-picker-empty">No open sessions for this game.</p>
+            } @else {
+              <ul class="session-list" role="list">
+                @for (s of modalSessions; track s.id) {
+                  <li class="session-row">
+                    <span class="session-name">{{ s.name }}</span>
+                    <span class="session-meta">
+                      by {{ s.creatorCasdoorId }} ·
+                      {{ s.activePlayers }} / {{ s.maxPlayers }} players
+                    </span>
+                    <button class="join-btn"
+                            type="button"
+                            [disabled]="s.activePlayers >= s.maxPlayers"
+                            (click)="joinSession(s)">Join</button>
+                  </li>
+                }
+              </ul>
+            }
+            <form class="session-create" (submit)="$event.preventDefault(); createSession()">
+              <label class="visually-hidden" for="session-name-input">Session name</label>
+              <input id="session-name-input"
+                     [(ngModel)]="newSessionName"
+                     name="newSessionName"
+                     placeholder="Name a new session"
+                     maxlength="120" />
+              <label class="visually-hidden" for="session-max-input">Max players</label>
+              <input id="session-max-input"
+                     type="number"
+                     min="1" max="16"
+                     [(ngModel)]="newSessionMaxPlayers"
+                     name="newSessionMaxPlayers" />
+              <button class="create-btn" type="submit"
+                      [disabled]="!newSessionName.trim()">Start new session</button>
+            </form>
+            <p class="session-picker-hint">
+              Or skip to launch solo — the chapter buttons below still work
+              without a session.
+            </p>
+          }
+        </section>
+
         <ul class="chapter-list" role="list">
           @for (chapter of modalGame.chapters; track chapter.id) {
             <li class="chapter-row" role="listitem"
@@ -152,7 +214,10 @@
                 class="remote-mount"
                 [chapterSlug]="activeLevel.sceneType"
                 [chapterId]="activeLevel.id"
-                [launchUid]="activeLaunchUid"></app-three-wizards-remote>
+                [launchUid]="activeLaunchUid"
+                [sessionId]="activeSessionId"
+                [slotIndex]="activeSlotIndex"
+                [localCharacterId]="characterId"></app-three-wizards-remote>
             }
           }
         } @else {

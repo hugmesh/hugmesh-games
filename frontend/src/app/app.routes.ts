@@ -41,6 +41,9 @@ export const routes: Routes = [
   { path: 'banned', component: BannedPageComponent },
   { path: 'admin', loadComponent: () => loadRemote('admin', './AdminShell', 'AdminRemoteComponent'), canActivate: [authGuard] },
   { path: 'admin/games', loadComponent: () => loadRemote('admin', './UploadShell', 'UploadRemoteComponent'), canActivate: [authGuard] },
+  // Per-session live observation including per-player view SSE — admin
+  // SessionsShell ships from the same admin remote bundle.
+  { path: 'admin/sessions', loadComponent: () => loadRemote('admin', './SessionsShell', 'SessionsRemoteComponent'), canActivate: [authGuard] },
   { path: 'admin/docs', loadComponent: () => loadRemote('api-docs', './DocsShell', 'DocsShellComponent'), canActivate: [authGuard] },
   // Per-game moderator console — ROLE_MOD or ROLE_ADMIN. The BFF
   // controllers @PreAuthorize so the route mounts for any authenticated

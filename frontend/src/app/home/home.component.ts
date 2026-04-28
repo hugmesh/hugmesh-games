@@ -2,11 +2,15 @@ import {
   Component, CUSTOM_ELEMENTS_SCHEMA, ElementRef, HostListener, OnInit, ViewChild, inject
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { GameLibraryService } from '../services/game-library.service';
 import { CharacterService } from '../services/character.service';
 import { RemoteLoaderService } from '../services/remote-loader.service';
 import { SessionService } from '../services/session.service';
+import {
+  MultiplayerSessionService, GameSession,
+} from '../services/multiplayer-session.service';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { GameCanvasComponent } from '../game-canvas/game-canvas.component';
 import { GameHudComponent } from '../game-hud/game-hud.component';
@@ -54,7 +58,7 @@ const FEDERATED_GAME_SLUGS = new Set(['dodecahedron', 'three-wizards']);
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [CommonModule, GameCanvasComponent, GameHudComponent, GameControlsComponent],
+  imports: [CommonModule, FormsModule, GameCanvasComponent, GameHudComponent, GameControlsComponent],
   // Federated remote elements (e.g. <app-dodecahedron-remote>) are
   // bootstrapped by their own bundle, not Angular's host compiler.
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
@@ -69,6 +73,7 @@ export class HomeComponent implements OnInit {
   private readonly characterSvc = inject(CharacterService);
   private readonly remoteLoader = inject(RemoteLoaderService);
   private readonly session = inject(SessionService);
+  private readonly multiplayer = inject(MultiplayerSessionService);
   private readonly http = inject(HttpClient);
 
   characterId = 1;
@@ -81,6 +86,21 @@ export class HomeComponent implements OnInit {
   isFullscreen = false;
   activeRemoteSlug: string | null = null;
   activeLaunchUid: string | null = null;
+
+  // Multiplayer session picker state, populated when the chapter modal
+  // opens. The picker offers two paths: pick an existing open session
+  // (joinSession) or create a new named one (createSession). Either
+  // path threads sessionId + slotIndex through to launchChapter so the
+  // BFF's per-session sinks scope the gameplay.
+  modalSessions: GameSession[] = [];
+  modalSessionsLoading = false;
+  modalSessionsError: string | null = null;
+  newSessionName = '';
+  newSessionMaxPlayers = 3;
+  /** Set when the player has joined / created a session for the open
+   *  modal-game. Null = solo / legacy launch. */
+  activeSessionId: string | null = null;
+  activeSlotIndex: number | null = null;
 
   sceneIcon(chapter: AvailableGame): string {
     return SCENE_ICONS[chapter.sceneType] ?? '⚔';
@@ -124,10 +144,90 @@ export class HomeComponent implements OnInit {
   openGame(game: GameWithChapters): void {
     if (this.unlockedChapterCount(game) === 0) return;
     this.modalGame = game;
+    this.activeSessionId = null;
+    this.activeSlotIndex = null;
+    this.newSessionName = '';
+    this.newSessionMaxPlayers = 3;
+    this.refreshModalSessions(game.slug);
   }
 
   closeModal(): void {
     this.modalGame = null;
+    this.modalSessions = [];
+    this.modalSessionsError = null;
+  }
+
+  /** Re-fetch open sessions for the picker. Called on modal open and
+   *  after every join / create so the list reflects the live state. */
+  refreshModalSessions(gameSlug: string): void {
+    this.modalSessionsLoading = true;
+    this.modalSessionsError = null;
+    this.multiplayer.listOpen(gameSlug).pipe(
+      catchError(err => {
+        this.modalSessionsError = `Couldn't load sessions: ${err?.message ?? err}`;
+        return of([] as GameSession[]);
+      }),
+    ).subscribe(list => {
+      this.modalSessions = list;
+      this.modalSessionsLoading = false;
+    });
+  }
+
+  /** Slot indexes 0..(maxPlayers-1) that aren't already claimed by an
+   *  active member. Used by the picker to suggest the lowest free slot. */
+  private firstFreeSlot(s: GameSession): number {
+    const claimed = new Set(
+      s.members.filter(m => m.slotIndex !== null).map(m => m.slotIndex as number),
+    );
+    for (let i = 0; i < s.maxPlayers; i++) {
+      if (!claimed.has(i)) return i;
+    }
+    return -1;
+  }
+
+  /** Join an existing open session for the modal-game's slug. Persists
+   *  the assignment locally so the chapter launch carries it through to
+   *  the iframe URL. */
+  joinSession(s: GameSession): void {
+    const slot = this.firstFreeSlot(s);
+    if (slot < 0) {
+      this.modalSessionsError = 'Session is full.';
+      return;
+    }
+    this.multiplayer.join(s.id, { characterId: this.characterId, slotIndex: slot }).subscribe({
+      next: updated => {
+        this.activeSessionId = updated.id;
+        this.activeSlotIndex = slot;
+        this.refreshModalSessions(s.gameSlug);
+      },
+      error: err => this.modalSessionsError = `Join failed: ${err?.error?.message ?? err?.message ?? err}`,
+    });
+  }
+
+  /** Create a new named session for the modal-game and auto-join it
+   *  as creator + slot 0. */
+  createSession(): void {
+    if (!this.modalGame) return;
+    const name = this.newSessionName.trim();
+    if (!name) {
+      this.modalSessionsError = 'Session name required.';
+      return;
+    }
+    this.multiplayer.create({
+      gameSlug: this.modalGame.slug,
+      name,
+      maxPlayers: this.newSessionMaxPlayers,
+      characterId: this.characterId,
+      slotIndex: 0,
+    }).subscribe({
+      next: created => {
+        this.activeSessionId = created.id;
+        this.activeSlotIndex = 0;
+        this.newSessionName = '';
+        this.refreshModalSessions(created.gameSlug);
+      },
+      error: err => this.modalSessionsError = `Create failed: ${err?.error?.message ?? err?.message ?? err}`,
+    });
   }
 
   /** Modal click outside the inner card closes the modal. */
@@ -173,7 +273,11 @@ export class HomeComponent implements OnInit {
     });
   }
 
-  /** Launch the chosen chapter. Closes the modal in the process. */
+  /** Launch the chosen chapter. Closes the modal in the process.
+   *  When activeSessionId is set (the player joined or created a
+   *  session via the picker), it threads through to the iframe URL
+   *  alongside slotIndex + characterId so HostBridge can flip into
+   *  multiplayer mode. */
   selectChapter(chapter: AvailableGame): void {
     if (!chapter.unlocked) return;
     this.modalGame = null;
