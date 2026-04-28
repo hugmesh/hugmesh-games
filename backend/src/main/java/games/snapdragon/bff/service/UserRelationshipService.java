@@ -26,7 +26,7 @@ import java.util.Set;
  * doesn't get to silence moderators.
  */
 @Service
-public class UserRelationshipService {
+public class UserRelationshipService implements RelationshipQuery {
 
     private final UserRelationshipRepository  repo;
     private final PublisherGameScopeRepository publisherScopes;
@@ -112,6 +112,7 @@ public class UserRelationshipService {
 
     /** Casdoor ids of {@code user}'s mutual friends — used by the
      *  session-list filter for the {@code friends} visibility tier. */
+    @Override
     public Mono<Set<String>> friendsOf(String user) {
         return repo.findFriendsOf(user)
                 .map(UserRelationship::getOtherCasdoorId)
@@ -121,6 +122,7 @@ public class UserRelationshipService {
     /** Casdoor ids that {@code user} has blocked OR has been blocked
      *  by — sessions involving any of these users are filtered out
      *  of {@code user}'s lobby list. */
+    @Override
     public Mono<Set<String>> blocklistFor(String user) {
         Mono<Set<String>> outgoing = repo.findBlocksBy(user)
                 .map(UserRelationship::getOtherCasdoorId)

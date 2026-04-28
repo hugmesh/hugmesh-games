@@ -29,7 +29,7 @@
         <ul role="list">
           @for (f of friends(); track f.id) {
             <li>
-              <span class="friend-id">{{ f.otherCasdoorId }}</span>
+              <span class="friend-id">{{ f.otherName || f.otherCasdoorId }}</span>
               <div class="friend-actions">
                 <button type="button" (click)="remove(f.otherCasdoorId)">Remove</button>
                 <button type="button" class="block-btn" (click)="block(f.otherCasdoorId)">Block</button>
@@ -48,7 +48,7 @@
         <ul role="list">
           @for (r of incoming(); track r.id) {
             <li>
-              <span class="friend-id">{{ r.userCasdoorId }}</span>
+              <span class="friend-id">{{ r.userName || r.userCasdoorId }}</span>
               <div class="friend-actions">
                 <button type="button" class="accept-btn" (click)="accept(r.userCasdoorId)">Accept</button>
                 <button type="button" (click)="remove(r.userCasdoorId)">Decline</button>
@@ -67,7 +67,7 @@
         <ul role="list">
           @for (r of outgoing(); track r.id) {
             <li>
-              <span class="friend-id">{{ r.otherCasdoorId }}</span>
+              <span class="friend-id">{{ r.otherName || r.otherCasdoorId }}</span>
               <div class="friend-actions">
                 <button type="button" (click)="remove(r.otherCasdoorId)">Cancel</button>
               </div>
@@ -89,7 +89,7 @@
         <ul role="list">
           @for (b of blocked(); track b.id) {
             <li>
-              <span class="friend-id">{{ b.otherCasdoorId }}</span>
+              <span class="friend-id">{{ b.otherName || b.otherCasdoorId }}</span>
               <div class="friend-actions">
                 <button type="button" (click)="unblock(b.otherCasdoorId)">Unblock</button>
               </div>

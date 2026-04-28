@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { ensureLoginFormReady } from './helpers/roles';
 
 /**
  * Session participation log per role.
@@ -21,6 +22,7 @@ const ADMIN_PASS = process.env.E2E_ADMIN_PASSWORD     ?? SHARED;
 
 async function login(page: Page, user: string, pass: string): Promise<void> {
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  await ensureLoginFormReady(page);
   await page.fill('input[formControlName="username"]', user);
   await page.fill('input[formControlName="password"]', pass);
   await page.click('button.login-btn');

@@ -33,14 +33,14 @@ class GameSessionServiceTest {
 
     private GameSessionRepository sessions;
     private SessionMemberRepository members;
-    private UserRelationshipService relationships;
+    private RelationshipQuery relationships;
     private GameSessionService service;
 
     @BeforeEach
     void setUp() {
         sessions      = mock(GameSessionRepository.class);
         members       = mock(SessionMemberRepository.class);
-        relationships = mock(UserRelationshipService.class);
+        relationships = mock(RelationshipQuery.class);
         service       = new GameSessionService(sessions, members, relationships);
 
         // Generic save echoes — most tests only care about the resulting
@@ -196,6 +196,92 @@ class GameSessionServiceTest {
                     assertThat(((ResponseStatusException) err).getStatusCode().value()).isEqualTo(403);
                 })
                 .verify();
+    }
+
+    @Test
+    void listOpenHidesSessionsCreatedByBlockedUsers() {
+        // Pinning regression: a blocker calling listOpen must NEVER
+        // see a session whose creator is in their blocklist. Without
+        // this the e2e block-test test (and the documented intent of
+        // decision 015) silently fails — the blocked user's
+        // sessions still appear in the lobby.
+        GameSession blockedSess = sample();
+        blockedSess.setCreatorCasdoorId("bob-uuid");
+        GameSession allowedSess = sample();
+        allowedSess.setId("00000000-0000-0000-0000-000000000002");
+        allowedSess.setCreatorCasdoorId("carol-uuid");
+
+        when(sessions.findOpenByGameSlug("three-wizards"))
+                .thenReturn(Flux.just(blockedSess, allowedSess));
+        when(relationships.friendsOf("alice-uuid")).thenReturn(Mono.just(java.util.Set.of()));
+        when(relationships.blocklistFor("alice-uuid"))
+                .thenReturn(Mono.just(java.util.Set.of("bob-uuid")));
+
+        StepVerifier.create(service.listOpen("three-wizards", "alice-uuid").collectList())
+                .assertNext(list -> {
+                    assertThat(list).hasSize(1);
+                    assertThat(list.get(0).creatorCasdoorId()).isEqualTo("carol-uuid");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void listOpenHidesFriendsOnlySessionsFromStrangers() {
+        // friends-tier sessions show up only for the creator's
+        // friends (or the creator themselves). Strangers see empty
+        // even when the session is open.
+        GameSession friendsOnly = sample();
+        friendsOnly.setCreatorCasdoorId("creator-uuid");
+        friendsOnly.setVisibility("friends");
+
+        when(sessions.findOpenByGameSlug("three-wizards"))
+                .thenReturn(Flux.just(friendsOnly));
+        // alice is NOT a friend of creator
+        when(relationships.friendsOf("alice-uuid")).thenReturn(Mono.just(java.util.Set.of()));
+        when(relationships.blocklistFor("alice-uuid")).thenReturn(Mono.just(java.util.Set.of()));
+
+        StepVerifier.create(service.listOpen("three-wizards", "alice-uuid").collectList())
+                .assertNext(list -> assertThat(list).isEmpty())
+                .verifyComplete();
+    }
+
+    @Test
+    void listOpenSurfacesFriendsOnlySessionsToFriends() {
+        GameSession friendsOnly = sample();
+        friendsOnly.setCreatorCasdoorId("creator-uuid");
+        friendsOnly.setVisibility("friends");
+
+        when(sessions.findOpenByGameSlug("three-wizards"))
+                .thenReturn(Flux.just(friendsOnly));
+        // bob IS a friend of the creator
+        when(relationships.friendsOf("bob-uuid"))
+                .thenReturn(Mono.just(java.util.Set.of("creator-uuid")));
+        when(relationships.blocklistFor("bob-uuid")).thenReturn(Mono.just(java.util.Set.of()));
+
+        StepVerifier.create(service.listOpen("three-wizards", "bob-uuid").collectList())
+                .assertNext(list -> assertThat(list).hasSize(1))
+                .verifyComplete();
+    }
+
+    @Test
+    void listOpenHidesPrivateSessionsFromEveryoneExceptCreator() {
+        GameSession priv = sample();
+        priv.setCreatorCasdoorId("creator-uuid");
+        priv.setVisibility("private");
+
+        when(sessions.findOpenByGameSlug("three-wizards"))
+                .thenReturn(Flux.just(priv));
+        when(relationships.friendsOf("alice-uuid")).thenReturn(Mono.just(java.util.Set.of()));
+        when(relationships.blocklistFor("alice-uuid")).thenReturn(Mono.just(java.util.Set.of()));
+        when(relationships.friendsOf("creator-uuid")).thenReturn(Mono.just(java.util.Set.of()));
+        when(relationships.blocklistFor("creator-uuid")).thenReturn(Mono.just(java.util.Set.of()));
+
+        StepVerifier.create(service.listOpen("three-wizards", "alice-uuid").collectList())
+                .assertNext(list -> assertThat(list).isEmpty())
+                .verifyComplete();
+        StepVerifier.create(service.listOpen("three-wizards", "creator-uuid").collectList())
+                .assertNext(list -> assertThat(list).hasSize(1))
+                .verifyComplete();
     }
 
     @Test

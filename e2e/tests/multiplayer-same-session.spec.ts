@@ -1,6 +1,6 @@
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import {
-  SEED_USERS, login, createSession, joinSession, sendControl,
+  SEED_USERS, login, createSession, joinSession, sendControl, newE2eContext,
 } from './helpers/roles';
 import { captureIframeSseEvents, drainCapturedEvents } from './helpers/sse-bridge';
 
@@ -23,8 +23,8 @@ const PLAYER2 = SEED_USERS.find(u => u.username === 'player2')!;
  */
 test.describe('multiplayer — two players in the same session', () => {
   test('both players load the WASM bundle and see each other\'s movement', async ({ browser }) => {
-    const ctx1: BrowserContext = await browser.newContext();
-    const ctx2: BrowserContext = await browser.newContext();
+    const ctx1: BrowserContext = await newE2eContext(browser);
+    const ctx2: BrowserContext = await newE2eContext(browser);
     const p1: Page = await ctx1.newPage();
     const p2: Page = await ctx2.newPage();
 

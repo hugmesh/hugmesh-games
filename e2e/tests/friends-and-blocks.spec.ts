@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { ensureLoginFormReady, newE2eContext } from './helpers/roles';
 
 /**
  * Friend graph + blocklist flow.
@@ -15,6 +16,7 @@ const PASS    = process.env.E2E_PLAYER_PASSWORD  ?? (process.env.E2E_PASSWORD ??
 
 async function login(page: Page, user: string, pass: string): Promise<void> {
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  await ensureLoginFormReady(page);
   await page.fill('input[formControlName="username"]', user);
   await page.fill('input[formControlName="password"]', pass);
   await page.click('button.login-btn');
@@ -28,8 +30,8 @@ async function login(page: Page, user: string, pass: string): Promise<void> {
 
 test.describe('friends + blocking', () => {
   test('player1 requests, player2 accepts, both see the friendship', async ({ browser }) => {
-    const ctx1 = await browser.newContext();
-    const ctx2 = await browser.newContext();
+    const ctx1 = await newE2eContext(browser);
+    const ctx2 = await newE2eContext(browser);
     const p1 = await ctx1.newPage();
     const p2 = await ctx2.newPage();
 
@@ -58,8 +60,8 @@ test.describe('friends + blocking', () => {
   });
 
   test('blocking a user hides their public sessions from the blocker\'s lobby', async ({ browser }) => {
-    const ctxBlocker = await browser.newContext();
-    const ctxBlocked = await browser.newContext();
+    const ctxBlocker = await newE2eContext(browser);
+    const ctxBlocked = await newE2eContext(browser);
     const blocker = await ctxBlocker.newPage();
     const blocked = await ctxBlocked.newPage();
 

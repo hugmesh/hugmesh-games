@@ -42,11 +42,11 @@ public class GameSessionService {
 
     private final GameSessionRepository    sessions;
     private final SessionMemberRepository  members;
-    private final UserRelationshipService  relationships;
+    private final RelationshipQuery  relationships;
 
     public GameSessionService(GameSessionRepository sessions,
                               SessionMemberRepository members,
-                              UserRelationshipService relationships) {
+                              RelationshipQuery relationships) {
         this.sessions      = sessions;
         this.members       = members;
         this.relationships = relationships;

@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import { Browser, BrowserContext, Page } from '@playwright/test';
 
 /**
  * Catalogue of Casdoor seed users available under the
@@ -47,12 +47,80 @@ export const SEED_USERS: SeedUser[] = [
   { username: 'publisher-dodecahedron',   passwordEnv: 'E2E_PUB_DODEC_PASSWORD', kind: 'publisher', scopedGame: 'dodecahedron'  },
 ];
 
+/**
+ * Create a fresh browser context that trusts the e2e self-signed cert
+ * AND uses the same baseURL as the playwright config. The default
+ * `browser.newContext()` does NOT inherit project-level `use` options
+ * (Playwright design choice — `newPage`'s fixture does, but
+ * `newContext` does not), so a spec that opens a manual context
+ * misses `ignoreHTTPSErrors: true` and every HTTPS request fails
+ * the cert check. The federation manifest fetch is the first
+ * casualty: the host shows the "Couldn't reach Login — the
+ * federated module didn't load" banner even though the chunks are
+ * served fine.
+ *
+ * Specs that need multiple users in parallel (friends, multiplayer,
+ * isolation) MUST call this instead of `browser.newContext()`.
+ */
+export async function newE2eContext(browser: Browser): Promise<BrowserContext> {
+  return await browser.newContext({
+    ignoreHTTPSErrors: true,
+    baseURL: process.env.E2E_BASE_URL ?? 'https://frontend:8443',
+  });
+}
+
 /** Resolve a seed user's password — env override or `E2E_PASSWORD`
  *  fallback — without throwing on a missing env. */
 export function passwordFor(user: SeedUser): string {
   return process.env[user.passwordEnv]
       ?? process.env['E2E_PASSWORD']
       ?? 'e2e-pass';
+}
+
+/**
+ * Wait for the federated login form to be interactable. Two
+ * fragility surfaces:
+ *
+ *   1. `domcontentloaded` fires before the federation runtime has
+ *      finished initialising — `__SNAPDRAGON_LOAD_REMOTE_MODULE__`
+ *      isn't on `globalThis` yet, so any route trying to lazy-load
+ *      a federated remote rejects → NavigationError → "Couldn't
+ *      reach Login" banner.
+ *   2. Even after init, the manifest fetch for the login bundle is
+ *      sometimes flaky on a cold image. The host already exposes
+ *      a Retry button on that banner; we click it up to 3 times.
+ */
+export async function ensureLoginFormReady(page: Page): Promise<void> {
+  // Best-effort wait for federation init. The retry loop below
+  // recovers if this races; the wait just gives the common path a
+  // smoother start.
+  await page.waitForFunction(
+    () => Boolean((globalThis as unknown as Record<string, unknown>)
+        .__SNAPDRAGON_FEDERATION_MANIFEST__),
+    undefined,
+    { timeout: 5_000 },
+  ).catch(() => { /* fall through to the retry loop */ });
+
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const input = page.locator('input[formControlName="username"]');
+    try {
+      await input.waitFor({ state: 'visible', timeout: 8_000 });
+      return;
+    } catch {
+      // Federation banner — click Retry, then loop.
+      const retry = page.locator('button.federation-error-retry');
+      if ((await retry.count()) > 0) {
+        await retry.click();
+      } else {
+        // Hard reload — last resort.
+        await page.reload({ waitUntil: 'domcontentloaded' });
+      }
+    }
+  }
+  // Final wait — long enough that we get a clear failure if the
+  // remote really never came up.
+  await page.locator('input[formControlName="username"]')
+    .waitFor({ state: 'visible', timeout: 15_000 });
 }
 
 /** Drive the federated login form and wait for the home route + a
@@ -64,6 +132,7 @@ export function passwordFor(user: SeedUser): string {
  *  written the token. */
 export async function login(page: Page, user: SeedUser): Promise<void> {
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  await ensureLoginFormReady(page);
   await page.fill('input[formControlName="username"]', user.username);
   await page.fill('input[formControlName="password"]', passwordFor(user));
   await page.click('button.login-btn');

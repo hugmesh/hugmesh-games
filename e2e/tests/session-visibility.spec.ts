@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { ensureLoginFormReady, newE2eContext } from './helpers/roles';
 
 /**
  * Session visibility tiers.
@@ -15,6 +16,7 @@ const PASS    = process.env.E2E_PLAYER_PASSWORD  ?? (process.env.E2E_PASSWORD ??
 
 async function login(page: Page, user: string, pass: string): Promise<void> {
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  await ensureLoginFormReady(page);
   await page.fill('input[formControlName="username"]', user);
   await page.fill('input[formControlName="password"]', pass);
   await page.click('button.login-btn');
@@ -28,8 +30,8 @@ async function login(page: Page, user: string, pass: string): Promise<void> {
 
 test.describe('session visibility', () => {
   test('friends-tier session is hidden from strangers', async ({ browser }) => {
-    const ctxCreator = await browser.newContext();
-    const ctxStranger = await browser.newContext();
+    const ctxCreator = await newE2eContext(browser);
+    const ctxStranger = await newE2eContext(browser);
     const creator = await ctxCreator.newPage();
     const stranger = await ctxStranger.newPage();
 
@@ -51,8 +53,8 @@ test.describe('session visibility', () => {
   });
 
   test('private session is hidden from everyone except the creator', async ({ browser }) => {
-    const ctxCreator = await browser.newContext();
-    const ctxOther   = await browser.newContext();
+    const ctxCreator = await newE2eContext(browser);
+    const ctxOther   = await newE2eContext(browser);
     const creator    = await ctxCreator.newPage();
     const other      = await ctxOther.newPage();
 

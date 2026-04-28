@@ -1,6 +1,6 @@
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import {
-  SEED_USERS, login, createSession, sendControl,
+  SEED_USERS, login, createSession, sendControl, newE2eContext,
 } from './helpers/roles';
 import { captureIframeSseEvents, drainCapturedEvents } from './helpers/sse-bridge';
 
@@ -21,8 +21,8 @@ const PLAYER2 = SEED_USERS.find(u => u.username === 'player2')!;
  */
 test.describe('cross-session isolation', () => {
   test('two sessions for the same game don\'t cross-stream events', async ({ browser }) => {
-    const ctxA: BrowserContext = await browser.newContext();
-    const ctxB: BrowserContext = await browser.newContext();
+    const ctxA: BrowserContext = await newE2eContext(browser);
+    const ctxB: BrowserContext = await newE2eContext(browser);
     const pA: Page = await ctxA.newPage();
     const pB: Page = await ctxB.newPage();
 

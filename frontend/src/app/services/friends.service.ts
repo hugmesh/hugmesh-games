@@ -5,7 +5,13 @@ import { Observable } from 'rxjs';
 export interface Relationship {
   id: number;
   userCasdoorId: string;
+  /** Display name for {@code userCasdoorId} — populated server-side
+   *  via the user-directory cache. Falls back to the casdoor id
+   *  when the directory hasn't seen the user yet. */
+  userName: string;
   otherCasdoorId: string;
+  /** Display name for {@code otherCasdoorId}. */
+  otherName: string;
   relationship: 'friend_request' | 'friend' | 'blocked';
   createdAt: string;
   updatedAt: string;
