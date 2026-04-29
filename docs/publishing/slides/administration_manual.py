@@ -153,6 +153,37 @@ SECTIONS = [
         ],
     },
     {
+        "title": "Multiplayer sessions",
+        "body": [
+            "GET /api/sessions[?gameSlug=] — list open sessions for the game-menu picker.",
+            "POST /api/sessions — creator names + auto-joins slot 0.",
+            "POST /api/sessions/{id}/join — slot collisions resolve as 409 via partial unique index.",
+            "Live admin observation: /admin/sessions (SessionsShell) lists open sessions with per-player camera-state stream.",
+            "Per-session SSE sinks isolate sessions from each other (see SessionIsolationTest).",
+        ],
+    },
+    {
+        "title": "Mod and publisher roles",
+        "body": [
+            "/admin/role-grants/* — admin grants publisher / mod scope per game.",
+            "/api/publisher/grant-mod — publishers can grant mod role on their own games.",
+            "/api/mod/sessions/{id}/{stop,kick} — moderators act per-game-scope.",
+            "Per-game seed users: mod-three-wizards / mod-dodecahedron / publisher-three-wizards / publisher-dodecahedron.",
+            "Each role has its own federated remote at /admin /mod /publisher.",
+        ],
+        "dark": True,
+    },
+    {
+        "title": "Debug-mode toggle for diagnostics",
+        "body": [
+            "POST /api/diagnostics/wasm-console is now ROLE_ADMIN + flag-gated.",
+            "Default OFF — players' iframe console captures never round-trip to the BFF.",
+            "PUT /api/admin/debug-mode/wasm-console — admin enables briefly while triaging an iframe issue.",
+            "GET /api/admin/debug-mode — read current state.",
+            "system_settings table holds the persisted flag; AtomicBoolean mirrors hot-path reads.",
+        ],
+    },
+    {
         "title": "Backup and restore",
         "body": [
             "Postgres        — pg_dump from inside the postgres container; volumes/postgres-data is the canonical source.",

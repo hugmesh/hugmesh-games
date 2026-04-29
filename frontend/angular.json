@@ -119,6 +119,84 @@
         }
       }
     },
+    "mod": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/mod",
+      "sourceRoot": "projects/mod/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": { "target": "mod:esbuild:production" },
+          "configurations": {
+            "development": { "target": "mod:esbuild:development", "dev": true },
+            "production":  { "target": "mod:esbuild:production" }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/mod",
+            "index":   "projects/mod/src/index.html",
+            "browser": "projects/mod/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/mod/tsconfig.app.json",
+            "assets": [], "styles": [], "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                { "type": "initial", "maximumWarning": "500kb", "maximumError": "2mb" }
+              ]
+            },
+            "development": { "optimization": false, "extractLicenses": false, "sourceMap": true }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
+    "publisher": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/publisher",
+      "sourceRoot": "projects/publisher/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": { "target": "publisher:esbuild:production" },
+          "configurations": {
+            "development": { "target": "publisher:esbuild:development", "dev": true },
+            "production":  { "target": "publisher:esbuild:production" }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/publisher",
+            "index":   "projects/publisher/src/index.html",
+            "browser": "projects/publisher/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/publisher/tsconfig.app.json",
+            "assets": [], "styles": [], "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                { "type": "initial", "maximumWarning": "500kb", "maximumError": "2mb" }
+              ]
+            },
+            "development": { "optimization": false, "extractLicenses": false, "sourceMap": true }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
     "games-three-wizards": {
       "projectType": "application",
       "schematics": {},

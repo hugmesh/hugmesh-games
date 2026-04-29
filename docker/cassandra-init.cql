@@ -2,7 +2,7 @@
 -- Reactive Spring Data Cassandra binds to this from the api container.
 --
 -- Why Cassandra alongside Postgres?
---   • Postgres holds authoritative game state (characters, levels, quests).
+--   • Postgres holds authoritative game state (characters, chapters, quests).
 --   • Cassandra holds high-write ephemeral data: per-pod session leases,
 --     active-controller arbitration, the aggregate counters the admin
 --     /api/admin/stream serves. Linear-scalable across pods + tunable
@@ -55,21 +55,21 @@ CREATE TABLE IF NOT EXISTS pod_heartbeats (
     PRIMARY KEY (pod_id)
 ) WITH default_time_to_live = 30;
 
--- Per-(character, level) position cache. Postgres remains the source of
+-- Per-(character, chapter) position cache. Postgres remains the source of
 -- truth (player_positions) for durability + analytics; this Cassandra
 -- table is the cross-pod read cache that lets pod B see a position
 -- updated on pod A within the round-trip of the SSE fan-out.
 --
--- Composite partition key (character_id, level_id) so a player walking
+-- Composite partition key (character_id, chapter_id) so a player walking
 -- cave → field → cave finds their cave coordinates exactly where they
--- left them (the prior single-row schema overwrote across levels).
+-- left them (the prior single-row schema overwrote across chapters).
 --
 -- 5-minute TTL so a long-idle character doesn't pin a row that the
 -- player abandoned; durable storage in Postgres backs the cache when
 -- it expires.
 CREATE TABLE IF NOT EXISTS character_position_cache (
     character_id   bigint,
-    level_id       bigint,
+    chapter_id     bigint,
     pos_x          double,
     pos_y          double,
     pos_z          double,
@@ -79,20 +79,84 @@ CREATE TABLE IF NOT EXISTS character_position_cache (
     pod_id         text,
     updated_at     timestamp,
     tick           bigint,
-    PRIMARY KEY ((character_id, level_id))
+    PRIMARY KEY ((character_id, chapter_id))
 ) WITH default_time_to_live = 300;
 
--- Per-level membership index: which characters are currently present
--- in a given level. Used by GameStateService.emitWorldState to scope
+-- Per-chapter membership index: which characters are currently present
+-- in a given chapter. Used by GameStateService.emitWorldState to scope
 -- broadcasts so a player in cave doesn't see a player in field. The
 -- TTL is shorter than the position cache because membership is more
--- volatile (a character rapidly traversing levels needs prompt
+-- volatile (a character rapidly traversing chapters needs prompt
 -- invalidation), and a single missed write reverses on the next
 -- movement tick.
-CREATE TABLE IF NOT EXISTS level_membership (
-    level_id       bigint,
+CREATE TABLE IF NOT EXISTS chapter_membership (
+    chapter_id     bigint,
     character_id   bigint,
     pod_id         text,
     last_seen      timestamp,
-    PRIMARY KEY (level_id, character_id)
+    PRIMARY KEY (chapter_id, character_id)
 ) WITH default_time_to_live = 60;
+
+-- Per-session presence index: which casdoor users are currently in a given
+-- multiplayer session, on which pod, and in which slot. Postgres
+-- (session_members) is the source of truth for membership history;
+-- this Cassandra table is the cross-pod heartbeat used by the admin SSE
+-- stream and the session-picker presence indicator.
+--
+-- 30-second TTL; each pod refreshes the rows of its own connected members
+-- on every SSE keepalive tick so a pod crash drops the rows naturally.
+CREATE TABLE IF NOT EXISTS session_membership (
+    session_id     text,
+    casdoor_id     text,
+    slot_index     int,
+    character_id   bigint,
+    pod_id         text,
+    joined_at      timestamp,
+    last_ping      timestamp,
+    PRIMARY KEY ((session_id), casdoor_id)
+) WITH default_time_to_live = 30;
+
+-- Per-(session, slot) ring of recent player-view egress events. The Rust
+-- GDExtension's view_egress signal pushes a small camera+orientation
+-- payload at ~10 Hz; the BFF persists it here so admins joining the
+-- per-session view stream see the most recent view immediately instead
+-- of waiting for the next tick. 60-second TTL is enough for a brief
+-- replay window without growing unbounded.
+--
+-- Clustering by occurred_at DESC so the most recent row is the cheap
+-- read; LIMIT 1 lookup is the common path.
+CREATE TABLE IF NOT EXISTS session_view_state (
+    session_id     text,
+    slot_index     int,
+    occurred_at    timestamp,
+    payload_json   text,
+    pod_id         text,
+    PRIMARY KEY ((session_id, slot_index), occurred_at)
+) WITH CLUSTERING ORDER BY (occurred_at DESC)
+   AND default_time_to_live = 60;
+
+-- Cross-pod rate-limit event log. RateLimitFilter writes one row per
+-- gated request keyed by `(bucket_key, event_id)` where bucket_key
+-- is "<remote-ip>|<path-prefix>" and event_id is a TimeUUID. To
+-- decide whether to throttle, the filter counts rows for the bucket
+-- in the last RATE_LIMIT_WINDOW; rows older than the TTL fall off
+-- naturally so the count is implicitly window-scoped.
+--
+-- Why an append-row log and not a counter table:
+--   • Counter tables don't compose with TTL — there's no way to
+--     auto-evict old window state, and writes aren't idempotent
+--     (timeouts can double-count). Cassandra's docs explicitly call
+--     this anti-pattern out for rate limiting.
+--   • Append-with-TTL gives free window cleanup + idempotent writes,
+--     and the count-rows read is bounded by MAX_PER_WINDOW so it
+--     stays a single-partition scan.
+--
+-- 90-second TTL is RATE_LIMIT_WINDOW (60 s) plus a 30 s grace so the
+-- count read is never racing with a freshly-evicted row.
+CREATE TABLE IF NOT EXISTS rate_limit_events (
+    bucket_key     text,
+    event_id       timeuuid,
+    pod_id         text,
+    PRIMARY KEY ((bucket_key), event_id)
+) WITH CLUSTERING ORDER BY (event_id DESC)
+   AND default_time_to_live = 90;

@@ -4,6 +4,8 @@ import { HomeComponent } from './home/home.component';
 import { AboutComponent } from './about/about.component';
 import { PlayerDashboardComponent } from './player-dashboard/player-dashboard.component';
 import { BannedPageComponent } from './banned-page/banned-page.component';
+import { FriendsComponent } from './friends/friends.component';
+import { SessionLogPageComponent } from './session-log/session-log-page.component';
 import { authGuard } from './auth.guard';
 
 // Federated route loaders. main.ts stashes
@@ -36,11 +38,23 @@ export function loadRemote<T>(remoteName: string, exposedModule: string, exportN
 export const routes: Routes = [
   { path: '', component: HomeComponent, canActivate: [authGuard] },
   { path: 'dashboard', component: PlayerDashboardComponent, canActivate: [authGuard] },
+  { path: 'friends', component: FriendsComponent, canActivate: [authGuard] },
+  { path: 'sessions/log', component: SessionLogPageComponent, canActivate: [authGuard] },
   { path: 'login', loadComponent: () => loadRemote('login', './LoginComponent', 'LoginRemoteComponent') },
   { path: 'about', component: AboutComponent },
   { path: 'banned', component: BannedPageComponent },
   { path: 'admin', loadComponent: () => loadRemote('admin', './AdminShell', 'AdminRemoteComponent'), canActivate: [authGuard] },
   { path: 'admin/games', loadComponent: () => loadRemote('admin', './UploadShell', 'UploadRemoteComponent'), canActivate: [authGuard] },
+  // Per-session live observation including per-player view SSE — admin
+  // SessionsShell ships from the same admin remote bundle.
+  { path: 'admin/sessions', loadComponent: () => loadRemote('admin', './SessionsShell', 'SessionsRemoteComponent'), canActivate: [authGuard] },
   { path: 'admin/docs', loadComponent: () => loadRemote('api-docs', './DocsShell', 'DocsShellComponent'), canActivate: [authGuard] },
+  // Per-game moderator console — ROLE_MOD or ROLE_ADMIN. The BFF
+  // controllers @PreAuthorize so the route mounts for any authenticated
+  // user; non-mod / non-admin callers see a 403 banner inside the shell.
+  { path: 'mod', loadComponent: () => loadRemote('mod', './ModShell', 'ModRemoteComponent'), canActivate: [authGuard] },
+  // Per-game publisher console — ROLE_PUBLISHER or ROLE_ADMIN. Same
+  // BFF-side enforcement pattern as /mod.
+  { path: 'publisher', loadComponent: () => loadRemote('publisher', './PublisherShell', 'PublisherRemoteComponent'), canActivate: [authGuard] },
   { path: '**', redirectTo: '' },
 ];

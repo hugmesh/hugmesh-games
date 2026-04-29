@@ -22,7 +22,7 @@ Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/archit
 
 ## Audience guides
 
-Six audience-targeted condensations. Mirror of [`docs/publishing/userguides/`](../publishing/userguides/).
+Eight audience-targeted condensations. Mirror of [`docs/publishing/userguides/`](../publishing/userguides/).
 
 | Audience | Page | When to read it |
 |---|---|---|
@@ -32,6 +32,8 @@ Six audience-targeted condensations. Mirror of [`docs/publishing/userguides/`](.
 | Data architect | [Data architect overview](guides/data-architect-overview.md) | Where data lives, what the SLAs are. |
 | Administrator | [Administration manual](guides/administration.md) | You hold `ROLE_ADMIN` and run the stack. |
 | On-call / SRE | [Maintainer runbook](guides/maintainer-runbook.md) | The lights are red, fix it. |
+| Moderator | [Moderator guide](guides/moderator.md) | You hold `ROLE_MOD` for one or more games and need to keep sessions healthy. |
+| Publisher | [Publisher guide](guides/publisher.md) | You hold `ROLE_PUBLISHER` for one or more games — upload, pin, edit access. |
 
 ## How-tos
 
@@ -45,6 +47,10 @@ Recipe cards. Each one is a task you've done before and want to do again without
 - [Add a database column](howto/add-db-column.md)
 - [Hot-upload and roll back a game bundle](howto/upload-and-rollback-game.md)
 - [Kick or ban a player](howto/kick-or-ban.md)
+- [Create or join a multiplayer session](howto/create-or-join-session.md)
+- [Grant the mod or publisher role for a game](howto/grant-mod-or-publisher.md)
+- [Toggle WASM-console debug mode](howto/toggle-wasm-debug-mode.md)
+- [Run + extend multi-user e2e specs](howto/run-multi-user-e2e.md)
 
 ## Decisions and notes
 
@@ -59,6 +65,13 @@ Why the system has the shape it has. Each entry is one decision, the constraint 
 - [007 — Cassandra position cache, keyed by `(character, chapter)`](decisions/007-cassandra-position-cache.md)
 - [008 — Casdoor never exposed; BFF reverse-proxies the login flow](decisions/008-casdoor-internal.md)
 - [009 — Three additive scopes for `game_access`](decisions/009-game-access-scopes.md)
+- [010 — Per-session SSE sink isolation](decisions/010-per-session-sse-sinks.md)
+- [011 — Mod / publisher roles with per-game Postgres scoping](decisions/011-mod-publisher-rbac.md)
+- [012 — Admin-only debug-mode gate on WASM console capture](decisions/012-debug-mode-gate.md)
+- [013 — Per-player view egress channel for admin observation](decisions/013-player-view-channel.md)
+- [014 — All Godot networking flows through the bridge](decisions/014-bridge-routed-networking.md)
+- [015 — Friends, blocks, session visibility, and per-user session log](decisions/015-friends-blocks-and-session-visibility.md)
+- [016 — Rust GDExtension owns the bridge; Angular wrapper relays SSE + HTTP](decisions/016-rust-extension-and-fragment-relay.md)
 
 ## Where the canonical sources live
 

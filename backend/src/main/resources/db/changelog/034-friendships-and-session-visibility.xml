@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Phase 8: Visibility tiers + friend/block graph + per-user session log query.
+
+    Three changes that together let players run friends-only or invite-only
+    sessions, manage who they share lobbies with, and review their own
+    session history:
+
+      • game_sessions.visibility — one of public / friends / private,
+        default public. The lobby filter joins on user_relationships
+        for the friends tier.
+      • user_relationships — a single graph table keyed (user_casdoor_id,
+        other_casdoor_id, relationship). 'friend_request' / 'friend' /
+        'blocked'. Mutual friend = two 'friend' rows (a→b AND b→a).
+        Block = one 'blocked' row (a→b only; b never sees the block).
+      • Indexes that scope the friends-of-X and blocked-by-X queries to
+        a single index seek so the lobby list filter stays cheap.
+  -->
+
+  <changeSet id="034-1-add-session-visibility" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><columnExists tableName="game_sessions" columnName="visibility"/></not>
+    </preConditions>
+    <addColumn tableName="game_sessions">
+      <column name="visibility" type="VARCHAR(16)" defaultValue="public">
+        <constraints nullable="false"/>
+      </column>
+    </addColumn>
+  </changeSet>
+
+  <changeSet id="034-2-create-user-relationships" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="user_relationships"/></not>
+    </preConditions>
+    <createTable tableName="user_relationships">
+      <column name="id" type="BIGSERIAL">
+        <constraints primaryKey="true"/>
+      </column>
+      <column name="user_casdoor_id" type="VARCHAR(64)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="other_casdoor_id" type="VARCHAR(64)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="relationship" type="VARCHAR(16)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+      <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+  </changeSet>
+
+  <changeSet id="034-3-uniq-user-relationship-pair" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not>
+        <sqlCheck expectedResult="1">
+          SELECT COUNT(*) FROM information_schema.table_constraints
+          WHERE table_name = 'user_relationships'
+            AND constraint_name = 'uq_user_relationships_pair'
+        </sqlCheck>
+      </not>
+    </preConditions>
+    <addUniqueConstraint
+        tableName="user_relationships"
+        columnNames="user_casdoor_id,other_casdoor_id"
+        constraintName="uq_user_relationships_pair"/>
+  </changeSet>
+
+  <changeSet id="034-4-ix-user-relationships-other" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><indexExists indexName="ix_user_relationships_other"/></not>
+    </preConditions>
+    <createIndex indexName="ix_user_relationships_other" tableName="user_relationships">
+      <column name="other_casdoor_id"/>
+      <column name="relationship"/>
+    </createIndex>
+  </changeSet>
+
+  <changeSet id="034-5-ix-user-relationships-user-rel" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><indexExists indexName="ix_user_relationships_user_rel"/></not>
+    </preConditions>
+    <createIndex indexName="ix_user_relationships_user_rel" tableName="user_relationships">
+      <column name="user_casdoor_id"/>
+      <column name="relationship"/>
+    </createIndex>
+  </changeSet>
+
+  <changeSet id="034-6-ix-session-members-user-history" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><indexExists indexName="ix_session_members_user_history"/></not>
+    </preConditions>
+    <!-- Indexed by (casdoor_id, joined_at desc) so the per-user
+         participation log query is a single backwards scan. -->
+    <createIndex indexName="ix_session_members_user_history" tableName="session_members">
+      <column name="casdoor_id"/>
+      <column name="joined_at" descending="true"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

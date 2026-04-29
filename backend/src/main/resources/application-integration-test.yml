@@ -1,0 +1,45 @@
+# Integration-testing Spring profile.
+#
+# Activated by `docker-compose.e2e.yml` (SPRING_PROFILES_ACTIVE=integration-test)
+# when the `make e2e` harness brings the stack up. Differs from the
+# `dev` profile in that:
+#
+#   * /v3/api-docs is public (matches dev) so the suite can introspect.
+#   * Logging is verbose at the multiplayer + session boundary so a
+#     failing spec leaves enough breadcrumbs in `e2e/results/artifacts`
+#     to pinpoint which sink/route disagreed.
+#   * The Casdoor seed runs with deterministic passwords (one per
+#     Casdoor user, each defaulted to ${E2E_PASSWORD}) so every
+#     Playwright spec can log every role in without reading the
+#     random first-boot dump. See docker-compose.e2e.yml's `casdoor:`
+#     environment block for the full role list.
+#
+# This file does NOT pre-create database fixtures — every seed user
+# gets default character rows from Liquibase 002. Specs that need
+# extra state (a private session for cross-session-isolation, a
+# friend graph, etc.) build it via the public API as the first step
+# of the test, so the seed surface stays small and the specs stay
+# self-contained.
+
+logging:
+  level:
+    games.snapdragon.bff: DEBUG
+    games.snapdragon.bff.service.GameStateService: TRACE
+    games.snapdragon.bff.service.GameSessionService: TRACE
+    games.snapdragon.bff.controller.MultiplayerSessionController: DEBUG
+    games.snapdragon.bff.controller.GameStreamController: DEBUG
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+# Make the JSON error body on a ResponseStatusException carry the
+# `message` field — the Playwright suite asserts on it for the
+# 403/404/409 path checks. Spring's WebFlux default omits the
+# message; the integration-test profile flips it on.
+server:
+  error:
+    include-message: always
+    include-binding-errors: always

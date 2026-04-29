@@ -1,0 +1,71 @@
+.friends-page {
+  max-width: 1100px;
+  margin: 24px auto;
+  padding: 0 20px;
+  color: #d8dde6;
+  font-family: sans-serif;
+}
+.friends-header h2 { margin: 0 0 4px; color: #f0f2fa; }
+.friends-header p  { margin: 0 0 18px; color: #9aa3b8; font-size: 14px; }
+
+.friends-add {
+  background: #161823;
+  border: 1px solid rgba(124,77,255,0.18);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+.friends-add label { font-weight: 600; font-size: 14px; }
+.friends-add-row {
+  display: flex; gap: 10px; margin-top: 8px;
+}
+.friends-add input {
+  flex: 1;
+  background: #0d0f17; color: #e8e8f0;
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
+  padding: 8px 10px; font-size: 14px;
+}
+.friends-add button {
+  appearance: none; border: 1px solid rgba(124,77,255,0.55);
+  background: rgba(124,77,255,0.32); color: #fff;
+  padding: 8px 18px; border-radius: 4px; font-weight: 600; cursor: pointer;
+}
+.friends-add button:disabled { opacity: 0.45; cursor: not-allowed; }
+.friends-add-hint { color: #8b94a8; font-size: 12px; margin: 8px 0 0; }
+
+.friends-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+.friends-panel {
+  background: #161823;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+.friends-panel h3 { margin: 0 0 10px; font-size: 14px; color: #cfd5e0; }
+.friends-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.friends-panel li {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #1f2333; border-radius: 6px; padding: 8px 12px;
+}
+.friend-id { font-weight: 600; color: #f0f2fa; }
+.friend-actions { display: flex; gap: 6px; }
+.friend-actions button {
+  appearance: none; background: transparent;
+  border: 1px solid rgba(255,255,255,0.18); color: #d8dde6;
+  padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;
+}
+.friend-actions button:hover { background: rgba(255,255,255,0.06); }
+.friend-actions .accept-btn {
+  border-color: rgba(76,175,80,0.45); color: #6dd66c;
+  background: rgba(76,175,80,0.12);
+}
+.friend-actions .block-btn {
+  border-color: rgba(224,82,77,0.45); color: #e0524d;
+}
+.friends-empty {
+  color: #8b94a8; font-size: 13px; padding: 8px 0; margin: 0;
+}
+.friends-block-help { font-size: 12px; color: #8b94a8; margin: 0 0 10px; }

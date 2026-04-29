@@ -1,4 +1,5 @@
 import { Injectable, NgZone, inject } from '@angular/core';
+import { AuthService } from './auth.service';
 
 /**
  * Forwards `SD_WASM_CONSOLE` postMessage payloads from the WASM
@@ -30,7 +31,20 @@ import { Injectable, NgZone, inject } from '@angular/core';
 @Injectable({ providedIn: 'root' })
 export class WasmConsoleForwarderService {
   private readonly zone = inject(NgZone);
+  private readonly auth = inject(AuthService);
   private started = false;
+  /**
+   * Whether the BFF's wasm-console capture is currently enabled. The
+   * forwarder still mirrors locally regardless (helpful for any
+   * authenticated dev), but the POST to the BFF is suppressed when
+   * either:
+   *   • the caller isn't admin, OR
+   *   • the BFF's wasm_console_debug_enabled flag is false.
+   *
+   * Refreshed on start() and on every {@link refreshDebugFlag} call;
+   * the admin UI can call refreshDebugFlag after toggling the gate.
+   */
+  private debugEnabled = false;
 
   start(): void {
     if (this.started || typeof window === 'undefined') return;
@@ -40,6 +54,24 @@ export class WasmConsoleForwarderService {
     this.zone.runOutsideAngular(() => {
       window.addEventListener('message', this.onMessage);
     });
+    this.refreshDebugFlag();
+  }
+
+  /**
+   * Re-fetch the debug flag from the BFF. The endpoint is admin-only,
+   * so non-admin callers always end up with debugEnabled=false (which
+   * suppresses the POST). The admin UI calls this after flipping the
+   * toggle so the local mirror catches up immediately.
+   */
+  refreshDebugFlag(): void {
+    if (!this.auth.isAdmin()) {
+      this.debugEnabled = false;
+      return;
+    }
+    fetch('/api/admin/debug-mode', { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : Promise.reject(r))
+      .then(d => { this.debugEnabled = !!d?.wasmConsoleEnabled; })
+      .catch(() => { this.debugEnabled = false; });
   }
 
   private readonly onMessage = (e: MessageEvent) => {
@@ -56,7 +88,12 @@ export class WasmConsoleForwarderService {
       case 'info':  console.info(...args);  break;
       default:      console.log(...args);
     }
-    // Forward to BFF — fire-and-forget; never block the UI.
+    // Forward to BFF — fire-and-forget; never block the UI. Suppressed
+    // when the caller isn't admin OR the BFF debug-mode flag is off:
+    // the BFF would refuse the POST with 403 anyway, so we save the
+    // round-trip and avoid noise in DevTools' Network panel for
+    // non-admin players.
+    if (!this.debugEnabled) return;
     fetch('/api/diagnostics/wasm-console', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

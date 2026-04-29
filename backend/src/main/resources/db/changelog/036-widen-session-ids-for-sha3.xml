@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    UID widening for the SHA3-256 / BouncyCastle migration.
+
+    `Crypto.mintUid()` produces base64url(SHA3-256(entropy)) — 43
+    characters. The legacy varchar(36) columns sized for UUIDs
+    (36 chars including dashes) reject the new id with
+    "value too long for type character varying(36)".
+
+    Widening to varchar(64) leaves headroom for SHA3-384 (64 chars)
+    if a future call site mints stronger ids.
+
+    Touched columns: game_sessions.id (PK) and the matching
+    session_members.session_id FK. Liquibase auto-rewrites the FK
+    when the referenced column type changes; the explicit
+    renumber here stays idempotent under
+    onFail="MARK_RAN" so a re-run on a partially-applied DB is a
+    no-op.
+  -->
+
+  <changeSet id="036-1-widen-game-sessions-id" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="game_sessions" columnName="id"/>
+    </preConditions>
+    <modifyDataType tableName="game_sessions" columnName="id" newDataType="varchar(64)"/>
+  </changeSet>
+
+  <changeSet id="036-2-widen-session-members-session-id" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="session_members" columnName="session_id"/>
+    </preConditions>
+    <modifyDataType tableName="session_members" columnName="session_id" newDataType="varchar(64)"/>
+  </changeSet>
+
+</databaseChangeLog>

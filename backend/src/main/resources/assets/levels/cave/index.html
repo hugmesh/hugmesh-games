@@ -111,17 +111,22 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":81372,"index.wasm":1509558,"index.side.wasm":41113842},"focusCanvas":true,"gdextensionLibs":["snapdragon_bridge.wasm"],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":89048,"index.wasm":1509558,"index.side.wasm":41113842},"focusCanvas":true,"gdextensionLibs":["snapdragon_bridge.wasm"],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 // Prefetch scene JSON early — WASM takes 30s+ to compile, so this data
 // is ready long before GDScript polls for window._twSceneReady.
+// The !r.ok guard is critical: without it a BFF 500 silently parses
+// as the scene config and the world spawns empty.
 (function(){
 	var p = new URLSearchParams(window.location.search);
-	var levelId = p.get('level_id') || p.get('game_id') || '1';
+	var chapterId = p.get('chapter_id') || p.get('level_id') || p.get('game_id') || '1';
 	// Always relative — nginx (compose) and the dev proxy both forward /api correctly.
-	fetch('/api/levels/' + levelId + '/scene')
-		.then(function(r) { return r.json(); })
+	fetch('/api/chapters/' + chapterId + '/scene')
+		.then(function(r) {
+			if (!r.ok) throw new Error('HTTP ' + r.status);
+			return r.json();
+		})
 		.then(function(scene) {
 			window._twSceneConfig = scene;
 			window._twSceneReady = true;

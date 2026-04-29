@@ -483,3 +483,118 @@ button.game-card {
   font-size: 0.78rem;
   color: #b388ff;
 }
+
+/* ── Session picker ───────────────────────────────────────────────── */
+.session-picker {
+  background: #161823;
+  border: 1px solid rgba(124,77,255,0.18);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin: 0 0 20px;
+  color: #d8dde6;
+}
+.session-picker-header { margin-bottom: 14px; }
+.session-picker-title  { font-size: 17px; margin: 0 0 4px; color: #f0f2fa; }
+.session-picker-sub    { font-size: 13px; margin: 0; color: #9aa3b8; line-height: 1.45; }
+.session-picker-active {
+  margin: 0 0 12px; padding: 10px 12px;
+  background: rgba(76,175,80,0.12); border-left: 3px solid #4caf50;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.session-list-wrap     { margin-bottom: 18px; }
+.session-list-head     {
+  display: flex; align-items: center; gap: 10px;
+  text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em;
+  color: #8090a8; margin: 0 0 8px;
+}
+.session-loading-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #5da9ff;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1; }
+}
+.session-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.session-row  {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  background: #1f2333;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.session-row-main { display: flex; align-items: center; gap: 10px; grid-column: 1; }
+.session-name     { font-weight: 600; color: #f0f2fa; }
+.session-vis-tag {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: 999px;
+}
+.session-vis-public  { background: rgba(93,169,255,0.14); color: #5da9ff; }
+.session-vis-friends { background: rgba(76,175,80,0.14);  color: #6dd66c; }
+.session-vis-private { background: rgba(176,131,255,0.14); color: #b388ff; }
+.session-meta { font-size: 12px; color: #8b94a8; grid-column: 1; }
+.join-btn {
+  grid-column: 2; grid-row: 1 / span 2;
+  appearance: none; border: 1px solid rgba(124,77,255,0.45);
+  background: rgba(124,77,255,0.18); color: #e8e8f0;
+  padding: 8px 16px; border-radius: 4px; font-weight: 600; cursor: pointer;
+  transition: background 120ms;
+}
+.join-btn:hover:not(:disabled), .join-btn:focus-visible {
+  background: rgba(124,77,255,0.42); outline: none;
+}
+.join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.session-picker-empty {
+  margin: 0; padding: 14px; text-align: center;
+  background: #1f2333; border-radius: 6px;
+  color: #8b94a8; font-size: 13px;
+}
+
+.session-create {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.session-create-title { margin: 0 0 4px; font-size: 14px; color: #cfd5e0; }
+.session-create-row   {
+  display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center;
+}
+.session-create-row label { font-size: 13px; color: #aab1c1; }
+.session-create-row input {
+  background: #0d0f17; color: #e8e8f0;
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
+  padding: 8px 10px; font-size: 13px;
+}
+.session-create-row input:focus-visible {
+  border-color: #b388ff; outline: 2px solid rgba(124,77,255,0.35); outline-offset: 0;
+}
+.session-create-vis {
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 4px;
+  margin: 4px 0 6px; padding: 8px 12px 10px;
+}
+.session-create-vis legend {
+  font-size: 12px; color: #8090a8; padding: 0 6px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.vis-option {
+  display: grid; grid-template-columns: 18px 90px 1fr; column-gap: 8px;
+  align-items: baseline; padding: 4px 0; font-size: 13px;
+  cursor: pointer;
+}
+.vis-option span { color: #e8e8f0; font-weight: 600; }
+.vis-option em { color: #8b94a8; font-style: normal; font-size: 12px; }
+.vis-option input { margin: 0; accent-color: #b388ff; }
+.create-btn {
+  align-self: flex-start;
+  appearance: none; border: 1px solid rgba(124,77,255,0.55);
+  background: rgba(124,77,255,0.32); color: #fff;
+  padding: 9px 18px; border-radius: 4px; font-weight: 600; cursor: pointer;
+}
+.create-btn:hover:not(:disabled), .create-btn:focus-visible {
+  background: rgba(124,77,255,0.55); outline: none;
+}
+.create-btn:disabled { opacity: 0.45; cursor: not-allowed; }

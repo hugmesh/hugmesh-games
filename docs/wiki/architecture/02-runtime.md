@@ -113,6 +113,32 @@ The latter three channels (`input`, `audio`, `wasm-console`) are part of the gen
 
 **Every sink in this project passes `autoCancel=false` explicitly.** If a freshly-deployed sink "works once and then silently dies", this is the cause. See [decision 003](../decisions/003-autocancel-false.md).
 
+## Per-session SSE sink isolation
+
+Multiplayer sessions add a new layer: `GameStateService` keeps a `ConcurrentHashMap<String, SessionSinks>` of per-session sink bundles alongside the legacy global sinks. When a control event arrives with a `sessionId`, the resulting `PlayerMovement` / `WorldState` / `CharacterDto` / `PlayerViewEvent` fans out on **both**:
+
+- the **legacy global sink** (so the admin firehose at `/api/admin/stream` still sees everything across the fleet), and
+- the **session-scoped sink** keyed by `sessionId` (so a subscriber to `/api/game/stream?sessionId=A` sees only session A's events).
+
+The isolation contract is locked in by [`SessionIsolationTest`](../../../backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) — emit on session A's sinks, assert session B's per-session subscriber sees nothing. Five specs cover movement, world, view, bidirectional isolation, and the legacy single-player path's non-leakage.
+
+```mermaid
+flowchart LR
+    A[Player A — session α] -->|POST /api/controls/{cidA}<br/>X-Session-Id: α| BFF
+    B[Player B — session β] -->|POST /api/controls/{cidB}<br/>X-Session-Id: β| BFF
+    BFF --> Global[Global sink<br/>admin firehose]
+    BFF --> SinkA[SessionSinks α]
+    BFF --> SinkB[SessionSinks β]
+    Global --> AdminAll[GET /api/admin/stream]
+    SinkA --> SubA[GET /api/game/stream?sessionId=α]
+    SinkB --> SubB[GET /api/game/stream?sessionId=β]
+    classDef noleak fill:#ffe5e5,stroke:#a14a4a;
+    SinkA -.|never reaches B| SubB:::noleak
+    SinkB -.|never reaches A| SubA:::noleak
+```
+
+A new **`view`** channel carries per-player camera/orientation samples (~10 Hz) that the Rust GDExtension's `view_egress` signal feeds. Admins watch via `/api/admin/sessions/{id}/stream`. See [decision 010](../decisions/010-per-session-sse-sinks.md) and [decision 013](../decisions/013-player-view-channel.md).
+
 ---
 
 Previous: [01 — Overview](01-overview.md) · Next: [03 — Module Federation](03-federation.md).

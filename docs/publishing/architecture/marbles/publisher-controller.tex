@@ -1,0 +1,28 @@
+% PublisherController — POST /api/publisher/grant-mod
+%   Per-game scope check on the publisher (publisher_game_scopes), then
+%   idempotent insert into mod_game_scopes. Re-granting an existing
+%   active row is a no-op that returns the existing row.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.4,2.4) {q};
+  \node[marbletype,above=1pt of u1] {GrantModRequest};
+
+  \node[marbleop] (op1) at (4.0,1.2) {requireOwns\\ \scriptsize publisher\_game\_scopes};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (7.4,0.0) {findActive\\ \scriptsize mod\_game\_scopes};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \node[marbleop] (op3) at (10.0,-1.4) {save\\ \scriptsize new active row};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| ([yshift=2pt]op3.west);
+
+  \snapmarbleline{m1}{-2.8}{Mono<ModGameScope>}{0}{12.6}
+  \node[marbleTx] (d1) at (10.0,-2.8) {s};
+  \node[marbletype,above=1pt of d1] {scope row};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| (d1.north);
+
+  \node[marbleErr] (e1) at (4.0,-2.0) {403};
+  \node[marbletype,below=1pt of e1] {publisher does not own gameSlug};
+  \draw[marbleline,dashed] (op1.south) -- (e1.north);
+\end{tikzpicture}

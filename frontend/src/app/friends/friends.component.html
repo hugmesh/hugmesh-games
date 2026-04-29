@@ -1,0 +1,102 @@
+<section class="friends-page" aria-label="Friends and blocking">
+  <header class="friends-header">
+    <h2>Friends</h2>
+    <p>Send requests, accept invitations, or block users you don't want to see in lobbies.</p>
+  </header>
+
+  <form class="friends-add" (submit)="$event.preventDefault(); request()">
+    <label for="friends-target-input">Add a friend</label>
+    <div class="friends-add-row">
+      <input id="friends-target-input"
+             [(ngModel)]="newFriendId"
+             name="newFriendId"
+             placeholder="Their casdoor id (e.g. player2)"
+             autocomplete="off" />
+      <button type="submit" [disabled]="!newFriendId.trim()">Send request</button>
+    </div>
+    <p class="friends-add-hint">
+      You'll appear as their request inbox until they accept. Either of you
+      can decline at any time.
+    </p>
+  </form>
+
+  <div class="friends-grid">
+    <section class="friends-panel" aria-label="Your friends">
+      <h3>Friends ({{ friends().length }})</h3>
+      @if (friends().length === 0) {
+        <p class="friends-empty">No friends yet — send a request above.</p>
+      } @else {
+        <ul role="list">
+          @for (f of friends(); track f.id) {
+            <li>
+              <span class="friend-id">{{ f.otherName || f.otherCasdoorId }}</span>
+              <div class="friend-actions">
+                <button type="button" (click)="remove(f.otherCasdoorId)">Remove</button>
+                <button type="button" class="block-btn" (click)="block(f.otherCasdoorId)">Block</button>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="friends-panel" aria-label="Incoming requests">
+      <h3>Incoming requests ({{ incoming().length }})</h3>
+      @if (incoming().length === 0) {
+        <p class="friends-empty">No pending requests.</p>
+      } @else {
+        <ul role="list">
+          @for (r of incoming(); track r.id) {
+            <li>
+              <span class="friend-id">{{ r.userName || r.userCasdoorId }}</span>
+              <div class="friend-actions">
+                <button type="button" class="accept-btn" (click)="accept(r.userCasdoorId)">Accept</button>
+                <button type="button" (click)="remove(r.userCasdoorId)">Decline</button>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="friends-panel" aria-label="Outgoing requests">
+      <h3>Outgoing requests ({{ outgoing().length }})</h3>
+      @if (outgoing().length === 0) {
+        <p class="friends-empty">No requests waiting.</p>
+      } @else {
+        <ul role="list">
+          @for (r of outgoing(); track r.id) {
+            <li>
+              <span class="friend-id">{{ r.otherName || r.otherCasdoorId }}</span>
+              <div class="friend-actions">
+                <button type="button" (click)="remove(r.otherCasdoorId)">Cancel</button>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="friends-panel friends-panel--block" aria-label="Blocked users">
+      <h3>Blocked ({{ blocked().length }})</h3>
+      <p class="friends-block-help">
+        Sessions involving blocked users won't show in your lobby lists.
+        Publishers and admins can't be blocked.
+      </p>
+      @if (blocked().length === 0) {
+        <p class="friends-empty">Nobody is blocked.</p>
+      } @else {
+        <ul role="list">
+          @for (b of blocked(); track b.id) {
+            <li>
+              <span class="friend-id">{{ b.otherName || b.otherCasdoorId }}</span>
+              <div class="friend-actions">
+                <button type="button" (click)="unblock(b.otherCasdoorId)">Unblock</button>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+  </div>
+</section>

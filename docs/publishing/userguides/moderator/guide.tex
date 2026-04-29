@@ -1,0 +1,151 @@
+\documentclass[11pt,a4paper,openany]{book}
+\input{userguide-preamble}
+\hypersetup{pdftitle={Snapdragon Games --- Moderator guide}}
+\begin{document}
+
+\begin{titlepage}\thispagestyle{empty}
+\noindent\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \fill[snapAccent,opacity=0.18]    ([yshift=-0.05\paperheight]current page.north west) circle (8cm);
+  \fill[snapAccentTwo,opacity=0.10] ([xshift=4cm,yshift=-2cm]current page.north west) circle (5cm);
+\end{tikzpicture}
+\vspace*{4cm}\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Moderator\\guide}\par}
+\vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+\vspace{0.8cm}\noindent
+{\sffamily\color{white!85}\large
+What \texttt{ROLE\_MOD} actually lets you do, where the per-game scope
+check lives, and the day-to-day playbook for keeping a session healthy.}
+\vfill\noindent
+{\sffamily\color{white!70}\small
+Companion to \texttt{moderator.pptx}. Generated: \snapbuilddate{} \snapbuildtime}
+\end{titlepage}
+
+\frontmatter\pagestyle{empty}\tableofcontents\clearpage
+\mainmatter\pagestyle{fancy}
+
+\chapter{Who this is for}
+Anyone who holds \texttt{ROLE\_MOD} in Casdoor \emph{and} at least one
+row in \texttt{mod\_game\_scopes}. You are not an admin --- you cannot
+grant roles, upload games, or restart services. You can observe live
+sessions, kick disruptive players from any game in your scope, and
+inspect a player's session-participation log for the games you
+moderate.
+
+If you need to moderate a game that isn't in your scope, an
+\texttt{ROLE\_ADMIN} holder grants you the scope row at
+\texttt{/admin/role-grants}. The check is enforced at the BFF before
+any state mutation; the frontend hides UI you can't act on, but the
+server is the source of truth.
+
+\chapter{The two-layer check}
+Holding \texttt{ROLE\_MOD} alone is not enough --- every mod-only
+endpoint also checks \texttt{mod\_game\_scopes} for the game the action
+targets. The two layers are intentional: Casdoor owns ``is a moderator
+at all'', Postgres owns ``for which games''. An admin can hand out the
+role broadly; per-game scope stays tight.
+
+\begin{itemize}
+  \item Casdoor: role membership (\texttt{ROLE\_MOD}).
+  \item Postgres: \texttt{mod\_game\_scopes} (one row per (mod, game)
+        pair).
+  \item BFF rejects any mod-only action whose target game isn't in the
+        caller's active scope --- HTTP 403.
+\end{itemize}
+
+See architecture decision 011 for the design rationale.
+
+\chapter{What you can see}
+\texttt{/mod} is the federated mod console
+(\texttt{frontend/projects/mod/}). Same Module Federation pattern as
+\texttt{/admin} and \texttt{/publisher}. Non-mods see a 403 banner
+instead of the dashboard.
+
+\begin{itemize}
+  \item \textbf{Live sessions} --- every active session for a game in
+        your scope, with player roster + creator + visibility tier.
+  \item \textbf{Player view} --- streams the per-player view-channel
+        SSE (camera + position samples \(\sim\)10\,Hz). Picks the game
+        out of your scope automatically.
+  \item \textbf{Session log} --- \texttt{/api/session-logs/scoped/\{casdoorId\}}.
+        When a specific player is misbehaving, look up their
+        participation history across the games you moderate.
+\end{itemize}
+
+The full admin dashboard at \texttt{/admin} is gated to
+\texttt{ROLE\_ADMIN} only --- your token won't unlock it.
+
+\chapter{What you can do}
+\begin{itemize}
+  \item \textbf{Kick a player.} \texttt{POST /api/sessions/\{id\}/kick}
+        with \texttt{\{casdoorId\}}. The BFF validates that the target
+        session's \texttt{game\_slug} is in your
+        \texttt{mod\_game\_scopes}. Kicked players see a toast and
+        return to \texttt{/}.
+  \item \textbf{Force-close a session.}
+        \texttt{DELETE /api/sessions/\{id\}} requires either being the
+        session creator OR holding \texttt{ROLE\_MOD} for the matching
+        game. Same scope check.
+  \item \textbf{Inspect session logs.}
+        \texttt{GET /api/session-logs/scoped/\{casdoorId\}} returns
+        participation history filtered to games in your scope. The
+        unscoped admin variant
+        (\texttt{/api/session-logs/admin/\{casdoorId\}}) returns 403.
+\end{itemize}
+
+\chapter{What you cannot do}
+\begin{itemize}
+  \item Grant or revoke roles (admin only).
+  \item Upload or roll back game bundles (admin or publisher within
+        scope).
+  \item Toggle WASM-console debug mode (admin only --- decision 012).
+  \item Moderate a game outside your scope. The 403 is by design; ask
+        an admin to widen the scope row.
+\end{itemize}
+
+\chapter{Day-1 playbook}
+\begin{enumerate}
+  \item Log in. Confirm the \texttt{/mod} link appears in the host
+        header.
+  \item Open \texttt{/mod}. The dashboard lists every active session
+        in your scope. If empty, no one is playing right now in the
+        games you moderate.
+  \item Pick a session. Click \emph{View} --- the player-view SSE
+        stream attaches. You'll see camera + position deltas in
+        near-real-time. Closing the panel detaches the SSE.
+  \item If a player misbehaves: copy their \texttt{casdoorId} (visible
+        in the roster) --- \emph{Kick}. Confirm. The kick is
+        server-side; the player's iframe receives a
+        \texttt{session.kicked} event and unmounts.
+  \item After the incident: \emph{Session log} tab --- paste the
+        \texttt{casdoorId} --- look up their last 24\,h of session
+        participation. Use this to decide whether to escalate to a
+        permanent ban (admin-only via \texttt{/admin/users}).
+\end{enumerate}
+
+\chapter{Common fires}
+\begin{itemize}
+  \item \textbf{\texttt{/mod} shows a 403 banner.} Casdoor session has
+        \texttt{ROLE\_MOD} but no \texttt{mod\_game\_scopes} row. Ask
+        an admin to grant scope.
+  \item \textbf{Kick returns 403.} Session game is outside your
+        scope. Same fix --- ask for scope, or escalate to an admin who
+        already has it.
+  \item \textbf{Player view is empty.} The game may opt out of the
+        view channel (decision 013).
+  \item \textbf{Mod console is missing the kicked player.} The session
+        log writer is asynchronous; refresh after a few seconds.
+        \texttt{session\_members.left\_at} is what populates the log.
+\end{itemize}
+
+\chapter{Where to look next}
+\begin{itemize}
+  \item Decision 011 --- Mod / publisher RBAC.
+  \item Architecture chapter 5 --- API reference.
+  \item How-to: kick or ban a player.
+  \item How-to: grant the mod or publisher role for a game.
+\end{itemize}
+
+\end{document}

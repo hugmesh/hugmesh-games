@@ -193,9 +193,7 @@ public class CharacterController {
         // don't match any game_access row for a given game won't see it on
         // the dashboard either. Anonymous (no JWT) falls through to
         // scope='all' games only.
-        java.util.List<String> roles = jwt == null
-                ? java.util.List.of()
-                : extractRoles(jwt);
+        java.util.List<String> roles = games.snapdragon.bff.security.Roles.fromJwt(jwt);
         String userId = jwt == null ? null : jwt.getSubject();
         Mono<List<GameWithChaptersDto>> games = progression
                 .availableGamesWithLevels(id, roles, userId).collectList();
@@ -335,12 +333,4 @@ public class CharacterController {
         catch (NumberFormatException e) { return fallback; }
     }
 
-    private static java.util.List<String> extractRoles(org.springframework.security.oauth2.jwt.Jwt jwt) {
-        Object claim = jwt.getClaim("roles");
-        if (claim instanceof java.util.List<?> list) {
-            return list.stream().filter(java.util.Objects::nonNull)
-                    .map(Object::toString).toList();
-        }
-        return java.util.List.of();
-    }
 }

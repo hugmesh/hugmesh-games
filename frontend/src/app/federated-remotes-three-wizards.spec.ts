@@ -7,8 +7,8 @@ import { ThreeWizardsRemoteComponent } from '../../projects/games-three-wizards/
 
 // Specs for the federated three-wizards remote. The component owns
 // the iframe-URL contract that the patched Godot index.html depends
-// on — every level transition flows through here, and a missing
-// `level_id` query falls back to level 1 silently. Pinning the URL
+// on — every chapter transition flows through here, and a missing
+// `chapter_id` query falls back to chapter 1 silently. Pinning the URL
 // shape catches accidental drift before e2e does.
 describe('ThreeWizardsRemoteComponent', () => {
   let component: ThreeWizardsRemoteComponent;
@@ -46,24 +46,24 @@ describe('ThreeWizardsRemoteComponent', () => {
     expect(url).toMatch(/^\/_remotes\/wasm-fragment\/cave\/index\.html\?/);
   });
 
-  it('threads chapterId into the level_id query so the prefetch script picks it up', () => {
+  it('threads chapterId into the chapter_id query so the prefetch script picks it up', () => {
     component.chapterSlug = 'cave';
     component.chapterId = 7;
     const url = lastUrl();
-    // The patched Godot index.html reads URLSearchParams.get('level_id')
-    // — without this query, scene prefetch defaults to level 1.
-    expect(url).toContain('level_id=7');
+    // The patched Godot index.html reads URLSearchParams.get('chapter_id')
+    // — without this query, scene prefetch defaults to chapter 1.
+    expect(url).toContain('chapter_id=7');
     expect(url).toContain('/_remotes/wasm-fragment/cave/index.html?');
   });
 
-  it('omits level_id from the URL when the input is null', () => {
+  it('omits chapter_id from the URL when the input is null', () => {
     component.chapterSlug = 'cave';
     component.chapterId = null;
     const url = lastUrl();
     // With no chapterId, the URLSearchParams build skips the param
-    // entirely (rather than emitting level_id=undefined or
-    // level_id=&). Just t= remains as the cache-buster.
-    expect(url).not.toContain('level_id=');
+    // entirely (rather than emitting chapter_id=undefined or
+    // chapter_id=&). Just t= remains as the cache-buster.
+    expect(url).not.toContain('chapter_id=');
     expect(url).toMatch(/[?&]t=\d+/);
   });
 

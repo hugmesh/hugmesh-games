@@ -13,14 +13,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
-import java.security.SecureRandom;
+import games.snapdragon.bff.security.Roles;
+import games.snapdragon.bff.util.Crypto;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Cryptographically-secure launch URLs.
@@ -47,8 +44,11 @@ import java.util.Set;
 @RequestMapping("/api/games")
 public class GameLaunchController {
 
-    private static final SecureRandom RNG = new SecureRandom();
-    private static final Base64.Encoder URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
+    // Launch UIDs flow through `Crypto.mintUid()` so every URL-bound
+    // identifier in the BFF lands as base64url(SHA3-256(entropy))
+    // backed by the SP800-90A DRBG. The local SecureRandom field
+    // is gone — the Crypto utility owns randomness so a future
+    // FIPS / hardware-RNG swap happens in one place.
     private static final Duration LAUNCH_TTL = Duration.ofMinutes(15);
 
     private final GameRepository games;
@@ -86,8 +86,7 @@ public class GameLaunchController {
                     "launch requires an authenticated principal"));
         }
         String userId = jwt.getSubject();
-        Set<String> roleSet = extractRoles(jwt);
-        String[] roles = roleSet.toArray(String[]::new);
+        String[] roles = Roles.fromJwt(jwt).toArray(String[]::new);
 
         return games.findBySlug(slug)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,
@@ -172,9 +171,7 @@ public class GameLaunchController {
     }
 
     private static String mintUid() {
-        byte[] bytes = new byte[32];
-        RNG.nextBytes(bytes);
-        return URL_ENCODER.encodeToString(bytes);
+        return Crypto.mintUid();
     }
 
     private Mono<Boolean> isVisible(Long gameId, String[] roles, String userId) {
@@ -182,14 +179,4 @@ public class GameLaunchController {
                 .any(id -> Objects.equals(id, gameId));
     }
 
-    private static Set<String> extractRoles(Jwt jwt) {
-        Object claim = jwt.getClaim("roles");
-        Set<String> out = new HashSet<>();
-        if (claim instanceof List<?> list) {
-            for (Object r : list) {
-                if (r != null) out.add(r.toString());
-            }
-        }
-        return out;
-    }
 }

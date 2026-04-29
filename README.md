@@ -22,33 +22,74 @@ The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with 
 
 ---
 
-## Content hierarchy — games → levels → scenes
+## Multiplayer sessions
+
+The portal supports multiple concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker; pick an existing session or start a new one. The Three Wizards game spawns one wizard `CharacterBody3D` per registered slot — the local player drives their slot via `/api/controls/{characterId}` while remote-slot movement events arriving on the per-session SSE stream drive the other wizards.
+
+| Surface | What it does |
+|---|---|
+| `POST /api/sessions` | Create a named session for a game (creator becomes slot 0). |
+| `GET /api/sessions?gameSlug=` | List open sessions for the game-menu picker. |
+| `POST /api/sessions/{id}/join` | Join an existing session at a free slot. |
+| `GET /api/game/stream?sessionId=` | Per-session SSE stream — only this session's movement / world / character / view events. |
+| `GET /api/admin/sessions/{id}/stream` | Admin-only per-session merged stream including the `view` channel. |
+
+The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)) — a subscriber to session A never sees session B's events. The contract is locked in at three layers: [`SessionIsolationTest`](backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) (BFF unit), [`multiplayer-same-session.spec.ts`](e2e/tests/multiplayer-same-session.spec.ts) (two players, one session — strict positive), and [`cross-session-isolation.spec.ts`](e2e/tests/cross-session-isolation.spec.ts) (two players, two sessions — strict negative). The e2e suite passes 21/21; see [howto/run-multi-user-e2e.md](docs/wiki/howto/run-multi-user-e2e.md) for adding new specs.
+
+When two players legitimately use the same `character_id` in different sessions, the BFF resolves the ambiguity via [`findActiveOwnerInSession(sessionId, characterId)`](backend/src/main/java/games/snapdragon/bff/repository/SessionMemberRepository.java) — `POST /api/controls/{id}` threads the `X-Session-Id` header through to a session-scoped overload of `authorizeControl` so neither side 403s.
+
+## Roles
+
+| Role | Capability | Scope |
+|---|---|---|
+| `player` | Play unlocked games, create/join sessions. | Global. |
+| `mod` | Stop sessions + kick players. | Per-game (`mod_game_scopes`). |
+| `publisher` | Upload game bundles + grant the `mod` role. | Per-game (`publisher_game_scopes`). |
+| `admin` | Everything, including granting publisher / mod scope. | Global. |
+
+Casdoor owns role membership; per-game scope rows in Postgres decide which games each mod / publisher may act on. Admins manage both via `/api/admin/role-grants/*`. Per-game seeded users (`mod-three-wizards`, `publisher-dodecahedron`, etc.) are pre-loaded on first boot — passwords printed by `casdoor/entrypoint.sh`. See [decision 011](docs/wiki/decisions/011-mod-publisher-rbac.md) and [howto/grant-mod-or-publisher.md](docs/wiki/howto/grant-mod-or-publisher.md).
+
+The frontend ships **separate federated remotes** for each role — `/admin`, `/mod`, `/publisher` — each loaded by the host shell only when the matching role is in the JWT. A fourth federated remote, `/admin/docs`, embeds an OpenAPI explorer (live `/v3/api-docs` with a static `openapi.fallback.json` backup) and is gated to admins via the federation manifest's `requires: ROLE_ADMIN` metadata. Per-audience guides cover each role end-to-end: [admin](docs/wiki/guides/administration.md), [mod](docs/wiki/guides/moderator.md), [publisher](docs/wiki/guides/publisher.md), plus the [maintainer runbook](docs/wiki/guides/maintainer-runbook.md) for on-call.
+
+## Security primitives
+
+All URL-facing identifiers are derived through [`Crypto.mintUid()`](backend/src/main/java/games/snapdragon/bff/util/Crypto.java) — a SHA3-256 digest of 64 random bytes drawn from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as 43-character URL-safe base64. Launch tokens, session ids, session tokens, and pod ids all share this shape, so a leak through a log line is equally hard to backtrack regardless of category. Liquibase 036 widens legacy `varchar(36)` columns to fit; old UUID-shape rows continue to work.
+
+JWT role extraction goes through one seam — [`Roles`](backend/src/main/java/games/snapdragon/bff/security/Roles.java). New role checks call `Roles.has(jwt, "ADMIN")` or `Roles.fromAuthentication(auth)`; `@PreAuthorize("hasRole('ADMIN')")` is the preferred form at controller boundaries. No copy-pasted extraction helpers anywhere else in the codebase.
+
+## Diagnostic capture is admin-only and off by default
+
+`POST /api/diagnostics/wasm-console` is gated on `ROLE_ADMIN` AND a runtime flag `wasm_console_debug_enabled` (default off). Admins flip the flag at `PUT /api/admin/debug-mode/wasm-console` while triaging an iframe issue. Non-admin players' iframe console captures are never forwarded to the BFF. See [decision 012](docs/wiki/decisions/012-debug-mode-gate.md).
+
+---
+
+## Content hierarchy — games → chapters → scenes
 
 The project is organised in three tiers:
 
 ```
-Game (a title in the catalog)   e.g. "Three Wizards In A Trenchcoat", "Dodecahedron Demo"
-  └── Level (one WASM)          e.g. "The Enchanted Cave", "Spinning Dodecahedron"
-       └── Scene elements       fairies, lights, geometry, NPCs
-            + Level assets       custom textures / plugins / sounds
+Game (a title in the catalog)    e.g. "Three Wizards In A Trenchcoat", "Dodecahedron Demo"
+  └── Chapter (one WASM)         e.g. "The Enchanted Cave", "Spinning Dodecahedron"
+       └── Scene elements        fairies, lights, geometry, NPCs
+            + Chapter assets      custom textures / plugins / sounds
 ```
 
 - A **Game** is one row in the `games` table — it appears as a card on the Snapdragon
   Games portal home page. Today the catalog ships *Three Wizards In A Trenchcoat* (a
   JRPG with quests, HUD, and movement controls) and the *Dodecahedron Demo* (a
   chrome-less single-scene tech demo with no HUD, no quests, no items).
-- Each **Level** inside a game is its own compiled Godot WASM bundle, served from
-  `/api/assets/levels/{slug}/`. Level transitions unload the current WASM and mount
-  the next one in the Angular iframe (see "Level transitions" below).
-- A level whose `scene_type` is in the `CHROMELESS_SCENE_TYPES` set in
+- Each **Chapter** inside a game is its own compiled Godot WASM bundle, served from
+  `/api/assets/levels/{slug}/` (filesystem path kept for back-compat). Chapter transitions
+  unload the current WASM and mount the next one in the Angular iframe (see "Chapter transitions" below).
+- A chapter whose `scene_type` is in the `CHROMELESS_SCENE_TYPES` set in
   [home.component.ts](frontend/src/app/home/home.component.ts) (currently just
   `dodecahedron`) renders without `app-game-hud` or `app-game-controls` — useful for
   pure-visual demos that don't have a character / quest / spell loadout.
-- **Scene elements** and user-registered **level assets** (textures, plugins,
+- **Scene elements** and user-registered **chapter assets** (textures, plugins,
   sounds) are fetched by the running Godot bundle from the API at load time.
-- Levels gate on completed **Quests** via `level_prerequisites`: complete all
-  prerequisite quests → the next level unlocks. Games with no quests (like the
-  Dodecahedron Demo) just have an unconditionally-unlocked level.
+- Chapters gate on completed **Quests** via `chapter_prerequisites`: complete all
+  prerequisite quests → the next chapter unlocks. Games with no quests (like the
+  Dodecahedron Demo) just have an unconditionally-unlocked chapter.
 
 Adding levels and assets is a documented workflow — see the
 [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
@@ -90,14 +131,15 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
   │     'dodecahedron'  → <app-dodecahedron-remote [launchUid]>              │
   │     fallback        → <app-game-canvas [game]> (legacy iframe path)      │
   │                                                                          │
-  │   ┌─ iframe src="/_remotes/wasm-fragment/{slug}/index.html?level_id=N    │
+  │   ┌─ iframe src="/_remotes/wasm-fragment/{slug}/index.html?chapter_id=N  │
   │   │                                       &launch_uid=…&t=…"             │
   │   │   (federated path; bytes served by wasm-fragment nginx, not BFF)     │
   │       │                                                                  │
-  │       │   Godot WASM bundle (per-level; cave / field / …)                │
+  │       │   Godot WASM bundle (per-chapter; cave / field / …)              │
   │       │   ┌──────────────────────────────────────────────────────────┐  │
   │       │   │  index.html <script> prefetch JSON ────►                  │  │
-  │       │   │    fetch /api/levels/N/scene → window._twSceneConfig      │  │
+  │       │   │    fetch /api/chapters/N/scene (throws on !r.ok)          │  │
+  │       │   │    → window._twSceneConfig on success only                │  │
   │       │   │                                                           │  │
   │       │   │  game_bridge.gd                                           │  │
   │       │   │    EventSource /api/game/stream ──► window._twMovement    │  │
@@ -159,7 +201,7 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
   │  │  • movementSink  (PlayerMovement)                                │    │
   │  │  • worldSink     (WorldState tick + everyone's positions)        │    │
   │  │  • charStatSink  (CharacterDto HP/MP/XP/level)                   │    │
-  │  │  • sceneSink     (SceneEvent level_id + payload)                 │    │
+  │  │  • sceneSink     (SceneEvent chapter_id + payload)               │    │
   │  │  autoCancel=false is critical — default true terminates the sink │    │
   │  │  when all subscribers disconnect, silently killing the stream.   │    │
   │  └──────────────────────────────────────────────────────────────────┘    │
@@ -179,10 +221,10 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
   │  ┌─────────────────────────────────────────────────────────────────┐   │
   │  │  PostgreSQL (R2DBC runtime + HikariDataSource for Liquibase)     │   │
   │  │                                                                   │   │
-  │  │  games → levels → scene_elements        skills ← character_skills │   │
-  │  │          (per-level WASM asset_url)     quests ← character_quests │   │
-  │  │  level_prerequisites ── quests          items  ← character_items  │   │
-  │  │  level_assets (user textures/plugins)    ← character_equipment    │   │
+  │  │  games → chapters → scene_elements     skills ← character_skills  │   │
+  │  │          (per-chapter WASM asset_url)   quests ← character_quests │   │
+  │  │  chapter_prerequisites ── quests        items  ← character_items  │   │
+  │  │  chapter_assets (user textures/plugins)  ← character_equipment    │   │
   │  │  player_characters    player_sessions   character_skill_slots     │   │
   │  │  player_positions  ── NOTIFY trigger    game_time_state           │   │
   │  └──────────────────────────┬──────────────────────────────────────┘   │
@@ -258,11 +300,11 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 
 ### Key architectural decisions
 
-**Per-level WASM bundles.**
-Each level compiles to its own Godot export under `/api/assets/levels/{slug}/`. The iframe URL carries `?level_id=N`; the patched `index.html` prefetches `/api/levels/N/scene` so scene config is ready before the WASM finishes compiling. Adding a new level = new `.tscn` + new preset in `export_presets.cfg` + new row in `levels` — see [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md).
+**Per-chapter WASM bundles.**
+Each chapter compiles to its own Godot export under `/api/assets/levels/{slug}/` (filesystem path kept for back-compat). The iframe URL carries `?chapter_id=N`; `index.html` prefetches `/api/chapters/N/scene` early so scene config is ready before the 30 s+ WASM compile finishes. The prefetch now checks `if (!r.ok) throw new Error(...)` so a BFF error falls to `.catch()` with a console warning instead of silently becoming an empty scene config. Adding a new chapter = new `.tscn` + new preset in `export_presets.cfg` + new row in `chapters` — see [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md).
 
 **All controls authenticate through a session.**
-Every `/api/controls/{charId}` POST carries `X-Casdoor-Id`; the server rejects it with 403 unless that casdoor user is the holder of the controller role. `GameCanvasComponent.ngOnInit` auto-calls `/api/sessions/connect` (and claims the role if no one else has it), so solo play "just works". Up to 3 players may be connected simultaneously; only one holds the role at a time.
+Every `POST /api/controls/{charId}` is JWT-authenticated; the server rejects it with 403 unless the JWT subject is the holder of the controller role. `HomeComponent.ngOnInit` auto-calls `session.connect()` → `session.claimControl()` on page load so solo play "just works". If the BFF restarts (clearing the in-memory `activeSessions`/`currentController`), `game_bridge.gd` detects the first 403, posts `SD_SESSION_EXPIRED` to the host shell, and `ApiBridgeService` automatically re-runs connect + claim — the next keypress works without a page reload. Up to 3 players may be connected simultaneously; only one holds the controller role at a time.
 
 **Spells fire both client-side and server-side.**
 The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WASM so the visual is instant and doesn't depend on the SSE round-trip. The same keypress also POSTs `/api/controls/1` so the server can eventually apply MP cost / XP / cooldown. Angular's hotbar handler additionally fires a CSS overlay as a guaranteed-visible cue — useful for debugging iframe focus issues.
@@ -293,7 +335,7 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 | `games-dodecahedron` | `remote-game` | `./GameRoot` | `<app-dodecahedron-remote>` Web Component (chrome-less demo) |
 | `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
 
-`HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` (cave/field → `three-wizards`, dodecahedron → `dodecahedron`); levels with sceneTypes outside that map fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_LEVEL_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.
+`HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` (cave/field → `three-wizards`, dodecahedron → `dodecahedron`); chapters with sceneTypes outside that map fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_CHAPTER_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.
 
 The host's `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (split into `bootstrap.ts` because `@angular/*` imports can't resolve before the import map exists). Federated route components reach the federation runtime via `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`, which `main.ts` stashes after `initFederation` resolves — keeps the federation package out of karma's static graph and out of route-handler bundles. The federation manifest is fetched from `GET /api/federation/manifest` (DB-backed, see migration `018-federation-modules.xml`) so a new remote can come online without redeploying the host.
 
@@ -390,37 +432,37 @@ Spells cast via two redundant paths — the direct in-WASM call fires the visual
 | `pressed` | `boolean` | `true` = key down, `false` = key up |
 | `timestamp` | `long` | Client epoch-ms |
 
-### `SceneDto` — `GET /api/levels/{id}/scene` response
+### `SceneDto` — `GET /api/chapters/{id}/scene` response
 
 | Field | Type | Description |
 |---|---|---|
-| `id` | `Long` | Level ID |
+| `id` | `Long` | Chapter ID |
 | `name` | `String` | Display name |
 | `slug` | `String` | URL slug (matches classpath directory) |
 | `sceneType` | `String` | `cave`, `field`, … |
-| `assetUrl` | `String` | Path to this level's Godot WASM bundle entry-point |
+| `assetUrl` | `String` | Path to this chapter's Godot WASM bundle entry-point |
 | `elements` | `List<SceneElementDto>` | Scene elements with positions, rotations, properties |
 
-### Level transitions — `TW_LEVEL_TRANSITION` postMessage
+### Chapter transitions — `TW_CHAPTER_TRANSITION` postMessage
 
-When a running Godot WASM needs to hand off to another level's bundle:
+When a running Godot WASM needs to hand off to another chapter's bundle:
 
 ```
 Godot (inside iframe)
-  $GameBridge.request_level_transition("field", 2)
+  $GameBridge.request_chapter_transition("field", 2)
     │
-    ▼  postMessage({type:"TW_LEVEL_TRANSITION", slug:"field", levelId:2})
+    ▼  postMessage({type:"TW_CHAPTER_TRANSITION", slug:"field", chapterId:2})
 Angular host (game-canvas.component.ts)
   HostListener('window:message') catches payload
     │
-    ▼  GameLibraryService.getLevel(2) → resolve fresh assetUrl
-  iframe.src = `${level.assetUrl}?level_id=2`
+    ▼  GameLibraryService.getChapter(2) → resolve fresh assetUrl
+  iframe.src = `${chapter.assetUrl}?chapter_id=2`
     │
-    ▼  Godot bundle cold-boots, fetches /api/levels/2/scene
+    ▼  Godot bundle cold-boots, fetches /api/chapters/2/scene
 ```
 
 The previous WASM is fully unloaded — persist any in-memory state via the API
-(`PUT /api/characters/{id}` etc) *before* calling `request_level_transition`.
+(`PUT /api/characters/{id}` etc) *before* calling `request_chapter_transition`.
 
 ---
 
@@ -529,86 +571,86 @@ Umbrella tier. Each game groups one or more Levels.
  ──────────────●──●──|  Game{id, name, slug, sortOrder, …}
 ```
 
-#### `GET /api/games/{id}/levels`
+#### `GET /api/games/{id}/chapters`
 
-Returns every Level inside the umbrella game, ordered by sort_order.
+Returns every Chapter inside the umbrella game, ordered by sort_order.
 
 ```
-──request──► levelRepo.findByGameIdOrderBySortOrderAsc(id)
- ──────────────●──●──|  Level{id, slug, assetUrl, sceneType, …}
+──request──► chapterRepo.findByGameIdOrderBySortOrderAsc(id)
+ ──────────────●──●──|  Chapter{id, slug, assetUrl, sceneType, …}
 ```
 
 #### `GET /api/games/available/{characterId}`
 
-Nested structure — every umbrella game with its levels, each level annotated
+Nested structure — every umbrella game with its chapters, each chapter annotated
 with `unlocked` / quest-progress for the caller's character. Drives the home
-page games-with-levels drilldown.
+page games-with-chapters drilldown.
 
 ```
 ──request──► charQuests.findByCharacterId
               ──●──► games.findAll().flatMap(g ->
-                      levels.findByGameId(g.id)
-                        .flatMap(build AvailableLevelDto)
+                      chapters.findByGameId(g.id)
+                        .flatMap(build AvailableChapterDto)
                         .collectList()
-                      .map(ls -> GameWithLevelsDto))
+                      .map(ls -> GameWithChaptersDto))
  ──────────────●──●──|
 ```
 
-### `LevelController` — `/api/levels`  *(public)*
+### `ChapterController` — `/api/chapters`  *(public)*
 
-One level = one compiled Godot WASM bundle.
+One chapter = one compiled Godot WASM bundle.
 
-#### `GET /api/levels` · `GET /api/levels/{id}`
+#### `GET /api/chapters` · `GET /api/chapters/{id}`
 
 ```
-──request──► levelRepo.findAllByOrderBySortOrderAsc()
- ──────────────●──●──|  Level…
+──request──► chapterRepo.findAllByOrderBySortOrderAsc()
+ ──────────────●──●──|  Chapter…
 ```
 
-#### `GET /api/levels/{id}/scene`
+#### `GET /api/chapters/{id}/scene`
 
 The descriptor consumed by `scene_loader.gd` at bundle startup.
 
 ```
-──request──► levels.findById(id)
-              ──●──► sceneElements.findByLevelIdOrderBySortOrder(id)
+──request──► chapters.findById(id)
+              ──●──► sceneElements.findByChapterIdOrderBySortOrder(id)
                       ──●──●──● collectList()
                                 ──●─|  SceneDto{…, assetUrl, elements:[…]}
 ```
 
-### `LevelAssetController` — `/api/levels/{levelId}/assets`  *(public)*
+### `ChapterAssetController` — `/api/chapters/{chapterId}/assets`  *(public)*
 
-Registry for user-added textures / plugins / sounds attached to a level. GDScript
+Registry for user-added textures / plugins / sounds attached to a chapter. GDScript
 uses labels to look up assets without hardcoding filenames.
 
-#### `GET /api/levels/{levelId}/assets`
+#### `GET /api/chapters/{chapterId}/assets`
 
 ```
-──request──► levelAssetRepo.findByLevelId(levelId)
- ──────────────●──●──|  LevelAsset{label, assetType, filePath, …}
+──request──► chapterAssetRepo.findByChapterId(chapterId)
+ ──────────────●──●──|  ChapterAsset{label, assetType, filePath, …}
 ```
 
-#### `GET /api/levels/{levelId}/assets/by-label/{label}`
+#### `GET /api/chapters/{chapterId}/assets/by-label/{label}`
 
 ```
-──request──► levelAssetRepo.findByLevelIdAndLabel(levelId, label)
+──request──► chapterAssetRepo.findByChapterIdAndLabel(chapterId, label)
               │
      ┌────────┴────────┐
      │ found           │ empty
      ▼                 ▼
   ──●─|               ──✗ 404
-     LevelAsset
+     ChapterAsset
 ```
 
-#### `POST /api/levels/{levelId}/assets`
+#### `POST /api/chapters/{chapterId}/assets`
 
 ```
 body: {label, assetType, filePath, contentType, sizeBytes}
-──request──► repo.save(LevelAsset{…})
- ──────────────────────────●─|  LevelAsset (with id, uploadedAt)
+──request──► repo.save(ChapterAsset{…})
+ ──────────────────────────●─|  ChapterAsset (with id, uploadedAt)
 ```
 
-#### `DELETE /api/levels/{levelId}/assets/{assetId}`
+#### `DELETE /api/chapters/{chapterId}/assets/{assetId}`
 
 ```
 ──request──► repo.deleteById(assetId)
@@ -1068,28 +1110,30 @@ games ────────────────────────�
   id, name, description, slug, sort_order,
   thumbnail_url, created_at
 
-levels ───────────────────────────────────────────────────  ← one WASM per row
+chapters ─────────────────────────────────────────────────  ← one WASM per row
   id, game_id(→games), name, description, slug,
   scene_type, sort_order, asset_url, scene_config,
   thumbnail_url, created_at
 
 scene_elements ───────────────────────────────────────────
-  id, level_id(→levels), element_type, name,
+  id, chapter_id(→chapters), element_type, name,
   position_x/y/z, rotation_x/y/z, properties, sort_order
+  (chapter_id renamed from level_id by Liquibase 028-12)
 
-level_assets ─────────────────────────────────────────────  ← user-added content
-  id, level_id(→levels), label, asset_type,
+chapter_assets ───────────────────────────────────────────  ← user-added content
+  id, chapter_id(→chapters), label, asset_type,
   file_path, content_type, size_bytes, uploaded_at
-  (unique label per level)
+  (unique label per chapter)
 
-level_prerequisites ──────────────────────────────────────
-  id, level_id(→levels), required_quest_id(→quests)
+chapter_prerequisites ────────────────────────────────────
+  id, chapter_id(→chapters), required_quest_id(→quests)
 
 player_characters ────────────────────────────────────────
   id, name, casdoor_id, level, xp, xp_to_next,
   max_hp, current_hp, max_mp, current_mp,
   attack, defense, speed, magic_power,
-  current_level_id(→levels), created_at
+  current_chapter_id(→chapters), created_at
+  (level here = XP level; current_chapter_id = active stage)
 
 player_sessions ──────────────────────────────────────────
   id, session_token, casdoor_id,
@@ -1099,8 +1143,9 @@ player_sessions ─────────────────────�
 
 player_positions ─────────────────────────────────────────  ◄─ NOTIFY trigger
   id, character_id(→player_characters),
-  scene_id(→levels), pos_x, pos_y, pos_z,
+  chapter_id(→chapters), pos_x, pos_y, pos_z,
   rotation_y, updated_at
+  (one row per (character_id, chapter_id) — Liquibase 027 + 028-5)
 
 game_time_state ──────────────────────────────────────────
   id, day_number, hour, minute,
@@ -1124,7 +1169,7 @@ quests ──────  quest_objectives ────  character_quests
   reward_xp     description           status, started_at
   reward_gold   required_count        completed_at
   reward_skill_id(→skills)  ← granted on complete
-  level_id(→levels)
+  chapter_id(→chapters)
 ```
 
 ### Spell catalog (migration 014)
@@ -1202,18 +1247,20 @@ Drop a file into `backend/src/main/resources/assets/levels/<slug>/` then registe
 it so GDScript can resolve it by label:
 
 ```
-curl -X POST http://localhost:8080/api/levels/<id>/assets \
+curl -X POST http://localhost:8080/api/chapters/<id>/assets \
   -H 'Content-Type: application/json' \
   -d '{"label":"oak-bark","assetType":"texture",
        "filePath":"/api/assets/levels/field/oak.png",
        "contentType":"image/png"}'
 ```
 
+(The on-disk path keeps `/levels/` per the rename holdout — only the API path flipped to `/chapters/`.)
+
 From GDScript (editor or web, via the `ApiClient` helper):
 
 ```gdscript
 var api := ApiClient.new(); add_child(api)
-api.resolve_asset(level_id, "oak-bark", func(url):
+api.resolve_asset(chapter_id, "oak-bark", func(url):
     # … HTTPRequest the url and apply as albedo_texture …
 )
 ```

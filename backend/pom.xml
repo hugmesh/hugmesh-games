@@ -128,6 +128,19 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- BouncyCastle — supplies the SHA3 digests we use to derive
+         every UI-facing UID (launch tokens, session ids, pod ids)
+         and the SP800-90A HMAC-SHA256 DRBG that backs the Crypto
+         utility's SecureRandom. JDK ships its own SHA3 impl on
+         Java 9+ but BC's algorithm coverage stays consistent across
+         JDK upgrades + native-image (where the JCA service-loader
+         can be picky). -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+      <version>1.78.1</version>
+    </dependency>
+
   </dependencies>
 
   <build>

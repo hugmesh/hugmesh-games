@@ -11,10 +11,11 @@
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
-        gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
+        gen-certs e2e e2e-bdd e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
-        docs-diagrams docs-screenshots docs-userguides docs-openapi-spec docs-openapi-latex
+        docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
+        docs-userguides docs-openapi-spec docs-openapi-latex
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -54,9 +55,16 @@ build: build-rust build-godot build-backend build-frontend
 
 # ── Rust GDExtension ──────────────────────────────────────────────────────────
 
-build-rust: deps-rust build-rust-wasm
+build-rust: deps-rust build-rust-wasm sync-bridge-addon
 	@echo "→ Building Snapdragon Bridge GDExtension (native)..."
-	cd $(RUST_DIR) && cargo build --release
+	@# api-custom: regenerate the extension_api.json against the
+	@# user's actual Godot binary. Without this, gdext's baked-in
+	@# 4.6-stable bindings panic on a 4.6.x patch release with
+	@# "Failed to load class method … Make sure gdext and Godot are
+	@# compatible". GODOT4_BIN is what gdext's build.rs reads.
+	cd $(RUST_DIR) && \
+	  GODOT4_BIN="$(shell command -v $(GODOT) 2>/dev/null || echo $(GODOT))" \
+	  cargo build --release --features api-custom
 	@# One canonical binary in the extension dir; copy into every game project's
 	@# bin/ so each project opens standalone in the Godot editor.
 	mkdir -p $(RUST_DIR)/bin
@@ -67,6 +75,28 @@ build-rust: deps-rust build-rust-wasm
 	  cp $(RUST_DIR)/bin/snapdragon_bridge.wasm $(GAMES_DIR)/$$game/bin/snapdragon_bridge.wasm 2>/dev/null || true; \
 	done
 	@echo "✓ Rust build done"
+
+# Mirror the Snapdragon Bridge addon into every game project's
+# `addons/snapdragon_bridge/` so each game opens standalone in the
+# Godot editor and the addon's GDScript surface (BridgeApiClient,
+# MultiplayerLobby, default lobby UI) is reachable as
+# `res://addons/snapdragon_bridge/...`. Source of truth is the
+# canonical copy under the extension dir; never hand-edit the
+# per-game copies.
+.PHONY: sync-bridge-addon
+sync-bridge-addon:
+	@echo "→ Syncing snapdragon_bridge + snapdragon_export addons into game projects..."
+	@for game in $(GAME_PROJECTS); do \
+	  mkdir -p $(GAMES_DIR)/$$game/addons/snapdragon_bridge; \
+	  rsync -a --delete --exclude='.gitkeep' \
+	    $(RUST_DIR)/addons/snapdragon_bridge/ \
+	    $(GAMES_DIR)/$$game/addons/snapdragon_bridge/ ; \
+	  mkdir -p $(GAMES_DIR)/$$game/addons/snapdragon_export; \
+	  rsync -a --delete --exclude='.gitkeep' \
+	    $(RUST_DIR)/addons/snapdragon_export/ \
+	    $(GAMES_DIR)/$$game/addons/snapdragon_export/ ; \
+	done
+	@echo "✓ snapdragon_bridge + snapdragon_export addons synced"
 
 # WASM build runs inside a Docker image (rust + emsdk pinned) so the
 # host doesn't need emscripten installed — the Gentoo / system Rust
@@ -357,7 +387,13 @@ deploy: build-godot seed-db
 
 E2E_FILES        = -f docker-compose.yml -f docker-compose.e2e.yml
 E2E_PLAYER_USER ?= player
-E2E_PLAYER_PASS ?= e2e-player-pass
+E2E_PLAYER_PASS ?= e2e-pass
+# Shared password for every Casdoor seed user under the integration-test
+# profile. Each per-role env var defaults to E2E_PASSWORD so a single
+# override flips them all. See docker-compose.e2e.yml for the full
+# CASDOOR_*_PASS list and e2e/tests/helpers/roles.ts for the matching
+# Playwright catalogue.
+E2E_PASSWORD    ?= e2e-pass
 
 gen-certs:
 	@echo "→ Generating self-signed certs (or reusing CERT_PATH if set)…"
@@ -393,6 +429,7 @@ e2e: gen-certs
 	docker compose $(E2E_FILES) run --rm \
 	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
 	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  -e E2E_PASSWORD="$(E2E_PASSWORD)" \
 	  e2e; \
 	status=$$?; \
 	echo "→ Tearing down…"; \
@@ -405,6 +442,40 @@ e2e-down:
 
 e2e-logs:
 	docker compose $(E2E_FILES) logs -f --tail 50
+
+# ── BDD (Gherkin) e2e ────────────────────────────────────────────────────────
+# Runs the playwright-bdd project — .feature files under e2e/features/
+# compiled to Playwright tests via `bddgen`, with step-level screenshots
+# attached to the HTML report by the AfterStep hook. Independent target
+# so a flaky scenario in BDD-land doesn't block the canonical 21-test
+# `make e2e` gate.
+e2e-bdd: gen-certs
+	@echo "→ Building images with TLS layer…"
+	docker compose $(E2E_FILES) build api frontend e2e wasm-fragment
+	@echo "→ Starting stack with TLS…"
+	docker compose $(E2E_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
+	@echo "→ Waiting for stack to become healthy…"
+	@for i in $$(seq 1 60); do \
+	  api_ok=0; web_ok=0; \
+	  docker compose $(E2E_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
+	  if [ $$i -eq 60 ]; then echo "  ✗ stack failed to come up in 5 minutes"; exit 1; fi; \
+	  sleep 5; \
+	done
+	@echo "→ Running Gherkin suite (project=bdd)…"
+	@set +e; \
+	docker compose $(E2E_FILES) run --rm \
+	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
+	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  -e E2E_PASSWORD="$(E2E_PASSWORD)" \
+	  e2e \
+	  npx playwright test --reporter=list --project=bdd; \
+	status=$$?; \
+	echo "→ Tearing down…"; \
+	docker compose $(E2E_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	if [ $$status -eq 0 ]; then echo "✓ E2E-BDD PASSED"; \
+	else echo "✗ E2E-BDD FAILED (status $$status) — see e2e/results/"; exit $$status; fi
 
 # ── Per-project unit tests ───────────────────────────────────────────────────
 # Each subproject runs its own native test framework. `make test` runs them
@@ -480,6 +551,20 @@ docs-diagrams:
 
 docs-screenshots:
 	@$(MAKE) -C docs/publishing screenshots
+
+# Deterministic alternative to docs-screenshots: runs the BDD e2e
+# suite (`make e2e-bdd`) so EVERY Casdoor seed user logs in with a
+# known password, then harvests the per-step PNGs the AfterStep hook
+# attached. Use this when capture.py's dev-stack flow can't reach the
+# mod / publisher seed users (their passwords aren't in `.env`).
+docs-screenshots-from-e2e:
+	@$(MAKE) -C docs/publishing screenshots-from-e2e
+
+# Skip the BDD run; just re-harvest existing e2e/results/artifacts/.
+# Useful when `make e2e-bdd` was just run and the artefact dir is
+# already fresh.
+docs-screenshots-harvest:
+	@$(MAKE) -C docs/publishing screenshots-harvest
 
 docs-userguides:
 	@$(MAKE) -C docs/publishing userguides

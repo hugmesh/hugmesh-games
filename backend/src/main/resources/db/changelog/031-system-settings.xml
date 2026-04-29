@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Tiny key/value table for system-level toggles that an admin flips at
+    runtime. Generic on purpose: future boolean flags reuse this table
+    instead of growing a new schema each time.
+
+    Seeded with wasm_console_debug_enabled = "false" so the WASM console
+    capture pipeline is OFF by default. Admins flip it on via
+    /api/admin/debug-mode while triaging an iframe issue, then off again.
+    See DiagnosticsController for the gate.
+  -->
+
+  <changeSet id="031-1-create-system-settings" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="system_settings"/></not>
+    </preConditions>
+    <createTable tableName="system_settings">
+      <column name="key" type="varchar(64)">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="value" type="text">
+        <constraints nullable="false"/>
+      </column>
+      <column name="updated_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+        <constraints nullable="false"/>
+      </column>
+      <column name="updated_by" type="varchar(128)"/>
+    </createTable>
+    <insert tableName="system_settings">
+      <column name="key" value="wasm_console_debug_enabled"/>
+      <column name="value" value="false"/>
+    </insert>
+  </changeSet>
+
+</databaseChangeLog>

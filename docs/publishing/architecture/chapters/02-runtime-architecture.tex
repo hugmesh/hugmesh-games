@@ -134,3 +134,34 @@ silently drop. Every sink in this project passes \texttt{autoCancel=false}
 explicitly. If a freshly-deployed sink \enquote{works once and then
 silently dies}, this is the cause.
 \end{snapcaution}
+
+\section{Per-session SSE sink isolation}
+
+Multiplayer sessions add a per-session sink layer on top of the
+legacy global sinks. \snapfile{GameStateService} maintains a
+\texttt{ConcurrentHashMap<String, SessionSinks>} lazy-allocated by
+\texttt{sessionId}; when a control event arrives with a session id,
+\texttt{applyControl(event, characterId, sessionId)} fans out to the
+matching per-session bundle \emph{and} the global sink. A subscriber
+to \texttt{GET /api/game/stream?sessionId=$\alpha$} sees only session
+$\alpha$'s events; the admin firehose at
+\texttt{/api/admin/stream} keeps the cross-session view it had before.
+
+\begin{figure}[!h]
+\centering
+\snapdiagram{diagrams/sessions-topology.tex}
+\caption{Per-session SSE sink isolation. Events emitted on session
+$\alpha$'s sinks NEVER reach session $\beta$'s subscribers and vice
+versa; the global sink keeps the admin firehose intact. The
+\reposrc{backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java}
+integration test pins the dashed-arrow non-leakage in both directions.}
+\end{figure}
+
+The new \emph{view} channel carries per-player camera + orientation
+samples ($\sim$10\,Hz) emitted by the Rust GDExtension's
+\texttt{view\_egress} signal. Admins watch via
+\texttt{GET /api/admin/sessions/\{id\}/stream} which merges movement,
+world, character, and view onto a single per-session connection.
+Without per-session keying, two concurrent sessions on the same pod
+would cross-contaminate every fan-out — so the keyed map is the
+load-bearing piece.

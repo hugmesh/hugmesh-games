@@ -86,7 +86,69 @@ To play the full game from inside the editor:
 3. Open `games/<slug>/project.godot` in Godot and press **Play**. The scene_loader polls `/api/levels/{id}/scene` and populates fairies/lights/geometry exactly as the web build does.
 4. User-added assets registered under `level_assets` are reachable by label via `ApiClient.resolve_asset(level_id, "oak-bark", cb)`.
 
-If the editor can't reach the API, `_base_url()` in `api_client.gd` logs an HTTP error to the output panel. No silent fallbacks.
+If the editor can't reach the API, the `BridgeApiClient` (running in standalone mode because no parent module is attached) logs an HTTP error to the output panel. No silent fallbacks.
+
+---
+
+## All API networking flows through the bridge
+
+**Game scripts never call `HTTPRequest` directly.** Use the
+`snapdragon_bridge` addon's `BridgeApiClient`:
+
+```gdscript
+const _BridgeApiClient = preload("res://addons/snapdragon_bridge/bridge_api_client.gd")
+
+var _api: Node = null
+
+func _ready() -> void:
+    _api = _BridgeApiClient.new()
+    add_child(_api)
+    _api.get("/api/chapters/1/scene", func(status, body):
+        if status == 200: _apply_scene(body))
+```
+
+What the bridge does for you:
+
+- In **web export** mode, the request is forwarded through `HostBridge`
+  to the host shell which performs the actual HTTP call. The host's
+  `HttpClient` interceptor adds the `Authorization` bearer token
+  automatically, and the bridge attaches `X-Session-Id` so the BFF's
+  per-session SSE sinks scope the gameplay correctly. Iframe code never
+  needs to know about JWTs or session ids.
+- In **editor / native (F5)** mode, `BridgeApiClient` falls back to a
+  direct `HTTPRequest` against `http://localhost:8080`. The contract is
+  the same; only the transport layer changes.
+
+The legacy three-wizards `api_client.gd` is now a thin wrapper around
+`BridgeApiClient` that preserves the named methods
+(`fetch_scene` / `fetch_level_assets` / `resolve_asset`); existing
+callers keep working without code changes. New games should use
+`BridgeApiClient` directly.
+
+See [decision 014](publishing/architecture/build/architecture.pdf) for
+the full design rationale, or the addon's
+[`README.md`](../extensions/snapdragon-bridge/addons/snapdragon_bridge/README.md)
+for usage notes.
+
+## Multiplayer scripting via the snapdragon_bridge addon
+
+The addon ships every reusable multiplayer + bridge primitive any
+Snapdragon-hosted game needs:
+
+| File | Purpose |
+|---|---|
+| `plugin.cfg` + `plugin.gd` | Editor plugin manifest. Enable in `project.godot`'s `[editor_plugins]`. |
+| `bridge_glue.gd` | `JavaScriptBridge` ↔ `HostBridge` plumbing. Forwards `input_egress` / `view_egress` / `api_request_egress`; pumps `SD_API_RESPONSE` back into `dispatch_api_response`. |
+| `bridge_api_client.gd` | Callable-based wrapper around the bridge's API surface. The preferred surface for any Godot → BFF call. |
+| `multiplayer_lobby.gd` | Slot orchestration: subscribes to `slot_registered` / `slot_released` / `movement_received`, fetches `/api/sessions/{id}` *via the bridge*, spawns one programmatic `CharacterBody3D` per registered slot. Subclass + override `spawn_avatar()` to swap in your own player scene. |
+| `multiplayer_lobby_menu.tscn` + `multiplayer_lobby_menu.gd` | Drop-in pre-game lobby UI: list open sessions for `game_slug`, *Join* per row, create-new form. Emits `session_joined(session_id, slot_index)`. |
+
+Source of truth lives in
+`extensions/snapdragon-bridge/addons/snapdragon_bridge/`. `make build-rust`
+syncs the canonical copy into every game project's
+`addons/snapdragon_bridge/` (this dir is gitignored per-game; never
+hand-edit). Any game that enables the plugin in `project.godot` picks
+up future updates automatically on the next sync.
 
 ---
 

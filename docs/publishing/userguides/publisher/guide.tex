@@ -1,0 +1,158 @@
+\documentclass[11pt,a4paper,openany]{book}
+\input{userguide-preamble}
+\hypersetup{pdftitle={Snapdragon Games --- Publisher guide}}
+\begin{document}
+
+\begin{titlepage}\thispagestyle{empty}
+\noindent\begin{tikzpicture}[remember picture,overlay]
+  \fill[snapBg] (current page.south west) rectangle (current page.north east);
+  \fill[snapAccent,opacity=0.18]    ([yshift=-0.05\paperheight]current page.north west) circle (8cm);
+  \fill[snapAccentTwo,opacity=0.10] ([xshift=4cm,yshift=-2cm]current page.north west) circle (5cm);
+\end{tikzpicture}
+\vspace*{4cm}\noindent
+{\sffamily\bfseries
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{white}\fontsize{42}{50}\selectfont Publisher\\guide}\par}
+\vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
+\vspace{0.8cm}\noindent
+{\sffamily\color{white!85}\large
+What \texttt{ROLE\_PUBLISHER} lets you do for the games in your scope:
+upload, roll back, set version pin, edit access policy.}
+\vfill\noindent
+{\sffamily\color{white!70}\small
+Companion to \texttt{publisher.pptx}. Generated: \snapbuilddate{} \snapbuildtime}
+\end{titlepage}
+
+\frontmatter\pagestyle{empty}\tableofcontents\clearpage
+\mainmatter\pagestyle{fancy}
+
+\chapter{Who this is for}
+Anyone who holds \texttt{ROLE\_PUBLISHER} in Casdoor \emph{and} at
+least one row in \texttt{publisher\_game\_scopes}. You are responsible
+for the catalog state of one or more games --- uploading new bundles,
+pinning versions, gating access --- but not for stack-level operations
+like restarting services or granting roles.
+
+If a game isn't in your scope, an \texttt{ROLE\_ADMIN} holder grants
+you the scope row at \texttt{/admin/role-grants}. The check is
+enforced at the BFF before any state mutation.
+
+\chapter{The two-layer check}
+Same pattern as moderators (decision 011): Casdoor owns ``is a
+publisher at all''; Postgres owns ``for which games''. Holding
+\texttt{ROLE\_PUBLISHER} alone is not enough --- every
+publisher-only endpoint also checks \texttt{publisher\_game\_scopes}
+for the targeted game slug.
+
+\chapter{What you can see}
+\texttt{/publisher} is the federated publisher console
+(\texttt{frontend/projects/publisher/}). Same Module Federation
+pattern as \texttt{/admin} and \texttt{/mod}. Non-publishers see a 403
+banner.
+
+\begin{itemize}
+  \item \textbf{Catalog} --- every game in your scope with current
+        version, access policy summary, and recent upload count.
+  \item \textbf{Uploads} --- per-game upload history (most recent
+        first). Each row links to its rollback target.
+  \item \textbf{Access policy} --- per-game \texttt{game\_access}
+        table view: rows have \texttt{scope=all|role|user}. Add or
+        remove from this UI.
+  \item \textbf{Live sessions} --- read-only for your games --- same
+        data the mod console shows but without the kick controls.
+\end{itemize}
+
+\chapter{What you can do}
+\begin{itemize}
+  \item \textbf{Upload a new bundle} for a game in your scope.
+        \texttt{POST /api/games/\{slug\}/uploads} with the Snapdragon
+        Export zip. The BFF validates manifest schema v2, hashes the
+        bundle, atomically moves to
+        \texttt{<gamesDir>/<slug>/<sha-prefix>}, and runs
+        \texttt{register.sql} in one Postgres transaction. The
+        rollback history is preserved.
+  \item \textbf{Pin a previous version} as the active one.
+        \texttt{PUT /api/games/\{slug\}/uploads/\{uploadId\}/pin}.
+        Useful when a fresh upload regresses.
+  \item \textbf{Edit per-game access policy.}
+        \texttt{POST /api/games/\{slug\}/access} with
+        \texttt{\{scope, value\}} --- three additive scopes:
+        \texttt{all}, \texttt{role} (e.g.
+        \texttt{ROLE\_PLAY\_THREE\_WIZARDS}), \texttt{user} (specific
+        Casdoor ID). Idempotent on \texttt{uq\_game\_access\_triple}.
+  \item \textbf{List active sessions} for monitoring (read-only ---
+        kick is mod-only).
+\end{itemize}
+
+\chapter{What you cannot do}
+\begin{itemize}
+  \item Grant roles or scope rows (admin only). You receive scope
+        from admins; you can't widen it for yourself or others.
+  \item Upload, roll back, or edit access for a game outside your
+        scope. 403.
+  \item Kick or ban players (mod / admin).
+  \item Toggle WASM-console debug mode (admin).
+  \item Edit a published commit's bundles directly on disk --- go
+        through the upload pipeline so the audit trail is correct.
+\end{itemize}
+
+\chapter{Day-1 playbook}
+\begin{enumerate}
+  \item Log in. Confirm the \texttt{/publisher} link appears in the
+        host header.
+  \item Open \texttt{/publisher}. The catalog lists every game in
+        your scope. The ``current version'' column should match the
+        bundle on disk under \texttt{<gamesDir>/<slug>/}.
+  \item To ship a new build: open the game's \emph{Uploads} tab ---
+        \emph{Upload new bundle} --- choose a Snapdragon Export zip.
+        The form posts to \texttt{POST /api/games/\{slug\}/uploads}.
+        Wait for the success toast (10--30\,s for a typical bundle).
+  \item Verify by visiting \texttt{/} and clicking the game's card ---
+        the chapter modal should mount the new version. The host's
+        federation manifest refreshes within 60\,s of the install
+        transaction committing.
+  \item If something is wrong: open \emph{Uploads}, find the previous
+        row, click \emph{Pin}. The active-version pointer flips back
+        atomically. Old superseded versions are kept on disk by
+        \texttt{GameUploadPruner} until the retention cap (default 3
+        newest).
+  \item To gate a new game: \emph{Access policy} tab --- choose
+        \texttt{scope=role} and a role like
+        \texttt{ROLE\_PLAY\_THREE\_WIZARDS} --- save. Players without
+        that role hit 403 on the chapter scene fetch.
+\end{enumerate}
+
+\chapter{Common fires}
+\begin{itemize}
+  \item \textbf{\texttt{/publisher} shows a 403 banner.} Casdoor
+        session has \texttt{ROLE\_PUBLISHER} but no
+        \texttt{publisher\_game\_scopes} row. Ask an admin to grant
+        scope.
+  \item \textbf{Upload returns 400 ``manifest schema mismatch''.}
+        Bundle exported with a stale Snapdragon Export plugin.
+        Update the plugin in Godot, re-export.
+  \item \textbf{Upload returns 409.} Same SHA already on disk under
+        that slug. The bundle is byte-identical to a prior version;
+        nothing to do.
+  \item \textbf{Pin returns 404.} The target uploadId was pruned by
+        \texttt{GameUploadPruner}. Pin to the next-most-recent
+        surviving version, or raise \texttt{versions-to-keep} and
+        re-upload.
+  \item \textbf{Access policy edit ``wins'' but the player still
+        403s.} Caller's JWT is stale. Player needs to re-login so the
+        JWT picks up the new role-bearing claim.
+  \item \textbf{Live-sessions list is empty.} No one is playing right
+        now. The table reflects \texttt{session\_members.left\_at IS
+        NULL}.
+\end{itemize}
+
+\chapter{Where to look next}
+\begin{itemize}
+  \item Decision 011 --- Mod / publisher RBAC.
+  \item Decision 009 --- Three additive scopes for \texttt{game\_access}.
+  \item How-to: hot-upload and roll back a game bundle.
+  \item How-to: grant the mod or publisher role for a game.
+  \item Architecture chapter 5 --- API reference.
+\end{itemize}
+
+\end{document}

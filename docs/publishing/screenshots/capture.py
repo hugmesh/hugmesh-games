@@ -50,10 +50,26 @@ WINDOW_SIZE     = (1366, 800)
 
 # Login credentials. Read from env so secrets stay out of git; defaults
 # match the Casdoor seed so a vanilla `docker compose up -d` works
-# without extra config. Override via SNAPDRAGON_TEST_USER /
-# SNAPDRAGON_TEST_PASS for non-default deployments.
-DEFAULT_USER = os.environ.get("SNAPDRAGON_TEST_USER", "admin")
-DEFAULT_PASS = os.environ.get("SNAPDRAGON_TEST_PASS", "123")
+# without extra config.
+#
+# Per-role overrides: SNAPDRAGON_{ROLE}_USER / SNAPDRAGON_{ROLE}_PASS
+# where ROLE is PLAYER, MOD, PUBLISHER, ADMIN (upper-case). Falls back
+# to SNAPDRAGON_TEST_USER / SNAPDRAGON_TEST_PASS, then to the constants
+# below.
+SHARED_PASS   = os.environ.get("SNAPDRAGON_TEST_PASS", "123")
+ROLE_CREDS: dict[str, tuple[str, str]] = {
+    "admin":     (os.environ.get("SNAPDRAGON_ADMIN_USER",     "admin"),
+                  os.environ.get("SNAPDRAGON_ADMIN_PASS",     SHARED_PASS)),
+    "player":    (os.environ.get("SNAPDRAGON_PLAYER_USER",    "player"),
+                  os.environ.get("SNAPDRAGON_PLAYER_PASS",    SHARED_PASS)),
+    "mod":       (os.environ.get("SNAPDRAGON_MOD_USER",       "mod-three-wizards"),
+                  os.environ.get("SNAPDRAGON_MOD_PASS",       SHARED_PASS)),
+    "publisher": (os.environ.get("SNAPDRAGON_PUBLISHER_USER", "publisher-three-wizards"),
+                  os.environ.get("SNAPDRAGON_PUBLISHER_PASS", SHARED_PASS)),
+}
+# Legacy env kept for backwards compat — used as fallback if SNAPDRAGON_ADMIN_USER unset.
+DEFAULT_USER = os.environ.get("SNAPDRAGON_TEST_USER", ROLE_CREDS["admin"][0])
+DEFAULT_PASS = SHARED_PASS
 
 
 # ── Capture spec ──────────────────────────────────────────────────────────
@@ -65,6 +81,9 @@ class Capture:
     pre_action: Optional[Callable] = None
     description: str = ""
     requires_auth: bool = True   # default — most pages are gated
+    # Which ROLE_CREDS key to use when logging in for this capture.
+    # None = use DEFAULT_USER / DEFAULT_PASS (admin) for the shared pass 2.
+    login_as: Optional[str] = None
 
 
 # Captures split in two passes:
@@ -145,6 +164,36 @@ CAPTURES: list[Capture] = [
             description="In-game iframe — three-wizards cave scene."),
     Capture("game-dodecahedron",   "/?level=99",        3500,
             description="In-game iframe — dodecahedron demo."),
+
+    # ── per-role captures ──────────────────────────────────────────
+    # Each capture uses its own Casdoor credential so the screenshot
+    # shows that role's view of the UI (nav links, console tabs, etc.)
+    Capture("player-home",        "/",                  2000,
+            login_as="player",
+            description="Home page as a plain player — game cards, "
+                        "no admin/mod/publisher nav links."),
+    Capture("player-session",     "/",                  2000,
+            login_as="player",
+            description="Home with the multiplayer-session lobby visible "
+                        "(same /home route; the session picker mounts below cards)."),
+    Capture("mod-console",        "/mod",               2500,
+            login_as="mod",
+            description="/mod federated remote — live-session list, "
+                        "kick controls, session-log tab. Scope-checked "
+                        "to mod_game_scopes rows for mod-three-wizards."),
+    Capture("mod-home",           "/",                  2000,
+            login_as="mod",
+            description="Home page as mod-three-wizards — mod nav link "
+                        "visible in the host header alongside standard tabs."),
+    Capture("publisher-console",  "/publisher",         2500,
+            login_as="publisher",
+            description="/publisher federated remote — upload card, "
+                        "version history, rollback table. "
+                        "Scope-checked to publisher_game_scopes rows."),
+    Capture("publisher-home",     "/",                  2000,
+            login_as="publisher",
+            description="Home page as publisher-three-wizards — publisher "
+                        "nav link visible in the host header."),
 ]
 
 
@@ -367,27 +416,47 @@ def main():
                 print(f"  WARN: {spec.label}: {e}", file=sys.stderr)
                 write_placeholder(spec)
 
-        # Login. If the credential exchange fails we fall through and
-        # render placeholders for every auth-gated capture below — the
-        # un-authenticated UI screenshots from pass 1 still ship.
-        logged_in = login_via_api(
-            driver, args.base_url, DEFAULT_USER, DEFAULT_PASS)
+        # Pass 2: auth-gated routes, grouped by login_as so we only
+        # call login_via_api once per credential batch.
+        # Captures with login_as=None use the shared admin credentials
+        # (DEFAULT_USER / DEFAULT_PASS) — same behaviour as before.
+        from itertools import groupby
+        auth_captures = [s for s in CAPTURES if s.requires_auth]
 
-        # Pass 2: auth-gated routes.
-        for spec in CAPTURES:
-            if not spec.requires_auth:
-                continue
-            if not logged_in:
-                p = write_placeholder(spec)
-                print(f"  ph  {spec.label:<24} {p}  (login failed)")
-                continue
-            try:
-                p = capture_one(driver, args.base_url, spec)
-                print(f"  ✓   {spec.label:<24} {p}")
-            except Exception as e:
-                print(f"  WARN: {spec.label}: {e}", file=sys.stderr)
-                p = write_placeholder(spec)
-                print(f"  ph  {spec.label:<24} {p}  (placeholder)")
+        # Stable group order: None (admin) first, then other roles in
+        # insertion order.
+        def group_key(s: Capture) -> str:
+            return s.login_as or "__default__"
+
+        seen_groups: list[str] = []
+        group_map: dict[str, list[Capture]] = {}
+        for spec in auth_captures:
+            k = group_key(spec)
+            if k not in group_map:
+                seen_groups.append(k)
+                group_map[k] = []
+            group_map[k].append(spec)
+
+        for group in seen_groups:
+            specs = group_map[group]
+            if group == "__default__":
+                user, pw = DEFAULT_USER, DEFAULT_PASS
+            else:
+                user, pw = ROLE_CREDS.get(group, (DEFAULT_USER, DEFAULT_PASS))
+            print(f"  → logging in as {user!r} for {len(specs)} capture(s)")
+            logged_in = login_via_api(driver, args.base_url, user, pw)
+            for spec in specs:
+                if not logged_in:
+                    p = write_placeholder(spec)
+                    print(f"  ph  {spec.label:<24} {p}  (login failed)")
+                    continue
+                try:
+                    p = capture_one(driver, args.base_url, spec)
+                    print(f"  ✓   {spec.label:<24} {p}")
+                except Exception as e:
+                    print(f"  WARN: {spec.label}: {e}", file=sys.stderr)
+                    p = write_placeholder(spec)
+                    print(f"  ph  {spec.label:<24} {p}  (placeholder)")
     finally:
         driver.quit()
     return 0

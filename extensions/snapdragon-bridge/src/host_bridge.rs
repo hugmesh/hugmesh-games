@@ -38,12 +38,37 @@ pub struct HostBridge {
     /// and called [`set_streaming_mode`]. Defaults to standalone so the
     /// editor F5 path works even if the glue forgets to flip it.
     streaming: bool,
+
+    /// Multiplayer state. Single-player builds leave `local_slot=-1` and
+    /// the rest of the surface degrades to legacy single-player. When a
+    /// game scene boots inside an iframe with `?slot_index=N`, the
+    /// GDScript glue calls [`register_player_slot`] with `is_local=true`
+    /// for its own slot and `is_local=false` for each remote-player slot
+    /// it knows about. The bridge tracks the local slot's character_id
+    /// so [`send_input`] knows which character the local controller is
+    /// driving.
+    local_slot: i64,
+    local_character_id: i64,
+    /// Multiplayer session id, threaded from the iframe URL via the
+    /// GDScript glue's [`set_session_id`] call. Forwarded back on
+    /// `input_egress` payloads so the BFF can scope the control write
+    /// to one session's per-session sinks.
+    session_id: GString,
+    /// Monotonic counter for `request_api` correlation.
+    next_request_id: i64,
 }
 
 #[godot_api]
 impl INode for HostBridge {
     fn init(base: Base<Node>) -> Self {
-        Self { base, streaming: false }
+        Self {
+            base,
+            streaming: false,
+            local_slot: -1,
+            local_character_id: -1,
+            session_id: GString::new(),
+            next_request_id: 1,
+        }
     }
 
     fn ready(&mut self) {
@@ -103,11 +128,50 @@ impl HostBridge {
     /// Subscribe to mirror locally; the GDScript glue ALWAYS emits.
     #[signal] fn console_egress(payload: GString);
 
+    /// Per-player camera / orientation egress for admin observation.
+    /// The local-player camera script calls
+    /// `bridge.report_view(slot, x, y, z, yaw, pitch, fov)` at ~10 Hz;
+    /// the GDScript glue forwards each payload to the parent which
+    /// POSTs `/api/view`. The BFF fans out on the per-session
+    /// `view` SSE channel admins watch via `/api/admin/sessions/{id}/stream`.
+    /// JSON payload: `{slot,characterId,sessionId,x,y,z,yaw,pitch,fov}`.
+    #[signal] fn view_egress(payload: GString);
+
+    /// Slot bookkeeping notifications. The GDScript scene script can
+    /// connect to repaint the lobby UI when remote players join or
+    /// leave during the session.
+    #[signal] fn slot_registered(slot: i64, character_id: i64, is_local: bool);
+    #[signal] fn slot_released(slot: i64);
+
+    /// Outbound API request — `BridgeGlue` postMessages each payload
+    /// to the Angular wrapper, which performs the actual HTTP call (so
+    /// the host's HttpClient interceptor + auth header flow apply
+    /// uniformly) and posts the response back via
+    /// `api_response_received`. Game scripts use the addon's
+    /// `BridgeApiClient` rather than touching this signal directly.
+    ///
+    /// Payload JSON: `{requestId, method, path, sessionId, body}`.
+    #[signal] fn api_request_egress(payload: GString);
+
+    /// Inbound API response from the Angular wrapper. Payload JSON:
+    /// `{requestId, status, body}`. `BridgeApiClient` indexes pending
+    /// requests by id and dispatches to the matching caller callback.
+    #[signal] fn api_response_received(payload: GString);
+
+    /// Inbound SSE event from the Angular wrapper. The wrapper owns
+    /// the `EventSource` connection (one per mounted wrapper) and
+    /// postMessages each event into the iframe; `BridgeGlue` routes
+    /// the postMessage in via this signal. Payload JSON shape matches
+    /// the BFF's per-channel DTO. The wrapper owns the SSE plumbing
+    /// so the iframe stays a passive data consumer — Rust handles
+    /// the processing.
+    #[signal] fn sse_event_received(event_type: GString, payload: GString);
+
     /// Called by the GDScript glue once it confirms a parent module is
     /// present. Flips the bridge into streaming mode so [`send_input`]
     /// stops echoing locally and instead emits `input_egress`.
     #[func]
-    fn set_streaming_mode(&mut self, on: bool) {
+    pub fn set_streaming_mode(&mut self, on: bool) {
         self.streaming = on;
         let label = if on {
             "streaming (parent module attached)"
@@ -120,7 +184,7 @@ impl HostBridge {
     /// Reports whether the bridge is in streaming mode. Useful for
     /// HUD/debug overlays.
     #[func]
-    fn is_streaming(&self) -> bool {
+    pub fn is_streaming(&self) -> bool {
         self.streaming
     }
 
@@ -135,7 +199,7 @@ impl HostBridge {
     /// whether the event came from the BFF SSE or a host-tier
     /// gamepad poll relayed through postMessage.
     #[func]
-    fn dispatch_event(&mut self, event_type: GString, payload: GString) {
+    pub fn dispatch_event(&mut self, event_type: GString, payload: GString) {
         let signal = match event_type.to_string().as_str() {
             "movement"    => "movement_received",
             "world"       => "world_received",
@@ -196,13 +260,21 @@ impl HostBridge {
     /// drives the player without the BFF. `value_json` is a JSON-encoded
     /// payload (e.g. `"\"left\""`, `"{\"x\":1.0}"`) — the game script
     /// JSON-parses on receipt.
+    ///
+    /// Multiplayer enrichment: the emitted JSON now also carries the
+    /// local slot's `slot` and `characterId` plus the active `sessionId`
+    /// (when set by [`set_session_id`]) so the GDScript glue can post
+    /// to `/api/controls/{characterId}` with the `X-Session-Id` header
+    /// — that's what tells the BFF to route the control through the
+    /// per-session sinks instead of the legacy global path.
     #[func]
     fn send_input(&mut self, action: GString, value_json: GString) {
-        // Hand-rolled JSON for `{"action":"<action>","value":<value_json>}`
-        // so we don't have to drag in serde just for the bridge.
         let action_str = action.to_string().replace('"', "\\\"");
-        let combined = format!("{{\"action\":\"{}\",\"value\":{}}}",
-                               action_str, value_json);
+        let session_str = self.session_id.to_string().replace('"', "\\\"");
+        let combined = format!(
+            "{{\"action\":\"{}\",\"value\":{},\"slot\":{},\"characterId\":{},\"sessionId\":\"{}\"}}",
+            action_str, value_json, self.local_slot, self.local_character_id, session_str
+        );
         let payload = GString::from(combined.as_str());
         if self.streaming {
             self.base_mut()
@@ -211,5 +283,146 @@ impl HostBridge {
             self.base_mut()
                 .emit_signal("movement_received", &[payload.to_variant()]);
         }
+    }
+
+    // ── Multiplayer slot registry ──────────────────────────────────────
+
+    /// Registers a player slot. Called by the GDScript scene script on
+    /// scene boot for the local slot (`is_local=true`) and once per
+    /// remote slot it learns about (e.g. via the parent's session-detail
+    /// payload). The local registration also stamps `local_slot` and
+    /// `local_character_id` so [`send_input`] can build a session-aware
+    /// payload.
+    ///
+    /// Re-registering the same slot updates the character_id (covers
+    /// the lobby flow where a player picks their wizard before launch).
+    #[func]
+    pub fn register_player_slot(
+        &mut self,
+        slot: i64,
+        character_id: i64,
+        is_local: bool,
+    ) {
+        if is_local {
+            self.local_slot = slot;
+            self.local_character_id = character_id;
+        }
+        godot_print!(
+            "[HostBridge] slot {} registered: characterId={}, local={}",
+            slot, character_id, is_local
+        );
+        self.base_mut().emit_signal(
+            "slot_registered",
+            &[slot.to_variant(), character_id.to_variant(), is_local.to_variant()],
+        );
+    }
+
+    /// Marks a slot as no longer present — emitted by the parent when a
+    /// remote player leaves the session. Game scripts subscribe to
+    /// `slot_released` to despawn the visible avatar.
+    #[func]
+    fn release_player_slot(&mut self, slot: i64) {
+        if slot == self.local_slot {
+            self.local_slot = -1;
+            self.local_character_id = -1;
+        }
+        godot_print!("[HostBridge] slot {} released", slot);
+        self.base_mut()
+            .emit_signal("slot_released", &[slot.to_variant()]);
+    }
+
+    /// Returns the local-player's slot (or -1 if not registered).
+    /// GDScript reads this on scene start to figure out which wizard
+    /// to attach the camera + input handling to.
+    #[func]
+    pub fn local_slot(&self) -> i64 { self.local_slot }
+
+    /// Returns the local-player's bound character_id (or -1).
+    #[func]
+    fn local_character_id(&self) -> i64 { self.local_character_id }
+
+    /// Sets the active multiplayer session id. The GDScript glue calls
+    /// this once on scene boot from the `?session_id=` query param;
+    /// every subsequent [`send_input`] payload carries the value so
+    /// the BFF routes the control on the per-session sinks.
+    #[func]
+    fn set_session_id(&mut self, sid: GString) {
+        self.session_id = sid;
+    }
+
+    /// Returns the active session id (empty string when single-player).
+    #[func]
+    pub fn session_id(&self) -> GString { self.session_id.clone() }
+
+    /// Per-player camera / orientation sample. The local-player camera
+    /// script calls this at ~10 Hz; the GDScript glue forwards the
+    /// payload to the parent which POSTs `/api/view`.
+    ///
+    /// The payload includes the local slot + bound character + session
+    /// so the BFF can authorize and route without an extra round-trip.
+    #[func]
+    fn report_view(
+        &mut self,
+        slot: i64,
+        x: f64, y: f64, z: f64,
+        yaw: f64, pitch: f64, fov: f64,
+    ) {
+        let session_str = self.session_id.to_string().replace('"', "\\\"");
+        let payload = format!(
+            "{{\"slot\":{},\"characterId\":{},\"sessionId\":\"{}\",\"x\":{},\"y\":{},\"z\":{},\"yaw\":{},\"pitch\":{},\"fov\":{}}}",
+            slot, self.local_character_id, session_str, x, y, z, yaw, pitch, fov
+        );
+        self.base_mut()
+            .emit_signal("view_egress", &[GString::from(payload.as_str()).to_variant()]);
+    }
+
+    // ── API bridge ─────────────────────────────────────────────────────
+    //
+    // The Angular wrapper component (`<app-{slug}-remote>`) owns both
+    // the SSE subscription and the API call transport. The wasm /
+    // Godot / Rust iframe is a data consumer only: it receives SSE
+    // events + API responses via postMessage, routed through
+    // `BridgeGlue` into typed signals here. Rust handles the actual
+    // data processing.
+
+    /// Emit an outbound API request on the egress channel. Returns
+    /// the request id so the caller correlates the eventual
+    /// `api_response_received` signal back to its callback.
+    ///
+    /// `body_json` is the literal JSON value (`"null"`, `"{\"x\":1}"`,
+    /// `"[1,2,3]"`); `BridgeApiClient` does the variant-to-JSON
+    /// stringify before calling.
+    #[func]
+    pub fn request_api(&mut self, method: GString, path: GString, body_json: GString) -> i64 {
+        let id = self.next_request_id;
+        self.next_request_id += 1;
+
+        let method_s = method.to_string().replace('"', "\\\"");
+        let path_s   = path.to_string().replace('"', "\\\"");
+        let session_s = self.session_id.to_string().replace('"', "\\\"");
+        let body_s   = body_json.to_string();
+        let body_eff = if body_s.is_empty() { "null".to_string() } else { body_s };
+
+        let payload = format!(
+            "{{\"requestId\":{},\"method\":\"{}\",\"path\":\"{}\",\"sessionId\":\"{}\",\"body\":{}}}",
+            id, method_s, path_s, session_s, body_eff
+        );
+        self.base_mut().emit_signal(
+            "api_request_egress",
+            &[GString::from(payload.as_str()).to_variant()],
+        );
+        id
+    }
+
+    /// Called by `BridgeGlue` when an `SD_API_RESPONSE` payload
+    /// arrives from the Angular wrapper. Re-emits as
+    /// `api_response_received` so `BridgeApiClient`'s pending map
+    /// can dispatch to the matching callback.
+    #[func]
+    pub fn dispatch_api_response(&mut self, payload: GString) {
+        self.base_mut().emit_signal(
+            "api_response_received",
+            &[payload.to_variant()],
+        );
     }
 }

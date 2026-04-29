@@ -24,9 +24,15 @@
 
 use godot::prelude::*;
 
+mod bridge_api_client;
+mod bridge_glue;
 mod host_bridge;
+mod multiplayer_lobby;
 
+pub use bridge_api_client::BridgeApiClient;
+pub use bridge_glue::BridgeGlue;
 pub use host_bridge::HostBridge;
+pub use multiplayer_lobby::SnapdragonMultiplayerLobby;
 
 struct SnapdragonBridge;
 

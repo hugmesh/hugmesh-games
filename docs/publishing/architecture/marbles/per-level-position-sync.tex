@@ -22,18 +22,18 @@
   \draw[marbleline,dashed] ([yshift=-2pt]api.south) to[bend right=10] (c1.north);
 
   \snapmarbleline{sse1}{-1.4}{SSE world (lvl=1)}{0}{12.6}
-  \node[marbleSSE] at (6.6,-1.4) {w};
+  \node[marbleSSE] (sse1a) at (6.6,-1.4) {w};
   \node[marbleSSE] at (8.0,-1.4) {w};
-  \node[marbletype,above=1pt of (6.6,-1.4)] {WorldState\{lvl:1, [A,B,...]\}};
+  \node[marbletype,above=1pt of sse1a] {WorldState\{lvl:1, [A,B,...]\}};
 
   % Pod B's subscriber (same level)
-  \node[marbleop, fill=snapAccent!8] (subB) at (10.4,-1.4) {subscriberB\\ \scriptsize lvl==1 → render};
+  \node[marbleop, fill=snapAccent!8] (subB) at (10.4,-1.4) {subscriberB\\ \scriptsize lvl==1 $\to$ render};
   \draw[marbleline,dashed] (sse1-end) -- (subB.west);
 
   % Subscriber on a DIFFERENT level — ignores
   \snapmarbleline{sse2}{-3.0}{SSE world (lvl=2)}{0}{12.6}
   \node[marbleErr] (drop) at (10.4,-3.0) {!};
-  \node[marbletype,below=1pt of drop] {lvl != 1 → ignore};
+  \node[marbletype,below=1pt of drop] {lvl != 1 $\to$ ignore};
 
   \node[marbleop, fill=red!6, draw=red!70!black] (filter) at (4.6,-3.0)
     {emitWorldStateForLevel\\ \scriptsize ONLY lvl==1};

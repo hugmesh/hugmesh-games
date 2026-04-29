@@ -130,4 +130,18 @@
     <sql>ALTER INDEX ix_level_prerequisites_level RENAME TO ix_chapter_prerequisites_chapter</sql>
   </changeSet>
 
+  <!-- 028-12: scene_elements.level_id was missed by the original 028 sweep.
+       SceneElement.chapterId maps to chapter_id; without this rename,
+       findByChapterIdOrderBySortOrder generates WHERE chapter_id = ? on a
+       column that doesn't exist, the BFF returns a 500, the HTML prefetch
+       parses the error body as JSON and gets zero elements, and the world
+       renders empty. -->
+  <changeSet id="028-12-rename-level-id-on-scene-elements" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="scene_elements" columnName="level_id"/>
+    </preConditions>
+    <renameColumn tableName="scene_elements"
+                  oldColumnName="level_id" newColumnName="chapter_id"/>
+  </changeSet>
+
 </databaseChangeLog>

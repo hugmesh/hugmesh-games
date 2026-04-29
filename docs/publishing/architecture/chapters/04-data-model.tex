@@ -17,7 +17,7 @@ schemas are bootstrapped by an init container.
 are the post-federation additions to a previously single-game schema.}
 \end{figure}
 
-\subsection{Games and levels}
+\subsection{Games and chapters}
 
 \begin{tabularx}{\linewidth}{l X}
 \toprule
@@ -28,16 +28,21 @@ are the post-federation additions to a previously single-game schema.}
 \texttt{federation\_modules.slug}); \texttt{current\_version\_dir} is the
 hash-prefixed directory under \snapfile{app.uploads.games-dir} that the
 runtime serves from. \\
-\texttt{levels} & One row per WASM bundle. \texttt{asset\_url} resolves to
-either \texttt{/api/assets/levels/<slug>/index.html} (legacy) or
+\texttt{chapters} & One row per WASM bundle (renamed from \texttt{levels}
+by Liquibase 028-1). \texttt{asset\_url} resolves to either
+\texttt{/api/assets/levels/<slug>/index.html} (legacy filesystem path
+kept for back-compat) or
 \texttt{/\_remotes/wasm-fragment/<slug>/index.html} (federated). \\
-\texttt{scene\_elements} & Per-level DTO rows that
+\texttt{scene\_elements} & Per-chapter DTO rows that
 \snapfile{scene_loader.gd} pulls from
-\texttt{GET /api/levels/\{id\}/scene}. \\
-\texttt{level\_assets} & Optional registry for runtime-loaded textures /
+\texttt{GET /api/chapters/\{id\}/scene}. The
+\texttt{scene\_elements.chapter\_id} column was renamed from
+\texttt{level\_id} by Liquibase 028-12; without that rename the BFF
+returns 500 on the scene endpoint and the world renders empty. \\
+\texttt{chapter\_assets} & Optional registry for runtime-loaded textures /
 plugins / audio, looked up by \texttt{label} from GDScript via
-\texttt{ApiClient.resolve\_asset(level\_id, label, cb)}. \\
-\texttt{level\_prerequisites} & Quest gating: a level shows as locked
+\texttt{ApiClient.resolve\_asset(chapter\_id, label, cb)}. \\
+\texttt{chapter\_prerequisites} & Quest gating: a chapter shows as locked
 on the home page until its quest is complete. \\
 \bottomrule
 \end{tabularx}
@@ -80,7 +85,7 @@ timestamp on rollback. Bound by
 \midrule
 \texttt{characters} & One canonical character per Casdoor user, with
 \texttt{position\_x/y/z}, \texttt{rotation\_y}, HP/MP/XP, and
-\texttt{current\_level\_id}. \\
+\texttt{current\_chapter\_id}. \\
 \texttt{spell\_loadout} & Per-character spell-slot binding (key index
 $\rightarrow$ spell). \\
 \texttt{quests}, \texttt{character\_quests} & Quest catalog and
@@ -90,13 +95,14 @@ per-character progress. \\
 \texttt{(character\_id, session\_id)}; only the holder of the controller
 role for a session may POST. \\
 \texttt{player\_positions} & One row per
-\texttt{(character\_id, level\_id)} — Liquibase 027 promoted the
-legacy single-row-per-character layout into a per-level layout so a
+\texttt{(character\_id, chapter\_id)} — Liquibase 027 promoted the
+legacy single-row-per-character layout into a per-chapter layout so a
 character traversing cave $\rightarrow$ field $\rightarrow$ cave
 returns to the cave coordinates they last had on re-entry instead of
-clobbering them across levels. Cassandra's
+clobbering them across chapters. Liquibase 028-5 then renamed the
+column from \texttt{level\_id} to \texttt{chapter\_id}. Cassandra's
 \texttt{character\_position\_cache} (composite partition
-\texttt{(character\_id, level\_id)}) is the cross-pod read cache that
+\texttt{(character\_id, chapter\_id)}) is the cross-pod read cache that
 lets pod B see a position pod A wrote within one SSE round-trip;
 Postgres backs the cache when the 5-minute TTL drops a row. \\
 \bottomrule
@@ -124,6 +130,26 @@ Migrations 001–017 are pre-federation. The federation work landed in:
         \texttt{ALTER manifest\_json} jsonb $\rightarrow$ text plus
         \texttt{setval(games\_id\_seq, MAX(id))} (the integration test
         surfaced both as latent bugs).
+  \item \reposrc{backend/src/main/resources/db/changelog/029-admin-actions.xml} —
+        moderator audit ledger (\texttt{kick}, \texttt{ban}, \texttt{unban}).
+  \item \reposrc{backend/src/main/resources/db/changelog/030-game-sessions.xml} —
+        multiplayer: \texttt{game\_sessions} (one per concurrent named
+        instance) + \texttt{session\_members} (membership history with
+        \texttt{slot\_index}). Two partial unique indexes enforce
+        one-active-slot-per-session and one-active-row-per-(session,
+        casdoor) so two players can't simultaneously claim the same
+        wizard.
+  \item \reposrc{backend/src/main/resources/db/changelog/031-system-settings.xml} —
+        generic key/value table seeded with
+        \texttt{wasm\_console\_debug\_enabled='false'} for the
+        admin-only diagnostics gate.
+  \item \reposrc{backend/src/main/resources/db/changelog/032-mod-game-scopes.xml} —
+        \texttt{mod\_game\_scopes} + \texttt{publisher\_game\_scopes}
+        for per-game RBAC; per-game seeded users wired to natural
+        scope rows.
+  \item \reposrc{backend/src/main/resources/db/changelog/033-mod-publisher-federation.xml} —
+        \texttt{federation\_modules} rows for the new \texttt{mod} and
+        \texttt{publisher} federated remotes.
 \end{itemize}
 
 \section{R2DBC + JDBC coexistence}
@@ -164,6 +190,54 @@ The Cassandra keyspace holds:
 
 A nightly \snapfile{CassandraSyncService} reconciles audit-log totals
 back into Postgres counters so dashboards stay consistent across reboots.
+
+\section{Multiplayer + RBAC schema (Liquibase 030--033)}
+
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Table} & \textbf{Purpose} \\
+\midrule
+\texttt{game\_sessions} & Durable session ledger.
+\texttt{(id UUID, name, game\_slug, creator\_casdoor\_id,
+max\_players, created\_at, closed\_at)}.
+\texttt{closed\_at IS NULL} means open and joinable. The session
+creator names it; the home-page picker lists all open rows for the
+clicked game. \\
+
+\texttt{session\_members} & Membership history.
+\texttt{(session\_id, casdoor\_id, character\_id, slot\_index,
+is\_creator, joined\_at, left\_at)}. Append-only on join;
+\texttt{left\_at} stamps on leave. Two partial unique indexes:
+\texttt{uq\_session\_members\_active\_slot} and
+\texttt{uq\_session\_members\_active\_casdoor}, both gated on
+\texttt{left\_at IS NULL}. \\
+
+\texttt{mod\_game\_scopes} & Per-game mod assignments.
+Soft-delete via \texttt{revoked\_at}. Casdoor's \texttt{mod} role
+grants the capability; the rows here decide which games the user
+may moderate. \\
+
+\texttt{publisher\_game\_scopes} & Same shape as
+\texttt{mod\_game\_scopes} but for the publisher capability.
+Publishers may upload bundles for and grant the mod role on games
+their scope row covers. \\
+
+\texttt{system\_settings} & Generic \texttt{(key, value, updated\_at,
+updated\_by)} table for runtime-toggled flags. Today's only key is
+\texttt{wasm\_console\_debug\_enabled}; future flags reuse this
+table instead of growing schema. \\
+\bottomrule
+\end{tabularx}
+
+\bigskip
+
+Hot-path control fan-out lives in \snapfile{GameStateService}'s
+per-session sinks; these tables are read on session
+list/create/join/leave only. Cassandra mirrors per-session presence
+into \texttt{session\_membership} (30\,s TTL, cross-pod) and the
+last view samples into \texttt{session\_view\_state} (60\,s TTL ring)
+so admins joining the per-session view stream see the latest sample
+immediately.
 
 \section{Generalised input event surface (Liquibase 026)}
 

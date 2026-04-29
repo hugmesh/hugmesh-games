@@ -77,8 +77,30 @@ Symptoms + causes, in order of likelihood:
 1. **Rust GDExtension not loaded** — log line `ERROR: Cannot get class 'HostBridge'`. The `bin/snapdragon_bridge.wasm` is missing from the bundle. Check `extensions/snapdragon-bridge/.cargo/config.toml` has `-Cpanic=abort` for `wasm32-unknown-emscripten`, and the export presets have `variant/extensions_support=true` + no `*.gdextension` exclude filter. Then `make build-rust && make build-godot`.
 2. **Browser cached old wasm** — `wasm-fragment/nginx.conf` adds `Cache-Control: no-cache` on `.wasm`/`.pck`. Hard-refresh (Ctrl+Shift+R) once after a rebuild.
 3. **`/api/levels/{id}/scene` 404** — backend renamed the path to `/api/chapters/...`. PR #24 added `@RequestMapping({"/api/chapters", "/api/levels"})` for back-compat so already-exported bundles work. If you re-export, the URL flips to chapters.
-4. **403 from `/api/controls/{id}`** — the JWT subject isn't the controller-role holder for the session. Player needs to claim controller via `POST /api/sessions/control`. Check `SessionService.isController(casdoorId)`.
-5. **shimInstalled: false in iframe** — the `snapdragon-shim.js` script tag's path was absolute (`/snapdragon-shim.js`); it now uses the relative `../snapdragon-shim.js` so it resolves under both the host proxy AND a direct wasm-fragment access.
+4. **Empty world (no scene elements spawn)** — the BFF's `/api/chapters/{id}/scene` returned a 500. The HTML prefetch in `index.html` previously parsed error JSON as the scene config, silently yielding zero elements. Fixed by (a) Liquibase 028-12 which renamed `scene_elements.level_id → chapter_id` (the column was missed in the original 028 sweep) and (b) an `if (!r.ok) throw new Error(...)` guard in the prefetch so future BFF errors fall to `.catch()` with a console warning instead of becoming a phantom empty config.
+5. **403 from `/api/controls/{id}`** — the JWT subject isn't the controller-role holder for the session. `HomeComponent.ngOnInit` calls `session.connect()` → `session.claimControl()` on page load; if the BFF restarted (clearing in-memory `activeSessions`/`currentController`) while the Angular SPA was live, the claim is stale. **Auto-recovery**: `game_bridge.gd` now posts `SD_SESSION_EXPIRED` on a 403; `ApiBridgeService.handleSessionExpired()` re-runs the connect/claim chain automatically. Immediate fix for a persistent 403: hard-refresh (`Ctrl+Shift+R`).
+6. **shimInstalled: false in iframe** — the `snapdragon-shim.js` script tag's path was absolute (`/snapdragon-shim.js`); it now uses the relative `../snapdragon-shim.js` so it resolves under both the host proxy AND a direct wasm-fragment access.
+
+### `make build-godot` spam: gdext + Gentoo Godot incompatibility
+
+If `/usr/bin/godot` is a Gentoo build (the `.gentoo.<sha>` suffix in the version string), every `make build-godot` invocation logs noisy errors during project init:
+
+```
+ERROR: Attempt to get non-existent interface function: 'get_godot_version'.
+   at: get_interface_function (core/extension/gdextension.cpp:730)
+thread '<unnamed>' panicked at gdextension_interface.rs: failed to load `get_godot_version`
+ERROR: GDExtension initialization function 'gdext_rust_init' returned an error.
+ERROR: Error loading extension: 'res://snapdragon_bridge.gdextension'.
+```
+
+**Cause:** The Gentoo patches strip the deprecated v1 GDExtension functions (`get_godot_version`, `mem_alloc`, `classdb_construct_object`, …) and only keep the `*2` successors. gdext (any commit through latest master at the time of writing) still calls `get_proc_address("get_godot_version")` unconditionally and panics if the pointer is null.
+
+**Non-fatal:** `Cargo.toml` sets `panic=unwind` so the panic is caught — `gdext_rust_init` returns an error → Godot logs "Error loading extension" → Godot continues the export anyway. All three bundles (`cave/`, `field/`, `dodecahedron/`) still get freshly written; check the `index.html` mtime to confirm.
+
+**Practical impact:**
+- Editor (`libsnapdragon_bridge.so`) is **broken** on Gentoo: F5/local-play in the Godot editor can't load the bridge. Use the WASM bundle in the browser for any bridge-dependent testing.
+- WASM export and browser play both **work** — the `snapdragon_bridge.wasm` is built in Docker and runs under the standard `web_release.zip` template, which still has the v1 functions.
+- For full editor bridge support, use a stock (non-Gentoo) Godot 4.6.x binary: download from godotengine.org and set `GODOT=path/to/godot4` before `make build-rust`.
 
 ### Liquibase 028 patterns
 
@@ -87,6 +109,8 @@ PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tabl
 1. `docker compose exec postgres psql -U threewizards -d threewizards -tAc "SELECT table_name, column_name FROM information_schema.columns WHERE column_name LIKE '%level%' OR table_name LIKE '%level%'"`
 2. For each real (non-system-catalog) hit, append a `<changeSet>` to `028-rename-chapter-instant.xml` with a `<columnExists>` or `<tableExists>` precondition.
 3. If the entity already uses the new name (e.g. `chapterId`), the migration is the only fix needed. If the entity also has the old name, sed-rename it.
+
+Known missed renames fixed by 028-9 through 028-12: `chapter_prerequisites` table + `chapter_prerequisites.chapter_id` (028-9/10/11); `scene_elements.chapter_id` (028-12 — its absence caused `GET /api/chapters/{id}/scene` to 500 and the world to render empty).
 
 ## Repository tour
 
@@ -112,6 +136,66 @@ PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tabl
 - **A scenario or runbook** — six user guides under `docs/publishing/userguides/<audience>/`. Built into PDFs by `make docs-userguides`.
 - **What's currently in flight** — open PRs on https://github.com/Snapdragon-Systems/snapdragon.games/pulls.
 
+## Multiplayer + roles (post-PR)
+
+A multi-phase feature batch landed on `feature/multiplayer-sessions` that's worth knowing before grepping:
+
+- **Per-session SSE sinks.** `GameStateService` keeps a `ConcurrentHashMap<String, SessionSinks>` lazy-allocated by `sessionId`. `applyControl(event, characterId, sessionId)` is the multiplayer-aware overload; the 2-arg form remains the legacy single-player path. `GameStreamController` accepts `?sessionId=` to scope subscribers; `/api/admin/sessions/{id}/stream` merges movement + world + character + view for admin observation. **The isolation contract is locked in by [`SessionIsolationTest`](backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java)** — emit on session A's sinks, assert session B's per-session subscriber sees nothing.
+- **Mod / publisher roles.** Casdoor owns role membership (`mod`, `publisher`); Postgres owns per-game scope (`mod_game_scopes`, `publisher_game_scopes`). The BFF rejects any mod/publisher action whose target game isn't in the caller's active scope. Admins manage both layers via `/api/admin/role-grants/*`.
+- **Frontend remotes per role.** `frontend/projects/{admin,mod,publisher}/` are independently-built nginx-shipped Angular remotes federated under `/admin`, `/mod`, `/publisher`. The host shell shows role-conditional nav links via `AuthService.isMod() / isPublisher()`.
+- **Per-player view channel.** Rust HostBridge gained `register_player_slot` + `view_egress`; the GDScript `multiplayer_lobby.gd` spawns one wizard `CharacterBody3D` per registered slot. Camera samples (~10 Hz) post to `/api/view`, which fans out on the per-session `view` SSE channel admins watch via `SessionsShell`.
+- **Diagnostics is admin-only and off by default.** `POST /api/diagnostics/wasm-console` requires `ROLE_ADMIN` AND `wasm_console_debug_enabled=true` (admin-toggled at `PUT /api/admin/debug-mode/wasm-console`). Frontend `WasmConsoleForwarderService` mirrors the gate so non-admins never even attempt the POST.
+
+Casdoor seed users for testing: `player`, `player1`, `player2`, `player3`, `mod`, `publisher`, plus per-game `mod-three-wizards`, `mod-dodecahedron`, `publisher-three-wizards`, `publisher-dodecahedron`. Passwords printed by `casdoor/entrypoint.sh` on first boot.
+
+## Friends, blocks, visibility (Phase 8)
+
+Decision: see [`docs/wiki/decisions/015-friends-blocks-and-session-visibility.md`](docs/wiki/decisions/015-friends-blocks-and-session-visibility.md).
+
+- `game_sessions.visibility` is one of `public` / `friends` / `private`. The `MultiplayerSessionController` filters the lobby list against the caller's friend graph + blocklist; no leaks to the network.
+- `user_relationships` is a single graph table. Friends are mutual (two `friend` rows); blocks are one-directional (`blocked` row, target invisible to the block). Publishers are not blockable at the data layer; admins are not blockable at the controller.
+- `/api/session-logs/{me|admin/...|scoped/...}` reads the per-user history off `session_members`. `@PreAuthorize` gates the admin/scoped paths.
+- **R2DBC `save()` quirk**: entities whose id is application-assigned (e.g. `GameSession`'s UUID) MUST implement `Persistable<T>` with a `@Transient boolean isNew` flag, otherwise `save()` issues an UPDATE that affects zero rows and throws `TransientDataAccessResourceException: Row with Id ... does not exist`.
+- Frontend toast UX is via `NotificationService` + `errorInterceptor` — components subscribe with empty `error: () => {}` blocks and let the interceptor surface the friendly message.
+- The level→chapter rename is now complete in source: `chapter_id` URL param, `/api/chapters/...` endpoint, `chapter_membership` Cassandra table, `TW_CHAPTER_TRANSITION` postMessage. Only the `assets/levels/<slug>/` filesystem path stays per the original holdout. After pulling, run `make build-rust && make build-godot` to re-export the bundles with the new URL contract — already-exported bundles will silently 404 their scene fetch.
+- The `snapdragon_export` Godot addon now lives canonically in `extensions/snapdragon-bridge/addons/snapdragon_export/` alongside `snapdragon_bridge/`; `make sync-bridge-addon` copies both into each `games/<slug>/addons/` and the per-game copies are gitignored.
+
+## Integration-testing profile + multi-user e2e (Phase 9)
+
+- `make e2e` brings up the full stack with the `integration-test` Spring profile (TLS, deterministic Casdoor seed, verbose multiplayer logging) and runs the Playwright suite under `e2e/tests/`.
+- Every Casdoor seed user (`player` / `player1..3` / `admin` / `mod` / `mod-three-wizards` / `mod-dodecahedron` / `publisher` / `publisher-three-wizards` / `publisher-dodecahedron`) gets a deterministic password, default `e2e-pass`. Override individually via the matching `E2E_*_PASSWORD` env or change the shared default with `E2E_PASSWORD=…`.
+- `e2e/tests/helpers/roles.ts` is the catalogue Playwright iterates; `helpers/sse-bridge.ts` installs an iframe-side `window.message` capture so a spec can assert on the `SD_SSE_EVENT` deliveries the BridgeGlue would normally drain.
+- **Race-free capture**: `installSseCapture(context)` in `helpers/sse-bridge.ts` uses `BrowserContext.addInitScript` so the listener attaches in every iframe BEFORE its own scripts. Without this, BridgeGlue drains the queue before the test's listener attaches.
+- **WASM-boot timing**: gate every `sendControl` in a multi-user spec on `waitForResponse(r => r.url().includes('/api/game/stream?sessionId=…'))` — the Angular wrapper opens its session-scoped EventSource only AFTER WASM compile finishes (15-30s on a cold image), and a `sendControl` before then races the subscription.
+- **Multi-user lobby flow**: drive sessions through the lobby modal (`createSessionViaLobby` / `joinSessionViaLobby` in the spec) — direct API calls to `/api/sessions` leave the home component's `activeSessionId` blind, so the iframe URL has no `?session_id=` and the wrapper subscribes to the unscoped global stream. See [`docs/wiki/howto/run-multi-user-e2e.md`](docs/wiki/howto/run-multi-user-e2e.md) for the full pattern.
+- New specs:
+    - `per-role-assets.spec.ts` — every seed role logs in, opens the first chapter, asserts the WASM bundle bytes (index.html / index.wasm / index.pck) come down with HTTP 200.
+    - `multiplayer-same-session.spec.ts` — two players in one session both load the bundle and player2's iframe receives an SSE event after player1 emits a control. Strict positive assertion.
+    - `cross-session-isolation.spec.ts` — two sessions for the same game; player1 moves in session A, player2 in session B sees no event carrying P1's character. The e2e flip-side of `SessionIsolationTest`. Strict negative assertion.
+
+### Gherkin / BDD layer (`make e2e-bdd`)
+
+Parallel to the canonical `tests/*.spec.ts` suite. Lives under [`e2e/features/`](e2e/features/) — `.feature` files in Gherkin syntax (one scenario per role, plus topic-shaped scenarios for friends/blocks, lobby visibility, multiplayer SSE isolation, session log) backed by step definitions in `e2e/features/steps/`. The `AfterStep` hook in [`e2e/features/support/hooks.ts`](e2e/features/support/hooks.ts) attaches a PNG to the report at every step transition, so a reviewer can see the UI state at every line of the scenario without re-running.
+
+- Run: `make e2e-bdd` brings up the same TLS integration-test stack and runs only the `bdd` Playwright project.
+- Two Playwright projects in [`e2e/playwright.config.ts`](e2e/playwright.config.ts): `chromium` (existing 21 specs, the canonical CI gate) and `bdd` (generated specs from `.feature` files via `playwright-bdd`'s `bddgen`). The Dockerfile pre-runs `bddgen` so the BDD project is ready to discover at default-CMD time.
+- The BDD step files re-use the same plain-Playwright helpers in `tests/helpers/roles.ts` (`login`, `createSession`, `joinSession`, `sendControl`, `installSseCapture`) so behaviour stays in lockstep with the canonical specs — the BDD layer is presentation, not a parallel implementation.
+- Per-scenario state lives in [`e2e/features/steps/_registry.ts`](e2e/features/steps/_registry.ts) (`pageRegistry`, `ctxRegistry`, `sessionByName`, `responseState`). The `Before` hook calls `resetRegistry()` so each scenario starts clean.
+
+### Doc screenshots: live-stack vs e2e harvest
+
+Two paths feed `docs/publishing/screenshots/build/<name>.png` (which the user-guide PDFs and slide decks reference via `\includegraphics{<name>.png}` and the `screenshot:<name>` image keys):
+
+- `make docs-screenshots` — the original Selenium flow ([`capture.py`](docs/publishing/screenshots/capture.py)). Drives a headless Firefox against a running compose stack at `SNAPDRAGON_BASE_URL`. Convenient when you've got a dev stack already up; falls back to placeholder PNGs when unreachable. Limitation: the dev stack only seeds admin + player passwords from `.env`, so mod / publisher logins fail and those captures land as placeholders.
+- `make docs-screenshots-from-e2e` — deterministic alternative. Runs the full `make e2e-bdd` flow (TLS integration-test stack, every Casdoor seed user with `E2E_PASSWORD=e2e-pass`), then runs [`harvest-from-e2e.py`](docs/publishing/screenshots/harvest-from-e2e.py) which copies the per-step BDD PNGs into the doc build dir under their reference names. Heavier (10-15 min cold) but lands real screenshots for every role including the per-game mod / publisher variants. `make docs-screenshots-harvest` skips the BDD run and re-harvests an existing `e2e/results/artifacts/` directory.
+
+## Security primitives
+
+- **All UI-facing UIDs and URL tokens come through one call**: `Crypto.mintUid()` in `backend/src/main/java/games/snapdragon/bff/util/Crypto.java`. Output: 43-character URL-safe base64 of `SHA3-256(64 random bytes from BouncyCastle SP800-90A HMAC-SHA256 DRBG)`. No more `UUID.randomUUID()` or raw `SecureRandom` in this codebase. If you need bytes, ask `Crypto.randomBytes(n)`. If you need a hash, ask `Crypto.sha3_256(...)`. The DRBG state is process-singleton so callers don't have to thread it.
+- **Liquibase 036** widens session id columns from `varchar(36)` to `varchar(64)` to fit the new SHA3 shape (43 chars). Pre-existing UUID-shape rows continue to fit.
+- **JWT role extraction** is centralised in `backend/src/main/java/games/snapdragon/bff/security/Roles.java`. Use `Roles.has(jwt, "ADMIN")` / `Roles.fromAuthentication(auth)` / `Roles.isAdmin(jwt)` rather than copying the claim-walk. Controller-level access checks should use `@PreAuthorize("hasRole('ADMIN')")`; method-internal checks fall through to `Roles`.
+- **Session-scoped control authorization**: when two players use the same `character_id` in different sessions, the unscoped `findActiveOwnerOfCharacter(character_id)` races on Postgres' first-row pick and one side 403s. The fix is `findActiveOwnerInSession(sessionId, characterId)` + the 3-arg `authorizeControl(casdoorId, characterId, sessionIdOpt)` overload — `ControlController` threads `X-Session-Id` through. Pin in `GameSessionServiceTest`.
+
 ## Workflow conventions
 
 - **Branches**: `feature/<short-slug>` for new work, `fix/<short-slug>` for bug-fixes, `docs/<slug>` for doc-only changes, `chore/<slug>` for tooling.
@@ -125,5 +209,5 @@ PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tabl
 - Full Content-Security-Policy needs an inventory of the federation runtime's eval / inline-script needs first.
 - Per-form a11y sweep (login form labels, error messaging, validation announcements).
 - WCAG colour-contrast audit on the Snapdragon palette.
-- Cassandra-backed cross-pod rate-limit storage (currently in-process per-pod via `RateLimitFilter`).
+- ~~Cassandra-backed cross-pod rate-limit storage~~ — done. `RateLimitFilter` runs the local in-process bucket as the fast pre-check, then augments cluster-wide via `DistributedRateLimitService` (append-row log on the Cassandra `rate_limit_events` table with a 90 s TTL; window-bounded `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`). Disable with `app.rate-limit.distributed.enabled=false` (default `true`); falls back to local-only when Cassandra is unreachable.
 - Iframe-side keyboard input still uses Godot's `_unhandled_input` — focus management means a freshly-mounted iframe needs a click before keys land. The host's `GameControlsComponent` covers the host-focused case via `@HostListener('window:keydown')` + `/api/controls/{id}`.

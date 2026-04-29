@@ -32,4 +32,10 @@
   \node[marbleErr] (er) at (4.6,-3.6) {!};
   \node[marbletype,below=1pt of er] {Forbidden403};
   \draw[marbleline,red!70!black,dashed] (op1.south) to[bend right=14] (er.north);
+
+  % Auto-recovery: game_bridge.gd posts SD\_SESSION\_EXPIRED on 403,
+  % ApiBridgeService re-runs connect/claim. Next keypress succeeds.
+  \node[marbleop, fill=snapAccent!8] (rec) at (8.0,-4.6)
+    {SD\_SESSION\_EXPIRED\\ \scriptsize $\to$ session.connect $\to$ claimControl};
+  \draw[marbleline,dashed] (er.south) to[bend right=10] (rec.west);
 \end{tikzpicture}

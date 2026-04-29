@@ -23,11 +23,11 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
  * (`app-${remote.gameSlug}-remote`, where `remote.gameSlug` is
  * 'three-wizards' from the federation_modules seed).
  *
- * `level_id=<id>` query goes onto the iframe URL because the patched
+ * `chapter_id=<id>` query goes onto the iframe URL because the patched
  * Godot index.html inside each bundle reads
- * `URLSearchParams.get('level_id')` to prefetch
+ * `URLSearchParams.get('chapter_id')` to prefetch
  * `/api/chapters/{id}/scene` before the WASM finishes compiling. Without
- * the param the prefetch defaults to level 1 — fine for cave but
+ * the param the prefetch defaults to chapter 1 — fine for cave but
  * wrong for field.
  */
 @Component({
@@ -156,11 +156,11 @@ export class ThreeWizardsRemoteComponent {
    *  Godot index.html can prefetch /api/chapters/{id}/scene. */
   @Input()
   set chapterId(value: number | null | undefined) {
-    this._levelId = value ?? null;
+    this._chapterId = value ?? null;
     this._refresh();
   }
-  get chapterId(): number | null { return this._levelId; }
-  private _levelId: number | null = null;
+  get chapterId(): number | null { return this._chapterId; }
+  private _chapterId: number | null = null;
 
   /** Launch UID minted by `POST /api/games/three-wizards/launch`.
    *  Threaded through as a query param for audit/traceability —
@@ -174,20 +174,62 @@ export class ThreeWizardsRemoteComponent {
   get launchUid(): string | null { return this._launchUid; }
   private _launchUid: string | null = null;
 
+  /**
+   * Multiplayer session id (UUID) — when set, written to the iframe URL
+   * as `?session_id=<uuid>` so the Godot bundle's game_bridge.gd can
+   * forward it to HostBridge.set_session_id. The control + view egress
+   * paths then carry it through to the BFF, which routes them onto the
+   * per-session SSE sinks.
+   */
+  @Input()
+  set sessionId(value: string | null | undefined) {
+    this._sessionId = value || null;
+    this._refresh();
+  }
+  get sessionId(): string | null { return this._sessionId; }
+  private _sessionId: string | null = null;
+
+  /** This player's slot inside the multiplayer session (0..maxPlayers-1). */
+  @Input()
+  set slotIndex(value: number | null | undefined) {
+    this._slotIndex = (value ?? null);
+    this._refresh();
+  }
+  get slotIndex(): number | null { return this._slotIndex; }
+  private _slotIndex: number | null = null;
+
+  /** Character id this player is driving in the session. */
+  @Input()
+  set localCharacterId(value: number | null | undefined) {
+    this._localCharacterId = (value ?? null);
+    this._refresh();
+  }
+  get localCharacterId(): number | null { return this._localCharacterId; }
+  private _localCharacterId: number | null = null;
+
   safeUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
     '/_remotes/wasm-fragment/cave/index.html',
   );
 
   private _refresh(): void {
-    const id = this._levelId ?? '';
+    const id = this._chapterId ?? '';
     // Asset bytes come from the federated wasm-fragment service —
     // the host's nginx proxies /_remotes/wasm-fragment/ to that
     // container, which serves the Godot bundles directly (no api
     // round-trip). Cache-bust on every (slug,id) change so the
     // iframe remounts cleanly across cave→field transitions.
     const params = new URLSearchParams();
-    if (id !== '') params.set('level_id', String(id));
+    if (id !== '') params.set('chapter_id', String(id));
     if (this._launchUid) params.set('launch_uid', this._launchUid);
+    // Multiplayer threading: when the host's session picker has
+    // assigned the player to a session + slot, propagate to Godot.
+    // game_bridge.gd reads these on _ready and calls
+    // HostBridge.set_session_id + register_player_slot, which flips
+    // every subsequent control + view egress payload into the
+    // per-session sinks on the BFF.
+    if (this._sessionId) params.set('session_id', this._sessionId);
+    if (this._slotIndex !== null) params.set('slot_index', String(this._slotIndex));
+    if (this._localCharacterId !== null) params.set('character_id', String(this._localCharacterId));
     params.set('t', String(Date.now()));
     const url = `/_remotes/wasm-fragment/${this._levelSlug}/index.html?${params}`;
     this._frameUrl = url;

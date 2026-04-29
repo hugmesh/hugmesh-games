@@ -2,11 +2,16 @@ import {
   Component, CUSTOM_ELEMENTS_SCHEMA, ElementRef, HostListener, OnInit, ViewChild, inject
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { GameLibraryService } from '../services/game-library.service';
 import { CharacterService } from '../services/character.service';
 import { RemoteLoaderService } from '../services/remote-loader.service';
 import { SessionService } from '../services/session.service';
+import {
+  MultiplayerSessionService, GameSession, SessionVisibility,
+} from '../services/multiplayer-session.service';
+import { NotificationService } from '../services/notification.service';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { GameCanvasComponent } from '../game-canvas/game-canvas.component';
 import { GameHudComponent } from '../game-hud/game-hud.component';
@@ -54,7 +59,7 @@ const FEDERATED_GAME_SLUGS = new Set(['dodecahedron', 'three-wizards']);
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [CommonModule, GameCanvasComponent, GameHudComponent, GameControlsComponent],
+  imports: [CommonModule, FormsModule, GameCanvasComponent, GameHudComponent, GameControlsComponent],
   // Federated remote elements (e.g. <app-dodecahedron-remote>) are
   // bootstrapped by their own bundle, not Angular's host compiler.
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
@@ -69,7 +74,9 @@ export class HomeComponent implements OnInit {
   private readonly characterSvc = inject(CharacterService);
   private readonly remoteLoader = inject(RemoteLoaderService);
   private readonly session = inject(SessionService);
+  private readonly multiplayer = inject(MultiplayerSessionService);
   private readonly http = inject(HttpClient);
+  private readonly notify = inject(NotificationService);
 
   characterId = 1;
   /** Game-level cards on the home page. Each carries its embedded
@@ -81,6 +88,22 @@ export class HomeComponent implements OnInit {
   isFullscreen = false;
   activeRemoteSlug: string | null = null;
   activeLaunchUid: string | null = null;
+
+  // Multiplayer session picker state, populated when the chapter modal
+  // opens. The picker offers two paths: pick an existing open session
+  // (joinSession) or create a new named one (createSession). Either
+  // path threads sessionId + slotIndex through to launchChapter so the
+  // BFF's per-session sinks scope the gameplay.
+  modalSessions: GameSession[] = [];
+  modalSessionsLoading = false;
+  modalSessionsError: string | null = null;
+  newSessionName = '';
+  newSessionMaxPlayers = 3;
+  newSessionVisibility: SessionVisibility = 'public';
+  /** Set when the player has joined / created a session for the open
+   *  modal-game. Null = solo / legacy launch. */
+  activeSessionId: string | null = null;
+  activeSlotIndex: number | null = null;
 
   sceneIcon(chapter: AvailableGame): string {
     return SCENE_ICONS[chapter.sceneType] ?? '⚔';
@@ -107,6 +130,18 @@ export class HomeComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // ?characterId= URL override — lets multi-user tests put each
+    // player on a different character without UI plumbing for a
+    // character picker. Defaults to 1 (the seeded Hero) when the
+    // query param is absent or unparsable.
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = parseInt(params.get('characterId') ?? '', 10);
+      if (Number.isFinite(fromUrl) && fromUrl > 0) {
+        this.characterId = fromUrl;
+      }
+    }
+
     this.games$ = this.library.listAvailable(this.characterId).pipe(
       map(games => [...games].sort((a, b) => a.sortOrder - b.sortOrder)),
       catchError(() => of([]))
@@ -124,10 +159,96 @@ export class HomeComponent implements OnInit {
   openGame(game: GameWithChapters): void {
     if (this.unlockedChapterCount(game) === 0) return;
     this.modalGame = game;
+    this.activeSessionId = null;
+    this.activeSlotIndex = null;
+    this.newSessionName = '';
+    this.newSessionMaxPlayers = 3;
+    this.refreshModalSessions(game.slug);
   }
 
   closeModal(): void {
     this.modalGame = null;
+    this.modalSessions = [];
+    this.modalSessionsError = null;
+  }
+
+  /** Re-fetch open sessions for the picker. Called on modal open and
+   *  after every join / create so the list reflects the live state. */
+  refreshModalSessions(gameSlug: string): void {
+    this.modalSessionsLoading = true;
+    this.modalSessionsError = null;
+    // The error interceptor surfaces a friendly toast on failure; the
+    // catchError below just hides the resolved value so the picker
+    // shows "no open sessions" rather than a stale list.
+    this.multiplayer.listOpen(gameSlug).pipe(
+      catchError(() => of([] as GameSession[])),
+    ).subscribe(list => {
+      this.modalSessions = list;
+      this.modalSessionsLoading = false;
+    });
+  }
+
+  /** Slot indexes 0..(maxPlayers-1) that aren't already claimed by an
+   *  active member. Used by the picker to suggest the lowest free slot. */
+  private firstFreeSlot(s: GameSession): number {
+    const claimed = new Set(
+      s.members.filter(m => m.slotIndex !== null).map(m => m.slotIndex as number),
+    );
+    for (let i = 0; i < s.maxPlayers; i++) {
+      if (!claimed.has(i)) return i;
+    }
+    return -1;
+  }
+
+  /** Join an existing open session for the modal-game's slug. Persists
+   *  the assignment locally so the chapter launch carries it through to
+   *  the iframe URL. */
+  joinSession(s: GameSession): void {
+    const slot = this.firstFreeSlot(s);
+    if (slot < 0) {
+      this.notify.warn('That session is full.');
+      return;
+    }
+    // The error interceptor handles the toast on failure; we only need
+    // success-side state updates here.
+    this.multiplayer.join(s.id, { characterId: this.characterId, slotIndex: slot }).subscribe({
+      next: updated => {
+        this.activeSessionId = updated.id;
+        this.activeSlotIndex = slot;
+        this.notify.success(`Joined "${updated.name}"`);
+        this.refreshModalSessions(s.gameSlug);
+      },
+      error: () => { /* friendly toast already shown by interceptor */ },
+    });
+  }
+
+  /** Create a new named session for the modal-game and auto-join it
+   *  as creator + slot 0. Visibility defaults to public; the form
+   *  exposes friends + private. */
+  createSession(): void {
+    if (!this.modalGame) return;
+    const name = this.newSessionName.trim();
+    if (!name) {
+      this.notify.warn('Session name required.', 'Pick something so other players know what they\'re joining.');
+      return;
+    }
+    this.multiplayer.create({
+      gameSlug: this.modalGame.slug,
+      name,
+      maxPlayers: this.newSessionMaxPlayers,
+      visibility: this.newSessionVisibility,
+      characterId: this.characterId,
+      slotIndex: 0,
+    }).subscribe({
+      next: created => {
+        this.activeSessionId = created.id;
+        this.activeSlotIndex = 0;
+        this.newSessionName = '';
+        this.notify.success(`Session "${created.name}" created`);
+        this.refreshModalSessions(created.gameSlug);
+      },
+      error: () => { /* friendly toast already shown by interceptor */ },
+    });
   }
 
   /** Modal click outside the inner card closes the modal. */
@@ -143,17 +264,17 @@ export class HomeComponent implements OnInit {
   @HostListener('window:message', ['$event'])
   onWindowMessage(ev: MessageEvent): void {
     const data = ev.data as { type?: string; slug?: string; chapterId?: number } | null;
-    if (!data || data.type !== 'TW_LEVEL_TRANSITION') return;
+    if (!data || data.type !== 'TW_CHAPTER_TRANSITION') return;
     if (typeof data.slug !== 'string' || typeof data.chapterId !== 'number') return;
-    this.onLevelTransition({ slug: data.slug, chapterId: data.chapterId });
+    this.onChapterTransition({ slug: data.slug, chapterId: data.chapterId });
   }
 
-  onLevelTransition(e: { slug: string; chapterId: number }): void {
+  onChapterTransition(e: { slug: string; chapterId: number }): void {
     this.games$ = this.library.listAvailable(this.characterId).pipe(
       map(games => [...games].sort((a, b) => a.sortOrder - b.sortOrder)),
       catchError(() => of([]))
     );
-    this.library.getLevel(e.chapterId).subscribe(chapter => {
+    this.library.getChapter(e.chapterId).subscribe(chapter => {
       this.activeLevel = {
         id: chapter.id,
         gameId: chapter.gameId,
@@ -173,7 +294,11 @@ export class HomeComponent implements OnInit {
     });
   }
 
-  /** Launch the chosen chapter. Closes the modal in the process. */
+  /** Launch the chosen chapter. Closes the modal in the process.
+   *  When activeSessionId is set (the player joined or created a
+   *  session via the picker), it threads through to the iframe URL
+   *  alongside slotIndex + characterId so HostBridge can flip into
+   *  multiplayer mode. */
   selectChapter(chapter: AvailableGame): void {
     if (!chapter.unlocked) return;
     this.modalGame = null;

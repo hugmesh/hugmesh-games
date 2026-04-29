@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -88,6 +89,27 @@ public class GameUploadService {
      * the {@code uploadedBy} = JWT subject.
      */
     public Mono<InstalledUpload> install(byte[] zipBytes, String uploadedBy) {
+        return install(zipBytes, uploadedBy, slug -> Mono.empty());
+    }
+
+    /**
+     * Variant that runs a per-slug authorization check after staging
+     * exposes the slug from the manifest. The caller is the only one
+     * that knows the JWT's authorities + the right service to ask;
+     * controller-level {@code @PreAuthorize} can only check the role,
+     * not the per-game scope. The publisher upload path threads
+     * {@link games.snapdragon.bff.service.PublisherService#requireOwns}
+     * through this hook; admin paths pass {@code slug -> Mono.empty()}.
+     *
+     * <p>The hook fires AFTER the zip has been validated + the manifest
+     * parsed (so slug is known) but BEFORE any filesystem move or DB
+     * write happens. A failed scope check rolls back the staged dir
+     * and surfaces the hook's error to the caller as-is — the
+     * publisher path produces a 403.
+     */
+    public Mono<InstalledUpload> install(byte[] zipBytes,
+                                         String uploadedBy,
+                                         Function<String, Mono<Void>> requireScope) {
         if (zipBytes == null || zipBytes.length == 0) {
             return Mono.error(new ResponseStatusException(BAD_REQUEST, "empty upload"));
         }
@@ -97,7 +119,15 @@ public class GameUploadService {
         }
 
         return Mono.fromCallable(() -> stageAndValidate(zipBytes))
-                .flatMap(staged -> writeAndRegister(staged, uploadedBy));
+                .flatMap(staged -> requireScope.apply(staged.slug())
+                        .onErrorResume(err -> {
+                            // Authorization rejected — clean up the
+                            // staging dir before propagating so we
+                            // don't leak inodes per refused upload.
+                            cleanup(staged.stagingDir());
+                            return Mono.error(err);
+                        })
+                        .then(writeAndRegister(staged, uploadedBy)));
     }
 
     // ── staging + validation (blocking; runs on Mono.fromCallable) ──────────

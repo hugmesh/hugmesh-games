@@ -22,8 +22,15 @@ func _ready() -> void:
 	_host_bridge = get_parent().get_node_or_null("HostBridge")
 
 	if OS.has_feature("web"):
+		_thread_multiplayer_url_params()
 		_fetch_game_config()
-		_connect_sse_web()
+		# SSE subscription now lives in the Angular wrapper — ask it
+		# to open the EventSource and pipe typed events back as
+		# SD_SSE_EVENT postMessages. BridgeGlue (Rust) drains the
+		# resulting JS-side queue per frame and dispatches through
+		# HostBridge.dispatch_event into the typed signals scene
+		# scripts already consume.
+		_request_sse_subscription()
 	else:
 		# Local-play mode (Godot editor F5, headless export). No JS bridge,
 		# no parent module, no API. Fake a scene event so scene_loader
@@ -46,6 +53,41 @@ func _dispatch(event_type: String, payload: Dictionary) -> void:
 	if _host_bridge != null:
 		_host_bridge.dispatch_event(event_type, JSON.stringify(payload))
 
+# Thread multiplayer context from the iframe URL into HostBridge:
+#   ?session_id=<uuid>     active multiplayer session
+#   ?character_id=<long>   character this slot is driving
+#   ?slot_index=<int>      slot 0..maxPlayers-1
+# All three are optional — when absent the bridge stays in legacy
+# single-player mode and send_input falls back to the global control
+# path. The session id is what flips the BFF into per-session sink
+# routing for every subsequent control event.
+func _thread_multiplayer_url_params() -> void:
+	if _host_bridge == null:
+		return
+	var raw: Variant = JavaScriptBridge.eval("""
+(function() {
+	var params = new URLSearchParams(window.location.search);
+	return JSON.stringify({
+		sessionId:   params.get('session_id')   || '',
+		characterId: parseInt(params.get('character_id') || '-1', 10),
+		slotIndex:   parseInt(params.get('slot_index')   || '-1', 10)
+	});
+})();
+	""")
+	if not raw or raw == "null":
+		return
+	var parsed = JSON.parse_string(str(raw))
+	if not (parsed is Dictionary):
+		return
+	var sid: String  = parsed.get("sessionId", "")
+	var cid: int     = int(parsed.get("characterId", -1))
+	var slot: int    = int(parsed.get("slotIndex", -1))
+	if sid != "":
+		_host_bridge.set_session_id(sid)
+	if slot >= 0 and cid >= 0:
+		_host_bridge.register_player_slot(slot, cid, true)
+		print("[GameBridge] multiplayer mode — slot=%d, characterId=%d, sessionId=%s" % [slot, cid, sid])
+
 func _fetch_game_config() -> void:
 	JavaScriptBridge.eval("""
 (function() {
@@ -54,10 +96,13 @@ func _fetch_game_config() -> void:
 		return;
 	}
 	var params = new URLSearchParams(window.location.search);
-	var levelId = params.get('chapter_id') || params.get('game_id') || '1';
+	var chapterId = params.get('chapter_id') || params.get('game_id') || '1';
 	window._twSceneReady = false;
-	fetch('/api/levels/' + levelId + '/scene')
-		.then(function(r) { return r.json(); })
+	fetch('/api/chapters/' + chapterId + '/scene')
+		.then(function(r) {
+			if (!r.ok) throw new Error('HTTP ' + r.status);
+			return r.json();
+		})
 		.then(function(scene) {
 			window._twSceneConfig = scene;
 			window._twSceneReady = true;
@@ -67,75 +112,22 @@ func _fetch_game_config() -> void:
 })();
 """)
 
-func _connect_sse_web() -> void:
-	JavaScriptBridge.eval("""
-(function() {
-	if (window._twGameSSE) { window._twGameSSE.close(); }
-	// Movement queued (not latest-wins) so a rapid keydown→keyup pair doesn't
-	// collapse into just the keyup — spells only fire on pressed=true and get
-	// lost between Godot's ~16ms polls otherwise.
-	window._twMovementQueue   = [];
-	window._twLatestWorld     = null;
-	window._twLatestCharacter = null;
-	window._twLatestTime      = null;
-	window._twLatestScene     = null;
-	var base = (window.location.host === 'localhost:4200') ? 'http://localhost:8080' : '';
-	var src = new EventSource(base + '/api/game/stream');
-	window._twGameSSE = src;
-	src.addEventListener('movement',  function(e) {
-		try {
-			window._twMovementQueue.push(JSON.parse(e.data));
-			if (window._twMovementQueue.length > 32) window._twMovementQueue.shift();
-		} catch(ex) {}
-	});
-	src.addEventListener('world',     function(e) { try { window._twLatestWorld     = JSON.parse(e.data); } catch(ex) {} });
-	src.addEventListener('character', function(e) { try { window._twLatestCharacter = JSON.parse(e.data); } catch(ex) {} });
-	src.addEventListener('time',      function(e) { try { window._twLatestTime      = JSON.parse(e.data); } catch(ex) {} });
-	src.addEventListener('scene',     function(e) { try { window._twLatestScene     = JSON.parse(e.data); } catch(ex) {} });
-	src.onerror = function() { console.warn('[GameBridge] SSE error'); };
-})();
-""")
-
-func _poll(js_var: String) -> Dictionary:
-	var raw: Variant = JavaScriptBridge.eval("JSON.stringify(%s)" % js_var)
-	if not raw or raw == "null":
-		return {}
-	var parsed = JSON.parse_string(str(raw))
-	JavaScriptBridge.eval("%s = null" % js_var)
-	return parsed if parsed is Dictionary else {}
-
-# Pull every queued movement event in order so spells (which only fire on
-# pressed==true) and controller-role changes aren't swallowed when keydown
-# and keyup land in the same poll window.
-func _drain_movement_queue() -> void:
-	var raw: Variant = JavaScriptBridge.eval(
-		"JSON.stringify((window._twMovementQueue && window._twMovementQueue.splice(0, window._twMovementQueue.length)) || [])"
+## Ask the Angular wrapper to subscribe to /api/game/stream on this
+## iframe's behalf and forward each event back as SD_SSE_EVENT. The
+## wrapper owns the EventSource so the iframe stays a passive
+## consumer; Rust BridgeGlue catches the postMessages and routes
+## them through HostBridge.dispatch_event.
+func _request_sse_subscription() -> void:
+	var sid_raw: Variant = JavaScriptBridge.eval(
+		"new URLSearchParams(window.location.search).get('session_id') || ''")
+	var sid := str(sid_raw) if sid_raw != null else ""
+	JavaScriptBridge.eval(
+		"window.parent.postMessage({type:'SD_SSE_SUBSCRIBE', payload: {sessionId: '%s'}}, '*')" % sid
 	)
-	if not raw or raw == "null":
-		return
-	var parsed = JSON.parse_string(str(raw))
-	if not (parsed is Array):
-		return
-	for item in parsed:
-		if item is Dictionary:
-			_dispatch("movement", item)
 
-func _process(_delta: float) -> void:
-	if not OS.has_feature("web"):
-		return
-	_drain_movement_queue()
-	var w := _poll("window._twLatestWorld")
-	if not w.is_empty():
-		_dispatch("world", w)
-	var c := _poll("window._twLatestCharacter")
-	if not c.is_empty():
-		_dispatch("character", c)
-	var t := _poll("window._twLatestTime")
-	if not t.is_empty():
-		_dispatch("time", t)
-	var s := _poll("window._twLatestScene")
-	if not s.is_empty():
-		_dispatch("scene", s)
+# SSE polling moved to the Angular wrapper + Rust BridgeGlue. This
+# script no longer needs a per-frame drain — the typed signals on
+# HostBridge fire whenever the wrapper postMessages a SD_SSE_EVENT.
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and not event.is_echo():
@@ -173,27 +165,27 @@ func send_control(action: String, pressed: bool) -> void:
 	if not OS.has_feature("web"):
 		return
 	var ts: int = int(Time.get_unix_time_from_system() * 1000)
-	# Read level_id off the iframe URL so the BFF can scope the
-	# (character, level) position cache. Liquibase 027 made
-	# player_positions composite-keyed; without level_id the BFF
-	# falls back to the character's current_level_id from PG, but
+	# Read chapter_id off the iframe URL so the BFF can scope the
+	# (character, chapter) position cache. Liquibase 027 made
+	# player_positions composite-keyed; without chapter_id the BFF
+	# falls back to the character's current_chapter_id from PG, but
 	# threading it through here keeps the read path inside one tier.
-	var level_id_js: String = JavaScriptBridge.eval(
+	var chapter_id_js: String = JavaScriptBridge.eval(
 		"new URLSearchParams(window.location.search).get('chapter_id') || ''")
-	var level_id_str := str(level_id_js)
+	var chapter_id_str := str(chapter_id_js)
 	var body: String
-	if level_id_str.is_empty() or not level_id_str.is_valid_int():
+	if chapter_id_str.is_empty() or not chapter_id_str.is_valid_int():
 		body = '{"action":"%s","pressed":%s,"timestamp":%d}' % [
 			action,
 			"true" if pressed else "false",
 			ts
 		]
 	else:
-		body = '{"action":"%s","pressed":%s,"timestamp":%d,"levelId":%d}' % [
+		body = '{"action":"%s","pressed":%s,"timestamp":%d,"chapterId":%d}' % [
 			action,
 			"true" if pressed else "false",
 			ts,
-			int(level_id_str)
+			int(chapter_id_str)
 		]
 	# Read the parent SPA's stored JWT (AuthService.STORAGE_KEY = 'tw_auth')
 	# and attach it as `Authorization: Bearer <token>` so the BFF can
@@ -220,23 +212,29 @@ func send_control(action: String, pressed: bool) -> void:
 		method: 'POST',
 		headers: headers,
 		body: '%s'
+	}).then(function(r) {
+		if (r.status === 403) {
+			try {
+				window.parent.postMessage({ type: 'SD_SESSION_EXPIRED' }, '*');
+			} catch (e) {}
+		}
 	}).catch(function(){});
 })();
 """ % body)
 
 
-## Request the Angular host to unload this WASM and mount the next level's bundle.
+## Request the Angular host to unload this WASM and mount the next chapter's bundle.
 ## Called by in-game transition triggers (portal touched, quest complete, etc).
 ## The postMessage is received by game-canvas.component.ts which swaps the iframe src.
-func request_level_transition(level_slug: String, level_id: int = -1) -> void:
+func request_chapter_transition(chapter_slug: String, chapter_id: int = -1) -> void:
 	if not OS.has_feature("web"):
-		print("[bridge] Level transition requested but not running in web mode: %s" % level_slug)
+		print("[bridge] Chapter transition requested but not running in web mode: %s" % chapter_slug)
 		return
-	var payload := '{"type":"TW_LEVEL_TRANSITION","slug":"%s","levelId":%d}' % [level_slug, level_id]
+	var payload := '{"type":"TW_CHAPTER_TRANSITION","slug":"%s","chapterId":%d}' % [chapter_slug, chapter_id]
 	JavaScriptBridge.eval("""
 (function(){
 	try {
 		window.parent.postMessage(%s, '*');
-	} catch (e) { console.warn('level transition post failed', e); }
+	} catch (e) { console.warn('chapter transition post failed', e); }
 })();
 """ % payload)
