@@ -99,7 +99,10 @@ func _fetch_game_config() -> void:
 	var chapterId = params.get('chapter_id') || params.get('game_id') || '1';
 	window._twSceneReady = false;
 	fetch('/api/chapters/' + chapterId + '/scene')
-		.then(function(r) { return r.json(); })
+		.then(function(r) {
+			if (!r.ok) throw new Error('HTTP ' + r.status);
+			return r.json();
+		})
 		.then(function(scene) {
 			window._twSceneConfig = scene;
 			window._twSceneReady = true;
@@ -209,6 +212,12 @@ func send_control(action: String, pressed: bool) -> void:
 		method: 'POST',
 		headers: headers,
 		body: '%s'
+	}).then(function(r) {
+		if (r.status === 403) {
+			try {
+				window.parent.postMessage({ type: 'SD_SESSION_EXPIRED' }, '*');
+			} catch (e) {}
+		}
 	}).catch(function(){});
 })();
 """ % body)

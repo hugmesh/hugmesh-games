@@ -1,5 +1,7 @@
 package games.snapdragon.bff.config;
 
+import games.snapdragon.bff.service.UserDirectoryService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -21,6 +23,17 @@ import java.util.List;
 @EnableWebFluxSecurity
 @EnableReactiveMethodSecurity
 public class SecurityConfig {
+
+    /**
+     * Lazy provider so we don't create a bootstrap-time dependency from the
+     * security filter chain to the user directory service. The converter
+     * captures the provider in a closure and resolves on first JWT validation.
+     */
+    private final ObjectProvider<UserDirectoryService> directoryProvider;
+
+    public SecurityConfig(ObjectProvider<UserDirectoryService> directoryProvider) {
+        this.directoryProvider = directoryProvider;
+    }
 
     private static final String[] PLAYER_PATHS = {
             "/api/characters/**", "/api/skills/**",
@@ -110,6 +123,22 @@ public class SecurityConfig {
         return new Converter<>() {
             @Override
             public Flux<GrantedAuthority> convert(@org.springframework.lang.NonNull Jwt jwt) {
+                // Side-effect: populate the username→casdoorId cache on every
+                // authenticated request. Without this, the first
+                // /api/relationships/blocks/add { other: "player2" } call
+                // misses the cache and falls back to a Casdoor get-user
+                // round-trip that can transiently 404, silently no-opping the
+                // block. The Javadoc on UserDirectoryService.cacheLogin
+                // documents this hook explicitly.
+                UserDirectoryService directory = directoryProvider.getIfAvailable();
+                if (directory != null) {
+                    String name = jwt.getClaimAsString("name");
+                    String sub  = jwt.getSubject();
+                    if (name != null && sub != null) {
+                        directory.cacheLogin(name, sub);
+                    }
+                }
+
                 List<GrantedAuthority> authorities = new ArrayList<>();
                 authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
 

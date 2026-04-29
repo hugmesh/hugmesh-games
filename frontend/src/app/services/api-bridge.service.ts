@@ -1,6 +1,8 @@
 import { Injectable, NgZone, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpResponse } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, of } from 'rxjs';
+import { catchError, switchMap } from 'rxjs/operators';
+import { SessionService } from './session.service';
 
 interface ApiRequestPayload {
   requestId: number;
@@ -57,6 +59,7 @@ interface SseSubscribeRequest {
 export class ApiBridgeService {
   private readonly zone = inject(NgZone);
   private readonly http = inject(HttpClient);
+  private readonly session = inject(SessionService);
   private started = false;
 
   /**
@@ -96,7 +99,20 @@ export class ApiBridgeService {
       this.handleSseUnsubscribe(e);
       return;
     }
+    if (data.type === 'SD_SESSION_EXPIRED') {
+      this.handleSessionExpired();
+      return;
+    }
   };
+
+  private handleSessionExpired(): void {
+    this.zone.run(() => {
+      this.session.connect().pipe(
+        switchMap(r => r?.isController ? of(r) : this.session.claimControl()),
+        catchError(() => of(null)),
+      ).subscribe();
+    });
+  }
 
   private async handleApiRequest(e: MessageEvent, req: ApiRequestPayload): Promise<void> {
     if (!req || typeof req.requestId !== 'number' || typeof req.path !== 'string') return;

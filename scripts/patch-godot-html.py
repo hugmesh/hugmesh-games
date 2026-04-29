@@ -21,12 +21,17 @@ PREFETCH = """\
 
 // Prefetch scene JSON early — WASM takes 30s+ to compile, so this data
 // is ready long before GDScript polls for window._twSceneReady.
+// The !r.ok guard is critical: without it a BFF 500 silently parses
+// as the scene config and the world spawns empty.
 (function(){
 \tvar p = new URLSearchParams(window.location.search);
 \tvar chapterId = p.get('chapter_id') || p.get('level_id') || p.get('game_id') || '1';
 \t// Always relative — nginx (compose) and the dev proxy both forward /api correctly.
 \tfetch('/api/chapters/' + chapterId + '/scene')
-\t\t.then(function(r) { return r.json(); })
+\t\t.then(function(r) {
+\t\t\tif (!r.ok) throw new Error('HTTP ' + r.status);
+\t\t\treturn r.json();
+\t\t})
 \t\t.then(function(scene) {
 \t\t\twindow._twSceneConfig = scene;
 \t\t\twindow._twSceneReady = true;
