@@ -134,3 +134,29 @@ CREATE TABLE IF NOT EXISTS session_view_state (
     PRIMARY KEY ((session_id, slot_index), occurred_at)
 ) WITH CLUSTERING ORDER BY (occurred_at DESC)
    AND default_time_to_live = 60;
+
+-- Cross-pod rate-limit event log. RateLimitFilter writes one row per
+-- gated request keyed by `(bucket_key, event_id)` where bucket_key
+-- is "<remote-ip>|<path-prefix>" and event_id is a TimeUUID. To
+-- decide whether to throttle, the filter counts rows for the bucket
+-- in the last RATE_LIMIT_WINDOW; rows older than the TTL fall off
+-- naturally so the count is implicitly window-scoped.
+--
+-- Why an append-row log and not a counter table:
+--   • Counter tables don't compose with TTL — there's no way to
+--     auto-evict old window state, and writes aren't idempotent
+--     (timeouts can double-count). Cassandra's docs explicitly call
+--     this anti-pattern out for rate limiting.
+--   • Append-with-TTL gives free window cleanup + idempotent writes,
+--     and the count-rows read is bounded by MAX_PER_WINDOW so it
+--     stays a single-partition scan.
+--
+-- 90-second TTL is RATE_LIMIT_WINDOW (60 s) plus a 30 s grace so the
+-- count read is never racing with a freshly-evicted row.
+CREATE TABLE IF NOT EXISTS rate_limit_events (
+    bucket_key     text,
+    event_id       timeuuid,
+    pod_id         text,
+    PRIMARY KEY ((bucket_key), event_id)
+) WITH CLUSTERING ORDER BY (event_id DESC)
+   AND default_time_to_live = 90;

@@ -1,7 +1,9 @@
 package games.snapdragon.bff.config;
 
+import games.snapdragon.bff.service.DistributedRateLimitService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -29,8 +31,19 @@ import java.util.concurrent.atomic.AtomicInteger;
  * layer; nginx applies a wider per-IP req-per-second limit at the
  * edge.
  *
- * <p>Storage is in-process — fine for a single-pod dev / staging
- * deploy. The Cassandra cross-pod aggregator is a Phase-2 concern.
+ * <p>Two-layer storage:
+ * <ol>
+ *   <li><b>In-process bucket</b> (this class) — per-pod fast-fail.
+ *       Catches the common single-pod credential-stuffing case in a
+ *       microsecond.</li>
+ *   <li><b>Cassandra event log</b> (
+ *       {@link DistributedRateLimitService}) — cluster-wide aggregate.
+ *       Catches the multi-pod fan-out case where each pod's local
+ *       bucket would individually allow but the cluster total
+ *       exceeds the cap. Optional: when Cassandra is unreachable or
+ *       the {@code app.rate-limit.distributed.enabled} property is
+ *       false, the filter falls back to local-only.</li>
+ * </ol>
  *
  * <p>The bucket is reset by a {@link Duration#getSeconds() WINDOW.toSeconds()}
  * sliding tail: every request whose timestamp is older than NOW-WINDOW
@@ -59,6 +72,14 @@ public class RateLimitFilter implements WebFilter {
     /** key = remote-IP + "|" + path-prefix → bucket. */
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
 
+    /** Lazy provider so the filter still bootstraps if Cassandra
+     *  isn't wired (Postgres-only test profile, unit harness). */
+    private final ObjectProvider<DistributedRateLimitService> distributedProvider;
+
+    public RateLimitFilter(ObjectProvider<DistributedRateLimitService> distributedProvider) {
+        this.distributedProvider = distributedProvider;
+    }
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
@@ -72,12 +93,37 @@ public class RateLimitFilter implements WebFilter {
         Bucket b = buckets.computeIfAbsent(key, k -> new Bucket());
 
         if (!b.tryAcquire()) {
-            log.warn("[rate-limit] {} on {} (key={})", "throttled", path, key);
-            exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
-            exchange.getResponse().getHeaders().add("Retry-After", String.valueOf(WINDOW.toSeconds()));
-            return exchange.getResponse().setComplete();
+            // Local-bucket fast path. Reject without the cluster-wide
+            // round-trip — the per-pod cap is already trip-wired.
+            log.warn("[rate-limit] {} on {} (key={})", "throttled-local", path, key);
+            return reject429(exchange);
         }
-        return chain.filter(exchange);
+
+        // Local allowed — augment with the cluster-wide check. The
+        // distributed service appends a row + counts cluster events
+        // for `key` in the rolling window. If Cassandra is offline
+        // the service returns 0 (allow). The local bucket is still
+        // doing its job so a transient Cassandra blip doesn't gate
+        // every login.
+        DistributedRateLimitService distributed = distributedProvider.getIfAvailable();
+        if (distributed == null) {
+            return chain.filter(exchange);
+        }
+        return distributed.recordAndCount(key)
+                .flatMap(count -> {
+                    if (count > MAX_PER_WINDOW) {
+                        log.warn("[rate-limit] {} on {} (key={}, cluster={})",
+                                "throttled-cluster", path, key, count);
+                        return reject429(exchange);
+                    }
+                    return chain.filter(exchange);
+                });
+    }
+
+    private Mono<Void> reject429(ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+        exchange.getResponse().getHeaders().add("Retry-After", String.valueOf(WINDOW.toSeconds()));
+        return exchange.getResponse().setComplete();
     }
 
     private static String matchedPrefix(String path) {

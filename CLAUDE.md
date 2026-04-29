@@ -202,5 +202,5 @@ Parallel to the canonical `tests/*.spec.ts` suite. Lives under [`e2e/features/`]
 - Full Content-Security-Policy needs an inventory of the federation runtime's eval / inline-script needs first.
 - Per-form a11y sweep (login form labels, error messaging, validation announcements).
 - WCAG colour-contrast audit on the Snapdragon palette.
-- Cassandra-backed cross-pod rate-limit storage (currently in-process per-pod via `RateLimitFilter`).
+- ~~Cassandra-backed cross-pod rate-limit storage~~ — done. `RateLimitFilter` runs the local in-process bucket as the fast pre-check, then augments cluster-wide via `DistributedRateLimitService` (append-row log on the Cassandra `rate_limit_events` table with a 90 s TTL; window-bounded `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`). Disable with `app.rate-limit.distributed.enabled=false` (default `true`); falls back to local-only when Cassandra is unreachable.
 - Iframe-side keyboard input still uses Godot's `_unhandled_input` — focus management means a freshly-mounted iframe needs a click before keys land. The host's `GameControlsComponent` covers the host-focused case via `@HostListener('window:keydown')` + `/api/controls/{id}`.
