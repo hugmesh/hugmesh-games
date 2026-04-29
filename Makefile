@@ -11,7 +11,7 @@
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
-        gen-certs e2e e2e-native e2e-down e2e-logs gen-api \
+        gen-certs e2e e2e-bdd e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-userguides docs-openapi-spec docs-openapi-latex
@@ -61,8 +61,9 @@ build-rust: deps-rust build-rust-wasm sync-bridge-addon
 	@# 4.6-stable bindings panic on a 4.6.x patch release with
 	@# "Failed to load class method … Make sure gdext and Godot are
 	@# compatible". GODOT4_BIN is what gdext's build.rs reads.
-	GODOT4_BIN="$(shell command -v $(GODOT) 2>/dev/null || echo $(GODOT))" \
-	  cd $(RUST_DIR) && cargo build --release --features api-custom
+	cd $(RUST_DIR) && \
+	  GODOT4_BIN="$(shell command -v $(GODOT) 2>/dev/null || echo $(GODOT))" \
+	  cargo build --release --features api-custom
 	@# One canonical binary in the extension dir; copy into every game project's
 	@# bin/ so each project opens standalone in the Godot editor.
 	mkdir -p $(RUST_DIR)/bin
@@ -440,6 +441,40 @@ e2e-down:
 
 e2e-logs:
 	docker compose $(E2E_FILES) logs -f --tail 50
+
+# ── BDD (Gherkin) e2e ────────────────────────────────────────────────────────
+# Runs the playwright-bdd project — .feature files under e2e/features/
+# compiled to Playwright tests via `bddgen`, with step-level screenshots
+# attached to the HTML report by the AfterStep hook. Independent target
+# so a flaky scenario in BDD-land doesn't block the canonical 21-test
+# `make e2e` gate.
+e2e-bdd: gen-certs
+	@echo "→ Building images with TLS layer…"
+	docker compose $(E2E_FILES) build api frontend e2e wasm-fragment
+	@echo "→ Starting stack with TLS…"
+	docker compose $(E2E_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
+	@echo "→ Waiting for stack to become healthy…"
+	@for i in $$(seq 1 60); do \
+	  api_ok=0; web_ok=0; \
+	  docker compose $(E2E_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
+	  if [ $$i -eq 60 ]; then echo "  ✗ stack failed to come up in 5 minutes"; exit 1; fi; \
+	  sleep 5; \
+	done
+	@echo "→ Running Gherkin suite (project=bdd)…"
+	@set +e; \
+	docker compose $(E2E_FILES) run --rm \
+	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
+	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  -e E2E_PASSWORD="$(E2E_PASSWORD)" \
+	  e2e \
+	  npx playwright test --reporter=list --project=bdd; \
+	status=$$?; \
+	echo "→ Tearing down…"; \
+	docker compose $(E2E_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	if [ $$status -eq 0 ]; then echo "✓ E2E-BDD PASSED"; \
+	else echo "✗ E2E-BDD FAILED (status $$status) — see e2e/results/"; exit $$status; fi
 
 # ── Per-project unit tests ───────────────────────────────────────────────────
 # Each subproject runs its own native test framework. `make test` runs them
