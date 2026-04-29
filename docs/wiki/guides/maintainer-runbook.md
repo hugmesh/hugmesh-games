@@ -81,13 +81,36 @@ The install transaction is atomic in Postgres but **NOT** atomic vs the on-disk 
 1. `curl /api/games/available/{characterId}` with the player's JWT — if it's empty, the access policy is locking them out.
 2. `SELECT * FROM game_access WHERE game_slug = '<slug>'` — verify there's at least one row matching the player (an `(all, NULL)` row, or a `(role, ROLE_PLAY_X)` row whose role they hold).
 3. If a chapter prerequisite is in play, `SELECT * FROM character_quests WHERE character_id = ?` — incomplete prerequisite quests lock chapters.
-4. After a Liquibase rename PR, check `chapter_prerequisites` exists and the column is `chapter_id` not `level_id`. PR #24's 028-9/10/11 added the missed rename.
+4. After a Liquibase rename PR, check `chapter_prerequisites` exists and the column is `chapter_id` not `level_id`. PR #24's 028-9/10/11 added the missed rename. The 028-12 follow-up also renamed `scene_elements.level_id → chapter_id`.
 
 ## Runbook 7 — Player can't move
 
 **Symptom.** Player sees the game render but key/mouse input doesn't reach Godot.
 
 See [Godot developer guide → When movement doesn't happen](godot-developer.md#when-movement-doesnt-happen-in-the-wasm-iframe).
+
+## Runbook 8 — Empty world (no scene elements spawn)
+
+**Symptom.** Game loads, the player drops onto the floor, but the world is barren — no torches, fairies, geometry, lights. Browser console shows `[GameBridge] scene already prefetched, skipping fetch` (normal) and either `[TW] scene prefetched: undefined — 0 elements` or `[TW] scene prefetch failed HTTP 500`.
+
+1. Curl the scene endpoint directly: `curl -i http://localhost:8080/api/chapters/1/scene`. A 500 here is the smoking gun.
+2. Tail the BFF: `docker compose logs api | tail -50`. Look for `BadSqlGrammarException: column scene_elements.chapter_id does not exist` — Liquibase 028-12 didn't run.
+3. Re-apply migrations: `docker compose restart api`. Liquibase will pick up 028-12 and the column rename completes.
+4. Hard-refresh the browser (`Ctrl+Shift+R`) — the next page load re-runs `session.connect()` and the next scene fetch returns the populated elements list.
+
+If the column already exists (`SELECT column_name FROM information_schema.columns WHERE table_name = 'scene_elements'` lists `chapter_id` not `level_id`) but elements are still empty, check whether the seed migration (004) has been re-run — `SELECT COUNT(*) FROM scene_elements WHERE chapter_id = 1` should return non-zero.
+
+## Runbook 9 — 403 on `/api/controls/{id}` after a BFF restart
+
+**Symptom.** Network tab shows `POST /api/controls/1 → 403 Forbidden` on every keypress. The world rendered fine before the restart.
+
+The legacy single-player controller role is held in-memory (`SessionService.currentController`); a BFF restart wipes it. Auto-recovery is now wired in:
+
+1. `game_bridge.gd` detects the 403 in `send_control` and posts `SD_SESSION_EXPIRED` to the host shell.
+2. `ApiBridgeService.handleSessionExpired()` re-runs `session.connect()` → `session.claimControl()`.
+3. The next keypress succeeds.
+
+If the 403 persists past the second keypress, the auto-recovery itself failed — check the browser console for `[session] connect failed` warnings, hard-refresh once, and confirm the player isn't blocked from the game by `game_access`. Multi-tab play ate the controller role only if another tab in the same Casdoor session claimed it; close stragglers.
 
 ## Backup, capacity, escalation
 

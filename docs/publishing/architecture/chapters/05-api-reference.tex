@@ -272,6 +272,16 @@ curl -sS -X POST -H "Authorization: Bearer $JWT" \
 \end{lstlisting}
 \textit{204 No Content} on success. \textit{403:} \texttt{\{"error":"not\_session\_controller"\}}.
 
+\paragraph{Auto-recovery on 403.} A 403 from \snapfile{game_bridge.gd}'s
+\texttt{send\_control} triggers a \texttt{SD\_SESSION\_EXPIRED}
+\texttt{postMessage} to the host shell;
+\snapfile{ApiBridgeService.handleSessionExpired()} re-runs
+\texttt{session.connect()} $\to$ \texttt{session.claimControl()} so the
+next keypress succeeds without a page reload. This makes a BFF restart
+survivable while the Angular SPA is still mounted (the in-memory
+\texttt{activeSessions}/\texttt{currentController} are wiped on restart,
+but the SPA never sees the gap).
+
 \subsection{\texttt{FederationController} — \texttt{/api/federation}}
 Public federation manifest.
 

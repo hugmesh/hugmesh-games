@@ -17,7 +17,7 @@ schemas are bootstrapped by an init container.
 are the post-federation additions to a previously single-game schema.}
 \end{figure}
 
-\subsection{Games and levels}
+\subsection{Games and chapters}
 
 \begin{tabularx}{\linewidth}{l X}
 \toprule
@@ -28,16 +28,21 @@ are the post-federation additions to a previously single-game schema.}
 \texttt{federation\_modules.slug}); \texttt{current\_version\_dir} is the
 hash-prefixed directory under \snapfile{app.uploads.games-dir} that the
 runtime serves from. \\
-\texttt{levels} & One row per WASM bundle. \texttt{asset\_url} resolves to
-either \texttt{/api/assets/levels/<slug>/index.html} (legacy) or
+\texttt{chapters} & One row per WASM bundle (renamed from \texttt{levels}
+by Liquibase 028-1). \texttt{asset\_url} resolves to either
+\texttt{/api/assets/levels/<slug>/index.html} (legacy filesystem path
+kept for back-compat) or
 \texttt{/\_remotes/wasm-fragment/<slug>/index.html} (federated). \\
-\texttt{scene\_elements} & Per-level DTO rows that
+\texttt{scene\_elements} & Per-chapter DTO rows that
 \snapfile{scene_loader.gd} pulls from
-\texttt{GET /api/levels/\{id\}/scene}. \\
-\texttt{level\_assets} & Optional registry for runtime-loaded textures /
+\texttt{GET /api/chapters/\{id\}/scene}. The
+\texttt{scene\_elements.chapter\_id} column was renamed from
+\texttt{level\_id} by Liquibase 028-12; without that rename the BFF
+returns 500 on the scene endpoint and the world renders empty. \\
+\texttt{chapter\_assets} & Optional registry for runtime-loaded textures /
 plugins / audio, looked up by \texttt{label} from GDScript via
-\texttt{ApiClient.resolve\_asset(level\_id, label, cb)}. \\
-\texttt{level\_prerequisites} & Quest gating: a level shows as locked
+\texttt{ApiClient.resolve\_asset(chapter\_id, label, cb)}. \\
+\texttt{chapter\_prerequisites} & Quest gating: a chapter shows as locked
 on the home page until its quest is complete. \\
 \bottomrule
 \end{tabularx}
@@ -80,7 +85,7 @@ timestamp on rollback. Bound by
 \midrule
 \texttt{characters} & One canonical character per Casdoor user, with
 \texttt{position\_x/y/z}, \texttt{rotation\_y}, HP/MP/XP, and
-\texttt{current\_level\_id}. \\
+\texttt{current\_chapter\_id}. \\
 \texttt{spell\_loadout} & Per-character spell-slot binding (key index
 $\rightarrow$ spell). \\
 \texttt{quests}, \texttt{character\_quests} & Quest catalog and
@@ -90,13 +95,14 @@ per-character progress. \\
 \texttt{(character\_id, session\_id)}; only the holder of the controller
 role for a session may POST. \\
 \texttt{player\_positions} & One row per
-\texttt{(character\_id, level\_id)} — Liquibase 027 promoted the
-legacy single-row-per-character layout into a per-level layout so a
+\texttt{(character\_id, chapter\_id)} — Liquibase 027 promoted the
+legacy single-row-per-character layout into a per-chapter layout so a
 character traversing cave $\rightarrow$ field $\rightarrow$ cave
 returns to the cave coordinates they last had on re-entry instead of
-clobbering them across levels. Cassandra's
+clobbering them across chapters. Liquibase 028-5 then renamed the
+column from \texttt{level\_id} to \texttt{chapter\_id}. Cassandra's
 \texttt{character\_position\_cache} (composite partition
-\texttt{(character\_id, level\_id)}) is the cross-pod read cache that
+\texttt{(character\_id, chapter\_id)}) is the cross-pod read cache that
 lets pod B see a position pod A wrote within one SSE round-trip;
 Postgres backs the cache when the 5-minute TTL drops a row. \\
 \bottomrule

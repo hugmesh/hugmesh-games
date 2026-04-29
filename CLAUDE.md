@@ -77,8 +77,30 @@ Symptoms + causes, in order of likelihood:
 1. **Rust GDExtension not loaded** — log line `ERROR: Cannot get class 'HostBridge'`. The `bin/snapdragon_bridge.wasm` is missing from the bundle. Check `extensions/snapdragon-bridge/.cargo/config.toml` has `-Cpanic=abort` for `wasm32-unknown-emscripten`, and the export presets have `variant/extensions_support=true` + no `*.gdextension` exclude filter. Then `make build-rust && make build-godot`.
 2. **Browser cached old wasm** — `wasm-fragment/nginx.conf` adds `Cache-Control: no-cache` on `.wasm`/`.pck`. Hard-refresh (Ctrl+Shift+R) once after a rebuild.
 3. **`/api/levels/{id}/scene` 404** — backend renamed the path to `/api/chapters/...`. PR #24 added `@RequestMapping({"/api/chapters", "/api/levels"})` for back-compat so already-exported bundles work. If you re-export, the URL flips to chapters.
-4. **403 from `/api/controls/{id}`** — the JWT subject isn't the controller-role holder for the session. Player needs to claim controller via `POST /api/sessions/control`. Check `SessionService.isController(casdoorId)`.
-5. **shimInstalled: false in iframe** — the `snapdragon-shim.js` script tag's path was absolute (`/snapdragon-shim.js`); it now uses the relative `../snapdragon-shim.js` so it resolves under both the host proxy AND a direct wasm-fragment access.
+4. **Empty world (no scene elements spawn)** — the BFF's `/api/chapters/{id}/scene` returned a 500. The HTML prefetch in `index.html` previously parsed error JSON as the scene config, silently yielding zero elements. Fixed by (a) Liquibase 028-12 which renamed `scene_elements.level_id → chapter_id` (the column was missed in the original 028 sweep) and (b) an `if (!r.ok) throw new Error(...)` guard in the prefetch so future BFF errors fall to `.catch()` with a console warning instead of becoming a phantom empty config.
+5. **403 from `/api/controls/{id}`** — the JWT subject isn't the controller-role holder for the session. `HomeComponent.ngOnInit` calls `session.connect()` → `session.claimControl()` on page load; if the BFF restarted (clearing in-memory `activeSessions`/`currentController`) while the Angular SPA was live, the claim is stale. **Auto-recovery**: `game_bridge.gd` now posts `SD_SESSION_EXPIRED` on a 403; `ApiBridgeService.handleSessionExpired()` re-runs the connect/claim chain automatically. Immediate fix for a persistent 403: hard-refresh (`Ctrl+Shift+R`).
+6. **shimInstalled: false in iframe** — the `snapdragon-shim.js` script tag's path was absolute (`/snapdragon-shim.js`); it now uses the relative `../snapdragon-shim.js` so it resolves under both the host proxy AND a direct wasm-fragment access.
+
+### `make build-godot` spam: gdext + Gentoo Godot incompatibility
+
+If `/usr/bin/godot` is a Gentoo build (the `.gentoo.<sha>` suffix in the version string), every `make build-godot` invocation logs noisy errors during project init:
+
+```
+ERROR: Attempt to get non-existent interface function: 'get_godot_version'.
+   at: get_interface_function (core/extension/gdextension.cpp:730)
+thread '<unnamed>' panicked at gdextension_interface.rs: failed to load `get_godot_version`
+ERROR: GDExtension initialization function 'gdext_rust_init' returned an error.
+ERROR: Error loading extension: 'res://snapdragon_bridge.gdextension'.
+```
+
+**Cause:** The Gentoo patches strip the deprecated v1 GDExtension functions (`get_godot_version`, `mem_alloc`, `classdb_construct_object`, …) and only keep the `*2` successors. gdext (any commit through latest master at the time of writing) still calls `get_proc_address("get_godot_version")` unconditionally and panics if the pointer is null.
+
+**Non-fatal:** `Cargo.toml` sets `panic=unwind` so the panic is caught — `gdext_rust_init` returns an error → Godot logs "Error loading extension" → Godot continues the export anyway. All three bundles (`cave/`, `field/`, `dodecahedron/`) still get freshly written; check the `index.html` mtime to confirm.
+
+**Practical impact:**
+- Editor (`libsnapdragon_bridge.so`) is **broken** on Gentoo: F5/local-play in the Godot editor can't load the bridge. Use the WASM bundle in the browser for any bridge-dependent testing.
+- WASM export and browser play both **work** — the `snapdragon_bridge.wasm` is built in Docker and runs under the standard `web_release.zip` template, which still has the v1 functions.
+- For full editor bridge support, use a stock (non-Gentoo) Godot 4.6.x binary: download from godotengine.org and set `GODOT=path/to/godot4` before `make build-rust`.
 
 ### Liquibase 028 patterns
 
@@ -87,6 +109,8 @@ PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tabl
 1. `docker compose exec postgres psql -U threewizards -d threewizards -tAc "SELECT table_name, column_name FROM information_schema.columns WHERE column_name LIKE '%level%' OR table_name LIKE '%level%'"`
 2. For each real (non-system-catalog) hit, append a `<changeSet>` to `028-rename-chapter-instant.xml` with a `<columnExists>` or `<tableExists>` precondition.
 3. If the entity already uses the new name (e.g. `chapterId`), the migration is the only fix needed. If the entity also has the old name, sed-rename it.
+
+Known missed renames fixed by 028-9 through 028-12: `chapter_prerequisites` table + `chapter_prerequisites.chapter_id` (028-9/10/11); `scene_elements.chapter_id` (028-12 — its absence caused `GET /api/chapters/{id}/scene` to 500 and the world to render empty).
 
 ## Repository tour
 
@@ -148,6 +172,15 @@ Decision: see [`docs/wiki/decisions/015-friends-blocks-and-session-visibility.md
     - `per-role-assets.spec.ts` — every seed role logs in, opens the first chapter, asserts the WASM bundle bytes (index.html / index.wasm / index.pck) come down with HTTP 200.
     - `multiplayer-same-session.spec.ts` — two players in one session both load the bundle and player2's iframe receives an SSE event after player1 emits a control. Strict positive assertion.
     - `cross-session-isolation.spec.ts` — two sessions for the same game; player1 moves in session A, player2 in session B sees no event carrying P1's character. The e2e flip-side of `SessionIsolationTest`. Strict negative assertion.
+
+### Gherkin / BDD layer (`make e2e-bdd`)
+
+Parallel to the canonical `tests/*.spec.ts` suite. Lives under [`e2e/features/`](e2e/features/) — `.feature` files in Gherkin syntax (one scenario per role, plus topic-shaped scenarios for friends/blocks, lobby visibility, multiplayer SSE isolation, session log) backed by step definitions in `e2e/features/steps/`. The `AfterStep` hook in [`e2e/features/support/hooks.ts`](e2e/features/support/hooks.ts) attaches a PNG to the report at every step transition, so a reviewer can see the UI state at every line of the scenario without re-running.
+
+- Run: `make e2e-bdd` brings up the same TLS integration-test stack and runs only the `bdd` Playwright project.
+- Two Playwright projects in [`e2e/playwright.config.ts`](e2e/playwright.config.ts): `chromium` (existing 21 specs, the canonical CI gate) and `bdd` (generated specs from `.feature` files via `playwright-bdd`'s `bddgen`). The Dockerfile pre-runs `bddgen` so the BDD project is ready to discover at default-CMD time.
+- The BDD step files re-use the same plain-Playwright helpers in `tests/helpers/roles.ts` (`login`, `createSession`, `joinSession`, `sendControl`, `installSseCapture`) so behaviour stays in lockstep with the canonical specs — the BDD layer is presentation, not a parallel implementation.
+- Per-scenario state lives in [`e2e/features/steps/_registry.ts`](e2e/features/steps/_registry.ts) (`pageRegistry`, `ctxRegistry`, `sessionByName`, `responseState`). The `Before` hook calls `resetRegistry()` so each scenario starts clean.
 
 ## Security primitives
 

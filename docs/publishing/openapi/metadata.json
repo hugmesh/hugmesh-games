@@ -149,10 +149,10 @@
       "longDescription": "Visible-game catalog. When called with a JWT, the result is filtered by the game_access table (scope=all OR scope=role matches a user role OR scope=user matches the JWT subject). Anonymous callers see only scope=all rows."
     },
 
-    "GET /api/levels/{id}/scene": {
+    "GET /api/chapters/{id}/scene": {
       "longDescription": "Returns the typed SceneDto that scene_loader.gd consumes inside the Godot WASM bundle. The DTO carries a list of element_type-tagged entries that scene_loader._spawn() dispatches on; adding a new element_type to the seed data without a matching handler in scene_loader will produce silent no-ops in-game.",
       "sampleResponse": {
-        "levelId": 1,
+        "chapterId": 1,
         "sceneType": "cave",
         "elements": [
           {"elementType": "fairy", "name": "Whisper", "positionX": 4.2, "positionY": 1.0, "positionZ": -2.4, "properties": {"colorR": 0.6, "colorG": 0.8, "colorB": 1.0}},

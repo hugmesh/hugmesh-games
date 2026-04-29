@@ -79,7 +79,7 @@ Public legacy classpath asset serving plus the launch-uid-gated filesystem path 
 
 ### `ControlController` — `/api/controls`
 
-Session-validated control event ingestion. The session check is enforced through the JWT subject; the legacy `X-Casdoor-Id` header path is gone. *403* `not_session_controller` when the JWT subject isn't the controller-role holder for that session.
+Session-validated control event ingestion. The session check is enforced through the JWT subject; the legacy `X-Casdoor-Id` header path is gone. *403* `not_session_controller` when the JWT subject isn't the controller-role holder for that session. **Auto-recovery**: `game_bridge.gd`'s `send_control` detects the 403 and posts `SD_SESSION_EXPIRED` to the host shell; `ApiBridgeService.handleSessionExpired()` re-runs `session.connect()` → `session.claimControl()` so the next keypress succeeds. The recovery path is what makes a BFF restart survivable while the Angular SPA is still mounted (the in-memory `activeSessions` / `currentController` are wiped on restart, but the SPA never sees the gap).
 
 ### `FederationController` — `/api/federation/manifest`
 
