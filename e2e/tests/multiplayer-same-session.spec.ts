@@ -86,10 +86,15 @@ test.describe('multiplayer — two players in the same session', () => {
     // boot. The wrapper's `?sessionId=` GET fires only after
     // game_bridge.gd's _request_sse_subscription posts
     // SD_SSE_SUBSCRIBE, which only happens once the WASM compile
-    // finishes (15-30s on a cold image).
+    // finishes. On a cold stack this can take 90+ seconds (the
+    // 41 MB rust-side wasm is the dominant cost; emscripten's
+    // streaming compile is single-threaded). 120 s gives a fresh
+    // CI image enough headroom without papering over a real bug
+    // (a real wiring failure would never produce the response,
+    // not produce it slowly).
     await p2.waitForResponse(
       r => r.url().includes(`/api/game/stream?sessionId=${sessionId}`),
-      { timeout: 60_000 },
+      { timeout: 120_000 },
     );
 
     // The wrapper is now hot. Move P1.
