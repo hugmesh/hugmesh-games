@@ -3,12 +3,16 @@ package games.snapdragon.bff.service;
 import games.snapdragon.bff.model.SystemSetting;
 import games.snapdragon.bff.repository.SystemSettingRepository;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
+import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -33,23 +37,58 @@ public class DebugModeService {
     private static final Logger log = LoggerFactory.getLogger(DebugModeService.class);
 
     public static final String KEY_WASM_CONSOLE = "wasm_console_debug_enabled";
+    public static final String CHANNEL_DEBUG_MODE = "debug_mode_changed";
+
+    /** How often each pod re-reads {@code system_settings} to pick up
+     *  flag changes made by another pod. The pg_notify publish on
+     *  every toggle is for durability + an obvious wake-up signal in
+     *  Postgres logs; cross-pod propagation is bounded by this
+     *  interval rather than requiring a long-lived LISTEN connection. */
+    private static final Duration REHYDRATE_INTERVAL = Duration.ofSeconds(5);
 
     private final SystemSettingRepository repo;
+    private final PgNotificationService pgNotify;
     private final AtomicBoolean wasmConsoleEnabled = new AtomicBoolean(false);
+    private Disposable rehydrateSub;
 
-    public DebugModeService(SystemSettingRepository repo) {
-        this.repo = repo;
+    public DebugModeService(SystemSettingRepository repo, PgNotificationService pgNotify) {
+        this.repo     = repo;
+        this.pgNotify = pgNotify;
     }
 
     @PostConstruct
     void hydrate() {
-        repo.findById(KEY_WASM_CONSOLE)
-                .doOnNext(s -> {
-                    boolean enabled = "true".equalsIgnoreCase(s.getValue());
-                    wasmConsoleEnabled.set(enabled);
-                    log.info("Debug mode hydrated: {} = {}", KEY_WASM_CONSOLE, enabled);
-                })
+        // Initial load — block-and-set on the same DB call as the
+        // periodic ticker, so the constructor doesn't observe a
+        // not-yet-hydrated AtomicBoolean.
+        loadFromDb()
+                .doOnNext(enabled ->
+                        log.info("Debug mode hydrated: {} = {}", KEY_WASM_CONSOLE, enabled))
                 .subscribe();
+
+        // Periodic re-hydrate so cross-pod toggles propagate within
+        // REHYDRATE_INTERVAL even if no LISTEN connection is held.
+        // The interval is short enough that admin-driven toggles look
+        // immediate to a busy operator switching pods.
+        rehydrateSub = Flux.interval(REHYDRATE_INTERVAL, REHYDRATE_INTERVAL)
+                .flatMap(t -> loadFromDb())
+                .doOnError(e -> log.warn("Debug mode rehydrate failed: {}", e.toString()))
+                .onErrorContinue((err, evt) -> log.warn("Debug mode rehydrate continuing past error: {}", err.toString()))
+                .subscribe();
+    }
+
+    @PreDestroy
+    void shutdown() {
+        if (rehydrateSub != null && !rehydrateSub.isDisposed()) {
+            rehydrateSub.dispose();
+        }
+    }
+
+    private Mono<Boolean> loadFromDb() {
+        return repo.findById(KEY_WASM_CONSOLE)
+                .map(s -> "true".equalsIgnoreCase(s.getValue()))
+                .defaultIfEmpty(false)
+                .doOnNext(wasmConsoleEnabled::set);
     }
 
     /** Hot-path read used by DiagnosticsController. */
@@ -60,10 +99,11 @@ public class DebugModeService {
     /**
      * Admin-only flip. Persists to Postgres and updates the in-memory
      * mirror so subsequent diagnostics checks see the new value
-     * immediately on this pod. Cross-pod fan-out happens via PgNotify
-     * in a future enhancement; for now an admin flipping the flag
-     * propagates to other pods on the next service restart, or via a
-     * direct admin POST per pod.
+     * immediately on this pod. Other pods pick up the change on their
+     * next periodic rehydrate ({@link #REHYDRATE_INTERVAL}); this
+     * method also fires a {@code pg_notify("debug_mode_changed")} so
+     * the change is visible in the Postgres log + any future LISTEN
+     * subscriber gets an immediate event.
      */
     public Mono<Boolean> setWasmConsoleEnabled(boolean enabled, String actorCasdoorId) {
         return repo.findById(KEY_WASM_CONSOLE)
@@ -82,6 +122,10 @@ public class DebugModeService {
                     wasmConsoleEnabled.set(enabled);
                     log.info("Debug mode toggled by {}: {} -> {}", actorCasdoorId, KEY_WASM_CONSOLE, enabled);
                 })
+                .flatMap(s -> pgNotify.publish(CHANNEL_DEBUG_MODE,
+                        String.format("{\"key\":\"%s\",\"enabled\":%s,\"actor\":\"%s\"}",
+                                KEY_WASM_CONSOLE, enabled, actorCasdoorId))
+                        .thenReturn(s))
                 .thenReturn(enabled);
     }
 }

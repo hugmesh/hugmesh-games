@@ -2,8 +2,10 @@ package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.model.GameUpload;
 import games.snapdragon.bff.repository.GameUploadRepository;
+import games.snapdragon.bff.security.Roles;
 import games.snapdragon.bff.service.GameUploadService;
 import games.snapdragon.bff.service.GameUploadService.InstalledUpload;
+import games.snapdragon.bff.service.PublisherService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -35,10 +37,14 @@ public class GameUploadController {
 
     private final GameUploadService uploadService;
     private final GameUploadRepository uploads;
+    private final PublisherService publisherService;
 
-    public GameUploadController(GameUploadService uploadService, GameUploadRepository uploads) {
-        this.uploadService = uploadService;
-        this.uploads = uploads;
+    public GameUploadController(GameUploadService uploadService,
+                                GameUploadRepository uploads,
+                                PublisherService publisherService) {
+        this.uploadService    = uploadService;
+        this.uploads          = uploads;
+        this.publisherService = publisherService;
     }
 
     @Operation(
@@ -57,12 +63,20 @@ public class GameUploadController {
                                         @AuthenticationPrincipal Jwt jwt) {
         // Admins can upload bundles for any game; publishers must hold a
         // publisher_game_scopes row for the slug carried in the manifest.
-        // Per-game scope check happens inside install() once the manifest
-        // is parsed (the slug is not knowable from the multipart wrapper
-        // alone).
+        // The slug isn't knowable from the multipart wrapper alone — it
+        // surfaces only after the zip is staged + the manifest parsed —
+        // so the per-game scope check is threaded into install() as a
+        // post-stage hook. Admins bypass with `slug -> Mono.empty()`.
         String uploadedBy = jwt != null ? jwt.getSubject() : "system:anonymous-admin";
+        boolean isAdmin = jwt != null && Roles.isAdmin(jwt);
+        java.util.function.Function<String, Mono<Void>> requireScope = isAdmin
+                ? slug -> Mono.empty()
+                : slug -> jwt == null
+                        ? Mono.error(new org.springframework.web.server.ResponseStatusException(
+                                HttpStatus.UNAUTHORIZED, "JWT required for publisher uploads"))
+                        : publisherService.requireOwns(jwt.getSubject(), slug);
         return collectBytes(bundle)
-                .flatMap(bytes -> uploadService.install(bytes, uploadedBy));
+                .flatMap(bytes -> uploadService.install(bytes, uploadedBy, requireScope));
     }
 
     @Operation(summary = "Upload history for one slug (newest first).")
