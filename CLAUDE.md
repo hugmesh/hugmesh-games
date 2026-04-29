@@ -182,6 +182,13 @@ Parallel to the canonical `tests/*.spec.ts` suite. Lives under [`e2e/features/`]
 - The BDD step files re-use the same plain-Playwright helpers in `tests/helpers/roles.ts` (`login`, `createSession`, `joinSession`, `sendControl`, `installSseCapture`) so behaviour stays in lockstep with the canonical specs — the BDD layer is presentation, not a parallel implementation.
 - Per-scenario state lives in [`e2e/features/steps/_registry.ts`](e2e/features/steps/_registry.ts) (`pageRegistry`, `ctxRegistry`, `sessionByName`, `responseState`). The `Before` hook calls `resetRegistry()` so each scenario starts clean.
 
+### Doc screenshots: live-stack vs e2e harvest
+
+Two paths feed `docs/publishing/screenshots/build/<name>.png` (which the user-guide PDFs and slide decks reference via `\includegraphics{<name>.png}` and the `screenshot:<name>` image keys):
+
+- `make docs-screenshots` — the original Selenium flow ([`capture.py`](docs/publishing/screenshots/capture.py)). Drives a headless Firefox against a running compose stack at `SNAPDRAGON_BASE_URL`. Convenient when you've got a dev stack already up; falls back to placeholder PNGs when unreachable. Limitation: the dev stack only seeds admin + player passwords from `.env`, so mod / publisher logins fail and those captures land as placeholders.
+- `make docs-screenshots-from-e2e` — deterministic alternative. Runs the full `make e2e-bdd` flow (TLS integration-test stack, every Casdoor seed user with `E2E_PASSWORD=e2e-pass`), then runs [`harvest-from-e2e.py`](docs/publishing/screenshots/harvest-from-e2e.py) which copies the per-step BDD PNGs into the doc build dir under their reference names. Heavier (10-15 min cold) but lands real screenshots for every role including the per-game mod / publisher variants. `make docs-screenshots-harvest` skips the BDD run and re-harvests an existing `e2e/results/artifacts/` directory.
+
 ## Security primitives
 
 - **All UI-facing UIDs and URL tokens come through one call**: `Crypto.mintUid()` in `backend/src/main/java/games/snapdragon/bff/util/Crypto.java`. Output: 43-character URL-safe base64 of `SHA3-256(64 random bytes from BouncyCastle SP800-90A HMAC-SHA256 DRBG)`. No more `UUID.randomUUID()` or raw `SecureRandom` in this codebase. If you need bytes, ask `Crypto.randomBytes(n)`. If you need a hash, ask `Crypto.sha3_256(...)`. The DRBG state is process-singleton so callers don't have to thread it.

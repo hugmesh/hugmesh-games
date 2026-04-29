@@ -14,7 +14,8 @@ SHELL := /bin/bash
         gen-certs e2e e2e-bdd e2e-native e2e-down e2e-logs gen-api \
         test test-rust test-backend test-frontend \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
-        docs-diagrams docs-screenshots docs-userguides docs-openapi-spec docs-openapi-latex
+        docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
+        docs-userguides docs-openapi-spec docs-openapi-latex
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -550,6 +551,20 @@ docs-diagrams:
 
 docs-screenshots:
 	@$(MAKE) -C docs/publishing screenshots
+
+# Deterministic alternative to docs-screenshots: runs the BDD e2e
+# suite (`make e2e-bdd`) so EVERY Casdoor seed user logs in with a
+# known password, then harvests the per-step PNGs the AfterStep hook
+# attached. Use this when capture.py's dev-stack flow can't reach the
+# mod / publisher seed users (their passwords aren't in `.env`).
+docs-screenshots-from-e2e:
+	@$(MAKE) -C docs/publishing screenshots-from-e2e
+
+# Skip the BDD run; just re-harvest existing e2e/results/artifacts/.
+# Useful when `make e2e-bdd` was just run and the artefact dir is
+# already fresh.
+docs-screenshots-harvest:
+	@$(MAKE) -C docs/publishing screenshots-harvest
 
 docs-userguides:
 	@$(MAKE) -C docs/publishing userguides

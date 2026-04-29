@@ -12,6 +12,7 @@
 # below let `make -C docs/publishing pdf` work from any cwd.
 
 ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+REPO_ROOT     := $(abspath $(ROOT)/../..)
 ARCH_DIR      := $(ROOT)/architecture
 BUILD_DIR     := $(ARCH_DIR)/build
 SLIDES_DIR    := $(ROOT)/slides
@@ -215,9 +216,32 @@ diagrams:
 # ── Screenshots (Selenium) ────────────────────────────────────────────────
 # Captures the live UI through a headless browser. Falls back to branded
 # placeholder PNGs if the compose stack isn't reachable, so the rest of
-# the publishing pipeline always succeeds.
+# the publishing pipeline always succeeds. Useful when a dev stack is
+# already up — `screenshots-from-e2e` is the deterministic alternative.
 screenshots: venv
 	$(PYTHON) $(ROOT)/screenshots/capture.py
+
+# ── Screenshots (BDD harvest) ─────────────────────────────────────────────
+# Deterministic alternative to `screenshots`: re-uses the per-step PNGs
+# the BDD AfterStep hook produces under `e2e/results/artifacts/`. Every
+# Casdoor seed user (admin, player1-3, mod-three-wizards, publisher-
+# three-wizards, …) is logged in by the BDD per-role-login feature, so
+# the harvested screenshots cover roles `capture.py` can't reach with
+# only the dev stack's randomised admin+player passwords in `.env`.
+#
+# `screenshots-from-e2e` runs the BDD suite (which brings up the
+# integration-test stack with deterministic e2e-pass passwords) and
+# then harvests its artefacts. Skip the BDD run if you've JUST run
+# `make e2e-bdd` and the artefact dir is fresh:
+#     `make -C docs/publishing screenshots-harvest` does only the harvest.
+screenshots-from-e2e:
+	@echo "→ Running e2e-bdd to produce per-step screenshots..."
+	$(MAKE) -C $(REPO_ROOT) e2e-bdd
+	@$(MAKE) screenshots-harvest
+
+screenshots-harvest:
+	@echo "→ Harvesting BDD screenshots into screenshots/build/ ..."
+	$(PYTHON) $(ROOT)/screenshots/harvest-from-e2e.py
 
 # ── OpenAPI spec extraction + LaTeX rendering ─────────────────────────────
 # `openapi-spec` produces docs/publishing/openapi/build/openapi.json — the
