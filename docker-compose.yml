@@ -141,6 +141,7 @@ services:
       - api
       - login
       - registration
+      - producer-registration
       - banned
       - admin
       - api-docs
@@ -182,6 +183,17 @@ services:
     build:
       context: ./frontend
       dockerfile: projects/registration/Dockerfile
+    expose: ["8080"]
+
+  # Federated producer-registration remote — application form for
+  # players who want producer / mod authority. Submission lands in
+  # `producer_contacts` (Liquibase 031) with status=PENDING; an
+  # admin reviews + flips to APPROVED out of band. Roadmap item #8.
+  producer-registration:
+    image: snapdragon-games/producer-registration-remote:${SNAPDRAGON_TAG:-dev}
+    build:
+      context: ./frontend
+      dockerfile: projects/producer-registration/Dockerfile
     expose: ["8080"]
 
   # Federated banned-user remote — the ONE route a revoked user
