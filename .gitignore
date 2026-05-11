@@ -100,3 +100,5 @@ docs/publishing/architecture/marbles/build/
 # playwright-bdd generated specs (regenerated from features/*.feature
 # on every run via the `bddgen` step in e2e/Dockerfile).
 e2e/.features-gen/
+rpg-builder/target/
+vn-builder/target/
