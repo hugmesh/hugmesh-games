@@ -1,6 +1,11 @@
 package games.snapdragon.bff.config;
 
+import games.snapdragon.bff.security.Roles;
 import games.snapdragon.bff.service.DistributedRateLimitService;
+import games.snapdragon.bff.service.RevocationListService;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -8,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -84,11 +90,28 @@ public class RateLimitFilter implements WebFilter {
      *  isn't wired (Postgres-only test profile, unit harness). */
     private final ObjectProvider<DistributedRateLimitService> distributedProvider;
 
+    /** Same shape as above — present iff the Cassandra-backed
+     *  RevocationListService bean is wired AND
+     *  app.revocation.enabled=true. When absent the revocation
+     *  check is skipped silently; the gateway is still the primary
+     *  enforcement point. */
+    private final ObjectProvider<RevocationListService> revocationProvider;
+
+    /** Cassandra-call circuit breaker. Wraps the cluster-wide
+     *  recordAndCount() so a slow Cassandra opens the breaker and
+     *  the cluster-wide check is skipped (gracefully falling back
+     *  to the local bucket) instead of piling up tick latency. */
+    private final CircuitBreaker cassandraBreaker;
+
     public RateLimitFilter(
             ObjectProvider<DistributedRateLimitService> distributedProvider,
+            ObjectProvider<RevocationListService> revocationProvider,
+            CircuitBreakerRegistry circuitBreakerRegistry,
             @Value("${app.rate-limit.auth.window-seconds:60}") long windowSeconds,
             @Value("${app.rate-limit.auth.max-per-window:20}") int maxPerWindow) {
         this.distributedProvider = distributedProvider;
+        this.revocationProvider  = revocationProvider;
+        this.cassandraBreaker    = circuitBreakerRegistry.circuitBreaker("cassandra");
         this.window = Duration.ofSeconds(windowSeconds);
         this.maxPerWindow = maxPerWindow;
     }
@@ -96,6 +119,45 @@ public class RateLimitFilter implements WebFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
+
+        // Revocation check — runs on EVERY request path, not just the
+        // rate-limited prefixes. The gateway is the primary
+        // enforcement point; this is defence-in-depth for traffic
+        // that somehow bypassed the gateway (e.g. service-to-service
+        // on the Compose network) or arrived before the gateway's
+        // refresh tick caught a fresh revocation.
+        return revocationCheck(exchange)
+            .switchIfEmpty(Mono.defer(() -> rateLimitCheck(exchange, chain, path)))
+            .onErrorResume(e -> {
+                log.warn("[rate-limit] revocation-check failed: {}", e.getMessage());
+                return rateLimitCheck(exchange, chain, path);
+            });
+    }
+
+    /** Returns a non-empty Mono (the 403 response) iff the principal
+     *  is revoked; otherwise empty. */
+    private Mono<Void> revocationCheck(ServerWebExchange exchange) {
+        RevocationListService rev = revocationProvider.getIfAvailable();
+        if (rev == null) return Mono.empty();
+        return exchange.getPrincipal()
+            .cast(org.springframework.security.authentication.AbstractAuthenticationToken.class)
+            .flatMap(auth -> {
+                if (auth.getPrincipal() instanceof Jwt jwt) {
+                    String casdoorId = Roles.casdoorIdOf(jwt);
+                    if (casdoorId != null && rev.isRevoked("subject:" + casdoorId)) {
+                        log.warn("[revocation] denied — subject={} path={}",
+                                casdoorId, exchange.getRequest().getPath().value());
+                        exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
+                        exchange.getResponse().getHeaders().add("X-Revoked",
+                                rev.reasonFor("subject:" + casdoorId));
+                        return exchange.getResponse().setComplete();
+                    }
+                }
+                return Mono.<Void>empty();
+            });
+    }
+
+    private Mono<Void> rateLimitCheck(ServerWebExchange exchange, WebFilterChain chain, String path) {
         String prefix = matchedPrefix(path);
         if (prefix == null) {
             return chain.filter(exchange);
@@ -112,17 +174,22 @@ public class RateLimitFilter implements WebFilter {
             return reject429(exchange);
         }
 
-        // Local allowed — augment with the cluster-wide check. The
-        // distributed service appends a row + counts cluster events
-        // for `key` in the rolling window. If Cassandra is offline
-        // the service returns 0 (allow). The local bucket is still
-        // doing its job so a transient Cassandra blip doesn't gate
-        // every login.
+        // Local allowed — augment with the cluster-wide check, wrapped
+        // in a circuit breaker so a stalled Cassandra opens it and
+        // subsequent ticks skip the cluster check (graceful fallback
+        // to local-only) instead of piling up call latency.
         DistributedRateLimitService distributed = distributedProvider.getIfAvailable();
         if (distributed == null) {
             return chain.filter(exchange);
         }
         return distributed.recordAndCount(key)
+                .transformDeferred(CircuitBreakerOperator.of(cassandraBreaker))
+                .onErrorResume(e -> {
+                    // Open breaker / Cassandra timeout — log + allow.
+                    log.warn("[rate-limit] cluster check skipped (breaker={}): {}",
+                            cassandraBreaker.getState(), e.getMessage());
+                    return Mono.just(0L);
+                })
                 .flatMap(count -> {
                     if (count > maxPerWindow) {
                         log.warn("[rate-limit] {} on {} (key={}, cluster={})",
