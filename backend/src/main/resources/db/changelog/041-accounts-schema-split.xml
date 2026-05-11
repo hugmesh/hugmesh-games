@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Per-role schema split (Roadmap item #11).
+
+        Creates the `accounts` Postgres schema and three role-specific
+        profile tables:
+
+          accounts.players   — XP / character roster / friend graph
+                               summary. Lazy populated on first
+                               authenticated request from a player.
+          accounts.producers — contact email, jurisdiction, owned
+                               games count. Populated when a
+                               producer_contacts row is APPROVED.
+          accounts.mods      — contact email + on-call rota slot.
+                               Populated when a producer_contacts row
+                               with requested_role='mod' is APPROVED.
+
+        Each table FKs on `casdoor_user_id` (text — Casdoor lives in
+        a separate system, so no DB-level FK to a Casdoor users
+        table). A user can have rows in multiple per-role tables if
+        they've been granted multiple roles — a producer who's also
+        a mod has rows in both.
+
+        Scope tables (mod_game_scopes / publisher_game_scopes) STAY
+        in the public schema for now — moving them is a destructive
+        operation that touches every reader, and the per-role split
+        is achievable without it. Decision 020 (added in this same
+        commit) documents the future migration path.
+    -->
+
+    <changeSet id="032-0-accounts-schema" author="nin">
+        <sql>CREATE SCHEMA IF NOT EXISTS accounts;</sql>
+    </changeSet>
+
+    <changeSet id="032-1-players-profile-table" author="nin">
+        <createTable tableName="players" schemaName="accounts">
+            <column name="casdoor_user_id" type="text">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="display_name" type="text"/>
+            <column name="xp_level" type="int" defaultValue="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="friend_count" type="int" defaultValue="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="block_count" type="int" defaultValue="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp with time zone"
+                    defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"
+                    defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="032-2-producers-profile-table" author="nin">
+        <createTable tableName="producers" schemaName="accounts">
+            <column name="casdoor_user_id" type="text">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="display_name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="contact_email" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="jurisdiction" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="approved_via_contact_id" type="bigint">
+                <!-- Points at producer_contacts.id — the application
+                     that produced this profile. Lets the admin trace
+                     "this producer's identity came from THAT
+                     submission". Soft FK; producer_contacts rows
+                     are append-only so the reference is stable. -->
+            </column>
+            <column name="approved_at" type="timestamp with time zone"
+                    defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"
+                    defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="producers" schemaName="accounts"
+                     indexName="idx_producers_contact_email">
+            <column name="contact_email"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="032-3-mods-profile-table" author="nin">
+        <createTable tableName="mods" schemaName="accounts">
+            <column name="casdoor_user_id" type="text">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="display_name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="contact_email" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="oncall_slot" type="text">
+                <!-- 'primary' / 'secondary' / NULL (off-rota) — used
+                     by the dispute-routing pipeline to pick which
+                     mod sees a given session report first. -->
+            </column>
+            <column name="approved_via_contact_id" type="bigint"/>
+            <column name="approved_at" type="timestamp with time zone"
+                    defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"
+                    defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="mods" schemaName="accounts"
+                     indexName="idx_mods_oncall_slot">
+            <column name="oncall_slot"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>
