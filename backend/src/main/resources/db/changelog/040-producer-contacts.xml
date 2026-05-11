@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        producer_contacts — intake table for producer / mod
+        applications submitted via the federated
+        producer-registration remote. One row per submission;
+        admins flip status from PENDING → APPROVED / REJECTED out of
+        band (admin console + a Casdoor role grant on approval).
+
+        Why a dedicated table (not just adding columns to users):
+          • Contact email + jurisdiction are SUBMISSION metadata —
+            a user can re-apply with a new email after a rejected
+            attempt, and the audit chain wants the per-submission
+            history rather than a single mutable "current email"
+            column.
+          • Roadmap item #11 (per-role schema split) will move
+            producer-role state into accounts.producers; until that
+            lands this table is the intake-side staging ground.
+
+        Contact email is the load-bearing column — the moderation
+        chain (dispute routing, ban appeals, compliance notices)
+        only works when the user has a reachable address on file.
+    -->
+
+    <changeSet id="031-1-producer-contacts-table" author="nin">
+        <createTable tableName="producer_contacts">
+            <column name="id" type="bigserial">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="casdoor_user_id" type="text">
+                <!-- FK by convention — the games-side Casdoor user id
+                     the applicant authenticated as. We don't enforce
+                     an FK constraint because Casdoor users live in
+                     a different system. -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="display_name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="contact_email" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="jurisdiction" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="requested_role" type="text">
+                <!-- 'producer' or 'mod' — restrict via app-level
+                     validation, not a CHECK constraint, so the
+                     enumeration can grow without a migration. -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="rationale" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="text" defaultValue="PENDING">
+                <!-- PENDING / APPROVED / REJECTED -->
+                <constraints nullable="false"/>
+            </column>
+            <column name="reviewed_by_casdoor_id" type="text"/>
+            <column name="reviewer_notes" type="text"/>
+            <column name="submitted_at" type="timestamp with time zone"
+                    defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reviewed_at" type="timestamp with time zone"/>
+        </createTable>
+
+        <createIndex tableName="producer_contacts"
+                     indexName="idx_producer_contacts_user_status">
+            <column name="casdoor_user_id"/>
+            <column name="status"/>
+        </createIndex>
+
+        <createIndex tableName="producer_contacts"
+                     indexName="idx_producer_contacts_status_submitted">
+            <column name="status"/>
+            <column name="submitted_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="031-2-producer-registration-federation-row" author="nin">
+        <sql>
+            INSERT INTO federation_modules
+                (slug, display_name, kind, remote_entry_url, exposed_module,
+                 game_slug, version, enabled, metadata)
+            VALUES
+                ('producer-registration', 'Producer registration', 'remote-shell',
+                 '/_remotes/producer-registration/remoteEntry.json',
+                 './ProducerRegistrationComponent', NULL, '1.0.0', true,
+                 '{"mountAt":"/producer-registration","requires":"ROLE_USER"}'::jsonb)
+            ON CONFLICT (slug) DO UPDATE
+              SET remote_entry_url = EXCLUDED.remote_entry_url,
+                  exposed_module   = EXCLUDED.exposed_module,
+                  display_name     = EXCLUDED.display_name,
+                  metadata         = EXCLUDED.metadata,
+                  enabled          = EXCLUDED.enabled;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

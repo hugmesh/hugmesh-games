@@ -48,12 +48,37 @@ public class SecurityConfig {
      * Dev profile: OpenAPI spec is public so ng-openapi-gen can fetch it
      * without authentication. Run with SPRING_PROFILES_ACTIVE=dev locally.
      */
+    /**
+     * Infra / observability paths — restricted to ROLE_GAME-MASTER
+     * (platform admin issued out of snapdragon.systems Casdoor).
+     * Same policy as the snapdragon-gateway + id-gateway, so leaking
+     * cluster topology / Cassandra reachability / Liquibase
+     * changelog state is impossible across the platform regardless
+     * of which Spring service is reached first.
+     *
+     * <p>{@code /actuator/health} + {@code /actuator/info} are
+     * deliberately PUBLIC — Kubernetes / Docker healthchecks need
+     * them and they return only the bare green/red status, not
+     * topology details (which require the `roles: GAME-MASTER`
+     * configured on the health endpoint's show-details policy).
+     */
+    private static final String[] INFRA_PROBES_PUBLIC = {
+            "/actuator/health", "/actuator/health/**",
+            "/actuator/info",
+    };
+
+    private static final String[] INFRA_GATED = {
+            "/actuator/**",
+    };
+
     @Bean
     @Profile("dev")
     SecurityWebFilterChain devFilterChain(ServerHttpSecurity http) {
         return http
                 .authorizeExchange(ex -> {
                     ex.pathMatchers("/api/auth/**").permitAll();
+                    ex.pathMatchers(INFRA_PROBES_PUBLIC).permitAll();
+                    ex.pathMatchers(INFRA_GATED).hasRole("GAME-MASTER");
                     ex.pathMatchers("/api/admin/**").hasRole("ADMIN");
                     ex.pathMatchers(PLAYER_PATHS).authenticated();
                     ex.pathMatchers(SPEC_PATHS).permitAll();
@@ -80,6 +105,8 @@ public class SecurityConfig {
         return http
                 .authorizeExchange(ex -> {
                     ex.pathMatchers("/api/auth/**").permitAll();
+                    ex.pathMatchers(INFRA_PROBES_PUBLIC).permitAll();
+                    ex.pathMatchers(INFRA_GATED).hasRole("GAME-MASTER");
                     ex.pathMatchers("/api/admin/**").hasRole("ADMIN");
                     ex.pathMatchers(SPEC_PATHS).hasRole("ADMIN");
                     ex.pathMatchers(PLAYER_PATHS).authenticated();

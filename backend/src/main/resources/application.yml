@@ -76,8 +76,51 @@ casdoor:
   client-secret: ${CASDOOR_CLIENT_SECRET:twsecret001}
   organization: ${CASDOOR_ORGANIZATION:threewizards}
 
+# Revocation list — polled from the same Cassandra table the
+# snapdragon-gateway writes. Defence-in-depth check inside
+# RateLimitFilter; the gateway is the primary enforcement point.
+# Lookups are constant-time hash hits against a cached snapshot;
+# the @Scheduled refresh ticks every 5 s by default.
+app:
+  revocation:
+    enabled: ${APP_REVOCATION_ENABLED:true}
+    refresh-interval-ms: ${APP_REVOCATION_REFRESH_MS:5000}
+
+# Resilience4j — wraps the cluster-wide Cassandra calls inside
+# RateLimitFilter. An open breaker means subsequent requests skip
+# the cluster check (fall back to local-bucket only) instead of
+# piling up call latency.
+resilience4j:
+  circuitbreaker:
+    instances:
+      cassandra:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+
+# Management endpoints: lock down what /actuator can expose so
+# even if SecurityConfig regressed, the surface is the bare
+# minimum (health for probes; everything else off). The
+# SecurityConfig path-matchers above also restrict /actuator/**
+# to ROLE_GAME-MASTER as defence-in-depth.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+      # Detailed health (component statuses, Postgres/Cassandra
+      # reachability, free disk) is restricted to GAME-MASTER.
+      # An anonymous probe still gets `{"status":"UP"}` — enough
+      # to satisfy a k8s liveness check without leaking topology.
+      roles: GAME-MASTER
+
 logging:
   level:
-    games.snapdragon.bff: DEBUG
-    org.springframework.web: INFO
-    org.springframework.security: INFO
+    "[games.snapdragon.bff]": DEBUG
+    "[org.springframework.web]": INFO
+    "[org.springframework.security]": INFO
