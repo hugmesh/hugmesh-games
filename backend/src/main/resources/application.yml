@@ -76,8 +76,27 @@ casdoor:
   client-secret: ${CASDOOR_CLIENT_SECRET:twsecret001}
   organization: ${CASDOOR_ORGANIZATION:threewizards}
 
+# Management endpoints: lock down what /actuator can expose so
+# even if SecurityConfig regressed, the surface is the bare
+# minimum (health for probes; everything else off). The
+# SecurityConfig path-matchers above also restrict /actuator/**
+# to ROLE_GAME-MASTER as defence-in-depth.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+      # Detailed health (component statuses, Postgres/Cassandra
+      # reachability, free disk) is restricted to GAME-MASTER.
+      # An anonymous probe still gets `{"status":"UP"}` — enough
+      # to satisfy a k8s liveness check without leaking topology.
+      roles: GAME-MASTER
+
 logging:
   level:
-    games.snapdragon.bff: DEBUG
-    org.springframework.web: INFO
-    org.springframework.security: INFO
+    "[games.snapdragon.bff]": DEBUG
+    "[org.springframework.web]": INFO
+    "[org.springframework.security]": INFO
