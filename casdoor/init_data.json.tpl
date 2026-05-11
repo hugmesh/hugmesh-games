@@ -184,6 +184,18 @@
       "signupApplication": "threewizards-app",
       "isAdmin": false, "isForbidden": false, "isDeleted": false,
       "score": 2000, "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "publisher-flatland",
+      "id": "tw-pub-flat-001",
+      "type": "normal-user",
+      "password": "CASDOOR_PUB_FLAT_PASS_VALUE",
+      "displayName": "Publisher — Flatland (dev fixture owner)",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
     }
   ],
   "roles": [
@@ -236,7 +248,8 @@
       "users": [
         "threewizards/publisher",
         "threewizards/publisher-three-wizards",
-        "threewizards/publisher-dodecahedron"
+        "threewizards/publisher-dodecahedron",
+        "threewizards/publisher-flatland"
       ],
       "isEnabled": true
     },

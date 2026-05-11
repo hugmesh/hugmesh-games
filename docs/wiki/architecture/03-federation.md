@@ -99,6 +99,10 @@ The exported factory is plugged into `loadComponent` for every federated route:
 { path: 'admin/games', loadComponent: loadRemote('admin', './UploadShell',    'UploadShell')    },
 ```
 
+## Maker remotes (RPG + VN)
+
+Two more federated remotes — `games-rpg-maker` and `games-vn-maker` — mount at `/rpg-maker` and `/vn-maker`. They are *editor* remotes, not game remotes: the host shell loads them as plain Angular components (no Web-Component wrapper, no iframe), and they POST to side-service REST surfaces (`/api/rpg/*` and `/api/vn/*`) backed by the [`rpg-builder/`](../../../rpg-builder/) and [`vn-builder/`](../../../vn-builder/) Spring services. Their federation_modules rows are seeded by [`037-rpg-and-vn-maker-federation.xml`](../../../backend/src/main/resources/db/changelog/037-rpg-and-vn-maker-federation.xml). The publisher console exposes "Launch RPG Maker" / "Launch Visual Novel Maker" buttons that `window.open` these in a new tab so a publisher can keep the upload form alive while authoring. See [decision 018](../decisions/018-rpg-and-vn-makers.md).
+
 ## Per-game federation
 
 A game remote exposes a *Web Component* (built with `createCustomElement` and registered with `customElements.define`). The host places it as a normal element:

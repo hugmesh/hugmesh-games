@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                                       https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <changeSet id="001-init-extensions" author="snapdragon-rpg-builder">
+    <sql>CREATE EXTENSION IF NOT EXISTS "uuid-ossp";</sql>
+  </changeSet>
+
+  <changeSet id="001-init-assets" author="snapdragon-rpg-builder">
+    <createTable tableName="rpg_assets">
+      <column name="id"            type="uuid"        defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"    type="uuid"><constraints nullable="false"/></column>
+      <column name="slug"          type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="kind"          type="varchar(16)"><constraints nullable="false"/></column>
+      <column name="mime_type"     type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="byte_size"     type="bigint"><constraints nullable="false"/></column>
+      <column name="storage_path"  type="varchar(512)"><constraints nullable="false"/></column>
+      <column name="uploaded_by"   type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="uploaded_at"   type="timestamp with time zone" defaultValueComputed="now()"><constraints nullable="false"/></column>
+    </createTable>
+    <createIndex tableName="rpg_assets" indexName="idx_rpg_assets_project">
+      <column name="project_id"/>
+    </createIndex>
+    <addUniqueConstraint tableName="rpg_assets"
+                         columnNames="project_id, slug"
+                         constraintName="uq_rpg_assets_project_slug"/>
+  </changeSet>
+
+</databaseChangeLog>

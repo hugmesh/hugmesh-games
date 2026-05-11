@@ -17,6 +17,7 @@ CASDOOR_MOD_TWIAT_PASS="${CASDOOR_MOD_TWIAT_PASS:-$(rand 16)}"
 CASDOOR_MOD_DODEC_PASS="${CASDOOR_MOD_DODEC_PASS:-$(rand 16)}"
 CASDOOR_PUB_TWIAT_PASS="${CASDOOR_PUB_TWIAT_PASS:-$(rand 16)}"
 CASDOOR_PUB_DODEC_PASS="${CASDOOR_PUB_DODEC_PASS:-$(rand 16)}"
+CASDOOR_PUB_FLAT_PASS="${CASDOOR_PUB_FLAT_PASS:-$(rand 16)}"
 
 echo ""
 echo "================================================================"
@@ -34,6 +35,7 @@ echo "  mod dodecahedron     : mod-dodecahedron      / $CASDOOR_MOD_DODEC_PASS"
 echo "  publisher (generic)  : publisher             / $CASDOOR_PUBLISHER_PASS"
 echo "  publisher 3-wizards  : publisher-three-wizards / $CASDOOR_PUB_TWIAT_PASS"
 echo "  publisher dodecahedr : publisher-dodecahedron  / $CASDOOR_PUB_DODEC_PASS"
+echo "  publisher flatland   : publisher-flatland      / $CASDOOR_PUB_FLAT_PASS"
 echo "================================================================"
 echo ""
 
@@ -51,6 +53,7 @@ sed \
   -e "s|CASDOOR_MOD_DODEC_PASS_VALUE|$CASDOOR_MOD_DODEC_PASS|g" \
   -e "s|CASDOOR_PUB_TWIAT_PASS_VALUE|$CASDOOR_PUB_TWIAT_PASS|g" \
   -e "s|CASDOOR_PUB_DODEC_PASS_VALUE|$CASDOOR_PUB_DODEC_PASS|g" \
+  -e "s|CASDOOR_PUB_FLAT_PASS_VALUE|$CASDOOR_PUB_FLAT_PASS|g" \
   /init_data.json.tpl > /tmp/init_data.json
 
 exec /server

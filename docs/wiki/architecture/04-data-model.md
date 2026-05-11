@@ -80,8 +80,18 @@ Migrations 001–017 are pre-federation. The federation work landed in:
 - `032-mod-game-scopes.xml` — `mod_game_scopes` + `publisher_game_scopes` for per-game RBAC; seed rows for the per-game seeded users.
 - `033-mod-publisher-federation.xml` — `federation_modules` rows for the new `mod` and `publisher` federated remotes.
 - `036-widen-session-ids-for-sha3.xml` — widens `game_sessions.id` and `session_members.session_id` from `varchar(36)` to `varchar(64)` so the SHA3-256-derived UIDs minted by [`Crypto.mintUid()`](../../../backend/src/main/java/games/snapdragon/bff/util/Crypto.java) (43 base64url chars) fit. Old UUID-shape rows continue to fit; new rows are SHA3.
+- `037-rpg-and-vn-maker-federation.xml` — seeds `federation_modules` rows for the `games-rpg-maker` + `games-vn-maker` remotes that drive the [`rpg-builder/`](../../../rpg-builder/) and [`vn-builder/`](../../../vn-builder/) Spring side services. The side services own their own DBs (`postgres-rpg-builder` + `postgres-vn-builder`) with their own Liquibase changelogs ([rpg-builder/.../db.changelog-master.xml](../../../rpg-builder/src/main/resources/db/changelog/db.changelog-master.xml), [vn-builder/.../db.changelog-master.xml](../../../vn-builder/src/main/resources/db/changelog/db.changelog-master.xml)) — see [decision 018](../decisions/018-rpg-and-vn-makers.md).
 
 **Never edit a previously-merged changeset.** When something is missed, append a new changeset with `<preConditions onFail="MARK_RAN">` so re-runs are idempotent.
+
+## Side-service schemas (rpg-builder + vn-builder)
+
+Both maker side services own dedicated Postgres databases (`rpg_builder` and `vn_builder`) with schemas managed exclusively by Liquibase changelogs in their own service trees:
+
+- **rpg-builder** — `rpg_projects`, `rpg_areas`, `rpg_rooms`, `rpg_exits` (CHECK on direction enum: N/S/E/W/NE/NW/SE/SW/UP/DOWN/TELEPORT), `rpg_items`, `rpg_npcs`, `rpg_scripts` (CHECK kind: TRIGGER/ALIAS/KEY/SCRIPT), `rpg_assets`, `rpg_build_jobs` (CHECK status: QUEUED/RENDERING/EXPORTING/UPLOADING/DONE/FAILED). Every project's areas become Chapters in the BFF when built.
+- **vn-builder** — `vn_projects`, `vn_acts`, `vn_characters`, `vn_backgrounds`, `vn_scenes`, `vn_lines` (unique on `(scene_id, line_index)`), `vn_choices`, `vn_assets`, `vn_build_jobs` (same status enum). Every project's acts become Chapters.
+
+Build pipeline state lives in the `*_build_jobs` table; the worker claims rows atomically with `FOR UPDATE SKIP LOCKED` so a multi-pod deployment doesn't double-execute. See [decision 018](../decisions/018-rpg-and-vn-makers.md) for the full topology.
 
 ## R2DBC + JDBC coexistence
 

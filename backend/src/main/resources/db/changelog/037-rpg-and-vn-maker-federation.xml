@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Register the new RPG-maker + VN-maker federated remotes with the
+    federation manifest. Both routes are publisher tools — the host
+    shell mounts them at /rpg-maker and /vn-maker, the publisher
+    console exposes "Launch RPG Maker" / "Launch VN Maker" buttons
+    that open these in a new tab.
+  -->
+
+  <changeSet id="037-1-seed-rpg-maker-remote" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM federation_modules WHERE slug = 'games-rpg-maker'
+      </sqlCheck>
+    </preConditions>
+    <insert tableName="federation_modules">
+      <column name="slug"             value="games-rpg-maker"/>
+      <column name="kind"             value="remote-shell"/>
+      <column name="remote_entry_url" value="/_remotes/games-rpg-maker/remoteEntry.json"/>
+      <column name="exposed_module"   value="./RpgMakerShell"/>
+      <column name="display_name"     value="RPG maker"/>
+      <column name="version"          value="1.0.0"/>
+      <column name="enabled"          valueBoolean="true"/>
+    </insert>
+  </changeSet>
+
+  <changeSet id="037-2-seed-vn-maker-remote" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM federation_modules WHERE slug = 'games-vn-maker'
+      </sqlCheck>
+    </preConditions>
+    <insert tableName="federation_modules">
+      <column name="slug"             value="games-vn-maker"/>
+      <column name="kind"             value="remote-shell"/>
+      <column name="remote_entry_url" value="/_remotes/games-vn-maker/remoteEntry.json"/>
+      <column name="exposed_module"   value="./VnMakerShell"/>
+      <column name="display_name"     value="Visual novel maker"/>
+      <column name="version"          value="1.0.0"/>
+      <column name="enabled"          valueBoolean="true"/>
+    </insert>
+  </changeSet>
+
+</databaseChangeLog>

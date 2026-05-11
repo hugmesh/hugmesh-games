@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: snapdragon-rpg-builder
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:postgres-rpg-builder}:${DB_PORT:5432}/${DB_NAME:rpg_builder}
+    username: ${DB_USER:rpg_builder}
+    password: ${DB_PASS:rpg_builder}
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:postgres-rpg-builder}:${DB_PORT:5432}/${DB_NAME:rpg_builder}
+    username: ${DB_USER:rpg_builder}
+    password: ${DB_PASS:rpg_builder}
+    driver-class-name: org.postgresql.Driver
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    url: jdbc:postgresql://${DB_HOST:postgres-rpg-builder}:${DB_PORT:5432}/${DB_NAME:rpg_builder}
+    user: ${DB_USER:rpg_builder}
+    password: ${DB_PASS:rpg_builder}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Validates JWTs minted by Casdoor. Match the BFF's pattern: only
+          # jwk-set-uri, no issuer-uri. Setting issuer-uri makes Spring fetch
+          # /.well-known/openid-configuration at startup, which Casdoor
+          # doesn't expose at the location Spring expects, so the bean
+          # creation fails and the service never starts.
+          jwk-set-uri: ${CASDOOR_ENDPOINT:http://casdoor:8000}/.well-known/jwks
+
+server:
+  port: 8080
+
+app:
+  bff:
+    # Service-to-service URL for the BFF upload endpoint. The build
+    # worker forwards the building user's bearer token, so the BFF
+    # sees the upload as that user (admin or publisher).
+    base-url: ${APP_BFF_BASE_URL:http://api:8080}
+  build:
+    # Worker tick interval — how often the queue is drained.
+    tick: ${APP_BUILD_TICK:PT5S}
+    # When true, the worker invokes the Godot CLI in a sibling docker
+    # container to produce a real WASM bundle. When false (default in
+    # dev/e2e), it emits a placeholder bundle so the rest of the
+    # pipeline can run end-to-end without the multi-GB Godot image.
+    godot-enabled: ${APP_BUILD_GODOT_ENABLED:false}
+    # Path to a per-project workdir root on the container's writable
+    # FS. Each build gets a sub-directory `<project-id>/<build-id>/`.
+    workdir: ${APP_BUILD_WORKDIR:/var/snapdragon/rpg-builds}
+    # Path to the assets dir (uploaded icons / portraits).
+    assets-dir: ${APP_BUILD_ASSETS_DIR:/var/snapdragon/rpg-assets}
+    # Maximum bundle bytes the worker will POST to the BFF.
+    max-bundle-bytes: ${APP_BUILD_MAX_BUNDLE_BYTES:209715200}
+
+logging:
+  level:
+    games.snapdragon.rpgbuilder: INFO
+    org.springframework.r2dbc: WARN

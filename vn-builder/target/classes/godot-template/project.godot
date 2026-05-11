@@ -1,0 +1,25 @@
+; Generated Godot 4 project for snapdragon-vn-builder.
+;
+; Build worker writes this once per build with {{slug}} and
+; {{displayName}} interpolated.
+
+config_version=5
+
+[application]
+
+config/name="{{displayName}}"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/snapdragon_bridge/plugin.cfg")
+
+[gdextension]
+
+scan_for_extensions=true
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

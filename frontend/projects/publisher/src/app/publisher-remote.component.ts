@@ -75,6 +75,25 @@ interface ModGameScope {
       </section>
 
       <section class="card">
+        <h2>Build a new game</h2>
+        <p class="muted">
+          Open one of the makers in a new tab to author and compile a
+          fresh game without leaving the portal. The compiled bundle
+          is auto-uploaded under your publisher scope.
+        </p>
+        <div class="launch-row">
+          <button type="button" class="primary-btn"
+                  (click)="launchMaker('rpg-maker')">
+            &#9678; Launch RPG Maker
+          </button>
+          <button type="button" class="primary-btn"
+                  (click)="launchMaker('vn-maker')">
+            &#9672; Launch Visual Novel Maker
+          </button>
+        </div>
+      </section>
+
+      <section class="card">
         <h2>Moderators for {{ selectedSlug || '(select a game above)' }}</h2>
         @if (selectedSlug) {
           @if (mods$ | async; as mods) {
@@ -110,6 +129,7 @@ interface ModGameScope {
     .primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .grant-row { margin-top: 0.6rem; display: flex; gap: 0.4rem; align-items: center; }
     .grant-row input { padding: 0.3rem; border-radius: 3px; border: 1px solid #aabddf; min-width: 18ch; }
+    .launch-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.4rem; }
     .muted { color: #5a6a8a; font-style: italic; }
     .error-banner { background: #f9d5d5; color: #8b1f1f; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
     .success-banner { background: #d5f9e0; color: #1f6b3a; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
@@ -153,6 +173,16 @@ export class PublisherRemoteComponent implements OnInit {
   pick(ev: Event): void {
     const input = ev.target as HTMLInputElement;
     this.pickedFile = (input.files && input.files[0]) || null;
+  }
+
+  /**
+   * Open a builder remote in a new browser tab. The host shell mounts
+   * each maker at `/<slug>` (rpg-maker / vn-maker) via the federated
+   * route table; using window.open keeps the publisher console alive
+   * for further uploads while the publisher authors a new game.
+   */
+  launchMaker(slug: 'rpg-maker' | 'vn-maker'): void {
+    window.open(`/${slug}`, '_blank', 'noopener');
   }
 
   upload(): void {

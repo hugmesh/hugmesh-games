@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                                       https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Domain shape: project → acts → scenes → lines → choices, with sibling
+    tables for characters and backgrounds. Each Act becomes a Chapter
+    when the project is built (own WASM bundle, own row in BFF
+    `chapters`). Each Scene within an Act is loaded via the in-game
+    ScenePlayer (godot-2d-visual-novel pattern). Lines drive the
+    TextBox; Choices branch to other Scenes.
+  -->
+
+  <changeSet id="002-vn-projects" author="snapdragon-vn-builder">
+    <createTable tableName="vn_projects">
+      <column name="id"               type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="slug"             type="varchar(64)"><constraints nullable="false" unique="true"/></column>
+      <column name="display_name"     type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="description"      type="text"/>
+      <column name="owner_casdoor_id" type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="created_at"       type="timestamp with time zone" defaultValueComputed="now()"><constraints nullable="false"/></column>
+      <column name="updated_at"       type="timestamp with time zone" defaultValueComputed="now()"><constraints nullable="false"/></column>
+    </createTable>
+    <createIndex tableName="vn_projects" indexName="idx_vn_projects_owner"><column name="owner_casdoor_id"/></createIndex>
+  </changeSet>
+
+  <changeSet id="002-vn-acts" author="snapdragon-vn-builder">
+    <createTable tableName="vn_acts">
+      <column name="id"          type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"  type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_acts_project" references="vn_projects(id)" deleteCascade="true"/></column>
+      <column name="slug"        type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"        type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="sort_order"  type="integer" defaultValueNumeric="0"><constraints nullable="false"/></column>
+    </createTable>
+    <addUniqueConstraint tableName="vn_acts" columnNames="project_id, slug" constraintName="uq_vn_acts_project_slug"/>
+  </changeSet>
+
+  <changeSet id="002-vn-characters" author="snapdragon-vn-builder">
+    <!-- Mirrors godot-2d-visual-novel's Character.gd Resource. -->
+    <createTable tableName="vn_characters">
+      <column name="id"                       type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"               type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_characters_project" references="vn_projects(id)" deleteCascade="true"/></column>
+      <column name="slug"                     type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="display_name"             type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="color"                    type="varchar(16)" defaultValue="#ffffff"><constraints nullable="false"/></column>
+      <column name="default_portrait_asset_id" type="uuid"/>
+    </createTable>
+    <addUniqueConstraint tableName="vn_characters" columnNames="project_id, slug" constraintName="uq_vn_characters_project_slug"/>
+  </changeSet>
+
+  <changeSet id="002-vn-backgrounds" author="snapdragon-vn-builder">
+    <createTable tableName="vn_backgrounds">
+      <column name="id"        type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id" type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_backgrounds_project" references="vn_projects(id)" deleteCascade="true"/></column>
+      <column name="slug"      type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"      type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="asset_id"  type="uuid"/>
+    </createTable>
+    <addUniqueConstraint tableName="vn_backgrounds" columnNames="project_id, slug" constraintName="uq_vn_backgrounds_project_slug"/>
+  </changeSet>
+
+  <changeSet id="002-vn-scenes" author="snapdragon-vn-builder">
+    <createTable tableName="vn_scenes">
+      <column name="id"             type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"     type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_scenes_project" references="vn_projects(id)" deleteCascade="true"/></column>
+      <column name="act_id"         type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_scenes_act"     references="vn_acts(id)"     deleteCascade="true"/></column>
+      <column name="slug"           type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"           type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="background_id"  type="uuid"/>
+      <column name="sort_order"     type="integer" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="is_entry_point" type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+    </createTable>
+    <addUniqueConstraint tableName="vn_scenes" columnNames="project_id, slug" constraintName="uq_vn_scenes_project_slug"/>
+  </changeSet>
+
+  <changeSet id="002-vn-lines" author="snapdragon-vn-builder">
+    <createTable tableName="vn_lines">
+      <column name="id"            type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="scene_id"      type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_lines_scene" references="vn_scenes(id)" deleteCascade="true"/></column>
+      <column name="line_index"    type="integer"><constraints nullable="false"/></column>
+      <column name="character_id"  type="uuid"/>
+      <column name="text"          type="text" defaultValue=""><constraints nullable="false"/></column>
+    </createTable>
+    <addUniqueConstraint tableName="vn_lines" columnNames="scene_id, line_index" constraintName="uq_vn_lines_scene_index"/>
+  </changeSet>
+
+  <changeSet id="002-vn-choices" author="snapdragon-vn-builder">
+    <createTable tableName="vn_choices">
+      <column name="id"             type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="line_id"        type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_choices_line" references="vn_lines(id)" deleteCascade="true"/></column>
+      <column name="label"          type="varchar(256)"><constraints nullable="false"/></column>
+      <column name="target_scene_id" type="uuid"><constraints nullable="false"/></column>
+      <column name="sort_order"     type="integer" defaultValueNumeric="0"><constraints nullable="false"/></column>
+    </createTable>
+    <createIndex tableName="vn_choices" indexName="idx_vn_choices_line"><column name="line_id"/></createIndex>
+  </changeSet>
+
+</databaseChangeLog>

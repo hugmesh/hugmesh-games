@@ -43,8 +43,32 @@ interface OpenApiSpec {
   components?: any;
 }
 
-const SPEC_PRIMARY = '/docs/api/openapi.json';
-const SPEC_FALLBACK = '/v3/api-docs';
+/**
+ * The three OpenAPI specs the navigator can show. `primary` points
+ * at the doc-build artefact (merged with editorial metadata for the
+ * BFF, raw springdoc output for the side services); `fallback` is
+ * the live spring-managed endpoint reachable through the host nginx
+ * proxy. The user picks via the spec selector at the top of the
+ * left rail.
+ */
+const SPECS = {
+  bff: {
+    label: 'BFF (api)',
+    primary: '/docs/api/openapi.json',
+    fallback: '/v3/api-docs',
+  },
+  rpg: {
+    label: 'rpg-builder',
+    primary: '/docs/api/openapi-rpg.json',
+    fallback: '/api/rpg/v3/api-docs',
+  },
+  vn: {
+    label: 'vn-builder',
+    primary: '/docs/api/openapi-vn.json',
+    fallback: '/api/vn/v3/api-docs',
+  },
+} as const;
+type SpecId = keyof typeof SPECS;
 
 @Component({
   selector: 'app-docs-shell',
@@ -133,6 +157,20 @@ const SPEC_FALLBACK = '/v3/api-docs';
   template: `
   <aside class="nav">
     <h2>API navigator</h2>
+    <div style="padding:6px 18px 10px;">
+      <label style="display:block;font-size:.7rem;color:#6B6B85;font-weight:600;margin-bottom:4px;">
+        Spec
+      </label>
+      <select
+        [value]="specId()"
+        (change)="switchSpec($any($event.target).value)"
+        style="width:100%;padding:5px 6px;border:1px solid #D8D6E5;border-radius:4px;
+               background:#FFF;color:#1F1F2E;font-size:.85rem;">
+        <option value="bff">BFF (api)</option>
+        <option value="rpg">rpg-builder (/api/rpg)</option>
+        <option value="vn">vn-builder (/api/vn)</option>
+      </select>
+    </div>
     @for (tag of tags(); track tag.name) {
       <div class="tag-group">
         <div class="tag-name">{{ tag.name }}</div>
@@ -200,10 +238,20 @@ export class DocsShellComponent {
   private readonly http = inject(HttpClient);
 
   readonly spec = signal<OpenApiSpec | null>(null);
+  readonly specId = signal<SpecId>('bff');
   readonly specSource = signal<string>('loading…');
   readonly loadError = signal<string | null>(null);
   readonly active = signal<OpenApiOperation | null>(null);
   readonly tab = signal<'reference' | 'explore' | 'links'>('reference');
+
+  switchSpec(id: SpecId): void {
+    if (!(id in SPECS)) return;
+    this.specId.set(id);
+    this.spec.set(null);
+    this.active.set(null);
+    this.loadError.set(null);
+    this.loadSpec();
+  }
 
   readonly operations = computed<OpenApiOperation[]>(() => {
     const s = this.spec();
@@ -250,24 +298,25 @@ export class DocsShellComponent {
   }
 
   private loadSpec(): void {
-    this.http.get<OpenApiSpec>(SPEC_PRIMARY).subscribe({
+    const cfg = SPECS[this.specId()];
+    this.http.get<OpenApiSpec>(cfg.primary).subscribe({
       next: (s) => {
         this.spec.set(s);
-        this.specSource.set('docs build');
+        this.specSource.set(`${cfg.label} · docs build`);
       },
       error: () => {
-        this.specSource.set('falling back to live /v3/api-docs');
-        this.http.get<OpenApiSpec>(SPEC_FALLBACK).subscribe({
+        this.specSource.set(`${cfg.label} · falling back to ${cfg.fallback}`);
+        this.http.get<OpenApiSpec>(cfg.fallback).subscribe({
           next: (s) => {
             this.spec.set(s);
-            this.specSource.set('live /v3/api-docs');
+            this.specSource.set(`${cfg.label} · live ${cfg.fallback}`);
           },
           error: (err) => {
             this.loadError.set(
-              `Could not load OpenAPI spec from ${SPEC_PRIMARY} or ` +
-              `${SPEC_FALLBACK}: ${err?.message || err}. Run ` +
+              `Could not load ${cfg.label} OpenAPI spec from ${cfg.primary} ` +
+              `or ${cfg.fallback}: ${err?.message || err}. Run ` +
               `\`make docs-openapi-spec\` to publish it, or bring the ` +
-              `BFF up.`);
+              `service up.`);
           },
         });
       },

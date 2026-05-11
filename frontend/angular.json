@@ -197,6 +197,84 @@
         }
       }
     },
+    "games-rpg-maker": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/games-rpg-maker",
+      "sourceRoot": "projects/games-rpg-maker/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": { "target": "games-rpg-maker:esbuild:production" },
+          "configurations": {
+            "development": { "target": "games-rpg-maker:esbuild:development", "dev": true },
+            "production":  { "target": "games-rpg-maker:esbuild:production" }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/games-rpg-maker",
+            "index":   "projects/games-rpg-maker/src/index.html",
+            "browser": "projects/games-rpg-maker/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/games-rpg-maker/tsconfig.app.json",
+            "assets": [], "styles": [], "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                { "type": "initial", "maximumWarning": "500kb", "maximumError": "2mb" }
+              ]
+            },
+            "development": { "optimization": false, "extractLicenses": false, "sourceMap": true }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
+    "games-vn-maker": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/games-vn-maker",
+      "sourceRoot": "projects/games-vn-maker/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": { "target": "games-vn-maker:esbuild:production" },
+          "configurations": {
+            "development": { "target": "games-vn-maker:esbuild:development", "dev": true },
+            "production":  { "target": "games-vn-maker:esbuild:production" }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/games-vn-maker",
+            "index":   "projects/games-vn-maker/src/index.html",
+            "browser": "projects/games-vn-maker/src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "projects/games-vn-maker/tsconfig.app.json",
+            "assets": [], "styles": [], "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                { "type": "initial", "maximumWarning": "500kb", "maximumError": "2mb" }
+              ]
+            },
+            "development": { "optimization": false, "extractLicenses": false, "sourceMap": true }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
     "games-three-wizards": {
       "projectType": "application",
       "schematics": {},

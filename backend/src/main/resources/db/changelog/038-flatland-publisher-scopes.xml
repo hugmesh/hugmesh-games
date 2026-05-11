@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Dev fixture: pre-grant the `publisher-flatland` Casdoor seed user
+    (id tw-pub-flat-001, see casdoor/init_data.json.tpl) the publisher
+    scope on the two Flatland fixture games (`flatland-rpg`,
+    `flatland-vn`). The actual games rows arrive when the publisher
+    runs the maker pipeline — register.sql in each produced bundle
+    upserts the games + chapters rows. Pre-seeding only the scope
+    keeps the contract with the maker honest: the publisher must
+    drive the build for the catalog to update.
+
+    Scope rows are append-only (revoked_at = NULL means active), so
+    these seeds are safe to re-run. The preCondition guards against
+    duplicates on a Liquibase rerun against an existing DB.
+  -->
+
+  <changeSet id="038-1-flatland-rpg-scope" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM publisher_game_scopes
+        WHERE casdoor_id = 'tw-pub-flat-001' AND game_slug = 'flatland-rpg' AND revoked_at IS NULL
+      </sqlCheck>
+    </preConditions>
+    <insert tableName="publisher_game_scopes">
+      <column name="casdoor_id"            value="tw-pub-flat-001"/>
+      <column name="game_slug"             value="flatland-rpg"/>
+      <column name="granted_by_casdoor_id" value="tw-admin-001"/>
+    </insert>
+  </changeSet>
+
+  <changeSet id="038-2-flatland-vn-scope" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM publisher_game_scopes
+        WHERE casdoor_id = 'tw-pub-flat-001' AND game_slug = 'flatland-vn' AND revoked_at IS NULL
+      </sqlCheck>
+    </preConditions>
+    <insert tableName="publisher_game_scopes">
+      <column name="casdoor_id"            value="tw-pub-flat-001"/>
+      <column name="game_slug"             value="flatland-vn"/>
+      <column name="granted_by_casdoor_id" value="tw-admin-001"/>
+    </insert>
+  </changeSet>
+
+</databaseChangeLog>

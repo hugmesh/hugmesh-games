@@ -318,6 +318,12 @@ bundle:
 	  if [ -f $(ROOT)/openapi/build/openapi.json ]; then \
 	    mkdir -p $$PREFIX/openapi && cp $(ROOT)/openapi/build/openapi.json $$PREFIX/openapi/; \
 	  fi; \
+	  if [ -f $(ROOT)/openapi/build/openapi-rpg.json ]; then \
+	    mkdir -p $$PREFIX/openapi && cp $(ROOT)/openapi/build/openapi-rpg.json $$PREFIX/openapi/; \
+	  fi; \
+	  if [ -f $(ROOT)/openapi/build/openapi-vn.json ]; then \
+	    mkdir -p $$PREFIX/openapi && cp $(ROOT)/openapi/build/openapi-vn.json $$PREFIX/openapi/; \
+	  fi; \
 	  if compgen -G "$(ROOT)/diagrams-rendered/build/*.png" >/dev/null 2>&1; then \
 	    mkdir -p $$PREFIX/diagrams && cp $(ROOT)/diagrams-rendered/build/*.png $$PREFIX/diagrams/; \
 	  fi; \

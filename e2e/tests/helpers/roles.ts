@@ -45,6 +45,13 @@ export const SEED_USERS: SeedUser[] = [
   { username: 'publisher',                passwordEnv: 'E2E_PUBLISHER_PASSWORD', kind: 'publisher' },
   { username: 'publisher-three-wizards',  passwordEnv: 'E2E_PUB_TWIAT_PASSWORD', kind: 'publisher', scopedGame: 'three-wizards' },
   { username: 'publisher-dodecahedron',   passwordEnv: 'E2E_PUB_DODEC_PASSWORD', kind: 'publisher', scopedGame: 'dodecahedron'  },
+  // Dev fixture owner — Casdoor seed (id tw-pub-flat-001) holds the
+  // pre-populated Flatland projects in the rpg-builder + vn-builder
+  // DBs (Liquibase 004 in each), and the BFF (Liquibase 038) grants
+  // publisher scope on both flatland-rpg + flatland-vn slugs ahead
+  // of any actual upload. Lets a maker e2e scenario log in and find
+  // pre-existing projects ready to build.
+  { username: 'publisher-flatland',       passwordEnv: 'E2E_PUB_FLAT_PASSWORD',  kind: 'publisher' },
 ];
 
 /**

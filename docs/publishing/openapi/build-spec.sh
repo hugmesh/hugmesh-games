@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 # Snapdragon Games — OpenAPI spec build pipeline.
 #
-# Produces a single merged spec at
-#   docs/publishing/openapi/build/openapi.json
-# combining:
-#   1. The live BFF spec (curl /v3/api-docs) when reachable, OR
-#   2. A static fallback spec from this directory if not, OR
-#   3. A minimal stub if neither exists.
-# Then merges the editorial sidecar `metadata.json` into the spec
-# under x-snapdragon extensions on each tag/operation, so downstream
-# consumers (LaTeX generator, Angular API explorer) see ONE file with
-# the OpenAPI contract AND the rich docs side-by-side.
+# Produces three spec files at docs/publishing/openapi/build/:
+#   openapi.json      — BFF (curl /v3/api-docs from the api service)
+#                       merged with the editorial sidecar metadata.json
+#                       so x-snapdragon extensions decorate every tag/op.
+#   openapi-rpg.json  — rpg-builder side service (/api/rpg/*).
+#   openapi-vn.json   — vn-builder  side service (/api/vn/*).
+#
+# Each spec fetches independently. Order of preference per spec:
+#   1. Live /v3/api-docs from the matching service (curl), OR
+#   2. Static fallback (only the BFF ships one — openapi.fallback.json), OR
+#   3. Minimal stub so downstream builds keep working.
 #
 # Output is git-ignored. Run via `make docs-openapi-spec`.
+#
+# The api-docs federated remote (frontend/projects/api-docs/) reads the
+# three specs from /docs/api/openapi.json, /docs/api/openapi-rpg.json,
+# /docs/api/openapi-vn.json — bind-mounted into the host nginx by the
+# frontend Dockerfile.
 
 set -euo pipefail
 
@@ -22,40 +28,54 @@ OUT="$HERE/build"
 META="$HERE/metadata.json"
 FALLBACK="$HERE/openapi.fallback.json"
 PUBLISHED="$OUT/openapi.json"
-LIVE="${SNAPDRAGON_BASE_URL:-http://localhost:8080}/v3/api-docs"
 PYTHON="${PYTHON:-$HOME/.venvs/snapdragon-publishing/bin/python}"
 
-mkdir -p "$OUT"
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
+# Endpoint URLs — override via SNAPDRAGON_*_URL when running outside compose.
+# Default to localhost:8080 because docs-openapi-spec is normally invoked
+# while a dev stack is up; the host nginx proxies /api/rpg/ -> rpg-builder
+# and /api/vn/ -> vn-builder, so /api/rpg/v3/api-docs and /api/vn/v3/api-docs
+# reach the right side service without per-service ports.
+BFF_LIVE="${SNAPDRAGON_BFF_URL:-${SNAPDRAGON_BASE_URL:-http://localhost:8080}}/v3/api-docs"
+RPG_LIVE="${SNAPDRAGON_RPG_BUILDER_URL:-${SNAPDRAGON_BASE_URL:-http://localhost:8080}}/api/rpg/v3/api-docs"
+VN_LIVE="${SNAPDRAGON_VN_BUILDER_URL:-${SNAPDRAGON_BASE_URL:-http://localhost:8080}}/api/vn/v3/api-docs"
 
-echo "→ probing live BFF for OpenAPI spec ($LIVE)"
-# curl + a json sanity check: ports 8080/4200 may be serving the
-# frontend (HTML) without the BFF. Don't accept non-JSON as a spec.
-if curl -sf -m 5 -H "Accept: application/json" "$LIVE" -o "$tmp" \
-   && [[ -s "$tmp" ]] \
-   && head -c 1 "$tmp" | grep -q '{'; then
-  echo "  ✓ fetched $(wc -c < "$tmp") bytes from $LIVE"
-  cp "$tmp" "$OUT/openapi.live.json"
-  base="$OUT/openapi.live.json"
-elif [[ -s "$FALLBACK" ]]; then
-  echo "  ✗ live BFF unreachable — using static fallback at $FALLBACK"
-  base="$FALLBACK"
-else
-  echo "  ✗ live BFF unreachable AND no fallback at $FALLBACK"
-  echo "  writing minimal stub spec so downstream builds keep working"
-  cat > "$OUT/openapi.stub.json" <<'STUB'
+mkdir -p "$OUT"
+
+# fetch_spec <label> <live_url> <out_path> <fallback_path_or_empty>
+fetch_spec() {
+  local label="$1" url="$2" out="$3" fallback="$4"
+  local tmp
+  tmp="$(mktemp)"
+  echo "→ probing live $label spec ($url)"
+  if curl -sf -m 5 -H "Accept: application/json" "$url" -o "$tmp" \
+     && [[ -s "$tmp" ]] \
+     && head -c 1 "$tmp" | grep -q '{'; then
+    echo "  ✓ fetched $(wc -c < "$tmp") bytes from $url"
+    cp "$tmp" "$out"
+  elif [[ -n "$fallback" && -s "$fallback" ]]; then
+    echo "  ✗ live $label unreachable — using static fallback at $fallback"
+    cp "$fallback" "$out"
+  else
+    echo "  ✗ live $label unreachable AND no fallback — writing stub"
+    cat > "$out" <<STUB
 { "openapi": "3.0.3",
-  "info": { "title": "Snapdragon Gaming BFF", "version": "0.1.0",
-            "description": "Stub spec — bring the BFF up and re-run `make docs-openapi-spec` to refresh." },
+  "info": { "title": "$label spec (stub)", "version": "0.1.0",
+            "description": "Stub — bring the matching service up and re-run 'make docs-openapi-spec'." },
   "paths": {} }
 STUB
-  base="$OUT/openapi.stub.json"
-fi
+  fi
+  rm -f "$tmp"
+}
 
-echo "→ merging $base + $META → $PUBLISHED"
+fetch_spec "BFF"         "$BFF_LIVE" "$OUT/openapi.live.json" "$FALLBACK"
+fetch_spec "rpg-builder" "$RPG_LIVE" "$OUT/openapi-rpg.json"  ""
+fetch_spec "vn-builder"  "$VN_LIVE"  "$OUT/openapi-vn.json"   ""
+
+echo "→ merging $OUT/openapi.live.json + $META → $PUBLISHED"
 "$PYTHON" "$HERE/merge-metadata.py" \
-  --spec "$base" \
+  --spec "$OUT/openapi.live.json" \
   --metadata "$META" \
   --out "$PUBLISHED"
-echo "  ✓ merged spec at $PUBLISHED"
+echo "  ✓ merged BFF spec at $PUBLISHED"
+echo "  ✓ rpg-builder spec at $OUT/openapi-rpg.json"
+echo "  ✓ vn-builder  spec at $OUT/openapi-vn.json"
