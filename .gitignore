@@ -100,5 +100,12 @@ docs/publishing/architecture/marbles/build/
 # playwright-bdd generated specs (regenerated from features/*.feature
 # on every run via the `bddgen` step in e2e/Dockerfile).
 e2e/.features-gen/
+
+# Per-service Maven build output
 rpg-builder/target/
 vn-builder/target/
+
+# Per-game synced addon copies — populated by `make sync-bridge-addon`
+games/*/addons/snapdragon_bridge/
+games/dodecahedron-demo/addons/snapdragon_bridge/
+games/three-wizards-in-a-trenchcoat/addons/snapdragon_bridge/

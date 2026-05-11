@@ -200,6 +200,8 @@ services:
       # still needs to be here.
       - api
       - login
+      - registration
+      - banned
       - admin
       - mod
       - publisher
@@ -302,6 +304,29 @@ services:
     build:
       context: ./frontend
       dockerfile: projects/login/Dockerfile
+    expose: ["8080"]
+
+  # Federated registration remote — handles external OAuth signup
+  # (GitHub today). Mounted at /registration by the host shell;
+  # gateway permits the /_remotes/registration/* path for
+  # unauthenticated traffic. See decision item #5 in the platform
+  # roadmap + 030-auth-ux-remotes-federation.xml seed row.
+  registration:
+    image: snapdragon-games/registration-remote:${SNAPDRAGON_TAG:-dev}
+    build:
+      context: ./frontend
+      dockerfile: projects/registration/Dockerfile
+    expose: ["8080"]
+
+  # Federated banned-user remote — the ONE route a revoked user
+  # can reach besides /login + /registration. Mounted at /banned;
+  # the host's auth-error interceptor routes 403 + X-Revoked
+  # responses here. Roadmap item #7.
+  banned:
+    image: snapdragon-games/banned-remote:${SNAPDRAGON_TAG:-dev}
+    build:
+      context: ./frontend
+      dockerfile: projects/banned/Dockerfile
     expose: ["8080"]
 
   admin:

@@ -4,27 +4,28 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
-    <include file="db/changelog/001-initial-schema.xml" relativeToChangelogFile="false"/>
+
+    <include file="db/changelog/001-init-schema.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/002-seed-data.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/003-scene-elements.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/004-seed-scene-elements.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/005-seed-cave-geometry.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/006-character-schema.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/007-field-scene.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/008-game-systems.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/003-prerequisites-and-progression.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/004-add-skill-cooldown.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/005-seed-system-actions.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/006-quest-items.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/007-spell-instances.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/008-input-events.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/009-seed-game-systems.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/010-asset-url.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/011-progression-and-history.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/012-levels-tier.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/010-character-equipment.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/011-scene-elements.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/012-game-access.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/013-seed-level-assets.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/014-spell-loadout-and-rewards.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/015-cave-atmosphere.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/016-normalization-and-indexes.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/017-snapdragon-catalog.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/014-quest-state.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/015-controllers-and-views.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/016-input-features.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/017-character-control.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/018-federation-modules.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/019-game-access.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/019-game-versions-and-uploads.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/020-game-launches.xml" relativeToChangelogFile="false"/>
-    <include file="db/changelog/021-game-uploads.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/021-debug-modes.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/022-federation-relative-urls.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/023-launch-version-pin.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/024-game-uploads-manifest-text.xml" relativeToChangelogFile="false"/>
@@ -42,4 +43,5 @@
     <include file="db/changelog/036-widen-session-ids-for-sha3.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/037-rpg-and-vn-maker-federation.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/038-flatland-publisher-scopes.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/039-auth-ux-remotes-federation.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

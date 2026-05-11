@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        Register two new federated remotes that handle the auth-UX
+        edges of the platform:
+
+          • registration — external OAuth signup flow (GitHub today;
+            same surface accommodates Google / other Casdoor providers).
+            Posts to /api/registration/github-org-admin/evaluate at the
+            snapdragon-actions service after the OAuth callback.
+
+          • banned — the ONLY route a revoked user can reach (besides
+            /login + /registration). The host's auth-error interceptor
+            funnels 403 + X-Revoked responses here so a banned player
+            still has a path to appeal.
+
+        Both are reachable to unauthenticated traffic by design —
+        SecurityConfig's PUBLIC_PATHS allowlist permits
+        /_remotes/registration/** + /_remotes/banned/** (set on the
+        gateway side in feature/snapdragon-games-gateway-alignment).
+    -->
+
+    <changeSet id="030-1-registration-federation-row" author="nin">
+        <sql>
+            INSERT INTO federation_modules
+                (slug, display_name, kind, remote_entry_url, exposed_module,
+                 game_slug, version, enabled, metadata)
+            VALUES
+                ('registration', 'Registration', 'remote-shell',
+                 '/_remotes/registration/remoteEntry.json',
+                 './RegistrationComponent', NULL, '1.0.0', true,
+                 '{"mountAt":"/registration","requires":"PUBLIC"}'::jsonb)
+            ON CONFLICT (slug) DO UPDATE
+              SET remote_entry_url = EXCLUDED.remote_entry_url,
+                  exposed_module   = EXCLUDED.exposed_module,
+                  display_name     = EXCLUDED.display_name,
+                  metadata         = EXCLUDED.metadata,
+                  enabled          = EXCLUDED.enabled;
+        </sql>
+    </changeSet>
+
+    <changeSet id="030-2-banned-federation-row" author="nin">
+        <sql>
+            INSERT INTO federation_modules
+                (slug, display_name, kind, remote_entry_url, exposed_module,
+                 game_slug, version, enabled, metadata)
+            VALUES
+                ('banned', 'Banned', 'remote-shell',
+                 '/_remotes/banned/remoteEntry.json',
+                 './BannedComponent', NULL, '1.0.0', true,
+                 '{"mountAt":"/banned","requires":"PUBLIC"}'::jsonb)
+            ON CONFLICT (slug) DO UPDATE
+              SET remote_entry_url = EXCLUDED.remote_entry_url,
+                  exposed_module   = EXCLUDED.exposed_module,
+                  display_name     = EXCLUDED.display_name,
+                  metadata         = EXCLUDED.metadata,
+                  enabled          = EXCLUDED.enabled;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
