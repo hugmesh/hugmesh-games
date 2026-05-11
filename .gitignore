@@ -93,3 +93,13 @@ docs/snapdragon-design-docs-*.zip
 # LaTeX, slide-deck, and Javadoc artefacts share one project + datetime.
 docs/publishing/architecture/build-stamp.tex
 /.env
+
+# Build / test output (per-repo dirs that should never land in git)
+rpg-builder/target/
+vn-builder/target/
+e2e/.features-gen/
+docs/publishing/architecture/marbles/build/
+# Per-game synced addon copies — populated by `make sync-bridge-addon`
+games/*/addons/snapdragon_bridge/
+games/dodecahedron-demo/addons/snapdragon_bridge/
+games/three-wizards-in-a-trenchcoat/addons/snapdragon_bridge/
