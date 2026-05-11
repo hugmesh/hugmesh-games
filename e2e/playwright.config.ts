@@ -38,9 +38,16 @@ export default defineConfig({
     baseURL,
     // The whole point — accept the self-signed cert without rejecting.
     ignoreHTTPSErrors: true,
+    // Trace + video retention is forced ON for every run so the e2e
+    // artefact harvest (`make docs-screenshots-from-e2e`) always has
+    // a per-step PNG + a full webm to fall back on. The per-step PNG
+    // hook in features/support/fixtures.ts gives us granular shots;
+    // the video covers everything between steps (federation init,
+    // WASM compile, lobby transitions) so a reviewer can scrub the
+    // whole scenario timeline.
     trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    screenshot: 'on',
+    video: 'on',
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },
