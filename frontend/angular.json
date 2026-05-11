@@ -410,6 +410,122 @@
           "defaultConfiguration": "production"
         }
       }
+    },
+    "registration": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/registration",
+      "sourceRoot": "projects/registration/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": {
+            "target": "registration:esbuild:production"
+          },
+          "configurations": {
+            "development": {
+              "target": "registration:esbuild:development",
+              "dev": true
+            },
+            "production": {
+              "target": "registration:esbuild:production"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/registration",
+            "index": "projects/registration/src/index.html",
+            "browser": "projects/registration/src/main.ts",
+            "polyfills": [
+              "zone.js"
+            ],
+            "tsConfig": "projects/registration/tsconfig.app.json",
+            "assets": [],
+            "styles": [],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "500kb",
+                  "maximumError": "2mb"
+                }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    },
+    "banned": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "projects/banned",
+      "sourceRoot": "projects/banned/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular-architects/native-federation:build",
+          "options": {
+            "target": "banned:esbuild:production"
+          },
+          "configurations": {
+            "development": {
+              "target": "banned:esbuild:development",
+              "dev": true
+            },
+            "production": {
+              "target": "banned:esbuild:production"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "esbuild": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/banned",
+            "index": "projects/banned/src/index.html",
+            "browser": "projects/banned/src/main.ts",
+            "polyfills": [
+              "zone.js"
+            ],
+            "tsConfig": "projects/banned/tsconfig.app.json",
+            "assets": [],
+            "styles": [],
+            "scripts": []
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "none",
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "500kb",
+                  "maximumError": "2mb"
+                }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
     }
   },
   "cli": {

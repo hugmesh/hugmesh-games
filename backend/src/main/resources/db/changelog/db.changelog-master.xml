@@ -33,4 +33,5 @@
     <include file="db/changelog/027-per-level-positions.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/028-rename-chapter-instant.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/029-admin-actions.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/030-auth-ux-remotes-federation.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>
