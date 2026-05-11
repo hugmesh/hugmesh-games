@@ -35,4 +35,5 @@
     <include file="db/changelog/029-admin-actions.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/030-auth-ux-remotes-federation.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/031-producer-contacts.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/032-accounts-schema-split.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>
