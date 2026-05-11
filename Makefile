@@ -15,7 +15,27 @@ SHELL := /bin/bash
         test test-rust test-backend test-frontend \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
-        docs-userguides docs-openapi-spec docs-openapi-latex
+        docs-userguides docs-openapi-spec docs-openapi-latex \
+        lan-info lan-up lan-up-tls lan-down
+
+# ── LAN-access helpers (read lan.properties at repo root) ────────────────
+# lan.properties is a docker-compose env-file (literal FRONTEND_BIND= /
+# FRONTEND_PORT= / POSTGRES_BIND= lines). It's consumed two ways:
+#   • This Makefile passes it via `--env-file lan.properties` so the
+#     `make lan-*` targets and a plain `docker compose --env-file
+#     lan.properties up -d` produce the same result.
+#   • `make lan-info` sources it as a POSIX shell file just to print
+#     the URLs the portal will answer on.
+# A fresh clone with no env-file falls back to the loopback defaults
+# in docker-compose.yml — exposing the BFF or Postgres to a hostile
+# LAN stays an explicit, named step.
+LAN_PROPERTIES ?= lan.properties
+LAN_ENV_FILE   = $(if $(wildcard $(LAN_PROPERTIES)),--env-file $(LAN_PROPERTIES),)
+LAN_EXPORT = \
+  if [ -f $(LAN_PROPERTIES) ]; then set -a; . ./$(LAN_PROPERTIES); set +a; fi; \
+  export FRONTEND_BIND=$${FRONTEND_BIND:-127.0.0.1:}; \
+  export POSTGRES_BIND=$${POSTGRES_BIND:-127.0.0.1:}; \
+  export FRONTEND_PORT=$${FRONTEND_PORT:-8080};
 
 GODOT        ?= godot
 DB_HOST      ?= localhost
@@ -401,9 +421,9 @@ gen-certs:
 
 e2e: gen-certs
 	@echo "→ Building images with TLS layer…"
-	docker compose $(E2E_FILES) build api frontend e2e wasm-fragment
+	docker compose $(E2E_FILES) build api frontend e2e wasm-fragment rpg-builder vn-builder games-rpg-maker games-vn-maker
 	@echo "→ Starting stack with TLS…"
-	docker compose $(E2E_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
+	docker compose $(E2E_FILES) up -d postgres postgres-rpg-builder postgres-vn-builder cassandra cassandra-init casdoor api rpg-builder vn-builder frontend
 	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"
 	@for i in $$(seq 1 60); do \
 	  api_ok=0; web_ok=0; \
@@ -451,9 +471,9 @@ e2e-logs:
 # `make e2e` gate.
 e2e-bdd: gen-certs
 	@echo "→ Building images with TLS layer…"
-	docker compose $(E2E_FILES) build api frontend e2e wasm-fragment
+	docker compose $(E2E_FILES) build api frontend e2e wasm-fragment rpg-builder vn-builder games-rpg-maker games-vn-maker
 	@echo "→ Starting stack with TLS…"
-	docker compose $(E2E_FILES) up -d postgres cassandra cassandra-init casdoor api frontend
+	docker compose $(E2E_FILES) up -d postgres postgres-rpg-builder postgres-vn-builder cassandra cassandra-init casdoor api rpg-builder vn-builder frontend
 	@echo "→ Waiting for stack to become healthy…"
 	@for i in $$(seq 1 60); do \
 	  api_ok=0; web_ok=0; \
@@ -586,6 +606,60 @@ docs-clean:
 
 docs-install-hooks:
 	@bash docs/publishing/scripts/install-hooks.sh
+
+# ── LAN access (driven by lan.properties at repo root) ──────────────────────
+#
+#   lan.properties: FRONTEND_BIND=, FRONTEND_PORT=, POSTGRES_BIND= (literal
+#                   KEY=VALUE — a docker-compose env-file).
+#
+#   make lan-info        — print the URL(s) the portal answers on, including
+#                          every reachable LAN IP when bound to 0.0.0.0.
+#   make lan-up          — bring the stack up, HTTP-only, with lan.properties
+#                          as the env-file for compose interpolation.
+#   make lan-up-tls      — same but HTTPS only (self-signed cert from
+#                          `make gen-certs`; mounts nginx-tls.conf).
+#   make lan-down        — `docker compose down` (drops both overlays if up).
+#
+# Why not bake into `make up`? A fresh clone should default to
+# loopback-only; flipping LAN access should be an explicit, named
+# action visible in the recipe.
+
+lan-info:
+	@$(LAN_EXPORT) \
+	  if [ "$$FRONTEND_BIND" = "0.0.0.0:" ]; then \
+	    echo "→ LAN access: ENABLED  (lan.properties FRONTEND_BIND=0.0.0.0:)"; \
+	    echo "  Portal URLs (any of these IPs will work from devices on the same network):"; \
+	    ip -4 -o addr show scope global 2>/dev/null | awk -v p=$$FRONTEND_PORT '{split($$4,a,"/"); print "    http://"a[1]":"p"/"}'; \
+	    echo "  Local URL: http://localhost:$$FRONTEND_PORT/"; \
+	  else \
+	    echo "→ LAN access: DISABLED (FRONTEND_BIND=$$FRONTEND_BIND)"; \
+	    echo "  Portal URL: http://localhost:$$FRONTEND_PORT/"; \
+	    echo "  Set FRONTEND_BIND=0.0.0.0: in $(LAN_PROPERTIES) then re-run \`make lan-up\` to expose to the LAN."; \
+	  fi; \
+	  if [ "$$POSTGRES_BIND" = "0.0.0.0:" ]; then \
+	    echo "  ⚠ Postgres is ALSO LAN-exposed on port 5432 (POSTGRES_BIND=0.0.0.0:)."; \
+	  fi
+
+lan-up:
+	@$(LAN_EXPORT) \
+	  echo "→ Starting stack with FRONTEND_BIND=$$FRONTEND_BIND FRONTEND_PORT=$$FRONTEND_PORT POSTGRES_BIND=$$POSTGRES_BIND (HTTP)"; \
+	  docker compose $(LAN_ENV_FILE) up -d
+	@$(MAKE) -s lan-info
+
+lan-up-tls: gen-certs
+	@$(LAN_EXPORT) \
+	  echo "→ Starting stack with FRONTEND_BIND=$$FRONTEND_BIND FRONTEND_PORT=$$FRONTEND_PORT POSTGRES_BIND=$$POSTGRES_BIND (HTTPS)"; \
+	  docker compose $(LAN_ENV_FILE) -f docker-compose.yml -f docker-compose.tls.yml up -d
+	@$(LAN_EXPORT) \
+	  if [ "$$FRONTEND_BIND" = "0.0.0.0:" ]; then \
+	    echo "→ HTTPS LAN URLs (self-signed cert — accept the browser warning):"; \
+	    ip -4 -o addr show scope global 2>/dev/null | awk -v p=$$FRONTEND_PORT '{split($$4,a,"/"); print "    https://"a[1]":"p"/"}'; \
+	  fi; \
+	  echo "  Local URL: https://localhost:$$FRONTEND_PORT/"
+
+lan-down:
+	@$(LAN_EXPORT) docker compose $(LAN_ENV_FILE) -f docker-compose.yml -f docker-compose.tls.yml down 2>/dev/null \
+	  || docker compose $(LAN_ENV_FILE) down
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

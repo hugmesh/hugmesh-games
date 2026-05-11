@@ -102,7 +102,17 @@ public class AssetController {
             `app.assets.require-launch-uid=true` in application.yml to make
             this path 403, forcing all consumers onto the gated path.
             """)
-    @GetMapping("/levels/{slug}/{filename:.+}")
+    // `{*filename}` is Spring WebFlux's capture-the-rest syntax — it
+    // greedily binds every remaining path segment (with embedded `/`s)
+    // into one variable. The original `{filename:.+}` matches a SINGLE
+    // segment, so a maker-uploaded chapter whose asset_url contains a
+    // subdir (e.g. `square-row/index.html`) couldn't be reached via
+    // this endpoint at all — the URL had too many segments and Spring
+    // fell off both routes to 404. The capture-rest variant resolves
+    // the URL exactly like the production wasm-fragment proxy already
+    // does, plus the filename will include a leading `/` so we strip
+    // it in serveLevelFile before resolving against the version dir.
+    @GetMapping("/levels/{slug}/{*filename}")
     public Mono<ResponseEntity<Resource>> getLevelAsset(
             @PathVariable String slug,
             @PathVariable String filename) {
@@ -110,7 +120,7 @@ public class AssetController {
             return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "launch-uid required — use /api/assets/levels/{slug}/{uid}/{filename}"));
         }
-        return serveLevelFile(slug, filename);
+        return serveLevelFile(slug, stripLeadingSlash(filename));
     }
 
     @Operation(
@@ -125,11 +135,12 @@ public class AssetController {
             assets. Mismatches return 404 (not 403) so an attacker can't
             tell whether a uid exists.
             """)
-    @GetMapping("/levels/{slug}/{uid}/{filename:.+}")
+    @GetMapping("/levels/{slug}/{uid}/{*filename}")
     public Mono<ResponseEntity<Resource>> getLevelAssetByUid(
             @PathVariable String slug,
             @PathVariable String uid,
             @PathVariable String filename) {
+        final String cleanFilename = stripLeadingSlash(filename);
         return launches.findByUidAndTerminatedAtIsNullAndExpiresAtAfter(uid, Instant.now())
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
                 .flatMap(launch -> {
@@ -144,10 +155,24 @@ public class AssetController {
                     // game has never been hot-uploaded).
                     String pinned = launch.getVersionDir();
                     if (pinned == null || pinned.isBlank()) {
-                        return serveLevelFile(slug, filename);
+                        return serveLevelFile(slug, cleanFilename);
                     }
-                    return serveFromPinnedDir(pinned, slug, filename);
+                    return serveFromPinnedDir(pinned, slug, cleanFilename);
                 });
+    }
+
+    /**
+     * Spring WebFlux's {@code @PathVariable} on a {@code {*name}}
+     * capture-the-rest pattern always includes a leading {@code /} —
+     * that's the spec, but it'd cause every {@link Path#resolve}
+     * downstream to throw "absolute path can't resolve against base".
+     * Strip it once at the boundary so the rest of this controller
+     * (and the same code paths the single-segment legacy variant
+     * fed) work unchanged.
+     */
+    private static String stripLeadingSlash(String s) {
+        if (s == null) return "";
+        return s.startsWith("/") ? s.substring(1) : s;
     }
 
     private Mono<ResponseEntity<Resource>> serveFromPinnedDir(String versionDir,

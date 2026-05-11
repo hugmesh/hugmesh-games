@@ -40,6 +40,13 @@ make e2e                        # full Playwright run against the live stack
 make e2e-native                 # same, against the GraalVM native image overlay
 ```
 
+The base `docker-compose.yml` binds the frontend port to `127.0.0.1` by default so a fresh clone never accidentally exposes the BFF or Postgres to the LAN. Two knobs change that:
+
+| Goal | Knob | How |
+|---|---|---|
+| LAN demo / multi-device playtest | `lan.properties` + `make lan-up` (or `make lan-up-tls` for HTTPS) | Set `FRONTEND_BIND=0.0.0.0:`. Frontend re-binds to all interfaces. `make lan-info` prints reachable URLs. `lan.properties` is a docker-compose env-file — `docker compose --env-file lan.properties up -d` produces the same result without going through make. |
+| Production deploy at `snapdragon.games` | `compose.prod.yml` + `PROD_FRONTEND_BIND` | Defaults to loopback (assumes upstream LB). Set `PROD_FRONTEND_BIND=0.0.0.0:` for single-VM direct-internet deploys. Edge rate limits at the host nginx level are sized for ~10 k concurrent users — see [decision 019](../decisions/019-production-rate-limits.md). |
+
 ### ⚠ Docker 29.x needs buildx
 
 Docker 29.x removed the legacy in-daemon image builder. `docker compose build` will hang silently if `docker-buildx` isn't installed. The fix is a user-local install of the v0.18 binary into `~/.docker/cli-plugins/docker-buildx` (no sudo needed). The README's *Running with Docker Compose* section documents the exact command.

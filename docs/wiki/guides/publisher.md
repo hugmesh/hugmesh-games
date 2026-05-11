@@ -29,6 +29,11 @@ If a game isn't in your scope, an `ROLE_ADMIN` holder grants you the scope row a
 - **Pin a previous version** as the active one. Useful when a fresh upload regresses. `PUT /api/games/{slug}/uploads/{uploadId}/pin`.
 - **Edit per-game access policy.** `POST /api/games/{slug}/access` with `{scope, value}` — three additive scopes: `all`, `role` (e.g. `ROLE_PLAY_THREE_WIZARDS`), `user` (specific Casdoor ID). Idempotent on `uq_game_access_triple`. See [decision 009](../decisions/009-game-access-scopes.md).
 - **List active sessions** for monitoring (read-only — kick is mod-only).
+- **Author a new game from scratch** without leaving the portal. Two launch buttons on the publisher tab open dedicated federated maker remotes in a new tab:
+    - **Launch RPG Maker** → `/rpg-maker` (Mudlet-shaped editor: areas / rooms / N/S/E/W/NE/NW/SE/SW/UP/DOWN/TELEPORT exits / items / NPCs / scripts). Backed by the [`rpg-builder/`](../../../rpg-builder/) Spring service.
+    - **Launch Visual Novel Maker** → `/vn-maker` (godot-2d-visual-novel-shaped editor: acts / characters / backgrounds / scenes / dialogue lines / branching choices). Backed by the [`vn-builder/`](../../../vn-builder/) Spring service.
+
+  Both makers compile the saved project to a Snapdragon-bridge-aware Godot 4 WASM bundle (one bundle per Area/Act → registered as a Chapter), POST it to `/api/admin/games/upload` with **your** bearer token, and the BFF runs the same `publisher_game_scopes` check it would on a hand-uploaded bundle. The maker shows a live build-progress bar with terminal `DONE` / `FAILED` state. See [decision 018](../decisions/018-rpg-and-vn-makers.md).
 
 ## What you can NOT do
 
