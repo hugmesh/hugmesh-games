@@ -1,0 +1,102 @@
+package games.snapdragon.rpgbuilder.service;
+
+import games.snapdragon.rpgbuilder.entity.RpgAsset;
+import games.snapdragon.rpgbuilder.entity.RpgProject;
+import games.snapdragon.rpgbuilder.repository.RpgAssetRepository;
+import games.snapdragon.rpgbuilder.util.SlugUtil;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.OffsetDateTime;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * Persists uploaded asset files (room icons, NPC portraits) to disk
+ * under {@code <assetsDir>/<project-id>/<asset-id>}. The file path is
+ * private to the side service; the build worker reads from this dir
+ * when assembling the Godot project tree, and the editor exposes a
+ * GET endpoint that streams the bytes back for preview.
+ */
+@Service
+public class AssetStorageService {
+
+    private static final Set<String> ALLOWED_MIME = Set.of(
+            "image/png", "image/jpeg", "image/webp", "image/svg+xml");
+    private static final long MAX_BYTES = 4L * 1024 * 1024; // 4 MB
+
+    private final Path assetsDir;
+    private final RpgAssetRepository assets;
+    private final RpgProjectService projects;
+
+    public AssetStorageService(@Value("${app.build.assets-dir}") String assetsDirCfg,
+                               RpgAssetRepository assets,
+                               RpgProjectService projects) {
+        this.assetsDir = Path.of(assetsDirCfg);
+        this.assets = assets;
+        this.projects = projects;
+    }
+
+    public Mono<RpgAsset> upload(UUID projectId, String slug, String kind, FilePart filePart,
+                                 String ownerCasdoorId) {
+        if (!SlugUtil.isValid(slug)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "asset slug invalid"));
+        }
+        if (kind == null || kind.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "asset kind required"));
+        }
+        String mime = filePart.headers().getContentType() != null ? filePart.headers().getContentType().toString() : null;
+        if (mime == null || !ALLOWED_MIME.contains(mime)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "unsupported mime type; allowed: " + ALLOWED_MIME));
+        }
+
+        return projects.get(projectId, ownerCasdoorId).flatMap(p -> store(p, slug, kind, mime, filePart));
+    }
+
+    private Mono<RpgAsset> store(RpgProject p, String slug, String kind, String mime, FilePart fp) {
+        UUID assetId = UUID.randomUUID();
+        Path projectDir = assetsDir.resolve(p.getId().toString());
+        Path target = projectDir.resolve(assetId.toString());
+        return Mono.fromCallable(() -> { Files.createDirectories(projectDir); return target; })
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(t -> fp.transferTo(t).thenReturn(t))
+                .flatMap(t -> Mono.fromCallable(() -> {
+                            long size = Files.size(t);
+                            if (size > MAX_BYTES) {
+                                Files.deleteIfExists(t);
+                                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                                        "asset exceeds " + MAX_BYTES + " bytes");
+                            }
+                            RpgAsset a = new RpgAsset();
+                            a.setId(assetId);
+                            a.setProjectId(p.getId());
+                            a.setSlug(slug);
+                            a.setKind(kind);
+                            a.setMimeType(mime);
+                            a.setByteSize(size);
+                            a.setStoragePath(t.toString());
+                            a.setUploadedBy(p.getOwnerCasdoorId());
+                            a.setUploadedAt(OffsetDateTime.now());
+                            return a;
+                        }).subscribeOn(Schedulers.boundedElastic()))
+                .flatMap(assets::save);
+    }
+
+    public Mono<byte[]> read(UUID projectId, UUID assetId, String ownerCasdoorId) {
+        return projects.get(projectId, ownerCasdoorId)
+                .flatMap(p -> assets.findById(assetId))
+                .flatMap(a -> Mono.fromCallable(() -> Files.readAllBytes(Path.of(a.getStoragePath())))
+                        .subscribeOn(Schedulers.boundedElastic()))
+                .onErrorMap(IOException.class, e ->
+                        new ResponseStatusException(HttpStatus.NOT_FOUND, "asset bytes missing on disk"));
+    }
+}

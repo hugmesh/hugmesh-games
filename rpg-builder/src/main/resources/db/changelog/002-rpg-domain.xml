@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                                       https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    The RPG project hierarchy mirrors Mudlet's editable world:
+    project → areas → rooms → exits, with sibling tables for items, NPCs,
+    and scripts. Each Area becomes a Chapter when the project is built;
+    each Chapter is its own exported WASM bundle, so a project with three
+    Areas produces three index.html bundles registered in the BFF
+    `chapters` table. Rooms within an area become scenes inside that
+    chapter's WASM.
+  -->
+
+  <changeSet id="002-rpg-projects" author="snapdragon-rpg-builder">
+    <createTable tableName="rpg_projects">
+      <column name="id"                  type="uuid"        defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="slug"                type="varchar(64)"><constraints nullable="false" unique="true"/></column>
+      <column name="display_name"        type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="description"         type="text"/>
+      <column name="owner_casdoor_id"    type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="created_at"          type="timestamp with time zone" defaultValueComputed="now()"><constraints nullable="false"/></column>
+      <column name="updated_at"          type="timestamp with time zone" defaultValueComputed="now()"><constraints nullable="false"/></column>
+    </createTable>
+    <createIndex tableName="rpg_projects" indexName="idx_rpg_projects_owner">
+      <column name="owner_casdoor_id"/>
+    </createIndex>
+  </changeSet>
+
+  <changeSet id="002-rpg-areas" author="snapdragon-rpg-builder">
+    <!-- Mudlet's TArea: a region containing rooms. -->
+    <createTable tableName="rpg_areas">
+      <column name="id"          type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"  type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_areas_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="slug"        type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"        type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="sort_order"  type="integer" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="grid_mode"   type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+    </createTable>
+    <addUniqueConstraint tableName="rpg_areas"
+                         columnNames="project_id, slug"
+                         constraintName="uq_rpg_areas_project_slug"/>
+  </changeSet>
+
+  <changeSet id="002-rpg-rooms" author="snapdragon-rpg-builder">
+    <!-- Mudlet's TRoom: a single location. (x,y,z) is the editor grid
+         coordinate; environment is a Mudlet-style integer color hint. -->
+    <createTable tableName="rpg_rooms">
+      <column name="id"           type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"   type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_rooms_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="area_id"      type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_rooms_area" references="rpg_areas(id)" deleteCascade="true"/></column>
+      <column name="slug"         type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"         type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="description"  type="text"/>
+      <column name="environment"  type="integer" defaultValueNumeric="-1"><constraints nullable="false"/></column>
+      <column name="x"            type="integer" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="y"            type="integer" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="z"            type="integer" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="icon_asset_id"  type="uuid"/>
+      <column name="gd_script"      type="text"/>
+    </createTable>
+    <addUniqueConstraint tableName="rpg_rooms"
+                         columnNames="project_id, slug"
+                         constraintName="uq_rpg_rooms_project_slug"/>
+    <createIndex tableName="rpg_rooms" indexName="idx_rpg_rooms_area">
+      <column name="area_id"/>
+    </createIndex>
+  </changeSet>
+
+  <changeSet id="002-rpg-exits" author="snapdragon-rpg-builder">
+    <!-- Mudlet's exit list, one row per direction. The `direction`
+         column carries the named compass + vertical + teleport set;
+         a CHECK keeps callers honest. -->
+    <createTable tableName="rpg_exits">
+      <column name="id"              type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"      type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_exits_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="from_room_id"    type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_exits_from"   references="rpg_rooms(id)" deleteCascade="true"/></column>
+      <column name="to_room_id"      type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_exits_to"     references="rpg_rooms(id)"/></column>
+      <column name="direction"       type="varchar(16)"><constraints nullable="false"/></column>
+      <column name="locked"          type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+      <column name="key_item_id"     type="uuid"/>
+    </createTable>
+    <sql>
+      ALTER TABLE rpg_exits
+        ADD CONSTRAINT ck_rpg_exits_direction
+        CHECK (direction IN ('N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'));
+    </sql>
+    <addUniqueConstraint tableName="rpg_exits"
+                         columnNames="from_room_id, direction"
+                         constraintName="uq_rpg_exits_from_direction"/>
+    <createIndex tableName="rpg_exits" indexName="idx_rpg_exits_to">
+      <column name="to_room_id"/>
+    </createIndex>
+  </changeSet>
+
+  <changeSet id="002-rpg-items" author="snapdragon-rpg-builder">
+    <createTable tableName="rpg_items">
+      <column name="id"           type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"   type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_items_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="slug"         type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"         type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="description"  type="text"/>
+      <column name="icon_asset_id"  type="uuid"/>
+      <column name="gd_script"      type="text"/>
+    </createTable>
+    <addUniqueConstraint tableName="rpg_items"
+                         columnNames="project_id, slug"
+                         constraintName="uq_rpg_items_project_slug"/>
+  </changeSet>
+
+  <changeSet id="002-rpg-npcs" author="snapdragon-rpg-builder">
+    <createTable tableName="rpg_npcs">
+      <column name="id"               type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"       type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_npcs_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="slug"             type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"             type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="default_room_id"  type="uuid"/>
+      <column name="dialogue_text"    type="text"/>
+      <column name="portrait_asset_id" type="uuid"/>
+      <column name="gd_script"          type="text"/>
+    </createTable>
+    <addUniqueConstraint tableName="rpg_npcs"
+                         columnNames="project_id, slug"
+                         constraintName="uq_rpg_npcs_project_slug"/>
+  </changeSet>
+
+  <changeSet id="002-rpg-scripts" author="snapdragon-rpg-builder">
+    <!-- Mudlet's TScript / TTrigger / TAlias / TKey are all generic
+         "code attached to a hook" rows. We keep the kind discriminator
+         so the editor can tab them separately. -->
+    <createTable tableName="rpg_scripts">
+      <column name="id"           type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"   type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_scripts_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="slug"         type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"         type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="kind"         type="varchar(16)"><constraints nullable="false"/></column>
+      <column name="source"       type="text" defaultValue=""><constraints nullable="false"/></column>
+    </createTable>
+    <sql>
+      ALTER TABLE rpg_scripts
+        ADD CONSTRAINT ck_rpg_scripts_kind
+        CHECK (kind IN ('TRIGGER','ALIAS','KEY','SCRIPT'));
+    </sql>
+    <addUniqueConstraint tableName="rpg_scripts"
+                         columnNames="project_id, slug"
+                         constraintName="uq_rpg_scripts_project_slug"/>
+  </changeSet>
+
+</databaseChangeLog>

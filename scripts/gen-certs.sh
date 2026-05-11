@@ -36,10 +36,31 @@ fi
 
 echo "[gen-certs] generating self-signed CA + server certs in $OUT"
 
+# Detect the host's LAN-routable IPv4 addresses so `make lan-up-tls`
+# produces a cert that's name-valid for `https://<lan-ip>:8080/`. Without
+# these the browser falls back to NET::ERR_CERT_COMMON_NAME_INVALID on
+# the LAN URL even after the user accepts the CA. `ip` may not exist on
+# every host; the fallback yields a localhost-only cert.
+LAN_IPS=$( (ip -4 -o addr show scope global 2>/dev/null \
+            || ifconfig 2>/dev/null | awk '/inet /{print $2}') \
+          | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/) {split($i,a,"/"); print a[1]}}' \
+          | sort -u )
+echo "[gen-certs] including LAN IPs in SAN: $(echo $LAN_IPS | tr '\n' ' ')"
+
 # OpenSSL inside alpine: cross-platform, no host deps.
-docker run --rm -v "$OUT:/out" alpine:3.20 sh -c '
+docker run --rm -v "$OUT:/out" -e LAN_IPS="$LAN_IPS" alpine:3.20 sh -c '
   apk add --no-cache openssl >/dev/null
   cd /out
+
+  # Build the [alt] section first; append per-LAN-IP entries before the
+  # heredoc fires, so the openssl.cnf includes them in one shot.
+  ALT_EXTRA=""
+  i=3
+  for ip in $LAN_IPS; do
+    ALT_EXTRA="${ALT_EXTRA}
+IP.${i}  = ${ip}"
+    i=$((i+1))
+  done
 
   cat > openssl.cnf <<EOF
 [req]
@@ -61,7 +82,7 @@ DNS.2 = api
 DNS.3 = frontend
 DNS.4 = host.docker.internal
 IP.1  = 127.0.0.1
-IP.2  = ::1
+IP.2  = ::1${ALT_EXTRA}
 EOF
 
   # Root CA

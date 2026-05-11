@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                                       https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Dev fixture: a Flatland-themed RPG project owned by the
+    `publisher-flatland` Casdoor seed user (id `publisher-flatland`).
+    When that user logs in to /rpg-maker the editor finds this
+    project pre-populated; clicking Build pushes it through the
+    real upload pipeline and the produced bundle lands in the BFF
+    catalog.
+
+    Slugs match what the e2e BDD scenarios use so a hand-driven
+    walkthrough produces the same artefacts the automated suite
+    produces.
+
+    All inserts gated on a presence preCondition so the seed is
+    idempotent on a Liquibase rerun.
+  -->
+
+  <changeSet id="004-1-flatland-project" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_projects WHERE slug = 'flatland-rpg'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_projects (id, slug, display_name, description, owner_casdoor_id)
+      VALUES ('11111111-1111-4111-8111-111111111111',
+              'flatland-rpg',
+              'Flatland RPG',
+              'Dev fixture: walk a Square through the social geometry of Flatland.',
+              'publisher-flatland');
+    </sql>
+  </changeSet>
+
+  <changeSet id="004-2-flatland-areas" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_areas WHERE project_id = '11111111-1111-4111-8111-111111111111'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_areas (id, project_id, slug, name, sort_order, grid_mode) VALUES
+        ('11111111-1111-4111-8111-111111111aa1', '11111111-1111-4111-8111-111111111111', 'lineland', 'Lineland', 0, false),
+        ('11111111-1111-4111-8111-111111111aa2', '11111111-1111-4111-8111-111111111111', 'flatland', 'Flatland', 1, true);
+    </sql>
+  </changeSet>
+
+  <changeSet id="004-3-flatland-rooms" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_rooms WHERE project_id = '11111111-1111-4111-8111-111111111111'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_rooms (id, project_id, area_id, slug, name, description, environment, x, y, z) VALUES
+        ('11111111-1111-4111-8111-111111111b01', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111aa1',
+            'the-line', 'The Line', 'A perfectly one-dimensional kingdom of points and segments.', 1, 0, 0, 0),
+        ('11111111-1111-4111-8111-111111111b02', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111aa2',
+            'town-square', 'Town Square', 'The hub of Flatland society. Squares, triangles, and pentagons mingle here.', 2, 0, 0, 0),
+        ('11111111-1111-4111-8111-111111111b03', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111aa2',
+            'temple-of-the-circle', 'Temple of the Circle', 'High-priest geometry: many-sided polygons rule from here.', 3, 4, 0, 0);
+    </sql>
+  </changeSet>
+
+  <changeSet id="004-4-flatland-exits" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_exits WHERE project_id = '11111111-1111-4111-8111-111111111111'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_exits (project_id, from_room_id, to_room_id, direction, locked) VALUES
+        ('11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111b02', '11111111-1111-4111-8111-111111111b03', 'E', false),
+        ('11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111b03', '11111111-1111-4111-8111-111111111b02', 'W', false),
+        ('11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111b02', '11111111-1111-4111-8111-111111111b01', 'TELEPORT', false);
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

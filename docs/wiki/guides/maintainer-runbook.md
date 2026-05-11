@@ -122,3 +122,42 @@ If the 403 persists past the second keypress, the auto-recovery itself failed �
 - **Tier 1 (you):** triage with these runbooks. Aim for mitigation in 15 min.
 - **Tier 2 (the team):** the engineer who owns the affected layer.
 - **Tier 3 (the operator):** the human with sudo on the compose host.
+
+## LAN exposure (workstation demos)
+
+Default `make up` binds the frontend to `127.0.0.1` only — every other device on the local Wi-Fi gets `Connection refused`. To open it for a demo:
+
+1. Edit [`lan.properties`](../../../lan.properties): set `FRONTEND_BIND=0.0.0.0:` (keep the trailing `:` — it's spliced into the port mapping). `lan.properties` is a docker-compose env-file — `FRONTEND_BIND` / `FRONTEND_PORT` / `POSTGRES_BIND` are literal KEY=VALUE lines.
+2. Bring the stack up one of two equivalent ways:
+   - `make lan-up` — recommended, includes a post-up `lan-info` print of reachable URLs.
+   - `docker compose --env-file lan.properties up -d` — plain compose, same result.
+3. `make lan-info` — prints every reachable LAN IP + the portal URL.
+4. When done, set `FRONTEND_BIND=127.0.0.1:` and re-run `make lan-up` (or `make lan-down` to stop the stack entirely).
+
+For HTTPS over the same LAN access pattern (useful when testing OAuth flows / Service Workers that require secure context):
+
+1. `make gen-certs` — writes self-signed CA + server cert to `./e2e/certs/`. The script now detects the host's LAN IPv4 addresses and stuffs them into the cert's SAN list, so `https://<lan-ip>:8080/` is name-valid (not just `https://localhost/`).
+2. `make lan-up-tls` — same `lan.properties` env file, plus the [`docker-compose.tls.yml`](../../../docker-compose.tls.yml) overlay which mounts `nginx-tls.conf` and remaps host port 8080 → container 8443.
+3. Browsers will prompt because the CA is self-signed; accept the warning once. To skip the prompt entirely, import `e2e/certs/ca.crt` into the system trust store.
+
+Casdoor login is password-grant (no OAuth redirect URI to whitelist), so LAN clients log in normally. Postgres + Casdoor stay loopback regardless; set `POSTGRES_BIND=0.0.0.0:` for one-off DB-GUI access from a peer machine — rarely needed and a security footgun.
+
+## Production exposure + rate-limit knobs
+
+`compose.prod.yml` defaults the frontend to `127.0.0.1:8080` (assumes upstream LB / TLS terminator at `snapdragon.games`). Set `PROD_FRONTEND_BIND=0.0.0.0:` on the deploy host when there is no upstream proxy and this nginx should face the internet directly.
+
+The host nginx (`frontend/nginx.conf` + `frontend/nginx-tls.conf`) ships `limit_req_zone` declarations sized for ~10 000 concurrent users — see [decision 019](../decisions/019-production-rate-limits.md) for the budgets per path. Tripped requests return 429 (not 503) so well-behaved clients back off.
+
+If a budget is being hit legitimately under load:
+
+1. Watch the `429` rate in nginx access logs (or edge-LB observability) to identify the saturated zone.
+2. Bump the `rate=` for that zone in both `nginx.conf` AND `nginx-tls.conf` (these two files MUST stay in lockstep — the e2e + LAN-TLS overlays both mount `nginx-tls.conf`, and drift between the two files masquerades as "feature X works in dev but not under HTTPS").
+3. Re-deploy the frontend image; the BFF / Cassandra rate-limit layer is independent and doesn't need touching for an nginx-tier change.
+
+The `auth` zone was bumped from `1 r/s burst=4` to `5 r/s burst=20` after the original tighter setting locked out real logins — the federation runtime + Angular bootstrap fire ~5–8 `/api/auth/*` requests per legitimate sign-in, well over the original cap. The BFF's Cassandra-backed credential throttle (decision 017, 20-per-minute fleet-wide) is the dedicated brute-force defense; the edge zone is the volumetric floor.
+
+If a budget is being hit legitimately under load:
+
+1. Watch the `429` rate in nginx access logs (or your edge-LB observability) to identify the saturated zone.
+2. Bump the `rate=` for that zone in **both** `nginx.conf` AND `nginx-tls.conf` (the e2e overlay must stay in lockstep — see the drift gotcha in CLAUDE.md).
+3. Re-deploy the frontend image; the BFF's pod-internal + Cassandra cross-pod rate-limit layer is independent and doesn't need touching for an nginx-tier change.

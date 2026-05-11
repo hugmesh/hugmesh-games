@@ -6,13 +6,53 @@ services:
       POSTGRES_DB: threewizards
       POSTGRES_USER: threewizards
       POSTGRES_PASSWORD: threewizards
+    # Default: loopback-only — Postgres holds Casdoor seeds + BFF
+    # game state, neither of which should be reachable from a LAN
+    # peer. Override POSTGRES_BIND=0.0.0.0: via lan.properties when
+    # you want DB GUI access from another workstation on the same
+    # network.
     ports:
-      - "5432:5432"
+      - "${POSTGRES_BIND:-127.0.0.1:}5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U threewizards"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Dedicated DB for the rpg-builder side service. Liquibase migrates
+  # the schema (rpg_projects / rpg_areas / rpg_rooms / rpg_exits / …)
+  # on every boot of the `rpg-builder` service so the DB is fully
+  # managed by versioned changesets — no hand-applied SQL.
+  postgres-rpg-builder:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rpg_builder
+      POSTGRES_USER: rpg_builder
+      POSTGRES_PASSWORD: rpg_builder
+    volumes:
+      - pgdata_rpg_builder:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rpg_builder"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Dedicated DB for the vn-builder side service. Same pattern as the
+  # rpg-builder DB — Liquibase migrates vn_projects / vn_acts /
+  # vn_scenes / vn_lines / vn_choices on boot.
+  postgres-vn-builder:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vn_builder
+      POSTGRES_USER: vn_builder
+      POSTGRES_PASSWORD: vn_builder
+    volumes:
+      - pgdata_vn_builder:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vn_builder"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -25,12 +65,28 @@ services:
         condition: service_healthy
     environment:
       RUNNING_IN_DOCKER: "true"
-      # Set these explicitly to override generated random values.
-      # Leave unset to get a secure random secret printed to container logs on first run.
-      CASDOOR_CLIENT_ID: ${CASDOOR_CLIENT_ID:-twclient001}
-      CASDOOR_CLIENT_SECRET: ${CASDOOR_CLIENT_SECRET:-}
-      CASDOOR_ADMIN_PASS: ${CASDOOR_ADMIN_PASS:-}
-      CASDOOR_PLAYER_PASS: ${CASDOOR_PLAYER_PASS:-}
+      # Set these explicitly to override generated random values; leave
+      # unset to get a secure random secret printed to container logs on
+      # first run. The full seed-user set (player1/2/3, mod variants,
+      # publisher variants, the Flatland fixture owner) is wired here so
+      # `docker compose up -d` produces the same Casdoor directory the
+      # e2e `integration-test` profile uses — only the password defaults
+      # differ (random vs deterministic e2e-pass). The e2e overlay
+      # (docker-compose.e2e.yml) pins all of these to E2E_PASSWORD.
+      CASDOOR_CLIENT_ID:      ${CASDOOR_CLIENT_ID:-twclient001}
+      CASDOOR_CLIENT_SECRET:  ${CASDOOR_CLIENT_SECRET:-}
+      CASDOOR_ADMIN_PASS:     ${CASDOOR_ADMIN_PASS:-}
+      CASDOOR_PLAYER_PASS:    ${CASDOOR_PLAYER_PASS:-}
+      CASDOOR_PLAYER1_PASS:   ${CASDOOR_PLAYER1_PASS:-}
+      CASDOOR_PLAYER2_PASS:   ${CASDOOR_PLAYER2_PASS:-}
+      CASDOOR_PLAYER3_PASS:   ${CASDOOR_PLAYER3_PASS:-}
+      CASDOOR_MOD_PASS:       ${CASDOOR_MOD_PASS:-}
+      CASDOOR_MOD_TWIAT_PASS: ${CASDOOR_MOD_TWIAT_PASS:-}
+      CASDOOR_MOD_DODEC_PASS: ${CASDOOR_MOD_DODEC_PASS:-}
+      CASDOOR_PUBLISHER_PASS: ${CASDOOR_PUBLISHER_PASS:-}
+      CASDOOR_PUB_TWIAT_PASS: ${CASDOOR_PUB_TWIAT_PASS:-}
+      CASDOOR_PUB_DODEC_PASS: ${CASDOOR_PUB_DODEC_PASS:-}
+      CASDOOR_PUB_FLAT_PASS:  ${CASDOOR_PUB_FLAT_PASS:-}
     volumes:
       - ./casdoor/conf:/conf
       - ./casdoor/init_data.json.tpl:/init_data.json.tpl
@@ -137,18 +193,96 @@ services:
     depends_on:
       # nginx resolves every upstream at startup; without these the
       # frontend dies on `host not found in upstream` for any federated
-      # remote that hasn't booted yet.
+      # remote that hasn't booted yet. Must list every upstream that
+      # appears in EITHER nginx.conf OR nginx-tls.conf — the e2e
+      # overlay swaps the config but reuses this depends_on list, so
+      # an upstream that's only referenced from one of the two files
+      # still needs to be here.
       - api
       - login
       - admin
+      - mod
+      - publisher
       - api-docs
       - games-three-wizards
       - games-dodecahedron
+      - games-rpg-maker
+      - games-vn-maker
+      - rpg-builder
+      - vn-builder
       - wasm-fragment
     # Web is on :8080 across compose / dev / e2e. nginx serves the Angular
     # bundle and reverse-proxies /api/* to api:8080 internally.
+    # Default bind: 127.0.0.1 only — flip to 0.0.0.0 for LAN access via
+    # lan.properties. Two equivalent ways to take that knob:
+    #   • `make lan-up`   (sources lan.properties, uses --env-file)
+    #   • `docker compose --env-file lan.properties up -d` (plain)
+    # The plain form works because lan.properties IS a docker-compose
+    # env-file (FRONTEND_BIND=… etc. literal KEY=VALUE) — no Makefile
+    # translation step in between, so no surprise default if you skip
+    # the wrapper.
     ports:
-      - "8080:8080"
+       - "${FRONTEND_BIND:-127.0.0.1:}${FRONTEND_PORT:-8080}:8080"
+  # ── Side services: builder back-ends ────────────────────────────────────────
+  # rpg-builder stores Mudlet-shaped RPG project trees and produces
+  # snapdragon-bridge Godot WASM bundles. vn-builder does the VN
+  # equivalent (godot-2d-visual-novel-shaped). Each owns its own
+  # Postgres DB; both POST built bundles to the BFF upload endpoint
+  # so produced games federate under the building user. The host
+  # nginx proxies /api/rpg/ and /api/vn/ to these services so the
+  # federated maker remotes can talk to them via same-origin URLs.
+
+  rpg-builder:
+    image: snapdragon-games/rpg-builder:${SNAPDRAGON_TAG:-dev}
+    build: ./rpg-builder
+    depends_on:
+      postgres-rpg-builder:
+        condition: service_healthy
+      casdoor:
+        condition: service_healthy
+    expose:
+      - "8080"
+    environment:
+      DB_HOST: postgres-rpg-builder
+      DB_PORT: 5432
+      DB_NAME: rpg_builder
+      DB_USER: rpg_builder
+      DB_PASS: rpg_builder
+      CASDOOR_ENDPOINT: http://casdoor:8000
+      APP_BFF_BASE_URL: http://api:8080
+      APP_BUILD_GODOT_ENABLED: "false"
+      APP_BUILD_WORKDIR: /var/snapdragon/rpg-builds
+      APP_BUILD_ASSETS_DIR: /var/snapdragon/rpg-assets
+    volumes:
+      - rpg_builds:/var/snapdragon/rpg-builds
+      - rpg_assets:/var/snapdragon/rpg-assets
+    restart: on-failure
+
+  vn-builder:
+    image: snapdragon-games/vn-builder:${SNAPDRAGON_TAG:-dev}
+    build: ./vn-builder
+    depends_on:
+      postgres-vn-builder:
+        condition: service_healthy
+      casdoor:
+        condition: service_healthy
+    expose:
+      - "8080"
+    environment:
+      DB_HOST: postgres-vn-builder
+      DB_PORT: 5432
+      DB_NAME: vn_builder
+      DB_USER: vn_builder
+      DB_PASS: vn_builder
+      CASDOOR_ENDPOINT: http://casdoor:8000
+      APP_BFF_BASE_URL: http://api:8080
+      APP_BUILD_GODOT_ENABLED: "false"
+      APP_BUILD_WORKDIR: /var/snapdragon/vn-builds
+      APP_BUILD_ASSETS_DIR: /var/snapdragon/vn-assets
+    volumes:
+      - vn_builds:/var/snapdragon/vn-builds
+      - vn_assets:/var/snapdragon/vn-assets
+    restart: on-failure
 
   # ── Federation remotes ──────────────────────────────────────────────────────
   # Each `federation_modules` row points at one of these services. login,
@@ -221,6 +355,25 @@ services:
       dockerfile: projects/games-dodecahedron/Dockerfile
     expose: ["8080"]
 
+  # Mudlet-shaped RPG editor remote. Mounts at /rpg-maker on the host;
+  # talks to the rpg-builder side service via /api/rpg/* (same-origin
+  # through the host nginx proxy below).
+  games-rpg-maker:
+    image: snapdragon-games/rpg-maker-remote:${SNAPDRAGON_TAG:-dev}
+    build:
+      context: ./frontend
+      dockerfile: projects/games-rpg-maker/Dockerfile
+    expose: ["8080"]
+
+  # godot-2d-visual-novel-shaped VN editor remote. Mounts at /vn-maker;
+  # talks to the vn-builder side service via /api/vn/*.
+  games-vn-maker:
+    image: snapdragon-games/vn-maker-remote:${SNAPDRAGON_TAG:-dev}
+    build:
+      context: ./frontend
+      dockerfile: projects/games-vn-maker/Dockerfile
+    expose: ["8080"]
+
   # wasm-fragment is the shared asset-tier service: it serves the
   # Godot bundles (index.html / index.js / index.wasm / index.pck)
   # directly from its own nginx, taking the api service off the
@@ -238,5 +391,11 @@ services:
 
 volumes:
   pgdata:
+  pgdata_rpg_builder:
+  pgdata_vn_builder:
   cassandra_data:
   games_uploads:
+  rpg_builds:
+  rpg_assets:
+  vn_builds:
+  vn_assets:

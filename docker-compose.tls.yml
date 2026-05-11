@@ -1,0 +1,29 @@
+# Compose overlay that wraps the dev stack in HTTPS — mirrors the e2e
+# overlay's TLS layer but keeps the rest of the dev stack unchanged.
+#
+# Usage:
+#   make gen-certs                # writes ./e2e/certs/{server.crt,server.key,ca.crt}
+#   make lan-up-tls               # brings the stack up via this overlay
+#
+# Or by hand:
+#   docker compose --env-file lan.properties \
+#     -f docker-compose.yml -f docker-compose.tls.yml up -d
+#
+# The cert is self-signed (CN=localhost, SAN includes the local LAN IPs
+# scripts/gen-certs.sh saw at generation time). Browsers prompt once;
+# accept the warning to land on the portal. For a "real" cert on
+# snapdragon.games, use compose.prod.yml — that path expects an upstream
+# LB / ACME terminator and keeps this nginx behind it on plain HTTP.
+
+services:
+  frontend:
+    # Map the host port to the container's TLS listener (:8443) instead
+    # of the plain HTTP listener (:8080). The mapped port stays
+    # FRONTEND_PORT (default 8080) so the URL the user types doesn't
+    # change between `make lan-up` and `make lan-up-tls` — only the
+    # scheme flips.
+    ports: !override
+      - "${FRONTEND_BIND:-127.0.0.1:}${FRONTEND_PORT:-8080}:8443"
+    volumes:
+      - ./e2e/certs:/etc/nginx/certs:ro
+      - ./frontend/nginx-tls.conf:/etc/nginx/conf.d/default.conf:ro

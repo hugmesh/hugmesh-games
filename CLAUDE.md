@@ -189,6 +189,56 @@ Two paths feed `docs/publishing/screenshots/build/<name>.png` (which the user-gu
 - `make docs-screenshots` — the original Selenium flow ([`capture.py`](docs/publishing/screenshots/capture.py)). Drives a headless Firefox against a running compose stack at `SNAPDRAGON_BASE_URL`. Convenient when you've got a dev stack already up; falls back to placeholder PNGs when unreachable. Limitation: the dev stack only seeds admin + player passwords from `.env`, so mod / publisher logins fail and those captures land as placeholders.
 - `make docs-screenshots-from-e2e` — deterministic alternative. Runs the full `make e2e-bdd` flow (TLS integration-test stack, every Casdoor seed user with `E2E_PASSWORD=e2e-pass`), then runs [`harvest-from-e2e.py`](docs/publishing/screenshots/harvest-from-e2e.py) which copies the per-step BDD PNGs into the doc build dir under their reference names. Heavier (10-15 min cold) but lands real screenshots for every role including the per-game mod / publisher variants. `make docs-screenshots-harvest` skips the BDD run and re-harvests an existing `e2e/results/artifacts/` directory.
 
+## LAN access + production exposure
+
+Two knobs control where the stack listens.
+
+**Dev / LAN — [`lan.properties`](lan.properties) + `make lan-*`.** A workstation defaults to loopback-only (`127.0.0.1:8080`) so the BFF + Postgres aren't reachable by every device on the local Wi-Fi. `lan.properties` is a docker-compose env-file (literal `FRONTEND_BIND=0.0.0.0:` / `FRONTEND_PORT=…` / `POSTGRES_BIND=…` — no boolean indirection). Two equivalent ways to take it: `make lan-up` (recommended) or `docker compose --env-file lan.properties up -d` (plain) — both interpolate the same `${FRONTEND_BIND}` / `${POSTGRES_BIND}` keys into the port mappings. `make lan-info` prints reachable URLs. `make lan-up-tls` wraps the frontend in HTTPS via [`docker-compose.tls.yml`](docker-compose.tls.yml) (self-signed cert from `make gen-certs`; the cert's SAN list now includes the host's detected LAN IPs so `https://<lan-ip>:8080/` is name-valid, not just `localhost`). A plain `docker compose up -d` with no env-file falls back to the loopback defaults baked into `docker-compose.yml`. *Lesson:* an earlier design used a `LAN_OPEN=true|false` boolean translated to a bind prefix inside a Makefile shell function — that broke silently when users ran plain `docker compose up -d` because the translation never fired. Storing the prefix directly fixes both invocation paths.
+
+**Production — [`compose.prod.yml`](compose.prod.yml) + nginx rate-limit zones.** The prod overlay's frontend defaults to `PROD_FRONTEND_BIND=127.0.0.1:` (assumes an upstream LB / TLS terminator at `snapdragon.games`). Set `PROD_FRONTEND_BIND=0.0.0.0:` for a single-VM deploy that wants this nginx to face the internet directly. Either way the host nginx (`frontend/nginx.conf` + `frontend/nginx-tls.conf`) carries `limit_req_zone` declarations sized for ~10 000 concurrent users:
+
+| zone | rate/sec | burst | applied to |
+|---|---|---|---|
+| browse | 100 | 200 (delay) | `/` (SPA shell + static) |
+| api | 50 | 150 (delay) | `/api/*` (catch-all) |
+| sse | 30 | 100 (nodelay) | `/api/game/stream` |
+| auth | 5 | 20 (nodelay) | `/api/auth/*` |
+| admin | 5 | 20 (nodelay) | `/api/admin/*` |
+| maker_api | 10 | 40 (delay) | `/api/rpg/*` + `/api/vn/*` |
+
+Plus `limit_conn conn_per_ip 40` to cap a single source's parallel sockets. Tripped requests return 429 (not the nginx-default 503) so clients with backoff do the right thing. The BFF's existing per-pod `RateLimitFilter` (+ Cassandra cross-pod aggregator from decision 017) still runs at the controller level — these zones are the edge layer for cheap rejections before traffic touches the Java VM. See [`docs/wiki/decisions/019-production-rate-limits.md`](docs/wiki/decisions/019-production-rate-limits.md).
+
+## ⚠ nginx-tls.conf drift bites the e2e suite
+
+`make e2e` and `make e2e-bdd` mount [`frontend/nginx-tls.conf`](frontend/nginx-tls.conf) into the host frontend container — a TLS-only variant of the regular [`frontend/nginx.conf`](frontend/nginx.conf). Both files must list every `/_remotes/<slug>/` proxy block; if the TLS variant is missing one, the host nginx falls through to `try_files` and the host shell renders **"Couldn't reach <X> — federated module didn't load"** for any user that navigates to that route.
+
+The plain-HTTP variant has historically been kept up to date but the TLS overlay drifted (publisher / mod / api-docs were missing for months and only surfaced when the maker BDD scenarios first navigated through `/publisher`). When adding a new federated remote, **edit both files in lockstep** — copy the new `location /_remotes/<slug>/` block into nginx-tls.conf in the same place. Same applies to any `/api/<sub-service>/` proxy blocks (e.g. `/api/rpg/`, `/api/vn/`) — these are TLS-side too.
+
+## Twin maker side services (RPG + VN)
+
+Decision: see [`docs/wiki/decisions/018-rpg-and-vn-makers.md`](docs/wiki/decisions/018-rpg-and-vn-makers.md).
+
+Two reactive Spring Boot side services live alongside the BFF:
+
+- [`rpg-builder/`](rpg-builder/) — Mudlet-shaped editor data model (areas / rooms / 6+1-direction exits / items / NPCs / scripts). Owns its own `postgres-rpg-builder` DB with Liquibase-managed schema. REST surface at `/api/rpg/*`.
+- [`vn-builder/`](vn-builder/) — godot-2d-visual-novel-shaped data model (acts / characters / backgrounds / scenes / lines / branching choices). Owns its own `postgres-vn-builder` DB. REST surface at `/api/vn/*`.
+
+Twin federated frontend remotes drive them: [`frontend/projects/games-rpg-maker/`](frontend/projects/games-rpg-maker/) (mounted at `/rpg-maker`) and [`frontend/projects/games-vn-maker/`](frontend/projects/games-vn-maker/) (mounted at `/vn-maker`). The publisher console exposes "Launch RPG Maker" / "Launch Visual Novel Maker" buttons that open the makers in a new tab.
+
+Build pipeline (identical shape in both services): `QUEUED → RENDERING → EXPORTING → UPLOADING → DONE | FAILED`. The worker walks the project tree, renders a Godot 4 source tree under `<workdir>/<job-id>/godot-src/` (with `snapdragon_bridge.gdextension` baked in so the produced WASM is multiplayer-aware out of the box), invokes the Godot CLI per Area/Act (gated behind `app.build.godot-enabled`; stub bundles otherwise), zips the result, and POSTs to the BFF `/api/admin/games/upload` endpoint **with the originating user's bearer token** so the BFF's existing `publisher_game_scopes` check enforces who can ship which slug.
+
+Each Area (RPG) or Act (VN) becomes a Chapter in the BFF, exported as its own `bundle/<area-slug>/index.html`. The host portal's chapter chooser already handles multi-chapter games.
+
+Schemas in both side DBs are managed exclusively by Liquibase changelogs under `rpg-builder/src/main/resources/db/changelog/` and `vn-builder/src/main/resources/db/changelog/`. No psql-init seed file; no JPA `ddl-auto`.
+
+Federation manifest seed: backend changelog [`037-rpg-and-vn-maker-federation.xml`](backend/src/main/resources/db/changelog/037-rpg-and-vn-maker-federation.xml) adds the `games-rpg-maker` + `games-vn-maker` remotes so the host shell discovers them at bootstrap without a redeploy.
+
+E2E BDD coverage: [`e2e/features/makers/rpg-maker.feature`](e2e/features/makers/rpg-maker.feature) and [`e2e/features/makers/vn-maker.feature`](e2e/features/makers/vn-maker.feature) cover the launch-from-publisher flow, every inline form-validation error message, and the full create-→-build progress loop. Per-step PNG screenshots via the existing AfterStep hook in [`e2e/features/support/fixtures.ts`](e2e/features/support/fixtures.ts).
+
+**Dev fixture: `publisher-flatland`.** A new Casdoor seed user (id `tw-pub-flat-001`) is auto-granted publisher scope on `flatland-rpg` + `flatland-vn` via [`038-flatland-publisher-scopes.xml`](backend/src/main/resources/db/changelog/038-flatland-publisher-scopes.xml). Each builder service auto-seeds a corresponding Flatland project tree owned by that user via Liquibase 004 in its own DB ([rpg-builder](rpg-builder/src/main/resources/db/changelog/004-seed-flatland-fixture.xml) / [vn-builder](vn-builder/src/main/resources/db/changelog/004-seed-flatland-fixture.xml)). Logging in as `publisher-flatland` and opening either maker reveals the pre-seeded project ready to build — running through the maker pipeline pushes the Flatland games into the BFF catalog through the same `/api/admin/games/upload` path a hand-uploaded bundle takes. The seeded data uses Flatland-themed names (Lineland, Town Square, A Square, Lord Triangle, the Sphere) so the produced bundles double as a reference for what the renderer outputs.
+
+**Godot-source download per project.** Both makers expose a "Download Godot source" button next to "Build & upload" that hits `GET /api/{rpg|vn}/projects/{id}/godot-zip` on the side service. The endpoint runs the project renderer to produce the same Godot 4 source tree the build worker would feed to `godot --export-release`, zips it, and streams it back so the publisher can open the project in the Godot editor directly to tweak art/scenes the maker UI doesn't yet surface. Re-uploading after editing is just the normal publisher-console flow.
+
 ## Security primitives
 
 - **All UI-facing UIDs and URL tokens come through one call**: `Crypto.mintUid()` in `backend/src/main/java/games/snapdragon/bff/util/Crypto.java`. Output: 43-character URL-safe base64 of `SHA3-256(64 random bytes from BouncyCastle SP800-90A HMAC-SHA256 DRBG)`. No more `UUID.randomUUID()` or raw `SecureRandom` in this codebase. If you need bytes, ask `Crypto.randomBytes(n)`. If you need a hash, ask `Crypto.sha3_256(...)`. The DRBG state is process-singleton so callers don't have to thread it.

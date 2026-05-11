@@ -40,4 +40,6 @@
     <include file="db/changelog/034-friendships-and-session-visibility.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/035-additional-seed-characters.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/036-widen-session-ids-for-sha3.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/037-rpg-and-vn-maker-federation.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/038-flatland-publisher-scopes.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

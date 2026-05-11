@@ -46,4 +46,23 @@
       <span>Loading...</span>
     </div>
   }
+
+  <!-- Pause / grey-out overlay. Driven by `paused` — set when another
+       window of the same origin takes over (via BroadcastChannel) OR
+       when this window's own "open in new window" button fires. -->
+  @if (paused) {
+    <div class="paused-overlay"
+         data-testid="canvas-paused"
+         role="dialog"
+         aria-label="Game paused"
+         aria-modal="true">
+      <p class="paused-msg">Game paused — another window is playing.</p>
+      <button type="button"
+              class="resume-btn"
+              data-testid="canvas-resume-btn"
+              (click)="resumeGame()">
+        ▶ Resume here
+      </button>
+    </div>
+  }
 </div>

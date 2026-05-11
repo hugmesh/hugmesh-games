@@ -43,3 +43,20 @@ server:
   error:
     include-message: always
     include-binding-errors: always
+
+# RateLimitFilter caps for /api/auth/* and /api/admin/actions/*. The
+# production defaults (20 attempts per minute per IP) are the
+# credential-stuffing defense from decision 017. Under e2e the whole
+# Playwright fleet shares one container IP, and the BDD suite alone
+# fires ~30 /api/auth/token POSTs in a minute across the per-role
+# matrix + lobby + maker scenarios — which trips the 20/min cap and
+# subsequent logins see "Invalid credentials" from a 429 the SPA
+# can't distinguish from 401. Set the cap to a value that comfortably
+# exceeds the whole suite's auth surface but still rejects a real
+# brute-force fan-out from one IP. The nginx zone (5 r/s burst=20)
+# remains the volumetric floor at the edge.
+app:
+  rate-limit:
+    auth:
+      window-seconds: 60
+      max-per-window: 1000

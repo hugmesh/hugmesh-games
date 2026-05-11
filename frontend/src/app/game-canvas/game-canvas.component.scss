@@ -104,3 +104,52 @@
   right: 14px;
   opacity: 1;
 }
+
+/* Pause / grey-out overlay. Renders on top of the iframe (z-index above
+ * the canvas-controls so the user can't trigger another window-open
+ * action while paused) and dims the underlying frame to ~80% opacity
+ * black so the game is faintly visible behind it (the user understands
+ * playback hasn't been destroyed — just suspended). */
+.paused-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgba(8, 8, 16, 0.86);
+  color: #e8e8f0;
+  text-align: center;
+  padding: 24px;
+  backdrop-filter: blur(4px);
+  animation: paused-in 140ms ease-out;
+}
+.paused-msg {
+  font-size: 1.05rem;
+  margin: 0;
+  max-width: 32ch;
+  line-height: 1.4;
+}
+.resume-btn {
+  background: #7c4dff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 26px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms, transform 100ms;
+}
+.resume-btn:hover, .resume-btn:focus-visible {
+  background: #8b5cff;
+  outline: none;
+}
+.resume-btn:active { transform: translateY(1px); }
+
+@keyframes paused-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}

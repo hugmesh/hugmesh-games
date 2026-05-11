@@ -69,8 +69,30 @@ services:
       # Staging uses a separate suffix so the two never bleed into each
       # other.
       ALLOW_ORIGIN: "https://*.snapdragon.games"
+    # `PROD_FRONTEND_BIND` lets the operator pick the bind interface
+    # depending on the deploy topology:
+    #
+    #   PROD_FRONTEND_BIND=127.0.0.1:   (default)
+    #     Loopback only — assumes an upstream reverse proxy (nginx,
+    #     Caddy, an ELB / Cloud LB) terminates TLS at snapdragon.games
+    #     and forwards to this host's 127.0.0.1:8080. This is the
+    #     standard prod posture.
+    #
+    #   PROD_FRONTEND_BIND=0.0.0.0:
+    #     Bind to every interface so the host itself terminates the
+    #     public traffic. Use only when there is no upstream LB
+    #     (single-VM deploy with Let's Encrypt in front of this nginx
+    #     directly). The frontend's nginx already carries the per-IP
+    #     rate-limit zones sized for ~10 000 concurrent users; behind
+    #     a managed LB those zones still fire on a per-client-IP basis
+    #     as long as the LB forwards X-Real-IP / X-Forwarded-For
+    #     correctly.
+    #
+    # Use PROD_FRONTEND_PORT to remap the host-side port when binding
+    # to 0.0.0.0 (defaults to 8080 so the upstream-LB topology stays
+    # the historical default).
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${PROD_FRONTEND_BIND:-127.0.0.1:}${PROD_FRONTEND_PORT:-8080}:8080"
 
   login:
     image: snapdragon-games/login-remote:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}

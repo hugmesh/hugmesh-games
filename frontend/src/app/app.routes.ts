@@ -56,5 +56,12 @@ export const routes: Routes = [
   // Per-game publisher console — ROLE_PUBLISHER or ROLE_ADMIN. Same
   // BFF-side enforcement pattern as /mod.
   { path: 'publisher', loadComponent: () => loadRemote('publisher', './PublisherShell', 'PublisherRemoteComponent'), canActivate: [authGuard] },
+  // Mudlet-shaped RPG maker — federated remote that drives the
+  // rpg-builder side service. ROLE_PUBLISHER or ROLE_ADMIN; the
+  // BFF rejects unauthorised callers behind /api/rpg/*.
+  { path: 'rpg-maker', loadComponent: () => loadRemote('games-rpg-maker', './RpgMakerShell', 'RpgMakerRemoteComponent'), canActivate: [authGuard] },
+  // godot-2d-visual-novel-shaped VN maker — federated remote that
+  // drives the vn-builder side service.
+  { path: 'vn-maker',  loadComponent: () => loadRemote('games-vn-maker',  './VnMakerShell',  'VnMakerRemoteComponent'),  canActivate: [authGuard] },
   { path: '**', redirectTo: '' },
 ];

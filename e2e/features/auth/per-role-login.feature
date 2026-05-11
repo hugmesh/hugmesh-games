@@ -66,3 +66,8 @@ Feature: Per-role login matrix
     Given a fresh browser context
     When "publisher-dodecahedron" logs in
     Then the catalog renders at least one game card
+
+  Scenario: publisher-flatland logs in and lands on the catalog
+    Given a fresh browser context
+    When "publisher-flatland" logs in
+    Then the catalog renders at least one game card

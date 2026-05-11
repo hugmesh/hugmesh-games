@@ -6,6 +6,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -39,19 +40,38 @@ public final class Roles {
     private Roles() { /* static utility */ }
 
     /** Anonymous principals get an empty role list — caller layers
-     *  fall through to the {@code scope='all'} catalog filter. */
+     *  fall through to the {@code scope='all'} catalog filter.
+     *
+     *  <p>Casdoor's default token format mints {@code roles} as a list
+     *  of objects ({@code [{name: "admin", owner: ...}, ...]}); a
+     *  custom JWT template can also produce a flat list of strings.
+     *  We accept either shape — Map items contribute their {@code name}
+     *  field, plain strings contribute themselves. Without the Map
+     *  handler an admin user's JWT comes through with no roles and
+     *  {@link #isAdmin} returns false (the legacy {@code isAdmin}
+     *  boolean fallback only fires inside
+     *  {@code SecurityConfig.casdoorAuthoritiesConverter}, not here). */
     public static List<String> fromJwt(Jwt jwt) {
         if (jwt == null) return List.of();
         Object claim = jwt.getClaim("roles");
         if (!(claim instanceof List<?> list)) return List.of();
         return list.stream()
                 .filter(r -> r != null)
-                .map(Object::toString)
+                .map(Roles::roleNameOf)
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .map(String::toLowerCase)
                 .distinct()
                 .toList();
+    }
+
+    private static String roleNameOf(Object item) {
+        if (item instanceof String s) return s;
+        if (item instanceof Map<?, ?> m) {
+            Object name = m.get("name");
+            if (name instanceof String s && !s.isBlank()) return s;
+        }
+        return "";
     }
 
     /** Same shape, sourced from Spring's {@code Authentication}. The

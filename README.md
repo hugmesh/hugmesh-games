@@ -16,6 +16,8 @@ The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cav
 | Pull Requests | [Snapdragon-Systems/snapdragon.games/pulls](https://github.com/Snapdragon-Systems/snapdragon.games/pulls) |
 | **Wiki (in-repo)** | [docs/wiki/](docs/wiki/) — architecture chapters, audience guides, how-to recipes, decisions |
 | Godot developer guide | [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md) |
+| LAN access (workstation) | [`lan.properties`](lan.properties) + `make lan-info` / `make lan-up` / `make lan-up-tls` |
+| Production deploy notes | [decision 019](docs/wiki/decisions/019-production-rate-limits.md) |
 | Contributor onboarding | [CLAUDE.md](CLAUDE.md) |
 
 The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with [Intro for coders](docs/wiki/guides/intro-for-coders.md) for an orientation, [Architecture overview](docs/wiki/architecture/01-overview.md) for the typeset reference, or jump straight to a [how-to](docs/wiki/howto/) for a specific task.
@@ -50,6 +52,12 @@ When two players legitimately use the same `character_id` in different sessions,
 Casdoor owns role membership; per-game scope rows in Postgres decide which games each mod / publisher may act on. Admins manage both via `/api/admin/role-grants/*`. Per-game seeded users (`mod-three-wizards`, `publisher-dodecahedron`, etc.) are pre-loaded on first boot — passwords printed by `casdoor/entrypoint.sh`. See [decision 011](docs/wiki/decisions/011-mod-publisher-rbac.md) and [howto/grant-mod-or-publisher.md](docs/wiki/howto/grant-mod-or-publisher.md).
 
 The frontend ships **separate federated remotes** for each role — `/admin`, `/mod`, `/publisher` — each loaded by the host shell only when the matching role is in the JWT. A fourth federated remote, `/admin/docs`, embeds an OpenAPI explorer (live `/v3/api-docs` with a static `openapi.fallback.json` backup) and is gated to admins via the federation manifest's `requires: ROLE_ADMIN` metadata. Per-audience guides cover each role end-to-end: [admin](docs/wiki/guides/administration.md), [mod](docs/wiki/guides/moderator.md), [publisher](docs/wiki/guides/publisher.md), plus the [maintainer runbook](docs/wiki/guides/maintainer-runbook.md) for on-call.
+
+The `/publisher` console exposes **two more federated remotes** for authoring new games end-to-end without touching Godot directly:
+- `/rpg-maker` — Mudlet-shaped editor (areas / rooms / 6+1-direction exits / items / NPCs / scripts) backed by the [`rpg-builder/`](rpg-builder/) Spring service and its dedicated Postgres DB.
+- `/vn-maker` — godot-2d-visual-novel-shaped editor (acts / characters / backgrounds / scenes / dialogue / branching choices) backed by the [`vn-builder/`](vn-builder/) Spring service and its dedicated Postgres DB.
+
+Each maker compiles the project to a Snapdragon-bridge-aware Godot 4 WASM bundle (one per Area/Act → one per Chapter), zips it, and POSTs to the BFF `/api/admin/games/upload` endpoint with the originating user's bearer token, so the produced game federates under the building user just like any uploaded bundle. See [decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
 
 ## Security primitives
 
