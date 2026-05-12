@@ -10,7 +10,7 @@ describe('AuthService', () => {
     TestBed.configureTestingModule({
       providers: [provideHttpClient()],
     });
-    sessionStorage.clear();
+    localStorage.clear();
     svc = TestBed.inject(AuthService);
   });
 
@@ -20,14 +20,14 @@ describe('AuthService', () => {
   });
 
   it('treats an expired stored token as unauthenticated', () => {
-    sessionStorage.setItem('tw_auth', JSON.stringify({
+    localStorage.setItem('tw_auth', JSON.stringify({
       accessToken: 'tok', idToken: '', expiry: Date.now() - 1_000,
     }));
     expect(svc.isAuthenticated()).toBeFalse();
   });
 
   it('treats a fresh stored token as authenticated', () => {
-    sessionStorage.setItem('tw_auth', JSON.stringify({
+    localStorage.setItem('tw_auth', JSON.stringify({
       accessToken: 'tok', idToken: '', expiry: Date.now() + 60_000,
     }));
     expect(svc.isAuthenticated()).toBeTrue();
@@ -35,7 +35,7 @@ describe('AuthService', () => {
   });
 
   it('logout clears stored auth', () => {
-    sessionStorage.setItem('tw_auth', JSON.stringify({
+    localStorage.setItem('tw_auth', JSON.stringify({
       accessToken: 'tok', idToken: '', expiry: Date.now() + 60_000,
     }));
     svc.logout();
@@ -43,7 +43,7 @@ describe('AuthService', () => {
   });
 
   it('getClaims returns null for malformed tokens', () => {
-    sessionStorage.setItem('tw_auth', JSON.stringify({
+    localStorage.setItem('tw_auth', JSON.stringify({
       accessToken: 'not-a-jwt', idToken: '', expiry: Date.now() + 60_000,
     }));
     expect(svc.getClaims()).toBeNull();
@@ -53,7 +53,7 @@ describe('AuthService', () => {
     // Hand-rolled JWT — header.payload.signature, payload base64url-encoded.
     const payload = btoa(JSON.stringify({ isAdmin: true, sub: 'admin' }));
     const fakeJwt = `header.${payload}.sig`;
-    sessionStorage.setItem('tw_auth', JSON.stringify({
+    localStorage.setItem('tw_auth', JSON.stringify({
       accessToken: fakeJwt, idToken: '', expiry: Date.now() + 60_000,
     }));
     expect(svc.isAdmin()).toBeTrue();
