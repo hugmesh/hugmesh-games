@@ -24,9 +24,9 @@ import reactor.core.publisher.Mono;
  * </ol>
  */
 @Tag(name = "Chapter Assets",
-     description = "Registry for user-added Godot assets (textures, plugins, sounds) attached to a specific level. Served via /api/assets/levels/.")
+     description = "Registry for user-added Godot assets (textures, plugins, sounds) attached to a specific chapter. Both /api/chapters/{id}/assets and the legacy /api/levels/{id}/assets URLs work.")
 @RestController
-@RequestMapping("/api/chapters/{chapterId}/assets")
+@RequestMapping({ "/api/chapters/{chapterId}/assets", "/api/levels/{chapterId}/assets" })
 public class ChapterAssetController {
 
     private final ChapterAssetRepository repo;
