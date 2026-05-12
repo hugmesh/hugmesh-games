@@ -127,16 +127,29 @@ public class GameStateService {
      *  Cassandra-backed cache stays optional — under Postgres-only
      *  test slices the bean isn't in the context, getIfAvailable()
      *  returns null, and the service degrades to PG + in-memory only. */
+    /**
+     * Optional Kafka tee for streaming events. When
+     * {@code app.kafka.enabled=true} every emission to the in-process
+     * Sinks.Many is mirrored to the {@code game_events} Kafka topic
+     * (and, for session-scoped events, the per-session topic created
+     * by {@link games.snapdragon.bff.audit.SessionTopicManager}).
+     * SSE remains the gameplay-driving path; this publisher is purely
+     * additive so the existing web patterns keep working.
+     */
+    private final java.util.Optional<games.snapdragon.bff.audit.GameEventPublisher> eventPublisher;
+
     public GameStateService(PlayerCharacterRepository characterRepo,
                             PlayerPositionRepository  positionRepo,
                             GameTimeService           gameTimeService,
                             PgNotificationService     pgNotify,
-                            ObjectProvider<PositionCacheService> positionCacheProvider) {
+                            ObjectProvider<PositionCacheService> positionCacheProvider,
+                            java.util.Optional<games.snapdragon.bff.audit.GameEventPublisher> eventPublisher) {
         this.characterRepo  = characterRepo;
         this.positionRepo   = positionRepo;
         this.gameTimeService = gameTimeService;
         this.pgNotify       = pgNotify;
         this.positionCache  = positionCacheProvider.getIfAvailable();
+        this.eventPublisher = eventPublisher;
     }
 
     @PostConstruct
@@ -226,6 +239,26 @@ public class GameStateService {
             if (sessionIdOpt != null) {
                 sessionSinksFor(sessionIdOpt).movement.tryEmitNext(movement);
             }
+            // Kafka tee: every movement emission also goes to the
+            // `game_events` topic + per-session topic via the publisher.
+            // SSE still drives the live HUD; this is the analytics +
+            // cross-pod-state-sync feeder (decision 021). `characterId`
+            // is included in payload so the ClickHouse
+            // `player_state_current` ReplacingMergeTree can dedupe by
+            // it for the cross-pod recovery query.
+            eventPublisher.ifPresent(pub -> pub.publish(
+                    "movement",
+                    /* gameSlug */ null,
+                    sessionIdOpt,
+                    /* casdoorId */ null,
+                    java.util.Map.of(
+                            "characterId", String.valueOf(characterId),
+                            "chapterId", chapterId,
+                            "x", after.x(), "y", after.y(), "z", after.z(),
+                            "rotationY", after.rotationY(),
+                            "action", event.action(),
+                            "pressed", event.pressed(),
+                            "tick", t)));
             emitWorldStateForChapter(chapterId, t, sessionIdOpt);
 
             if (posChanged) {

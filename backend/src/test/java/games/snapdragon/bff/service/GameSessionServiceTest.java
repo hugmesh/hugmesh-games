@@ -41,7 +41,8 @@ class GameSessionServiceTest {
         sessions      = mock(GameSessionRepository.class);
         members       = mock(SessionMemberRepository.class);
         relationships = mock(RelationshipQuery.class);
-        service       = new GameSessionService(sessions, members, relationships);
+        service       = new GameSessionService(sessions, members, relationships,
+                java.util.Optional.empty(), java.util.Optional.empty());
 
         // Generic save echoes — most tests only care about the resulting
         // DTO shape; if a test cares about the row's id it sets a more

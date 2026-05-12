@@ -86,6 +86,24 @@ app:
     enabled: ${APP_REVOCATION_ENABLED:true}
     refresh-interval-ms: ${APP_REVOCATION_REFRESH_MS:5000}
 
+  # Streaming audit + telemetry pipeline (decision 021).
+  #
+  # When `app.kafka.enabled=true`, the BFF produces state-transition
+  # events to the `state_audit` topic; a follow-up PR will also produce
+  # F2 game-KPI events to `game_kpi`. ClickHouse consumes both via its
+  # built-in Kafka engine table so the BFF doesn't ship a separate
+  # consumer service.
+  #
+  # Default OFF — vanilla compose-up doesn't bring the kafka container
+  # up. Flip to `true` in production + integration-test profiles.
+  kafka:
+    enabled: ${APP_KAFKA_ENABLED:false}
+    bootstrap-servers: ${APP_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    client-id:         ${APP_KAFKA_CLIENT_ID:snapdragon-bff}
+    topic:
+      state-audit: ${APP_KAFKA_TOPIC_STATE_AUDIT:state_audit}
+      game-kpi:    ${APP_KAFKA_TOPIC_GAME_KPI:game_kpi}
+
 # Resilience4j — wraps the cluster-wide Cassandra calls inside
 # RateLimitFilter. An open breaker means subsequent requests skip
 # the cluster check (fall back to local-bucket only) instead of

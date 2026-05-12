@@ -47,6 +47,16 @@
       <artifactId>spring-boot-starter-data-cassandra-reactive</artifactId>
     </dependency>
 
+    <!-- Spring Kafka — streaming audit + telemetry pipeline (decision 021).
+         Producer side only in this PR; ClickHouse consumes via its built-in
+         Kafka engine table so the BFF doesn't ship a separate consumer
+         service. Disabled by default (app.kafka.enabled=false) so vanilla
+         compose-up keeps working without the Kafka container. -->
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka</artifactId>
+    </dependency>
+
     <!-- JDBC (DataSource only) — used exclusively by Liquibase -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
