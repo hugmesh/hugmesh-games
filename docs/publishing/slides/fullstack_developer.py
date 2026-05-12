@@ -146,6 +146,64 @@ SECTIONS = [
         ],
     },
     {
+        "title": "Per-session SSE sinks",
+        "body": [
+            "Single global sink leaked across sessions; current shape is ConcurrentHashMap<String, SessionSinks>.",
+            "Signature: applyControl(ControlEvent event, String characterId, String sessionId).",
+            "Legacy 2-arg form stays for single-player; the 3-arg form is what multiplayer-aware controllers must call.",
+            "GameStreamController accepts ?sessionId= and filters subscribers accordingly.",
+            "Isolation contract: SessionIsolationTest + e2e/features/multiplayer/rpg-two-players.feature.",
+            "Admin observation: /api/admin/sessions/{id}/stream merges movement + world + character + view sinks per-session.",
+        ],
+        "image": "diagram:sessions-topology",
+    },
+    {
+        "title": "Mod / publisher scope schema",
+        "body": [
+            "Roles live in Casdoor; per-game scope lives in Postgres. Two layers, both required.",
+            "mod_game_scopes / publisher_game_scopes — one row per (casdoorId, gameSlug).",
+            "Adding a new scope check: @PreAuthorize at controller + repo lookup in service + Gherkin rejection scenario.",
+            "Admin-only mutations: /api/admin/role-grants/{grant,revoke}-{mod,publisher}.",
+            "Publishers can grant mod on games they own via /api/publisher/grant-mod (same write path, caller-owns-game check).",
+            "Pinning: e2e/features/security/mod-grant-gates.feature (unauth 401, plain player 403, wrong-scope publisher 403).",
+        ],
+        "dark": True,
+    },
+    {
+        "title": "Rate-limit layers",
+        "body": [
+            "Layer 1 — nginx zones in frontend/nginx.conf + nginx-tls.conf. Edge rejection before the JVM spins up.",
+            "Sized for ~10 000 concurrent users: browse 100, api 50, sse 30, auth/admin 5, maker_api 10 r/s.",
+            "limit_conn conn_per_ip 40. Tripped requests return 429 (not 503) so well-behaved clients back off.",
+            "Layer 2 — RateLimitFilter (per-pod) + DistributedRateLimitService (cross-pod via Cassandra rate_limit_events table, 90s TTL).",
+            "Disable distributed: app.rate-limit.distributed.enabled=false. Falls back to local-only when Cassandra is unreachable.",
+            "DON'T replace one layer with the other — nginx caps IP floods at the edge; the BFF filter shapes per-user across the cluster.",
+        ],
+    },
+    {
+        "title": "Security primitives",
+        "body": [
+            "Crypto.mintUid() — single mint for every UI-facing UID. SHA3-256(64 random bytes from BC SP800-90A DRBG). 43-char base64.",
+            "Don't UUID.randomUUID() or raw SecureRandom anymore. For raw bytes: Crypto.randomBytes(n).",
+            "Roles.has(jwt, 'ADMIN') / fromAuthentication(auth) / isAdmin(jwt) — centralised claim walk; don't copy.",
+            "@PreAuthorize at class level for role gates; Roles helper for method-internal checks.",
+            "Liquibase 036 widened session-id columns to varchar(64) for the 43-char SHA3 shape. UUID rows still fit.",
+            "Session-scoped authorizeControl(casdoorId, characterId, sessionIdOpt) — pinned by GameSessionServiceTest.",
+        ],
+    },
+    {
+        "title": "Maker side services (RPG + VN)",
+        "body": [
+            "Two reactive Spring Boot side services with their own Postgres instances (postgres-rpg-builder, postgres-vn-builder).",
+            "REST surfaces at /api/rpg/* and /api/vn/* — proxied through frontend nginx (BOTH plain + TLS confs need the block).",
+            "Each side service owns its Liquibase schema end-to-end; no JPA ddl-auto, no psql-init seed.",
+            "Build worker walks the project tree → Godot 4 source → godot --export-release → POST /api/admin/games/upload.",
+            "Each area (RPG) / act (VN) becomes a Chapter row in the BFF. The chapter chooser handles multi-chapter games.",
+            "Decision 018 covers the side-service architecture.",
+        ],
+        "dark": True,
+    },
+    {
         "title": "Common code-review patterns",
         "body": [
             "New endpoint? Check that R2dbcConvertersConfig is updated and the OpenAPI client regen ran.",

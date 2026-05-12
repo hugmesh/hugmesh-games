@@ -107,6 +107,55 @@ SECTIONS = [
         ],
     },
     {
+        "title": "Publishing with the RPG maker",
+        "body": [
+            "Click 'Launch RPG Maker' on the publisher console — opens /rpg-maker in a new tab.",
+            "Mudlet-shaped data model: project → areas → rooms + 6+1 direction exits + items/NPCs/scripts.",
+            "Each area becomes a Chapter in the BFF; multi-area projects ship as multi-chapter games.",
+            "Build: QUEUED → RENDERING → EXPORTING → UPLOADING → DONE.",
+            "Worker renders a Godot 4 source tree (snapdragon_bridge.gdextension baked in) → godot CLI → zip → POST /api/admin/games/upload with YOUR bearer.",
+            "publisher_game_scopes check at upload time enforces who can ship which slug.",
+            "'Download Godot source' streams the same tree if you want to tweak in the editor.",
+            "Pinning: e2e/features/makers/rpg-maker.feature.",
+        ],
+        "image": "screenshot:rpg-maker-area",
+    },
+    {
+        "title": "Publishing with the visual novel maker",
+        "body": [
+            "/vn-maker — godot-2d-visual-novel-shaped. Project → acts → scenes → ordered lines + characters + branching choices.",
+            "Same build pipeline as the RPG maker; each act becomes a Chapter exported to bundle/<act-slug>/index.html.",
+            "Inline validation: character colours must look like #rgb / #rrggbb.",
+            "Every choice needs a target scene — submitting one without a target shows 'target scene is required'.",
+            "Exactly one entry-point scene per act; others are reachable via choices.",
+            "Pinning: e2e/features/makers/vn-maker.feature.",
+        ],
+        "dark": True,
+        "image": "screenshot:vn-maker-scene",
+    },
+    {
+        "title": "Session visibility on your games",
+        "body": [
+            "Session visibility is per-session, not per-game policy — it's the player's choice.",
+            "public   — appears in every player's lobby for that game (subject to blocklist).",
+            "friends  — appears only in lobbies of the creator's mutual friends.",
+            "private  — appears only in the creator's own lobby; invite-only.",
+            "Filter lives in MultiplayerSessionController.listOpen; user_relationships is the graph.",
+            "Interaction with game_access: a player not in game_access can't see ANY session — visibility runs AFTER game-list.",
+            "Pinning: e2e/features/lobby/session-visibility.feature.",
+        ],
+    },
+    {
+        "title": "Dev fixture: publisher-flatland",
+        "body": [
+            "Casdoor seed user tw-pub-flat-001 with auto-granted scope on flatland-rpg + flatland-vn.",
+            "Each builder service auto-seeds a Flatland-themed project tree (Lineland, Town Square, A Square, Lord Triangle, the Sphere).",
+            "Liquibase 038-flatland-publisher-scopes.xml + builder-side 004-seed-flatland-fixture.xml.",
+            "Logging in as publisher-flatland and opening either maker reveals the pre-seeded project ready to build.",
+            "Pinning: e2e/features/makers/dev-fixtures.feature.",
+        ],
+    },
+    {
         "title": "Working with admins",
         "body": [
             "Need a wider scope? /admin/role-grants is admin-only — file a request.",
