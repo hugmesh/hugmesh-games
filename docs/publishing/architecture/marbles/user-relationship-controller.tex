@@ -1,0 +1,32 @@
+% UserRelationshipController: /api/relationships/{friends,blocks}/*
+% Friend graph + block list. Block on a user with a pending or
+% accepted friendship cancels the friendship row in both directions.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.6}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.2,2.6) {q};
+  \node[marbletype,above=1pt of u1] {POST .../friends/request};
+  \node[marbleMono] (u2) at (4.6,2.6) {q};
+  \node[marbletype,above=1pt of u2] {POST .../blocks/add};
+
+  \node[marbleop] (op1) at (3.0,1.2) {checkBlock\\ \scriptsize target NOT blocked caller};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (5.6,0.0) {INSERT\\ \scriptsize user\_relationships (PENDING)};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \node[marbleop] (op3) at (8.6,1.0) {cancelFriendship\\ \scriptsize (both directions)};
+  \draw[marbleline] (u2.south) |- ([yshift=2pt]op3.west);
+
+  \node[marbleop] (op4) at (11.0,-0.2) {UPSERT\\ \scriptsize block row};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| ([yshift=2pt]op4.west);
+
+  \snapmarbleline{m1}{-1.6}{Mono<R>}{0}{12.6}
+  \node[marbleTx] (d1) at (7.0,-1.6) {b};
+  \node[marbletype,above=1pt of d1] {201 RelationshipDto};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (d1.north);
+
+  \node[marbleTx] (d2) at (11.4,-1.6) {b};
+  \node[marbletype,above=1pt of d2] {200 BlockDto};
+  \draw[marbleline] ([yshift=-2pt]op4.east) -| (d2.north);
+\end{tikzpicture}

@@ -1,0 +1,31 @@
+% ProducerContactController: intake + admin moderation.
+% Intake (POST /api/producer-contacts) inserts a PENDING row;
+% admin POST /api/admin/producer-contacts/{id}/decision flips status to
+% APPROVED|REJECTED and (on APPROVED) writes accounts.{producers|mods}.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.6}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.2,2.6) {q};
+  \node[marbletype,above=1pt of u1] {POST /api/producer-contacts};
+
+  \node[marbleop] (op1) at (4.0,1.4) {validate\\ \scriptsize email + role enum};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (7.0,0.0) {INSERT\\ \scriptsize producer\_contacts (status=PENDING)};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \snapmarbleline{m1}{-1.4}{Mono<R>}{0}{12.6}
+  \node[marbleTx] (d1) at (9.4,-1.4) {b};
+  \node[marbletype,above=1pt of d1] {201 ContactDto};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (d1.north);
+
+  \snapmarbleline{adm}{-3.0}{Admin}{0}{12.6}
+  \node[marbleMono] (a1) at (1.2,-3.0) {q};
+  \node[marbletype,above=1pt of a1] {POST .../decision (APPROVED)};
+  \node[marbleop] (op3) at (5.0,-4.0) {UPDATE status\\ \scriptsize + INSERT accounts.\{producers|mods\}};
+  \draw[marbleline] (a1.south) |- ([yshift=2pt]op3.west);
+
+  \node[marbleTx] (d2) at (9.4,-4.4) {b};
+  \node[marbletype,above=1pt of d2] {role grant};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| (d2.north);
+\end{tikzpicture}

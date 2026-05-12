@@ -121,5 +121,5 @@ Each step is independent and lands as its own PR; all three together produce a "
 ## Follow-ups
 
 - Strict CSP (drop both `'unsafe-*'` tokens) via the three-step plan above.
-- `report-to` / `report-uri` directive + a BFF endpoint that collects + aggregates violations.
+- ~~`report-to` / `report-uri` directive + a BFF endpoint that collects + aggregates violations.~~ — done. Both nginx configs ship `report-uri /api/security/csp-report` + a `Report-To: {"group":"csp",...}` header pointing at the same endpoint. `CspReportController` accepts both delivery formats (`application/csp-report` legacy + `application/reports+json` modern) at `/api/security/csp-report`, log-only at WARN. Allow-listed in `SecurityConfig.PUBLIC_PATHS` because browsers POST these unauthenticated. ClickHouse persistence deferred to a later follow-up if the WARN-stream proves useful in aggregate.
 - Per-route policy tightening — `/login` doesn't need `worker-src blob:`, `/admin` doesn't need `frame-src 'self'`. Cost / benefit is marginal until the strict version lands.

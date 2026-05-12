@@ -1,0 +1,25 @@
+% TelemetryController.POST /api/telemetry/game/{slug}
+% Per-game KPI ingest from federated game iframes → GameKpiPublisher →
+% Kafka game_kpi → ClickHouse kpi_rolling_avg_24h.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.0}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.2,2.0) {q};
+  \node[marbletype,above=1pt of u1] {POST .../game/\{slug\}};
+
+  \node[marbleop] (op1) at (4.0,1.0) {validate\\ \scriptsize slug + sample shape};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (7.4,-0.4) {GameKpiPublisher\\ \scriptsize.publish(batch)};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \snapmarbleline{kk}{-1.8}{Kafka}{0}{12.6}
+  \node[marbleTx] (k1) at (10.0,-1.8) {b};
+  \node[marbletype,above=1pt of k1] {topic: game\_kpi};
+  \draw[marbleline,dashed] (op2.south) -| (k1.north);
+
+  \snapmarbleline{out}{-3.0}{Mono<Void>}{0}{12.6}
+  \node[marbleMono] (d1) at (11.0,-3.0) {l};
+  \node[marbletype,above=1pt of d1] {202 Accepted};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (d1.north);
+\end{tikzpicture}

@@ -357,6 +357,49 @@ curl -sS -X POST http://localhost:8080/api/diagnostics/wasm-console \
 \textit{202 Accepted}; the stamped row appears on the
 \texttt{wasm-console} SSE channel within milliseconds.
 
+\subsection{\texttt{CspReportController} — \texttt{/api/security/csp-report}}
+Anonymous CSP violation report sink for the
+\texttt{Content-Security-Policy} policy shipped by
+\reposrc{frontend/nginx.conf} + \reposrc{frontend/nginx-tls.conf}
+(decision 023). Two accepted content-types:
+\texttt{application/csp-report} (legacy \texttt{report-uri} envelope)
+and \texttt{application/reports+json} (modern Reporting API array).
+Log-only at WARN; no persistence. Allow-listed in
+\texttt{SecurityConfig.PUBLIC\_PATHS} since browsers POST these
+unauthenticated. Rate-limited by the standard \texttt{api} zone.
+
+\subsection{\texttt{AppealContactController} — \texttt{/api/security/appeal-contact}}
+Anonymous resolver for the appeal email address shown to revoked users
+by the federated \texttt{banned} remote. Reads \texttt{accounts.mods}
+(primary on-call $\rightarrow$ secondary on-call), falling back to
+\texttt{app.security.appeal-contact-fallback} (default
+\texttt{support@snapdragon.games}). Returns
+\texttt{\{ "email": "<address>" \}}. Anonymous because a revoked user
+has no JWT.
+
+\subsection{\texttt{ProducerContactController} — \texttt{/api/producer-contacts}}
+Producer / mod application intake (Liquibase 040) plus the admin
+moderation surface for the same submissions.
+
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Method} & \textbf{Path} & \textbf{Notes} \\
+\midrule
+\texttt{POST} & \texttt{/api/producer-contacts} & Application submitted
+via the \texttt{producer-registration} federated remote. One row per
+submission in \texttt{producer\_contacts}; status starts
+\texttt{PENDING}. \\
+\texttt{GET}  & \texttt{/api/producer-contacts/me} & Caller's own
+submission history (newest first). \\
+\texttt{GET}  & \texttt{/api/admin/producer-contacts} & All submissions
+for moderation review. \\
+\texttt{POST} & \texttt{/api/admin/producer-contacts/\{id\}/decision} &
+\texttt{\{decision: 'APPROVED'|'REJECTED', reviewerNotes?\}}. On
+APPROVED, writes a row into \texttt{accounts.producers} or
+\texttt{accounts.mods} and grants the matching Casdoor role. \\
+\bottomrule
+\end{tabularx}
+
 \section{Authenticated surface}
 
 \subsection{\texttt{SessionController} — \texttt{/api/sessions}}
@@ -541,6 +584,63 @@ curl -sS -X POST -H "Authorization: Bearer $JWT" \
 { "uid": "k7z3F4Nx2v9...", "expiresAt": "2026-04-26T12:45:00Z",
   "gameSlug": "three-wizards", "versionDir": "a1b2c3d4" }
 \end{lstlisting}
+
+\subsection{\texttt{ProfileController} — \texttt{/api/profile/me/\{player,producer,mod\}}}
+Per-role profile read / write against the \texttt{accounts} schema
+introduced in Liquibase 041
+(\reposrc{docs/decisions/020-per-role-schema-split.md}). A user with
+multiple granted roles has one row in each — the role gates here make
+sure each request only touches the row matching the active authority.
+
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Method} & \textbf{Path} & \textbf{Notes} \\
+\midrule
+\texttt{GET}  & \texttt{/api/profile/me/player}   & Caller's
+\texttt{accounts.players} row (xp / level / friend-count /
+block-count). Lazy-populated on first call. \\
+\texttt{PUT}  & \texttt{/api/profile/me/player}   & Patch the same
+row. \\
+\texttt{GET}  & \texttt{/api/profile/me/producer} & Caller's
+\texttt{accounts.producers} row. \texttt{404} if the caller hasn't
+been approved as a producer. \\
+\texttt{PUT}  & \texttt{/api/profile/me/producer} & Update contact
+email / jurisdiction. Gated on \texttt{ROLE\_PRODUCER}. \\
+\texttt{GET}  & \texttt{/api/profile/me/mod}      & Caller's
+\texttt{accounts.mods} row. \texttt{404} if not approved as a mod. \\
+\texttt{PUT}  & \texttt{/api/profile/me/mod}      & Update contact
+email / \texttt{oncall\_slot}. Gated on \texttt{ROLE\_MOD}. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{\texttt{UserRelationshipController} — \texttt{/api/relationships/\{friends,blocks\}}}
+Friend graph + block list, persisted in \texttt{user\_relationships}
+(decision 015).
+
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Method} & \textbf{Path} & \textbf{Notes} \\
+\midrule
+\texttt{GET}  & \texttt{/api/relationships/friends}          & Accepted friends. \\
+\texttt{GET}  & \texttt{/api/relationships/friends/incoming} & Pending requests received. \\
+\texttt{GET}  & \texttt{/api/relationships/friends/outgoing} & Pending requests sent. \\
+\texttt{POST} & \texttt{/api/relationships/friends/request}  & Send a friend request. Soft-rejected (no-op) if the target has the caller blocked. \\
+\texttt{POST} & \texttt{/api/relationships/friends/accept}   & Accept an incoming request. \\
+\texttt{POST} & \texttt{/api/relationships/friends/remove}   & Unfriend (also cancels pending). \\
+\texttt{GET}  & \texttt{/api/relationships/blocks}           & Caller's block list. \\
+\texttt{POST} & \texttt{/api/relationships/blocks/add}       & Block a user. Side-effects: cancels any pending / accepted friendship in both directions. \\
+\texttt{POST} & \texttt{/api/relationships/blocks/remove}    & Unblock. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{\texttt{TelemetryController} — \texttt{POST /api/telemetry/game/\{slug\}}}
+Per-game KPI ingest from federated game remotes (decision 021,
+follow-up F2). Iframes POST batched samples directly;
+\snapfile{GameKpiPublisher} ships them to the \texttt{game\_kpi} Kafka
+topic, which ClickHouse aggregates into \texttt{kpi\_rolling\_avg\_24h}
+for admin dashboards. JWT-authenticated (the player's bearer is
+forwarded by the iframe); existing \snapfile{WebConfig} CORS allowlist
+covers federated origins.
 
 \section{Admin-only surface}
 
@@ -785,7 +885,9 @@ disk and deletes the older ones inside \texttt{Mono.fromCallable}.
 Heartbeat (every 15s) writes a \texttt{pod\_heartbeats} row with TTL 30s
 into Cassandra so the admin dashboard can show pod liveness; daily
 snapshot (every 24h, 60s boot delay) mirrors Postgres aggregates into
-\texttt{daily\_snapshots} for offline analytics.
+\texttt{daily\_snapshots} for offline analytics. Slated for retirement
+once the Kafka $\rightarrow$ ClickHouse pipeline (decision 021)
+demonstrates production stability.
 
 \snapdiagram{marbles/cassandra-sync-service.tex}
 \snapmarblelegend{
@@ -794,6 +896,54 @@ snapshot (every 24h, 60s boot delay) mirrors Postgres aggregates into
   \snapmarbleshape{marbleSig}  & 24-hour snapshot
     & cross-store reconciliation; tolerant of failure (silent retry next tick). \\
 }
+
+\subsection{Kafka publishers / consumers (decision 021)}
+Three publishers and one consumer + recovery service tee the in-process
+gameplay path into the streaming side-channel without changing it.
+Gated by \texttt{app.kafka.enabled}; no-op when disabled.
+
+\begin{itemize}
+  \item \snapfile{GameAuditPublisher} — emits state-transition rows to
+        the \texttt{state\_audit} topic.
+  \item \snapfile{GameEventPublisher} — tees all 8 SSE channels to
+        \texttt{game\_events} from \texttt{GameStateService.tryEmitNext}.
+  \item \snapfile{GameKpiPublisher} — ships federated-game KPI samples
+        from \snapfile{TelemetryController} to \texttt{game\_kpi}.
+  \item \snapfile{KafkaSessionSubscriber} — cross-pod consumer for
+        \texttt{game\_events}. Filters self-published events via
+        \texttt{pod\_id} and dispatches per-channel to handlers
+        registered in \texttt{GameStateService.@PostConstruct}.
+  \item \snapfile{SessionTopicManager} — creates per-session topics
+        (\texttt{session.<id>.events}) on session-create.
+  \item \snapfile{PlayerStateRecoveryService} — queries the ClickHouse
+        \texttt{player\_state\_current FINAL} table via the HTTP
+        interface (WebClient) for session-reconnect recovery.
+        \texttt{Mono.empty()} is the expected miss path; SSE / gameplay
+        never blocks.
+\end{itemize}
+
+\subsection{\texttt{DistributedRateLimitService}}
+Cassandra-backed cluster-wide rate-limit augment to the local
+in-process \snapfile{RateLimitFilter} bucket. Append-row log on the
+\texttt{rate\_limit\_events} table with a 90s TTL; window-bounded
+\texttt{COUNT(*)} against
+\texttt{event\_id >= minTimeuuid(now $-$ WINDOW)}. Disable with
+\texttt{app.rate-limit.distributed.enabled=false}; falls back to
+local-only when Cassandra is unreachable. The
+\snapfile{snapdragon-gateway} is the primary rate-limit enforcement
+point — this is defence-in-depth for the BFF.
+
+\subsection{\texttt{UploadStorage} strategy (decision 020)}
+\texttt{filesystem} (default) + \texttt{s3} implementations behind a
+common interface. \snapfile{CircuitBreakerUploadStorage} decorator
+wraps the S3 strategy with the \texttt{s3} Resilience4j breaker —
+reads soft-fall through to \texttt{null} on OPEN (and
+\snapfile{AssetController} then falls back to classpath); writes
+propagate \texttt{UploadStorageException}.
+\texttt{AssetController.tryPresignRedirect(...)} returns a 302 to a
+short-lived pre-signed URL when both
+\texttt{app.uploads.s3.presigned-reads=true} and the strategy returns
+non-\texttt{null}.
 
 \subsection{\texttt{SessionService}}
 Concurrent in-memory map of active sessions

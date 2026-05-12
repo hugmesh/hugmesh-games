@@ -59,11 +59,26 @@ Hot is recoverable from Cassandra. Cassandra is recoverable from Postgres + repl
 | Service | Swap | Code change |
 |---|---|---|
 | Postgres → managed RDS / Cloud SQL | `spring.r2dbc.url` + `spring.datasource.url` | None |
+| Postgres read replica | `app.r2dbc.replica.url` → managed replica (Aurora reader, Cloud SQL replica) | None — `R2dbcReadReplicaConfig` aliases primary when empty |
 | Cassandra → managed Astra / Scylla | `spring.cassandra.contact-points` | None |
 | Casdoor → managed identity (Auth0 / Cognito / Entra) | `/.well-known/jwks` URL + role-mapping | Casdoor-specific role mapping |
-| Object-storage uploads | `app.uploads.games-dir` → S3-compatible volume mount | None |
+| Object-storage uploads | `app.uploads.storage=s3` + `APP_UPLOADS_S3_*` knobs (AWS, Cloudflare R2, Backblaze B2, MinIO) | None — `UploadStorage` strategy |
 | Federation manifest URL | Already DB-backed | None |
+| Streaming audit / telemetry | `app.kafka.enabled=true` + Kafka + ClickHouse bootstrap URLs | None — gated producers + consumer |
+| BFF perimeter | `snapdragon-gateway` in front; routes `/api/*` to BFF | None — gateway carries primary rate-limit + revocation; BFF mirrors as defence-in-depth |
 
-## Future shape
+## Shipped — was "future" in earlier versions of this guide
 
-Per-game telemetry pipeline (Cassandra audit log → Kafka → analytics warehouse). Read replica for catalog reads to offload heavy `/api/games/*`. Object-storage-backed uploads to remove host-disk pressure and enable CDN delivery for `wasm-fragment`. Cross-pod rate-limit storage in Cassandra (currently in-process per-pod via `RateLimitFilter`). All additive — the data model doesn't need a rewrite to enable any of them.
+These items are now in production-shaped state. The data model didn't need a rewrite to land any of them; each was additive.
+
+- **Streaming audit + telemetry pipeline.** Kafka topics `state_audit`, `game_events`, `game_kpi`, `session.<id>.events` produced by `GameAuditPublisher` / `GameEventPublisher` / `GameKpiPublisher`. ClickHouse consumes via Kafka-engine + materialised views. Gated by `app.kafka.enabled` (default `false`). Cross-pod consumer + `PlayerStateRecoveryService` close the F4 fan-out loop. See [decision 021](../decisions/021-kafka-clickhouse-streaming-pipeline.md).
+- **Postgres read replica routing.** `R2dbcReadReplicaConfig` provides `@Qualifier("replica")` beans; per-service migration pattern in [decision 022](../decisions/022-postgres-read-replica.md). Compose-level overlay at `docker-compose.replica.yml`.
+- **Object-storage-backed uploads.** `UploadStorage` strategy with `filesystem` (default) + `s3` (compose ships MinIO; prod points at AWS / R2 / B2). `app.uploads.s3.presigned-reads=true` flips `AssetController` into 302-to-presigned-URL mode so the WASM hot path stays off the BFF. Resilience4j circuit breaker (`s3` instance) wraps the strategy. See [decision 020](../decisions/020-object-storage-uploads.md).
+- **Cross-pod rate-limit storage.** `DistributedRateLimitService` runs the cluster-wide augment on Cassandra `rate_limit_events` (90 s TTL); disable via `app.rate-limit.distributed.enabled=false`. The `snapdragon-gateway` is the primary enforcement; the BFF's `RateLimitFilter` is defence-in-depth.
+- **Per-role accounts schema.** `accounts.players` / `accounts.producers` / `accounts.mods` (Liquibase 041). Lazy-populated for players; producers + mods are populated when a `producer_contacts` application is APPROVED.
+
+## Still future
+
+- AWS S3 + Cloudflare R2 + Backblaze B2 acceptance matrix (the `s3` strategy works against all three; the matrix would document pass/fail per provider for the edge cases like CORS and pre-signed URL semantics).
+- `CassandraSyncService` retirement once the streaming pipeline has soaked in production. The audit / heartbeat are double-written today.
+- Per-route CSP tightening (`/login` doesn't need `worker-src blob:`, `/admin` doesn't need `frame-src 'self'`); strict CSP via the three-step plan in [decision 023](../decisions/023-content-security-policy.md).

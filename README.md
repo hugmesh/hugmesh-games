@@ -110,10 +110,23 @@ Up to 3 players may be connected simultaneously; exactly one holds the **control
 
 The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host: at runtime it loads four sibling bundles (`login`, `admin`, `games-three-wizards`, `games-dodecahedron`) plus a `wasm-fragment` asset-tier nginx, all served by per-remote services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The runtime data flow below describes the **post-federation** rendering path; legacy `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. See *Module Federation: host + four remotes + a fragment* under [Key architectural decisions](#key-architectural-decisions) for the bundle-view companion to this runtime view.
 
+All browser traffic enters through the **snapdragon-gateway** (Spring Cloud Gateway). The gateway terminates TLS, enforces the primary rate-limit, holds the revocation list (stamps `X-Revoked` on requests from banned keys), and routes `/api/*` to the BFF and everything else to the Angular host nginx. The BFF runs the same revocation + rate-limit checks as defence-in-depth (`RevocationListService` / `RateLimitFilter`), so service-to-service traffic on the compose network that bypasses the gateway stays gated.
+
 ```
   Browser / Player (up to 3)
   ══════════════════════════════════════════════════════════════════════════════
-  Angular host shell :8080 (nginx — TLS in e2e/prod, plain in dev compose)
+  snapdragon-gateway :443 / :80 (Spring Cloud Gateway — TLS terminator)
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  • Primary rate-limit enforcement (token-bucket, per-key)                │
+  │  • Revocation list — stamps `X-Revoked` on requests from banned keys     │
+  │  • Routes `/api/*`            ──► api (BFF) :8080                        │
+  │  • Routes everything else     ──► host nginx :8080  (SPA + /_remotes/*)  │
+  │  • Optional: snapdragon-id-gateway pairs in front of Casdoor as the      │
+  │    OIDC-aware identity edge (R2DBC route table, `gateway_reader` role)   │
+  └──────────────────────────────────────┬───────────────────────────────────┘
+                                         │ (proxy_pass on compose network)
+  ══════════════════════════════════════ ▼ ══════════════════════════════════
+  Angular host shell :8080 (nginx — same-origin SPA + federated /_remotes/*)
   ┌──────────────────────────────────────────────────────────────────────────┐
   │                                                                          │
   │  /login route ──loadComponent──► federated login remote                  │
@@ -177,7 +190,7 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
   │    HUD spell hotbar hydrates from /api/skills/character/1/slots          │
   │    HUD item quick-slot = first row of /api/items/character/1/inventory   │
   └──────────────────────────────┬───────────────────────────────────────────┘
-                                 │ /api/* (nginx → api:8080)
+                                 │ /api/* (gateway → api:8080)
   ══════════════════════════════ │ ═══════════════════════════════════════════
   Spring Boot API :8080          ▼    (WebFlux, R2DBC + JDBC-for-Liquibase)
   ┌──────────────────────────────────────────────────────────────────────────┐
@@ -186,8 +199,13 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
   │  • /api/auth/**  → permitAll                                             │
   │  • /api/admin/** → ROLE_ADMIN                                            │
   │  • /api/characters|skills|items|quests|sessions/** → authenticated       │
+  │  • /api/security/{csp-report, appeal-contact}    → permitAll (anon)      │
   │  • X-Frame-Options: SAMEORIGIN so the iframe can embed WASM              │
   │  • JWT RS256 verified via ${CASDOOR}/.well-known/jwks (public)           │
+  │                                                                          │
+  │  RateLimitFilter + RevocationListService — defence-in-depth mirror of   │
+  │    the gateway's primary checks; same Cassandra-backed cluster store    │
+  │    (DistributedRateLimitService → `rate_limit_events`, 90 s TTL).       │
   │                                                                          │
   │  CasdoorAuthController                                                   │
   │  POST /api/auth/token ──► ROPC proxy to Casdoor (client_secret server)   │
@@ -339,8 +357,14 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 |---|---|---|---|
 | `login` | `remote-shell` | `./LoginComponent` | `loadComponent` for `/login` |
 | `admin` | `remote-shell` | `./AdminShell` + `./UploadShell` | `loadComponent` for `/admin` and `/admin/games` |
+| `mod` | `remote-shell` | `./ModShell` | `loadComponent` for `/mod` (per-game moderation surface; gated by `mod_game_scopes`) |
+| `publisher` | `remote-shell` | `./PublisherShell` | `loadComponent` for `/publisher` (uploads + per-game grants; gated by `publisher_game_scopes`) |
+| `producer-registration` | `remote-shell` | `./RegistrationComponent` | `loadComponent` for `/register` (intake form → `POST /api/producer-contacts`) |
+| `banned` | `remote-shell` | `./BannedComponent` | `loadComponent` for `/banned` (auth-error interceptor redirects on `X-Revoked`; resolves appeal email via `GET /api/security/appeal-contact`) |
 | `games-three-wizards` | `remote-game` | `./GameRoot` | `<app-three-wizards-remote>` Web Component (cave + field) |
 | `games-dodecahedron` | `remote-game` | `./GameRoot` | `<app-dodecahedron-remote>` Web Component (chrome-less demo) |
+| `games-rpg-maker` | `remote-shell` | `./RpgMakerRemote` | RPG maker UI; drives the `rpg-builder/` side service (decision 018) |
+| `games-vn-maker` | `remote-shell` | `./VnMakerRemote` | VN maker UI; drives the `vn-builder/` side service (decision 018) |
 | `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
 
 `HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` (cave/field → `three-wizards`, dodecahedron → `dodecahedron`); chapters with sceneTypes outside that map fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_CHAPTER_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.

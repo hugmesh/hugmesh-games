@@ -1,6 +1,8 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
+import { catchError, of } from 'rxjs';
 
 /**
  * Federated remote rendered to revoked / blocked users — the ONE
@@ -10,11 +12,14 @@ import { ActivatedRoute } from '@angular/router';
  * {@code RevocationListService} stamps that header on 403s).
  *
  * <p>Contains a pre-filled email template the user can paste to a
- * producer / mod contact address so a real human can review the
- * revocation. The recipient address is the producer-contacts row
- * the producer registration flow registers (decision item #8 in
- * the platform roadmap); for now we surface the default
- * support@snapdragon.games until that schema lands.
+ * mod / producer contact address so a real human can review the
+ * revocation. The recipient address is resolved at runtime from
+ * {@code GET /api/security/appeal-contact} — the BFF picks the
+ * current primary on-call mod's {@code contact_email} from
+ * {@code accounts.mods}, falling back to {@code app.security
+ * .appeal-contact-fallback} (default {@code support@snapdragon
+ * .games}). The endpoint is anonymous-accessible because a
+ * revoked user can't carry a JWT.
  *
  * <p>Anonymous-allowed by SecurityConfig — the banned user might
  * already have their token revoked at the network layer; they
@@ -110,9 +115,12 @@ import { ActivatedRoute } from '@angular/router';
     .back a:hover { color: #b388ff; }
   `],
 })
-export class BannedRemoteComponent {
+export class BannedRemoteComponent implements OnInit {
+
+  private static readonly FALLBACK_EMAIL = 'support@snapdragon.games';
 
   private route = inject(ActivatedRoute);
+  private http  = inject(HttpClient);
 
   // The auth-error interceptor navigates to `/banned` with the
   // revocation reason + key in the query string. If those aren't
@@ -123,7 +131,14 @@ export class BannedRemoteComponent {
   readonly revocationKey    = signal<string>(
       this.route.snapshot.queryParamMap.get('key') ?? '');
 
-  readonly emailBody = signal<string>(this.buildEmailBody());
+  readonly emailBody    = signal<string>(this.buildEmailBody());
+  readonly contactEmail = signal<string>(BannedRemoteComponent.FALLBACK_EMAIL);
+
+  ngOnInit(): void {
+    this.http.get<{ email: string }>('/api/security/appeal-contact')
+        .pipe(catchError(() => of({ email: BannedRemoteComponent.FALLBACK_EMAIL })))
+        .subscribe(({ email }) => this.contactEmail.set(email || BannedRemoteComponent.FALLBACK_EMAIL));
+  }
 
   private buildEmailBody(): string {
     const key    = this.route.snapshot.queryParamMap.get('key') ?? '<unknown>';
@@ -151,8 +166,6 @@ export class BannedRemoteComponent {
   mailtoHref(): string {
     const subject = encodeURIComponent('Appeal — account suspension on Snapdragon Games');
     const body    = encodeURIComponent(this.emailBody());
-    // TODO: replace with the producer-contacts row resolved at
-    // build time once that schema (roadmap item #8) lands.
-    return `mailto:support@snapdragon.games?subject=${subject}&body=${body}`;
+    return `mailto:${this.contactEmail()}?subject=${subject}&body=${body}`;
   }
 }

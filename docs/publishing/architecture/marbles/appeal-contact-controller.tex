@@ -1,0 +1,24 @@
+% AppealContactController.GET /api/security/appeal-contact
+% Anonymous resolver. Primary on-call → secondary on-call → configured
+% fallback (support@snapdragon.games). Lazy secondary lookup via
+% Mono.defer so the second query only fires if primary is empty.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.2,2.4) {q};
+  \node[marbletype,above=1pt of u1] {GET /api/security/appeal-contact};
+
+  \node[marbleop] (op1) at (4.0,1.2) {mods\\ \scriptsize.findByOncallSlot(primary)};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (7.6,-0.2) {switchIfEmpty\\ \scriptsize Mono.defer(secondary)};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \node[marbleop] (op3) at (10.4,-1.6) {defaultIfEmpty\\ \scriptsize app.security.appeal-contact-fallback};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| ([yshift=2pt]op3.west);
+
+  \snapmarbleline{out}{-3.0}{Mono<R>}{0}{12.6}
+  \node[marbleMono] (d1) at (11.2,-3.0) {e};
+  \node[marbletype,above=1pt of d1] {200 OK \{email\}};
+  \draw[marbleline] ([yshift=-2pt]op3.east) -| (d1.north);
+\end{tikzpicture}

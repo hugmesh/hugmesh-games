@@ -93,6 +93,23 @@ Public game-clock snapshot — same DTO that the `time` SSE channel emits.
 
 Anonymous endpoint for forwarded WASM-iframe console captures. Stamps a server timestamp and pushes onto the `wasm-console` SSE channel so admin docs explorers can mirror crashes live.
 
+### `CspReportController` — `/api/security/csp-report`
+
+Anonymous CSP violation report sink for the `Content-Security-Policy` policy shipped by `frontend/nginx.conf` + `frontend/nginx-tls.conf` (decision 023). Two accepted content-types: `application/csp-report` (legacy `report-uri` envelope) and `application/reports+json` (modern Reporting API array). Log-only at WARN; no persistence. Allow-listed in `SecurityConfig.PUBLIC_PATHS` since browsers POST these unauthenticated. Rate-limited by the standard `api` zone.
+
+### `AppealContactController` — `/api/security/appeal-contact`
+
+Anonymous resolver for the appeal email address shown to revoked users by the federated `banned` remote. Reads `accounts.mods` (primary on-call → secondary on-call), falling back to `app.security.appeal-contact-fallback` (default `support@snapdragon.games`). Returns `{ "email": "<address>" }`. Anonymous because a revoked user has no JWT.
+
+### `ProducerContactController` — `/api/producer-contacts` + admin variants
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| `POST` | `/api/producer-contacts` | JWT | Producer / mod application submitted via the `producer-registration` federated remote. One row per submission in `producer_contacts`; status starts `PENDING`. |
+| `GET`  | `/api/producer-contacts/me` | JWT | Caller's own submission history (newest first). |
+| `GET`  | `/api/admin/producer-contacts` | `ROLE_ADMIN` | All submissions for moderation review. |
+| `POST` | `/api/admin/producer-contacts/{id}/decision` | `ROLE_ADMIN` | `{decision: 'APPROVED'\|'REJECTED', reviewerNotes?}`. On APPROVED, writes a row into `accounts.producers` or `accounts.mods` and grants the matching Casdoor role. |
+
 ## Authenticated surface (JWT required)
 
 ### `SessionController` — `/api/sessions/{connect,control,me,history}`
@@ -113,6 +130,39 @@ Named multiplayer sessions. Distinct from the legacy single-session path above.
 | `DELETE` | `/api/sessions/{id}` | Force-close. Creator-only. |
 
 See [decision 010 — per-session SSE sinks](../decisions/010-per-session-sse-sinks.md) for the isolation contract.
+
+### `ProfileController` — `/api/profile/me/{player,producer,mod}`
+
+Per-role profile read / write against the `accounts` schema introduced in Liquibase 041 (decision: `docs/decisions/020-per-role-schema-split.md`).
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET`  | `/api/profile/me/player` | Caller's `accounts.players` row (xp / level / friend-count / block-count). Lazy-populated on first call. |
+| `PUT`  | `/api/profile/me/player` | Patch the same row. |
+| `GET`  | `/api/profile/me/producer` | Caller's `accounts.producers` row. `404` if the caller hasn't been approved as a producer. |
+| `PUT`  | `/api/profile/me/producer` | Update contact email / jurisdiction. Gated on `ROLE_PRODUCER`. |
+| `GET`  | `/api/profile/me/mod` | Caller's `accounts.mods` row. `404` if not approved as a mod. |
+| `PUT`  | `/api/profile/me/mod` | Update contact email / `oncall_slot`. Gated on `ROLE_MOD`. |
+
+### `UserRelationshipController` — `/api/relationships/{friends,blocks}`
+
+Friend graph + block list, persisted in `user_relationships`. See [decision 015](../decisions/015-friends-blocks-and-session-visibility.md).
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET`  | `/api/relationships/friends` | Accepted friends. |
+| `GET`  | `/api/relationships/friends/incoming` | Pending requests received. |
+| `GET`  | `/api/relationships/friends/outgoing` | Pending requests sent. |
+| `POST` | `/api/relationships/friends/request` | Send a friend request. Soft-rejected (no-op) if the target has the caller blocked. |
+| `POST` | `/api/relationships/friends/accept` | Accept an incoming request. |
+| `POST` | `/api/relationships/friends/remove` | Unfriend (also cancels pending). |
+| `GET`  | `/api/relationships/blocks` | Caller's block list. |
+| `POST` | `/api/relationships/blocks/add` | Block a user. Side-effects: cancels any pending / accepted friendship in both directions. |
+| `POST` | `/api/relationships/blocks/remove` | Unblock. |
+
+### `TelemetryController` — `POST /api/telemetry/game/{slug}`
+
+Per-game KPI ingest from federated game remotes (decision 021, follow-up F2). Iframes POST batched samples directly; `GameKpiPublisher` ships them to the `game_kpi` Kafka topic, which ClickHouse aggregates into `kpi_rolling_avg_24h` for admin dashboards. JWT-authenticated (the player's bearer is forwarded by the iframe); existing `WebConfig` CORS allowlist covers federated origins.
 
 ### `ViewEgressController` — `POST /api/view`
 
@@ -254,7 +304,31 @@ The transactional install pipeline behind `POST /api/admin/games/upload`. `Mono.
 
 ### `CassandraSyncService`
 
-Heartbeat (every 15 s) writes a `pod_heartbeats` row with TTL 30 s into Cassandra so the admin dashboard can show pod liveness; daily snapshot (every 24 h, 60 s boot delay) mirrors Postgres aggregates into `daily_snapshots` for offline analytics.
+Heartbeat (every 15 s) writes a `pod_heartbeats` row with TTL 30 s into Cassandra so the admin dashboard can show pod liveness; daily snapshot (every 24 h, 60 s boot delay) mirrors Postgres aggregates into `daily_snapshots` for offline analytics. Slated for retirement once the Kafka → ClickHouse pipeline (decision 021) demonstrates production stability.
+
+### `GameAuditPublisher` / `GameEventPublisher` / `GameKpiPublisher`
+
+Kafka producers introduced by decision 021. `GameAuditPublisher` emits state-transition rows to `state_audit`; `GameEventPublisher` tees all 8 SSE channels to `game_events` from `GameStateService.tryEmitNext`; `GameKpiPublisher` ships federated-game KPI samples from `TelemetryController` to `game_kpi`. Gated by `app.kafka.enabled`; no-op when disabled.
+
+### `KafkaSessionSubscriber`
+
+Cross-pod consumer for `game_events`. Filters self-published events via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. Covers all 8 channels (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only).
+
+### `SessionTopicManager`
+
+Creates per-session Kafka topics (`session.<id>.events`) on session-create so a cross-pod subscriber can hydrate only the sessions it cares about.
+
+### `PlayerStateRecoveryService`
+
+Queries the ClickHouse `player_state_current FINAL` table via the ClickHouse HTTP interface (WebClient) for session-reconnect recovery. The `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` consults this service before the legacy Cassandra → Postgres → defaults chain. `Mono.empty()` is the expected miss path; SSE / gameplay never blocks on this.
+
+### `DistributedRateLimitService`
+
+Cassandra-backed cluster-wide rate-limit augment to the local in-process `RateLimitFilter` bucket. Append-row log on the `rate_limit_events` table with a 90 s TTL; window-bounded `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`. Disable with `app.rate-limit.distributed.enabled=false`; falls back to local-only when Cassandra is unreachable. The `snapdragon-gateway` is the primary rate-limit enforcement point — this is defence-in-depth for the BFF.
+
+### `UploadStorage` strategy (decision 020)
+
+`filesystem` (default) + `s3` implementations behind a common interface. `CircuitBreakerUploadStorage` decorator wraps the S3 strategy with the `s3` Resilience4j breaker — reads soft-fall through to null on OPEN (and `AssetController` then falls back to classpath); writes propagate `UploadStorageException`. `AssetController.tryPresignRedirect(...)` returns a 302 to a short-lived pre-signed URL when both `app.uploads.s3.presigned-reads=true` and the strategy returns non-null.
 
 ### `SessionService`
 

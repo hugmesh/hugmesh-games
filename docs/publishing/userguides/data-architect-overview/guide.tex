@@ -200,24 +200,73 @@ decision document covers the threat model that motivated leaving
   \item Postgres $\rightarrow$ managed RDS / Cloud SQL: change
         \texttt{spring.r2dbc.url} + \texttt{spring.datasource.url}.
         No code change.
+  \item Postgres read replica $\rightarrow$ Aurora reader / Cloud SQL
+        replica: set \texttt{app.r2dbc.replica.url}. No code change
+        --- \snapfile{R2dbcReadReplicaConfig} aliases primary when
+        empty.
   \item Cassandra $\rightarrow$ managed Astra / Scylla:
         \texttt{spring.cassandra.contact-points}. No code change.
   \item Casdoor $\rightarrow$ managed identity (Auth0 / Cognito /
         Entra): change \texttt{/.well-known/jwks} URL +
         Casdoor-specific role mapping.
-  \item Object-storage uploads: \texttt{app.uploads.games-dir}
-        $\rightarrow$ S3-compatible volume mount.
+  \item Object-storage uploads: \texttt{app.uploads.storage=s3} +
+        the four \texttt{APP\_UPLOADS\_S3\_*} knobs (AWS, Cloudflare
+        R2, Backblaze B2, MinIO). No code change --- the
+        \snapfile{UploadStorage} strategy abstracts the backend.
+  \item Streaming audit / telemetry: \texttt{app.kafka.enabled=true}
+        + Kafka + ClickHouse bootstrap URLs. No code change ---
+        gated producers + consumer.
   \item Federation manifest URL --- already DB-backed; no host
         changes needed.
+  \item BFF perimeter --- the \snapfile{snapdragon-gateway}
+        (Spring Cloud Gateway) routes \texttt{/api/*} to the BFF and
+        carries the primary rate-limit + revocation list; the BFF's
+        \snapfile{RateLimitFilter} + \snapfile{RevocationListService}
+        mirror as defence-in-depth.
 \end{itemize}
 
-\chapter{Future shape}
-Per-game telemetry pipeline (Cassandra audit log $\rightarrow$ Kafka
-$\rightarrow$ analytics warehouse). Read replica for catalog reads to
-offload heavy \texttt{/api/games/*}. Object-storage-backed uploads to
-remove host-disk pressure and enable CDN delivery for
-\texttt{wasm-fragment}. All additive --- the data model doesn't need
-a rewrite to enable any of them.
+\chapter{Shipped --- was ``future'' in earlier versions of this guide}
+These items are now in production-shaped state. The data model
+didn't need a rewrite to land any of them; each was additive.
+
+\begin{itemize}
+  \item \textbf{Streaming audit + telemetry pipeline.} Kafka topics
+        \texttt{state\_audit}, \texttt{game\_events},
+        \texttt{game\_kpi}, \texttt{session.<id>.events} produced by
+        \snapfile{GameAuditPublisher} / \snapfile{GameEventPublisher} /
+        \snapfile{GameKpiPublisher}. ClickHouse consumes via
+        Kafka-engine + materialised views. Gated by
+        \texttt{app.kafka.enabled} (default \texttt{false}). Cross-pod
+        consumer + \snapfile{PlayerStateRecoveryService} close the F4
+        fan-out loop. Decision 021.
+  \item \textbf{Postgres read replica routing.}
+        \snapfile{R2dbcReadReplicaConfig} provides
+        \texttt{@Qualifier("replica")} beans; compose-level overlay at
+        \reposrc{docker-compose.replica.yml}. Decision 022.
+  \item \textbf{Object-storage-backed uploads.}
+        \snapfile{UploadStorage} strategy with \texttt{filesystem}
+        (default) + \texttt{s3}. \texttt{app.uploads.s3.presigned-reads}
+        flips \snapfile{AssetController} into 302-to-presigned-URL
+        mode so the WASM hot path stays off the BFF. Decision 020.
+  \item \textbf{Cross-pod rate-limit storage.}
+        \snapfile{DistributedRateLimitService} on Cassandra
+        \texttt{rate\_limit\_events} (90s TTL).
+  \item \textbf{Per-role accounts schema.} \texttt{accounts.players}
+        / \texttt{accounts.producers} / \texttt{accounts.mods}
+        (Liquibase 041) populated on player first-touch or producer /
+        mod application approval.
+\end{itemize}
+
+\chapter{Still future}
+\begin{itemize}
+  \item AWS S3 + Cloudflare R2 + Backblaze B2 acceptance matrix.
+  \item \snapfile{CassandraSyncService} retirement once the streaming
+        pipeline has soaked in production (audit / heartbeat are
+        double-written today).
+  \item Per-route CSP tightening + strict CSP (drop both
+        \texttt{'unsafe-*'} tokens) per the three-step plan in
+        decision 023.
+\end{itemize}
 
 \chapter{Complete schema diagram (all databases)}
 

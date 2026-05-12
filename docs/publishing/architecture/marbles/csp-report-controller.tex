@@ -1,0 +1,23 @@
+% CspReportController.POST /api/security/csp-report
+% Anonymous endpoint — accepts a CSP violation report in either of two
+% browser-delivery formats, logs at WARN, returns 204 No Content.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{1.6}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.2,1.6) {q};
+  \node[marbletype,above=1pt of u1] {application/csp-report};
+  \node[marbleMono] (u2) at (3.4,1.6) {q};
+  \node[marbletype,above=1pt of u2] {application/reports+json};
+
+  \node[marbleop] (op1) at (6.4,0.4) {dispatch\\ \scriptsize on Content-Type};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+  \draw[marbleline] (u2.south) |- ([yshift=4pt]op1.west);
+
+  \node[marbleop] (op2) at (9.4,-0.8) {log.warn\\ \scriptsize [csp-violation]};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \snapmarbleline{out}{-2.4}{Mono<Void>}{0}{12.6}
+  \node[marbleMono] (d1) at (10.8,-2.4) {l};
+  \node[marbletype,above=1pt of d1] {204 No Content};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (d1.north);
+\end{tikzpicture}

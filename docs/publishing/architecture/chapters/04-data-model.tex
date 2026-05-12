@@ -3,9 +3,13 @@
 PostgreSQL holds the canonical relational state. Cassandra is a
 write-through cross-pod cache for movement events, an audit log for game
 state transitions, and a session store for short-lived browser tokens.
-Liquibase drives schema migration through 24 changelogs at the head of
-the federation branch; only Postgres is migrated this way — Cassandra
-schemas are bootstrapped by an init container.
+Kafka + ClickHouse are the streaming-audit / telemetry side-channel
+introduced by decision 021 — gated by \texttt{app.kafka.enabled} and off
+by default in dev. Liquibase drives Postgres schema migration through 41
+changelogs at the head of \texttt{main}; Cassandra schemas are
+bootstrapped by an init container and ClickHouse tables by the
+Kafka-engine + materialised-view DDL bundled in
+\texttt{docker/clickhouse-init/}.
 
 \section{Core relational schema}
 
@@ -150,6 +154,48 @@ Migrations 001–017 are pre-federation. The federation work landed in:
   \item \reposrc{backend/src/main/resources/db/changelog/033-mod-publisher-federation.xml} —
         \texttt{federation\_modules} rows for the new \texttt{mod} and
         \texttt{publisher} federated remotes.
+  \item \reposrc{backend/src/main/resources/db/changelog/034-friendships-and-session-visibility.xml} —
+        friend / block graph + session-visibility rules (decision 015).
+  \item \reposrc{backend/src/main/resources/db/changelog/035-additional-seed-characters.xml} —
+        dev-fixture characters for the per-game seed accounts.
+  \item \reposrc{backend/src/main/resources/db/changelog/036-widen-session-ids-for-sha3.xml} —
+        widens \texttt{game\_sessions.id} and
+        \texttt{session\_members.session\_id} from \texttt{varchar(36)}
+        to \texttt{varchar(64)} to fit the SHA3-256-derived UIDs minted
+        by \snapfile{Crypto.mintUid()}.
+  \item \reposrc{backend/src/main/resources/db/changelog/037-rpg-and-vn-maker-federation.xml} —
+        \texttt{federation\_modules} rows for the
+        \texttt{games-rpg-maker} + \texttt{games-vn-maker} remotes
+        (decision 018).
+  \item \reposrc{backend/src/main/resources/db/changelog/038-flatland-publisher-scopes.xml} —
+        pre-grants the seed \texttt{publisher-flatland} user the
+        publisher scope on the two Flatland fixture games. Idempotent
+        via \texttt{<sqlCheck expectedResult="0">}.
+  \item \reposrc{backend/src/main/resources/db/changelog/039-auth-ux-remotes-federation.xml} —
+        \texttt{federation\_modules} rows for the
+        \texttt{producer-registration} and \texttt{banned} federated
+        remotes. The banned remote pairs with
+        \snapfile{AppealContactController}
+        (\texttt{/api/security/appeal-contact}) for the appeal flow.
+  \item \reposrc{backend/src/main/resources/db/changelog/040-producer-contacts.xml} —
+        \texttt{producer\_contacts} intake table for producer / mod
+        applications submitted via the federated producer-registration
+        remote. One row per submission; admins flip
+        \texttt{status} \texttt{PENDING} $\rightarrow$ \texttt{APPROVED}
+        / \texttt{REJECTED}. Contact email + jurisdiction are submission
+        metadata so an applicant can re-apply with a new email after a
+        rejection without clobbering history. See
+        \snapfile{ProducerContactController} for the REST surface.
+  \item \reposrc{backend/src/main/resources/db/changelog/041-accounts-schema-split.xml} —
+        new \texttt{accounts} Postgres schema with three role-specific
+        profile tables: \texttt{accounts.players} (xp + character
+        roster summary, lazy-populated), \texttt{accounts.producers}
+        (contact email + jurisdiction + owned games count, populated
+        when a \texttt{producer\_contacts} row is APPROVED),
+        \texttt{accounts.mods} (contact email + \texttt{oncall\_slot},
+        populated when a \texttt{producer\_contacts} row with
+        \texttt{requested\_role='mod'} is APPROVED). Scope tables stay
+        in the public schema. See \texttt{docs/decisions/020-per-role-schema-split.md}.
 \end{itemize}
 
 \section{R2DBC + JDBC coexistence}
@@ -190,6 +236,153 @@ The Cassandra keyspace holds:
 
 A nightly \snapfile{CassandraSyncService} reconciles audit-log totals
 back into Postgres counters so dashboards stay consistent across reboots.
+Decision 021 introduces the Kafka $\rightarrow$ ClickHouse streaming
+pipeline as the long-term replacement; \snapfile{CassandraSyncService}
+stays in place until the streaming pipeline has demonstrated production
+stability.
+
+\section{Per-role accounts schema (Liquibase 041)}
+
+The per-role schema split introduces a dedicated \texttt{accounts}
+Postgres schema with one profile table per role. A user with multiple
+granted roles has one row in each --- the role gates in
+\snapfile{ProfileController} make sure each request only touches the row
+matching its current authority.
+
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Table} & \textbf{Purpose} \\
+\midrule
+\texttt{accounts.players} & XP / level / friend-count / block-count
+summary. Lazy-populated on first authenticated request from a player.
+PK: \texttt{casdoor\_user\_id}. \\
+\texttt{accounts.producers} & Contact email, jurisdiction,
+\texttt{approved\_via\_contact\_id} (soft FK to
+\texttt{producer\_contacts.id}). Populated when a
+\texttt{producer\_contacts} row with
+\texttt{requested\_role='producer'} is APPROVED. Index on
+\texttt{contact\_email}. \\
+\texttt{accounts.mods} & Contact email,
+\texttt{oncall\_slot} (\texttt{primary} / \texttt{secondary} / NULL =
+off-rota), \texttt{approved\_via\_contact\_id}. Drives the
+dispute-routing pipeline (\texttt{primary} $\rightarrow$
+\texttt{secondary} $\rightarrow$ fall through to any mod with matching
+game scope) and the \snapfile{AppealContactController} resolver. Index
+on \texttt{oncall\_slot}. \\
+\bottomrule
+\end{tabularx}
+
+\bigskip
+
+Intake remains in the public schema:
+
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Table} & \textbf{Purpose} \\
+\midrule
+\texttt{producer\_contacts} & Submission ledger for producer / mod
+applications via the \texttt{producer-registration} federated remote
+(\texttt{POST /api/producer-contacts}). One row per application;
+admins flip \texttt{status} \texttt{PENDING} $\rightarrow$
+\texttt{APPROVED} / \texttt{REJECTED}. Promotion writes a row into
+\texttt{accounts.producers} or \texttt{accounts.mods} and grants the
+Casdoor role. \\
+\bottomrule
+\end{tabularx}
+
+\section{Streaming audit / telemetry pipeline (Kafka + ClickHouse)}
+
+Decision 021 introduces a streaming side-channel that runs alongside the
+in-process gameplay path without changing it. Gated by
+\texttt{app.kafka.enabled} (default \texttt{false}) so vanilla
+\texttt{compose up} keeps the slim path. Four Kafka topics:
+
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Topic} & \textbf{Producer} & \textbf{Purpose} \\
+\midrule
+\texttt{state\_audit} & \snapfile{GameAuditPublisher} & Every state
+transition emitted by \snapfile{GameStateService} --- durable
+replacement for the Cassandra audit log. \\
+\texttt{game\_events} & \snapfile{GameEventPublisher} & All 8 SSE
+channels (movement / world / character / scene / input / audio / view /
+wasm-console) tee'd from \texttt{GameStateService.tryEmitNext}. The
+cross-pod consumer \snapfile{KafkaSessionSubscriber} filters
+self-published via \texttt{pod\_id} and dispatches per-channel to
+handlers registered in \texttt{GameStateService.@PostConstruct}. \\
+\texttt{game\_kpi} & \snapfile{GameKpiPublisher} & Per-game KPIs posted
+by federated game remotes via
+\texttt{POST /api/telemetry/game/\{slug\}}. Iframes hit the BFF
+directly under existing \snapfile{WebConfig} CORS allowlist. \\
+\texttt{session.<id>.events} & \snapfile{SessionTopicManager} &
+Per-session topics created on session-create so a cross-pod subscriber
+can hydrate only the sessions it cares about. \\
+\bottomrule
+\end{tabularx}
+
+\bigskip
+
+ClickHouse consumes via Kafka-engine tables + materialised views
+(\snapfile{docker/clickhouse-init/01-snapdragon-schema.sql}) that land
+each topic in a durable MergeTree counterpart. The
+\texttt{player\_state\_current} ReplacingMergeTree captures the latest
+per-character state for session-reconnect recovery;
+\snapfile{PlayerStateRecoveryService} queries it through the ClickHouse
+HTTP interface from \texttt{GameStateService.hydrate(...)}, with
+\texttt{Mono.empty()} as the expected miss path (SSE / gameplay never
+blocks). Rolling KPI aggregates (\texttt{kpi\_rolling\_avg\_24h}) feed
+admin dashboards.
+
+\section{Object-storage backed uploads (decision 020)}
+
+Decision 020 introduces an \snapfile{UploadStorage} strategy with two
+implementations:
+
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Strategy} & \textbf{Locator scheme} & \textbf{Notes} \\
+\midrule
+\texttt{filesystem} (default) & \texttt{file:<absolute-path>} & Bundles
+land under \texttt{app.uploads.games-dir}. Same behaviour the platform
+shipped with --- no new infra. \\
+\texttt{s3} & \texttt{s3://<bucket>/<slug>/<sha-prefix>} & Bundles
+land in an S3-compatible bucket. \texttt{compose.yml} ships a
+\texttt{minio} container for dev; prod points the four \texttt{s3.*}
+knobs at AWS S3, Cloudflare R2, Backblaze B2, etc. \\
+\bottomrule
+\end{tabularx}
+
+\bigskip
+
+Switch via \texttt{app.uploads.storage} (env
+\texttt{APP\_UPLOADS\_STORAGE}). The strategy is wrapped by
+\snapfile{CircuitBreakerUploadStorage} (Resilience4j, instance
+\texttt{s3}) so an S3 outage soft-fails reads to the classpath fallback
+in \snapfile{AssetController} instead of cascading 5xx. When
+\texttt{app.uploads.s3.presigned-reads=true},
+\texttt{AssetController.tryPresignRedirect(...)} 302s to a short-lived
+pre-signed URL (TTL capped at 15 min). Existing
+\texttt{game\_uploads.version\_dir} rows that store raw paths
+(pre-prefix scheme) keep resolving via the filesystem strategy.
+Migration script: \reposrc{scripts/migrate-uploads-to-s3.sh} (DRY-RUN by
+default).
+
+\section{Postgres read replica (decision 022)}
+
+Decision 022 adds an opt-in read-replica routing layer.
+\snapfile{R2dbcReadReplicaConfig} provides
+\texttt{@Qualifier("replica")} \texttt{ConnectionFactory} /
+\texttt{R2dbcEntityTemplate} / \texttt{DatabaseClient} beans; when
+\texttt{app.r2dbc.replica.url} is empty the replica beans alias the
+primary so the route is transparent on single-DB stacks. The
+compose-level pair lives in the opt-in overlay
+\reposrc{docker-compose.replica.yml} --- both nodes run the existing
+\texttt{postgres:16-alpine} image so the existing \texttt{pgdata} volume
+layout is preserved; bring it up with
+\reposrc{scripts/setup-pg-replica.sh}, which bounces primary with
+\texttt{wal\_level=replica} + a replication role and the replica
+\texttt{pg\_basebackup}s on first boot via
+\reposrc{docker/postgres-replica-entrypoint.sh}.
 
 \section{Multiplayer + RBAC schema (Liquibase 030--033)}
 
