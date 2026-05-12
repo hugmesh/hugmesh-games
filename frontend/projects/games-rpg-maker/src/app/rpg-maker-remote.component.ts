@@ -42,8 +42,8 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
         <button class="btn" (click)="refreshProjects()">&#8635; Refresh</button>
       </header>
 
-      @if (errorBanner) { <p class="error-banner" role="alert">{{ errorBanner }}</p> }
-      @if (successBanner) { <p class="success-banner">{{ successBanner }}</p> }
+      @if (errorBanner) { <p class="error-banner" role="alert" aria-live="assertive">{{ errorBanner }}</p> }
+      @if (successBanner) { <p class="success-banner" role="status">{{ successBanner }}</p> }
 
       <div class="three-pane">
         <!-- Projects pane -->
@@ -66,13 +66,13 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
               <input name="newProjSlug" [(ngModel)]="newProj.slug" placeholder="my-rpg" />
             </label>
             @if (newProj.slug && !slugOk(newProj.slug)) {
-              <p class="field-error">slug must be lowercase alphanumeric (with dashes), starting with a letter or digit.</p>
+              <p class="field-error" role="alert">slug must be lowercase alphanumeric (with dashes), starting with a letter or digit.</p>
             }
             <label>Display name
               <input name="newProjName" [(ngModel)]="newProj.displayName" />
             </label>
             @if ((submitted.project || slugOk(newProj.slug)) && !newProj.displayName?.trim()) {
-              <p class="field-error">display name is required.</p>
+              <p class="field-error" role="alert">display name is required.</p>
             }
             <label>Description (optional)
               <textarea name="newProjDesc" [(ngModel)]="newProj.description" rows="2"></textarea>
@@ -102,13 +102,13 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
                 <input name="newAreaSlug" [(ngModel)]="newArea.slug" placeholder="cave" />
               </label>
               @if (newArea.slug && !slugOk(newArea.slug)) {
-                <p class="field-error">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
               }
               <label>Name
                 <input name="newAreaName" [(ngModel)]="newArea.name" />
               </label>
               @if (submitted.area && !newArea.name?.trim()) {
-                <p class="field-error">area name is required.</p>
+                <p class="field-error" role="alert">area name is required.</p>
               }
               <button type="button" class="primary-btn" (click)="createArea()"
                       [disabled]="!slugOk(newArea.slug) || !newArea.name?.trim()">Add area</button>
@@ -131,13 +131,13 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
                   <input name="newRoomSlug" [(ngModel)]="newRoom.slug" placeholder="entrance" />
                 </label>
                 @if (newRoom.slug && !slugOk(newRoom.slug)) {
-                  <p class="field-error">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+                  <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
                 }
                 <label>Name
                   <input name="newRoomName" [(ngModel)]="newRoom.name" />
                 </label>
                 @if (submitted.room && !newRoom.name?.trim()) {
-                  <p class="field-error">room name is required.</p>
+                  <p class="field-error" role="alert">room name is required.</p>
                 }
                 <label>Description
                   <textarea name="newRoomDesc" [(ngModel)]="newRoom.description" rows="2"></textarea>
@@ -174,10 +174,10 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
                 </select>
               </label>
               @if (submitted.exit && !newExit.direction) {
-                <p class="field-error">direction is required.</p>
+                <p class="field-error" role="alert">direction is required.</p>
               }
               @if (submitted.exit && newExit.direction && existingDirections().includes(newExit.direction)) {
-                <p class="field-error">{{ newExit.direction }} is already taken on this room.</p>
+                <p class="field-error" role="alert">{{ newExit.direction }} is already taken on this room.</p>
               }
               <label>Target room
                 <select name="newExitTo" [(ngModel)]="newExit.toRoomId">
@@ -186,7 +186,7 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
                 </select>
               </label>
               @if (submitted.exit && !newExit.toRoomId) {
-                <p class="field-error">target room is required.</p>
+                <p class="field-error" role="alert">target room is required.</p>
               }
               <button type="button" class="primary-btn" (click)="createExit()"
                       [disabled]="!newExit.direction || !newExit.toRoomId || existingDirections().includes(newExit.direction)">
@@ -204,7 +204,7 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
                        placeholder="defaults to project slug" />
               </label>
               @if (buildTargetSlug && !slugOk(buildTargetSlug)) {
-                <p class="field-error">target slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+                <p class="field-error" role="alert">target slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
               }
               <button type="button" class="primary-btn" (click)="enqueueBuild()"
                       [disabled]="buildInFlight || (!!buildTargetSlug && !slugOk(buildTargetSlug))">
@@ -221,7 +221,7 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
                   <strong>{{ currentBuild.status }}</strong> — {{ currentBuild.progressPct }}%
                   <progress [value]="currentBuild.progressPct" max="100"></progress>
                   <pre>{{ currentBuild.logTail }}</pre>
-                  @if (currentBuild.errorMessage) { <p class="field-error">{{ currentBuild.errorMessage }}</p> }
+                  @if (currentBuild.errorMessage) { <p class="field-error" role="alert">{{ currentBuild.errorMessage }}</p> }
                 </div>
               }
             </fieldset>
