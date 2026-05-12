@@ -20,6 +20,9 @@ interface GameSession {
   visibility?: string;
   createdAt: string;
   closedAt: string | null;
+  pausedAt?: string | null;
+  pausedByCasdoorId?: string | null;
+  pauseReason?: string | null;
   members: SessionMember[];
 }
 interface ViewSample {
@@ -119,6 +122,12 @@ type EventChannel = (typeof EVENT_CHANNELS)[number];
                     <span class="row-meta vis-tag" [attr.data-vis]="s.visibility || 'public'">
                       {{ s.visibility || 'public' }}
                     </span>
+                    @if (s.pausedAt) {
+                      <span class="row-meta paused-pill"
+                            [attr.title]="'Paused: ' + (s.pauseReason || 'manual')">
+                        ⏸ paused
+                      </span>
+                    }
                   </button>
                 </li>
               }
@@ -128,11 +137,23 @@ type EventChannel = (typeof EVENT_CHANNELS)[number];
 
         <section class="session-detail">
           @if (selected(); as sel) {
-            <h2>{{ sel.name }} <span class="muted small">{{ sel.gameSlug }}</span></h2>
+            <h2>
+              {{ sel.name }} <span class="muted small">{{ sel.gameSlug }}</span>
+              @if (sel.pausedAt) {
+                <span class="paused-pill"
+                      [attr.title]="'Paused at ' + sel.pausedAt + ' — ' + (sel.pauseReason || 'manual')">
+                  ⏸ paused
+                </span>
+              }
+            </h2>
             <p class="meta">
               by {{ sel.creatorCasdoorId }} ·
               created {{ sel.createdAt | date:'short' }} ·
               {{ sel.activePlayers }} / {{ sel.maxPlayers }} active
+              @if (sel.pausedAt) {
+                · paused by {{ sel.pausedByCasdoorId || '—' }}
+                ({{ sel.pauseReason || 'manual' }})
+              }
             </p>
 
             <h3>Members</h3>
@@ -241,6 +262,7 @@ type EventChannel = (typeof EVENT_CHANNELS)[number];
     .vis-tag[data-vis='public']  { color: #4caf50; }
     .vis-tag[data-vis='friends'] { color: #b388ff; }
     .vis-tag[data-vis='private'] { color: #ff8a65; }
+    .paused-pill { color: #ffd180; background: rgba(255,209,128,0.12); border-radius: 999px; padding: 1px 8px; font-size: .76rem; margin-left: .35rem; }
     .session-detail { background: #12121e; border: 1px solid #1e1e32; border-radius: 6px; padding: 1rem; min-height: 600px; }
     .meta { color: #a8acc4; font-size: .88rem; margin: .15rem 0 .25rem; }
     .member-list { list-style: none; padding: 0; }

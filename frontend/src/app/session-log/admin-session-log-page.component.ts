@@ -22,6 +22,9 @@ interface GameSession {
   visibility?: string;
   createdAt: string;
   closedAt: string | null;
+  pausedAt?: string | null;
+  pausedByCasdoorId?: string | null;
+  pauseReason?: string | null;
   members: SessionMember[];
 }
 
@@ -99,6 +102,12 @@ interface GameSession {
                 <span class="game-count" [attr.aria-label]="sessionsInGame(g.slug).length + ' active sessions'">
                   {{ sessionsInGame(g.slug).length }} active
                 </span>
+                @if (pausedCount(g.slug) > 0) {
+                  <span class="game-paused-count"
+                        [attr.aria-label]="pausedCount(g.slug) + ' paused sessions'">
+                    {{ pausedCount(g.slug) }} paused
+                  </span>
+                }
               </button>
               @if (isExpanded(g.slug)) {
                 @if (sessionsInGame(g.slug).length === 0) {
@@ -107,7 +116,7 @@ interface GameSession {
                   <ul class="session-rows" role="group">
                     @for (s of sessionsInGame(g.slug); track s.id) {
                       <li>
-                        <div class="session-row">
+                        <div class="session-row" [class.row-paused]="!!s.pausedAt">
                           <div class="session-row-head">
                             <strong>{{ s.name }}</strong>
                             <span class="vis-tag" [attr.data-vis]="s.visibility || 'public'">
@@ -116,6 +125,12 @@ interface GameSession {
                             <span class="count-pill">
                               {{ s.activePlayers }} / {{ s.maxPlayers }}
                             </span>
+                            @if (s.pausedAt) {
+                              <span class="paused-pill"
+                                    [attr.title]="'Paused: ' + (s.pauseReason || 'manual')">
+                                ⏸ paused
+                              </span>
+                            }
                           </div>
                           <div class="session-row-meta">
                             <span>by {{ s.creatorCasdoorId }}</span>
@@ -124,7 +139,7 @@ interface GameSession {
                             <span>·</span>
                             <code class="session-id">{{ s.id }}</code>
                           </div>
-                          @if (s.members?.length) {
+                          @if (s.members.length) {
                             <ul class="members">
                               @for (m of s.members; track m.casdoorId) {
                                 <li>
@@ -170,6 +185,9 @@ interface GameSession {
     .game-name { font-weight: 600; }
     .game-slug { font-family: ui-monospace, monospace; font-size: .8rem; color: #9aa3b8; }
     .game-count { margin-left: auto; font-size: .8rem; color: #b388ff; }
+    .game-paused-count { font-size: .78rem; color: #ffd180; }
+    .paused-pill { color: #ffd180; background: rgba(255,209,128,0.12); border-radius: 999px; padding: 1px 8px; font-size: .76rem; }
+    .session-row.row-paused { background: rgba(255,209,128,0.06); border-left: 2px solid #ffd180; padding-left: .4rem; }
     .session-rows { list-style: none; padding: 0 .8rem .6rem; margin: 0; }
     .session-rows li { padding: .35rem 0; border-top: 1px dashed #1e1e32; }
     .session-rows li:first-child { border-top: 0; }
@@ -200,6 +218,11 @@ export class AdminSessionLogPageComponent implements OnInit {
   readonly expanded = signal<Set<string>>(new Set());
   search = '';
   readonly searchSignal = signal('');
+
+  /** Count of paused sessions for a given game slug (post-search filter). */
+  pausedCount(slug: string): number {
+    return this.sessionsInGame(slug).filter(s => !!s.pausedAt).length;
+  }
 
   /** Sessions for a given game slug, filtered by the active search query. */
   sessionsInGame(slug: string): GameSession[] {

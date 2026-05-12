@@ -1,7 +1,8 @@
-import { Injectable, OnDestroy } from '@angular/core';
+import { Injectable, OnDestroy, inject } from '@angular/core';
 import { BehaviorSubject, Subject } from 'rxjs';
 import { GameAction, GameState, PlayerState } from '../models/game-state.model';
 import { CharacterState } from '../models/character.model';
+import { SessionControlEvent, SessionControlService } from './session-control.service';
 import { environment } from '../../environments/environment';
 
 const DEFAULT_PLAYER: PlayerState = {
@@ -71,6 +72,8 @@ export class GameStateService implements OnDestroy {
   private _latestTick = 0;
   private _latestAction: GameAction | null = null;
 
+  private readonly sessionControl = inject(SessionControlService);
+
   constructor() { this.connect(); }
 
   connect(): void {
@@ -126,6 +129,17 @@ export class GameStateService implements OnDestroy {
     source.addEventListener('scene', (ev) => {
       try { this.scene$.next(JSON.parse((ev as MessageEvent).data)); }
       catch { /* ignore */ }
+    });
+
+    // session-control: pause / resume / closed lifecycle events. Routed
+    // through the SessionControlService so any downstream signal
+    // (game-canvas overlay, admin live-sessions badge, session-log
+    // paused indicator) reacts uniformly.
+    source.addEventListener('session-control', (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent).data) as SessionControlEvent;
+        this.sessionControl.onSessionControlEvent(data);
+      } catch { /* malformed */ }
     });
 
     source.onerror = () => {

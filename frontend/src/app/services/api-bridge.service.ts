@@ -21,7 +21,7 @@ interface ViewEgressPayload {
 }
 
 /** Channels the SSE relay forwards into the iframe via SD_SSE_EVENT. */
-const SSE_CHANNELS = ['movement', 'world', 'character', 'time', 'scene'] as const;
+const SSE_CHANNELS = ['movement', 'world', 'character', 'time', 'scene', 'session-control'] as const;
 type SseChannel = typeof SSE_CHANNELS[number];
 
 interface SseSubscribeRequest {

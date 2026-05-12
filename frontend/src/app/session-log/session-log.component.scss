@@ -41,6 +41,15 @@
 .role-creator {
   background: rgba(124,77,255,0.18); color: #b388ff;
 }
+.status-tag {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: 999px;
+}
+.status-active { background: rgba(76,175,80,0.14);  color: #6dd66c; }
+.status-paused { background: rgba(255,209,128,0.18); color: #ffd180; }
+.status-left   { background: rgba(255,255,255,0.06); color: #aab1c1; }
+.status-closed { background: rgba(255,107,107,0.14); color: #ff6b6b; }
+.row-paused td { background: rgba(255,209,128,0.05); }
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;

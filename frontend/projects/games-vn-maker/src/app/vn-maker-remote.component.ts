@@ -9,8 +9,9 @@ interface VnProject    { id: string; slug: string; displayName: string; descript
 interface VnAct        { id: string; projectId: string; slug: string; name: string; sortOrder: number; }
 interface VnCharacter  { id: string; projectId: string; slug: string; displayName: string; color: string; defaultPortraitAssetId?: string; }
 interface VnBackground { id: string; projectId: string; slug: string; name: string; assetId?: string; }
-interface VnScene      { id: string; projectId: string; actId: string; slug: string; name: string; backgroundId?: string; sortOrder: number; entryPoint: boolean; }
-interface VnLine       { id: string; sceneId: string; lineIndex: number; characterId?: string; text: string; }
+interface VnScene      { id: string; projectId: string; actId: string; slug: string; name: string; backgroundId?: string; sortOrder: number; entryPoint: boolean; pausesOnEnter?: boolean; }
+type    VnLineKind     = 'SAY' | 'PAUSE' | 'RESUME';
+interface VnLine       { id: string; sceneId: string; lineIndex: number; characterId?: string; text: string; kind?: VnLineKind; }
 interface VnChoice     { id: string; lineId: string; label: string; targetSceneId: string; sortOrder: number; }
 interface VnBuildJob   { id: string; status: string; progressPct: number; logTail: string; targetSlug: string; errorMessage?: string; }
 
@@ -152,6 +153,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
                   <p class="field-error" role="alert">scene name is required.</p>
                 }
                 <label><input type="checkbox" name="newSceneEntry" [(ngModel)]="newScene.entryPoint" /> Entry point of this act</label>
+                <label><input type="checkbox" name="newScenePause" [(ngModel)]="newScene.pausesOnEnter" /> Pause session when this scene becomes active</label>
                 <button type="button" class="primary-btn" (click)="createScene()"
                         [disabled]="!slugOk(newScene.slug) || !newScene.name?.trim()">Add scene</button>
               </fieldset>
@@ -167,12 +169,23 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
             <ul class="row-list">
               @for (l of lines; track l.id) {
                 <li>
-                  #{{ l.lineIndex }} <strong>{{ characterName(l.characterId) }}</strong>: {{ l.text }}
+                  #{{ l.lineIndex }}
+                  @if (l.kind && l.kind !== 'SAY') {
+                    <span class="line-kind-tag" [attr.data-kind]="l.kind">{{ l.kind }}</span>
+                  }
+                  <strong>{{ characterName(l.characterId) }}</strong>: {{ l.text }}
                 </li>
               }
             </ul>
             <fieldset>
               <legend>New line</legend>
+              <label>Kind
+                <select name="newLineKind" [(ngModel)]="newLine.kind">
+                  <option value="SAY">SAY — speak</option>
+                  <option value="PAUSE">PAUSE — fire SESSION_PAUSED when reached</option>
+                  <option value="RESUME">RESUME — clear the session pause</option>
+                </select>
+              </label>
               <label>Speaker
                 <select name="newLineChar" [(ngModel)]="newLine.characterId">
                   <option value="">— narrator —</option>

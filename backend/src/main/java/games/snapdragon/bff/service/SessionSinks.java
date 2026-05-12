@@ -3,6 +3,7 @@ package games.snapdragon.bff.service;
 import games.snapdragon.bff.model.CharacterDto;
 import games.snapdragon.bff.model.PlayerMovement;
 import games.snapdragon.bff.model.PlayerViewEvent;
+import games.snapdragon.bff.model.SessionControlEvent;
 import games.snapdragon.bff.model.WorldState;
 import reactor.core.publisher.Sinks;
 
@@ -22,15 +23,17 @@ import reactor.core.publisher.Sinks;
  */
 final class SessionSinks {
 
-    final Sinks.Many<PlayerMovement>  movement;
-    final Sinks.Many<WorldState>      world;
-    final Sinks.Many<CharacterDto>    character;
-    final Sinks.Many<PlayerViewEvent> view;
+    final Sinks.Many<PlayerMovement>      movement;
+    final Sinks.Many<WorldState>          world;
+    final Sinks.Many<CharacterDto>        character;
+    final Sinks.Many<PlayerViewEvent>     view;
+    final Sinks.Many<SessionControlEvent> sessionControl;
 
     SessionSinks() {
-        this.movement  = Sinks.many().multicast().onBackpressureBuffer(64,  false);
-        this.world     = Sinks.many().multicast().onBackpressureBuffer(64,  false);
-        this.character = Sinks.many().multicast().onBackpressureBuffer(16,  false);
-        this.view      = Sinks.many().multicast().onBackpressureBuffer(128, false);
+        this.movement       = Sinks.many().multicast().onBackpressureBuffer(64,  false);
+        this.world          = Sinks.many().multicast().onBackpressureBuffer(64,  false);
+        this.character      = Sinks.many().multicast().onBackpressureBuffer(16,  false);
+        this.view           = Sinks.many().multicast().onBackpressureBuffer(128, false);
+        this.sessionControl = Sinks.many().multicast().onBackpressureBuffer(16,  false);
     }
 }

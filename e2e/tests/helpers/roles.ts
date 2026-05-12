@@ -131,7 +131,7 @@ export async function ensureLoginFormReady(page: Page): Promise<void> {
 }
 
 /** Drive the federated login form and wait for the home route + a
- *  populated `tw_auth` in sessionStorage. The form inputs hang off
+ *  populated `tw_auth` in localStorage. The form inputs hang off
  *  `formControlName` because the login bundle is its own federated
  *  remote and that's the public selector contract. The
  *  `waitForFunction` after the URL transition guards against a race
@@ -143,10 +143,14 @@ export async function login(page: Page, user: SeedUser): Promise<void> {
   await page.fill('input[formControlName="username"]', user.username);
   await page.fill('input[formControlName="password"]', passwordFor(user));
   await page.click('button.login-btn');
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+  // 60 s budget here is intentional — federated `login` remote +
+  // Casdoor /api/auth/token + the host's federation init can stack
+  // up to ~30 s on a cold worker, and Live Sessions UI scenarios
+  // sign in 3 users in sequence so per-login slack is needed.
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 60_000 });
   await page.waitForFunction(
     () => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       if (!raw) return false;
       try {
         return Boolean(JSON.parse(raw).accessToken);
@@ -170,12 +174,12 @@ export async function logout(page: Page): Promise<void> {
   }
 }
 
-/** Read the access token off `sessionStorage['tw_auth']` so tests can
+/** Read the access token off `localStorage['tw_auth']` so tests can
  *  hit the BFF directly via `page.evaluate(fetch)` without going
  *  through the iframe's host-bridged path. */
 export async function authToken(page: Page): Promise<string | null> {
   return await page.evaluate(() => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem('tw_auth');
     if (!raw) return null;
     try {
       return (JSON.parse(raw) as { accessToken?: string }).accessToken ?? null;
@@ -199,7 +203,7 @@ export async function createSession(
   },
 ): Promise<{ id: string; name: string; gameSlug: string; visibility: string; maxPlayers: number; }> {
   const result = await page.evaluate(async (req) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem('tw_auth');
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch('/api/sessions', {
       method: 'POST',
@@ -224,7 +228,7 @@ export async function joinSession(
   body: { characterId?: number; slotIndex?: number } = {},
 ): Promise<unknown> {
   return await page.evaluate(async ({ sid, payload }) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem('tw_auth');
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch(`/api/sessions/${sid}/join`, {
       method: 'POST',
@@ -245,7 +249,7 @@ export async function sendControl(
   body: { action: string; pressed: boolean; chapterId?: number; sessionId?: string },
 ): Promise<void> {
   await page.evaluate(async ({ cid, payload, sid }) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem('tw_auth');
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

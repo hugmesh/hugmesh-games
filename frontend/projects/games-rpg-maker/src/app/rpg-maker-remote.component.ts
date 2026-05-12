@@ -7,7 +7,7 @@ import { catchError, switchMap, takeUntil } from 'rxjs/operators';
 
 interface RpgProject     { id: string; slug: string; displayName: string; description?: string; ownerCasdoorId?: string; updatedAt?: string; }
 interface RpgArea        { id: string; projectId: string; slug: string; name: string; sortOrder: number; gridMode: boolean; }
-interface RpgRoom        { id: string; projectId: string; areaId: string; slug: string; name: string; description?: string; environment?: number; x?: number; y?: number; z?: number; gdScript?: string; }
+interface RpgRoom        { id: string; projectId: string; areaId: string; slug: string; name: string; description?: string; environment?: number; x?: number; y?: number; z?: number; gdScript?: string; pauseOnEnter?: boolean; }
 interface RpgExit        { id: string; projectId: string; fromRoomId: string; toRoomId: string; direction: string; locked: boolean; }
 interface RpgBuildJob    { id: string; status: string; progressPct: number; logTail: string; targetSlug: string; errorMessage?: string; }
 
@@ -145,6 +145,12 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
                 <label>GDScript snippet (optional)
                   <textarea name="newRoomGd" [(ngModel)]="newRoom.gdScript" rows="3"
                             placeholder="# fires once on _ready"></textarea>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" name="newRoomPause"
+                         [(ngModel)]="newRoom.pauseOnEnter" />
+                  Pause session when any player enters this room
+                  <span class="hint">(BFF fires SESSION_PAUSED on entry; resume requires creator/admin or a RESUME line/script)</span>
                 </label>
                 <button type="button" class="primary-btn" (click)="createRoom()"
                         [disabled]="!slugOk(newRoom.slug) || !newRoom.name?.trim()">Add room</button>

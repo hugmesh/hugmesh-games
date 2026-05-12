@@ -203,7 +203,7 @@ export class GamepadService {
       const characterId = (window as any).__SNAPDRAGON_ACTIVE_CHARACTER_ID__ || 0;
       if (characterId > 0) {
         const tok = (() => {
-          try { return JSON.parse(sessionStorage.getItem('tw_auth') || '{}').accessToken; }
+          try { return JSON.parse(localStorage.getItem('tw_auth') || '{}').accessToken; }
           catch { return null; }
         })();
         const hdr: Record<string, string> = { 'Content-Type': 'application/json' };

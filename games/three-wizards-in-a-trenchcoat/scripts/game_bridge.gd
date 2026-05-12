@@ -21,6 +21,15 @@ func _ready() -> void:
 	# Sibling HostBridge resolves only after the scene tree is built.
 	_host_bridge = get_parent().get_node_or_null("HostBridge")
 
+	# Wire session-control pause / resume / close to the scene tree.
+	# Game logic decides what "paused" means (we use Godot's built-in
+	# `get_tree().paused = true` because that's the contract every
+	# scene supports; per-game scripts can override via the same
+	# signal). SESSION_CLOSED tears down the whole scene so the user
+	# doesn't keep playing on a stale session.
+	if _host_bridge != null:
+		_host_bridge.session_control_received.connect(_on_session_control)
+
 	if OS.has_feature("web"):
 		_thread_multiplayer_url_params()
 		_fetch_game_config()
@@ -31,6 +40,27 @@ func _ready() -> void:
 		# HostBridge.dispatch_event into the typed signals scene
 		# scripts already consume.
 		_request_sse_subscription()
+
+
+# Pause / resume / close handler routed in from the BFF's
+# `session-control` SSE channel. The Angular wrapper also posts
+# SD_GAME_PAUSE / SD_GAME_RESUME to handle peer-presence + cross-tab
+# takeover; that path lands on a separate window message listener
+# (see _install_pause_listener). Both converge on get_tree().paused.
+func _on_session_control(action: String, _payload: String) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	match action:
+		"SESSION_PAUSED", "PLAYER_PAUSED":
+			tree.paused = true
+		"SESSION_RESUMED", "PLAYER_RESUMED":
+			tree.paused = false
+		"SESSION_CLOSED":
+			# Wholesale tear-down. The host shell will collapse the
+			# iframe anyway; freeing here drops any lingering audio /
+			# physics so the closing animation isn't haunted.
+			tree.quit()
 	else:
 		# Local-play mode (Godot editor F5, headless export). No JS bridge,
 		# no parent module, no API. Fake a scene event so scene_loader

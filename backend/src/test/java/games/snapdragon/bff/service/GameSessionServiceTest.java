@@ -41,8 +41,15 @@ class GameSessionServiceTest {
         sessions      = mock(GameSessionRepository.class);
         members       = mock(SessionMemberRepository.class);
         relationships = mock(RelationshipQuery.class);
+        // PR #58 added a GameStateService dependency on
+        // GameSessionService so the pause / resume / host-drop service
+        // methods can emit SessionControlEvent onto the SSE sinks.
+        // The unit tests in this class don't exercise pause paths, so
+        // a no-op mock suffices — the new methods are pinned in the
+        // BDD coverage (e2e/features/admin/oversight-and-pause.feature).
+        GameStateService gameState = mock(GameStateService.class);
         service       = new GameSessionService(sessions, members, relationships,
-                java.util.Optional.empty(), java.util.Optional.empty());
+                gameState, java.util.Optional.empty(), java.util.Optional.empty());
 
         // Generic save echoes — most tests only care about the resulting
         // DTO shape; if a test cares about the row's id it sets a more
@@ -165,13 +172,33 @@ class GameSessionServiceTest {
     @Test
     void leaveDoesNotCloseWhenOthersRemain() {
         GameSession s = sample();
+        // Non-creator leaver — PR #58 added a host-drop close path
+        // that fires when the leaving member is the session creator
+        // (so the test now exercises the case the name describes:
+        // someone other than the host walks out and the session
+        // stays open).
+        SessionMember mine = newMember(s.getId(), "bob", 1L, 0, false);
+        when(members.findActive(s.getId(), "bob")).thenReturn(Mono.just(mine));
+        when(members.countBySessionIdAndLeftAtIsNull(s.getId())).thenReturn(Mono.just(2L));
+
+        StepVerifier.create(service.leave(s.getId(), "bob"))
+                .verifyComplete();
+        assertThat(s.getClosedAt()).isNull();
+    }
+
+    @Test
+    void leaveByCreatorClosesSessionEvenIfOthersRemain() {
+        // PR #58: when the host drops, the entire session quits and
+        // every other player's iframe collapses via SESSION_CLOSED.
+        GameSession s = sample();
         SessionMember mine = newMember(s.getId(), "alice", 1L, 0, true);
         when(members.findActive(s.getId(), "alice")).thenReturn(Mono.just(mine));
+        when(sessions.findById(s.getId())).thenReturn(Mono.just(s));
         when(members.countBySessionIdAndLeftAtIsNull(s.getId())).thenReturn(Mono.just(2L));
 
         StepVerifier.create(service.leave(s.getId(), "alice"))
                 .verifyComplete();
-        assertThat(s.getClosedAt()).isNull();
+        assertThat(s.getClosedAt()).isNotNull();
     }
 
     @Test

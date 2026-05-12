@@ -42,6 +42,18 @@ public class GameSessionService {
     private final GameSessionRepository    sessions;
     private final SessionMemberRepository  members;
     private final RelationshipQuery  relationships;
+    private final games.snapdragon.bff.service.GameStateService gameState;
+    /**
+     * In-memory map of {@code sessionId → (casdoorId → PausedPlayer)}.
+     * Per-player view pauses are ephemeral by design (see migration 042
+     * comment) — they live for the brief window between new-tab launch
+     * and new-tab loaded, so a pod restart clears them and the old /
+     * new tabs reconcile via their own BroadcastChannel handshake.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String,
+            java.util.concurrent.ConcurrentHashMap<String, PausedPlayer>> playerPauses =
+                new java.util.concurrent.ConcurrentHashMap<>();
+    private record PausedPlayer(String reason, String supersededLaunchUid, Instant pausedAt) {}
     /**
      * Optional Kafka tap. When {@code app.kafka.enabled=true} the audit
      * publisher emits session-lifecycle events to the {@code state_audit}
@@ -56,11 +68,13 @@ public class GameSessionService {
     public GameSessionService(GameSessionRepository sessions,
                               SessionMemberRepository members,
                               RelationshipQuery relationships,
+                              games.snapdragon.bff.service.GameStateService gameState,
                               java.util.Optional<games.snapdragon.bff.audit.GameAuditPublisher> audit,
                               java.util.Optional<games.snapdragon.bff.audit.SessionTopicManager> topicManager) {
         this.sessions      = sessions;
         this.members       = members;
         this.relationships = relationships;
+        this.gameState     = gameState;
         this.audit         = audit;
         this.topicManager  = topicManager;
     }
@@ -226,17 +240,41 @@ public class GameSessionService {
 
     /**
      * Mark the caller as having left. Append-only; the session_members row
-     * stays for history. If the caller was the last active member, also
-     * close the session itself.
+     * stays for history.
+     *
+     * <p>Two close paths fire from here:
+     *
+     * <ul>
+     *   <li>If the caller was the last active member, auto-close with
+     *       reason {@code auto-empty} (existing behaviour).</li>
+     *   <li>If the caller was the session creator, close immediately
+     *       with reason {@code host-disconnected} so every remaining
+     *       player's WASM iframe collapses via the SESSION_CLOSED SSE
+     *       event. Mirrors what the user asked for: "if the session
+     *       host drops, the entire session should quit and all player
+     *       windows should close".</li>
+     * </ul>
      */
     public Mono<Void> leave(String sessionId, String casdoorId) {
         return members.findActive(sessionId, casdoorId)
                 .flatMap(existing -> {
+                    boolean wasCreator = existing.isCreator();
                     existing.setLeftAt(Instant.now());
                     return members.save(existing).then()
                             .doOnSuccess(v -> audit.ifPresent(a -> a.emit(
                                     null, sessionId, casdoorId, "session.left",
-                                    java.util.Map.of())));
+                                    java.util.Map.of("wasCreator", wasCreator))))
+                            .thenReturn(wasCreator);
+                })
+                .flatMap(wasCreator -> {
+                    if (wasCreator) {
+                        // Host-drop path — fan SESSION_CLOSED to every
+                        // remaining player before the auto-empty check
+                        // (the host's leave often empties the session
+                        // anyway, but emitting the right reason matters).
+                        return closeOnHostDrop(sessionId);
+                    }
+                    return Mono.<Void>empty();
                 })
                 .then(members.countBySessionIdAndLeftAtIsNull(sessionId))
                 .flatMap(remaining -> {
@@ -248,12 +286,18 @@ public class GameSessionService {
                                 log.info("Session auto-closed (no active members): {}", sessionId);
                                 return sessions.save(s).then()
                                         .doOnSuccess(v -> {
+                                            gameState.emitSessionControl(
+                                                    new games.snapdragon.bff.model.SessionControlEvent(
+                                                            s.getId(),
+                                                            games.snapdragon.bff.model.SessionControlEvent.Action.SESSION_CLOSED,
+                                                            null, null, "last-member-left", Instant.now()));
                                             audit.ifPresent(a -> a.emit(
                                                     s.getGameSlug(), sessionId, null,
                                                     "session.closed",
                                                     java.util.Map.of("reason", "auto-empty")));
                                             topicManager.ifPresent(tm ->
                                                     tm.deleteForSession(sessionId));
+                                            playerPauses.remove(sessionId);
                                         });
                             });
                 });
@@ -272,14 +316,150 @@ public class GameSessionService {
                     s.setClosedAt(Instant.now());
                     return sessions.save(s).then()
                             .doOnSuccess(v -> {
+                                gameState.emitSessionControl(
+                                        new games.snapdragon.bff.model.SessionControlEvent(
+                                                s.getId(),
+                                                games.snapdragon.bff.model.SessionControlEvent.Action.SESSION_CLOSED,
+                                                null, null, "force-closed", Instant.now()));
                                 audit.ifPresent(a -> a.emit(
                                         s.getGameSlug(), sessionId, null,
                                         "session.closed",
                                         java.util.Map.of("reason", "force-close")));
                                 topicManager.ifPresent(tm ->
                                         tm.deleteForSession(sessionId));
+                                playerPauses.remove(sessionId);
                             });
                 });
+    }
+
+    /**
+     * Session-wide pause — freeze every player's WASM iframe inside the
+     * session. Authority check (creator / admin / RPG-script PAUSE
+     * kind) happens at the controller boundary; the service trusts the
+     * call site. Idempotent — re-pausing an already-paused session is a
+     * no-op with the SSE event re-fired so a late subscriber catches it.
+     */
+    public Mono<GameSessionDto> pauseSession(String sessionId, String byCasdoorId, String reason) {
+        return sessions.findById(sessionId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(s -> {
+                    if (s.getClosedAt() != null) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.GONE, "session closed"));
+                    }
+                    Instant now = Instant.now();
+                    if (s.getPausedAt() == null) {
+                        s.setPausedAt(now);
+                        s.setPausedByCasdoorId(byCasdoorId);
+                        s.setPauseReason(reason != null ? reason : "manual");
+                    }
+                    return sessions.save(s);
+                })
+                .doOnSuccess(s -> {
+                    gameState.emitSessionControl(new games.snapdragon.bff.model.SessionControlEvent(
+                            s.getId(),
+                            games.snapdragon.bff.model.SessionControlEvent.Action.SESSION_PAUSED,
+                            null, null, s.getPauseReason(), s.getPausedAt()));
+                    audit.ifPresent(a -> a.emit(
+                            s.getGameSlug(), s.getId(), byCasdoorId,
+                            "session.paused",
+                            java.util.Map.of("reason", s.getPauseReason() == null ? "manual" : s.getPauseReason())));
+                })
+                .flatMap(this::toDtoWithMembers);
+    }
+
+    /** Resume a session-wide pause. Only meaningful when paused_at is set. */
+    public Mono<GameSessionDto> resumeSession(String sessionId, String byCasdoorId) {
+        return sessions.findById(sessionId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(s -> {
+                    if (s.getClosedAt() != null) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.GONE, "session closed"));
+                    }
+                    s.setPausedAt(null);
+                    s.setPausedByCasdoorId(null);
+                    s.setPauseReason(null);
+                    return sessions.save(s);
+                })
+                .doOnSuccess(s -> {
+                    gameState.emitSessionControl(new games.snapdragon.bff.model.SessionControlEvent(
+                            s.getId(),
+                            games.snapdragon.bff.model.SessionControlEvent.Action.SESSION_RESUMED,
+                            null, null, null, Instant.now()));
+                    audit.ifPresent(a -> a.emit(
+                            s.getGameSlug(), s.getId(), byCasdoorId,
+                            "session.resumed", java.util.Map.of()));
+                })
+                .flatMap(this::toDtoWithMembers);
+    }
+
+    /**
+     * Tab-takeover pause for one player. Triggered when the player POSTs
+     * {@code /launch} from a new tab — the old tab's WASM iframe must
+     * release input focus while the new tab loads its streams + assets.
+     * Ephemeral (in-memory) by design; cleared on resumePlayer or on
+     * session close.
+     */
+    public Mono<Void> pausePlayer(String sessionId, String casdoorId, String reason, String supersededLaunchUid) {
+        if (sessionId == null || casdoorId == null) return Mono.empty();
+        playerPauses.computeIfAbsent(sessionId, id -> new java.util.concurrent.ConcurrentHashMap<>())
+                    .put(casdoorId, new PausedPlayer(
+                            reason == null ? "tab-takeover" : reason,
+                            supersededLaunchUid,
+                            Instant.now()));
+        gameState.emitSessionControl(new games.snapdragon.bff.model.SessionControlEvent(
+                sessionId,
+                games.snapdragon.bff.model.SessionControlEvent.Action.PLAYER_PAUSED,
+                casdoorId,
+                supersededLaunchUid,
+                reason == null ? "tab-takeover" : reason,
+                Instant.now()));
+        return Mono.empty();
+    }
+
+    /**
+     * Per-player resume — emitted by the NEW tab once it has finished
+     * loading streams + assets and is ready to drive input. Drops the
+     * in-memory entry and emits PLAYER_RESUMED so the old tab can fully
+     * tear down.
+     */
+    public Mono<Void> resumePlayer(String sessionId, String casdoorId) {
+        if (sessionId == null || casdoorId == null) return Mono.empty();
+        var perSession = playerPauses.get(sessionId);
+        if (perSession != null) perSession.remove(casdoorId);
+        gameState.emitSessionControl(new games.snapdragon.bff.model.SessionControlEvent(
+                sessionId,
+                games.snapdragon.bff.model.SessionControlEvent.Action.PLAYER_RESUMED,
+                casdoorId, null, null, Instant.now()));
+        return Mono.empty();
+    }
+
+    /**
+     * Host-drop handler. Called when the session creator's membership
+     * row gets a {@code left_at} stamp — the session is force-closed and
+     * a SESSION_CLOSED event is emitted with reason
+     * {@code host-disconnected} so every other player's host shell can
+     * collapse the game iframe and surface a toast.
+     */
+    public Mono<Void> closeOnHostDrop(String sessionId) {
+        return sessions.findById(sessionId)
+                .filter(s -> s.getClosedAt() == null)
+                .flatMap(s -> {
+                    s.setClosedAt(Instant.now());
+                    return sessions.save(s).then()
+                            .doOnSuccess(v -> {
+                                gameState.emitSessionControl(new games.snapdragon.bff.model.SessionControlEvent(
+                                        s.getId(),
+                                        games.snapdragon.bff.model.SessionControlEvent.Action.SESSION_CLOSED,
+                                        null, null, "host-disconnected", Instant.now()));
+                                audit.ifPresent(a -> a.emit(
+                                        s.getGameSlug(), s.getId(), s.getCreatorCasdoorId(),
+                                        "session.closed",
+                                        java.util.Map.of("reason", "host-disconnected")));
+                                topicManager.ifPresent(tm -> tm.deleteForSession(s.getId()));
+                                playerPauses.remove(s.getId());
+                            });
+                })
+                .then();
     }
 
     /** Active membership snapshot — used by ControlController's auth check. */

@@ -25,6 +25,8 @@ public class RpgRoom {
     private UUID iconAssetId;
     @Column("gd_script")
     private String gdScript;
+    @Column("pause_on_enter")
+    private boolean pauseOnEnter;
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
@@ -50,4 +52,6 @@ public class RpgRoom {
     public void setIconAssetId(UUID iconAssetId) { this.iconAssetId = iconAssetId; }
     public String getGdScript() { return gdScript; }
     public void setGdScript(String gdScript) { this.gdScript = gdScript; }
+    public boolean isPauseOnEnter() { return pauseOnEnter; }
+    public void setPauseOnEnter(boolean pauseOnEnter) { this.pauseOnEnter = pauseOnEnter; }
 }
