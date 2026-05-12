@@ -165,3 +165,52 @@ world, character, and view onto a single per-session connection.
 Without per-session keying, two concurrent sessions on the same pod
 would cross-contaminate every fan-out — so the keyed map is the
 load-bearing piece.
+
+\section{Maker side services}
+
+The RPG and VN makers each ship as their own reactive Spring Boot
+service alongside the BFF, with their own Postgres tenants:
+
+\begin{itemize}
+  \item \snapfile{rpg-builder/} --- Mudlet-shaped editor data model
+        (projects, areas, rooms, exits, items, NPCs, scripts) backed
+        by the \texttt{postgres-rpg-builder} container. REST surface
+        at \texttt{/api/rpg/*}.
+  \item \snapfile{vn-builder/} --- godot-2d-visual-novel-shaped data
+        model (projects, acts, characters, backgrounds, scenes, lines,
+        choices) backed by the \texttt{postgres-vn-builder} container.
+        REST surface at \texttt{/api/vn/*}.
+\end{itemize}
+
+Each side service's build worker walks the project tree, emits a Godot
+4 source tree with \snapfile{snapdragon\_bridge.gdextension} baked in
+(multiplayer-aware out of the box), runs the Godot CLI per area or act,
+zips the result, and POSTs to the BFF's
+\texttt{/api/admin/games/upload} endpoint \emph{with the originating
+publisher's bearer token}. The BFF's existing
+\texttt{publisher\_game\_scopes} check enforces who can ship which
+slug, so a single compromised maker can't spam the catalog. Decision
+018 covers the side-service architecture; the per-database schemas
+live in the \emph{Schema diagrams} appendix at the end of this
+document.
+
+\section{Mod / publisher per-game scope}
+
+Authorisation for mod- and publisher-only endpoints reads two layers,
+both required:
+
+\begin{itemize}
+  \item Casdoor membership in \texttt{ROLE\_MOD} or
+        \texttt{ROLE\_PUBLISHER} (claim is in the JWT).
+  \item One row in \texttt{mod\_game\_scopes} /
+        \texttt{publisher\_game\_scopes} per (casdoorId, gameSlug)
+        pair (Postgres).
+\end{itemize}
+
+Admins manage both layers via \texttt{/api/admin/role-grants/*};
+publishers can grant mod on \emph{games they own} via
+\texttt{/api/publisher/grant-mod}, which walks the same write path but
+enforces caller-owns-target-game before mutating. The full rejection
+matrix is pinned by
+\reposrc{e2e/features/security/mod-grant-gates.feature} on the BDD side
+and a \texttt{@WebFluxTest} on the controller side.

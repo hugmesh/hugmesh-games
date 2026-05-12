@@ -108,6 +108,86 @@ scripts are deliberately written so a non-Python audience can edit slide
 content by editing the data structure at the top of each file —
 template placeholders are not used.
 
+\section{Maker side-service builds}
+
+The two maker side services (\reposrc{rpg-builder/}, \reposrc{vn-builder/})
+each have their own Spring Boot Maven build that runs alongside the
+BFF's. Standard reactive WebFlux pipeline, separate Postgres tenants
+(\texttt{postgres-rpg-builder}, \texttt{postgres-vn-builder}) managed
+end-to-end by Liquibase --- no JPA \texttt{ddl-auto}, no psql-init
+seed file.
+
+\begin{lstlisting}[language=bash]
+make build-rpg-builder    # mvn package + docker image for /api/rpg/*
+make build-vn-builder     # mvn package + docker image for /api/vn/*
+\end{lstlisting}
+
+Each service's worker walks its project tree to a Godot 4 source tree
+(with \snapfile{snapdragon\_bridge.gdextension} baked in), invokes
+\texttt{godot --export-release} per area / act (gated behind
+\texttt{app.build.godot-enabled}; stub bundles otherwise), zips the
+result, and POSTs to the BFF \texttt{/api/admin/games/upload} endpoint
+with the originating user's bearer token. The BFF's existing
+\texttt{publisher\_game\_scopes} check enforces who can ship which
+slug.
+
+\section{Production rate-limit zones}
+
+\snapfile{frontend/nginx.conf} and its TLS twin
+\snapfile{frontend/nginx-tls.conf} declare six
+\texttt{limit\_req\_zone} entries sized for $\sim$10 000 concurrent
+users. Decision 019 has the full table; the summary:
+
+\begin{tabularx}{\linewidth}{l r r l X}
+\toprule
+\textbf{Zone} & \textbf{r/s} & \textbf{Burst} & \textbf{Mode} & \textbf{Applied to} \\
+\midrule
+\texttt{browse}    & 100 & 200 & delay   & \texttt{/} (SPA shell + static) \\
+\texttt{api}       & 50  & 150 & delay   & \texttt{/api/*} \\
+\texttt{sse}       & 30  & 100 & nodelay & \texttt{/api/game/stream} \\
+\texttt{auth}      & 5   & 20  & nodelay & \texttt{/api/auth/*} \\
+\texttt{admin}     & 5   & 20  & nodelay & \texttt{/api/admin/*} \\
+\texttt{maker\_api} & 10  & 40  & delay   & \texttt{/api/rpg/*}, \texttt{/api/vn/*} \\
+\bottomrule
+\end{tabularx}
+
+Plus \texttt{limit\_conn conn\_per\_ip 40} to cap a single source's
+parallel sockets. Tripped requests return 429 (not the nginx-default
+503) so well-behaved clients back off correctly. The BFF's per-pod
+\snapfile{RateLimitFilter} + Cassandra cross-pod aggregator
+(append-row log on \texttt{rate\_limit\_events}, 90 s TTL) still runs
+at the controller level --- these zones are the edge layer that
+rejects floods before traffic touches the JVM.
+
+\begin{snapcaution}[title={nginx-tls.conf drift}]
+The plain-HTTP and TLS variants of \texttt{nginx.conf} must list the
+same \texttt{location /\_remotes/<slug>/} proxy blocks. Adding a new
+federated remote means editing both in lockstep --- drift shows up
+as ``Couldn't reach \emph{X} --- federated module didn't load'' for
+the missing block under TLS. Same applies to
+\texttt{/api/<sub-service>/} blocks (\texttt{/api/rpg/}, \texttt{/api/vn/})
+that proxy to the maker side services.
+\end{snapcaution}
+
+\section{LAN access + production overlay}
+
+A plain \texttt{docker compose up -d} binds the frontend + Postgres to
+\texttt{127.0.0.1} only (safe on a shared Wi-Fi network). Opt in to
+LAN access via the \snapfile{lan.properties} env-file with literal
+\texttt{FRONTEND\_BIND=0.0.0.0:} values:
+
+\begin{lstlisting}[language=bash]
+make lan-up         # bind frontend to 0.0.0.0:8080 over plain HTTP
+make lan-up-tls     # same, wrapped in HTTPS (cert SAN includes LAN IPs)
+make lan-info       # print reachable URLs
+make lan-down       # stop + restore loopback-only binds
+\end{lstlisting}
+
+For production, \snapfile{compose.prod.yml} layers in the rate-limit
+zones above + binds frontend to \texttt{127.0.0.1} by default (assumes
+an upstream LB / TLS terminator). Set \texttt{PROD\_FRONTEND\_BIND=0.0.0.0:}
+for a single-VM deploy.
+
 \section{CI hooks}
 
 A pre-push hook is shipped at
