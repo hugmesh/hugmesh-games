@@ -2,6 +2,7 @@ package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.GameUpload;
 import games.snapdragon.bff.repository.GameUploadRepository;
+import games.snapdragon.bff.upload.UploadStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,9 +11,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,11 +40,14 @@ public class GameUploadPruner {
     private static final Logger log = LoggerFactory.getLogger(GameUploadPruner.class);
 
     private final GameUploadRepository repo;
+    private final UploadStorage storage;
     private final int keepCount;
 
     public GameUploadPruner(GameUploadRepository repo,
+                            UploadStorage storage,
                             @Value("${app.uploads.versions-to-keep:3}") int keepCount) {
         this.repo = repo;
+        this.storage = storage;
         this.keepCount = Math.max(1, keepCount);
     }
 
@@ -88,21 +89,13 @@ public class GameUploadPruner {
     }
 
     private Mono<String> removeVersionDir(GameUpload upload) {
-        String dir = upload.getVersionDir();
-        if (dir == null || dir.isBlank()) {
+        String locator = upload.getVersionDir();
+        if (locator == null || locator.isBlank()) {
             return Mono.empty();
         }
         return Mono.fromCallable(() -> {
-            Path target = Path.of(dir).normalize();
-            if (Files.exists(target)) {
-                try (var stream = Files.walk(target)) {
-                    stream.sorted(Comparator.reverseOrder()).forEach(p -> {
-                        try { Files.deleteIfExists(p); }
-                        catch (IOException ignored) {}
-                    });
-                }
-            }
-            return dir;
+            storage.deleteVersion(locator);
+            return locator;
         });
     }
 }
