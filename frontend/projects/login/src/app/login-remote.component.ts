@@ -45,34 +45,48 @@ const STORAGE_KEY = 'tw_auth';
         <h1 class="game-title">Snapdragon<br><span>Games</span></h1>
         <p class="subtitle">Sign in to enter the portal</p>
 
-        <form [formGroup]="form" (ngSubmit)="submit()" class="login-form">
+        <form [formGroup]="form" (ngSubmit)="submit()" class="login-form"
+              aria-describedby="login-status">
           <div class="field">
+            <label for="login-username" class="sr">Username</label>
             <input
+              id="login-username"
               formControlName="username"
               type="text"
               placeholder="Username"
               class="input"
-              autocomplete="username">
+              autocomplete="username"
+              [attr.aria-invalid]="form.controls.username.invalid && form.controls.username.touched ? 'true' : null"
+              required>
           </div>
           <div class="field">
+            <label for="login-password" class="sr">Password</label>
             <input
+              id="login-password"
               formControlName="password"
               type="password"
               placeholder="Password"
               class="input"
-              autocomplete="current-password">
+              autocomplete="current-password"
+              [attr.aria-invalid]="form.controls.password.invalid && form.controls.password.touched ? 'true' : null"
+              required>
           </div>
 
-          @if (errorMsg()) {
-            <p class="error-msg">{{ errorMsg() }}</p>
-          }
+          <!-- Live region so screen readers announce auth failures
+               without the user having to re-tab to find the error.
+               role=alert implies aria-live=assertive + aria-atomic=true. -->
+          <p id="login-status" class="error-msg"
+             role="alert" aria-live="assertive"
+             [class.empty]="!errorMsg()">
+            {{ errorMsg() }}
+          </p>
 
           <button type="submit" class="login-btn" [disabled]="form.invalid || loading()">
             @if (loading()) {
-              <span class="btn-icon">&#8987;</span>
+              <span class="btn-icon" aria-hidden="true">&#8987;</span>
               Signing in&hellip;
             } @else {
-              <span class="btn-icon">&#128481;</span>
+              <span class="btn-icon" aria-hidden="true">&#128481;</span>
               Sign In
             }
           </button>
@@ -109,7 +123,24 @@ const STORAGE_KEY = 'tw_auth';
              transition: border-color 0.2s, box-shadow 0.2s; }
     .input::placeholder { color: #7070a0; }
     .input:focus { border-color: #7c4dff; box-shadow: 0 0 0 2px rgba(124,77,255,0.2); }
-    .error-msg { color: #ff6b6b; font-size: 0.85rem; margin: 0; text-align: left; }
+    .error-msg { color: #ff6b6b; font-size: 0.85rem; margin: 0; text-align: left;
+                 min-height: 1.2em; /* reserve space so the layout doesn't jump
+                                       when the live-region populates */ }
+    .error-msg.empty { color: transparent; }   /* render nothing visually until
+                                                  there's content, but keep the
+                                                  live region in the DOM so the
+                                                  screen reader announces the
+                                                  next assertion */
+    /* Screen-reader-only labels — visible to AT but visually hidden.
+       Used for the username/password inputs whose placeholder was
+       the only label before (placeholders disappear on focus and
+       are not accessible labels). */
+    .sr {
+      position: absolute;
+      width: 1px; height: 1px;
+      margin: -1px; padding: 0; overflow: hidden;
+      clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
     .login-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px;
                  background: #7c4dff; color: #fff; border: none; border-radius: 8px;
                  padding: 14px 32px; font-size: 1rem; font-weight: 600; cursor: pointer;
