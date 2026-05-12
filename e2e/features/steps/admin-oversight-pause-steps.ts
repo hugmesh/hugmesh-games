@@ -157,25 +157,54 @@ Given(/^the admin is streaming \/api\/admin\/sessions\/\{id\}\/stream$/, async (
   stream.page = page;
   await page.evaluate((sessionId) => {
     const w = window as unknown as {
-      _twAdminCtl?: { events: Array<{action: string; reason: string|null; sessionId: string}>; src: EventSource };
+      _twAdminCtl?: { events: Array<{action: string; reason: string|null; sessionId: string}> };
     };
     const raw = window.localStorage.getItem('tw_auth');
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
-    // EventSource doesn't support custom headers; the admin stream
-    // requires the bearer via query for headless test contexts.
-    // The BFF's SecurityConfig accepts both bearer and the
-    // ?access_token= override for dev/test profiles.
-    const src = new EventSource(
-      `/api/admin/sessions/${encodeURIComponent(sessionId)}/stream?access_token=${encodeURIComponent(token)}`);
     const bag: Array<{action: string; reason: string|null; sessionId: string}> = [];
-    src.addEventListener('session-control', e => {
-      try {
-        const data = JSON.parse((e as MessageEvent).data);
-        bag.push({ action: data.action, reason: data.reason, sessionId: data.sessionId });
-      } catch { /* */ }
-    });
-    w._twAdminCtl = { events: bag, src };
+    w._twAdminCtl = { events: bag };
+    // EventSource can't attach Authorization headers; we run a
+    // fetch-stream consumer instead. Reads the per-session SSE feed
+    // and pushes session-control events onto the polled bag.
+    fetch(`/api/admin/sessions/${encodeURIComponent(sessionId)}/stream`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+    }).then(async (resp) => {
+      if (!resp.body) return;
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        buf += decoder.decode(value, { stream: true });
+        // SSE frames are separated by a blank line. Each frame may
+        // be multiple lines (event:, data:, id:, ...). Parse fields.
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          let event = 'message'; let data = '';
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) event = line.slice(6).trim();
+            else if (line.startsWith('data:')) data += line.slice(5).trim();
+          }
+          if (event === 'session-control' && data) {
+            try {
+              const parsed = JSON.parse(data);
+              bag.push({ action: parsed.action, reason: parsed.reason, sessionId: parsed.sessionId });
+            } catch { /* */ }
+          }
+        }
+      }
+    }).catch(() => { /* network error or aborted */ });
   }, api.lastSessionId);
+
+  // Give the fetch chain a tick to actually open the connection
+  // before the next step fires the event that should arrive on it.
+  // Without this short wait the DELETE in the host-drop scenario
+  // races the SSE subscribe and the event lands before the reader
+  // is hooked up.
+  await new Promise(r => setTimeout(r, 500));
 });
 
 // ── When steps ────────────────────────────────────────────────────────────
@@ -190,8 +219,9 @@ When('the admin GETs {string}', async ({}, path: string) => {
 // Combined matcher so playwright-bdd doesn't pick between two regexps
 // for the same line. Optional capture (3) holds the reason payload —
 // empty when the Gherkin line omits the "with reason ..." clause.
-When(/^"(.+)" POSTs to "(.+)"(?: with reason "(.+)")?$/,
-  async ({}, username: string, pathTemplate: string, reason: string | undefined) => {
+When(/^"(.+?)" POSTs to "(.+?)"(?: with reason "(.+?)")?$/,
+  async ({ browser }, username: string, pathTemplate: string, reason: string | undefined) => {
+    await ensureSignedIn(browser, username);
     const page = pageFor(username);
     const body = reason ? { reason } : {};
     const resp = await callBff(page, 'POST', resolvePath(pathTemplate), body);
@@ -203,7 +233,7 @@ When(/^"(.+)" POSTs to "(.+)"(?: with reason "(.+)")?$/,
     }
   });
 
-When(/^the admin POSTs to "(.+)" with reason "(.+)"$/,
+When(/^the admin POSTs to "(.+?)" with reason "(.+?)"$/,
   async ({}, pathTemplate: string, reason: string) => {
     const resp = await callBff(pageFor('admin'), 'POST', resolvePath(pathTemplate), { reason });
     api.lastStatus = resp.status;
@@ -241,6 +271,13 @@ Then('the response does not contain a session named {string}', async ({}, name: 
 Then('the response body has a non-null pausedAt', async () => {
   const dto = api.lastBody as { pausedAt: string | null };
   expect(dto.pausedAt).toBeTruthy();
+});
+
+Then('the response body has a non-null pausedByCasdoorId', async () => {
+  // JWT sub is the Casdoor user UUID, not the seed username, so we
+  // assert presence rather than literal value.
+  const dto = api.lastBody as { pausedByCasdoorId: string | null };
+  expect(dto.pausedByCasdoorId).toBeTruthy();
 });
 
 Then('the response body\'s pauseReason is {string}', async ({}, reason: string) => {

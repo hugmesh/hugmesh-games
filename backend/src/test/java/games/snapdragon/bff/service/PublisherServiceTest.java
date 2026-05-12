@@ -14,6 +14,7 @@ import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -39,6 +40,11 @@ class PublisherServiceTest {
 
         lenient().when(modScopes.save(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         lenient().when(publisherScopes.save(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        // PublisherService.grantMod chains `.then(modScopes.findActive(...))`
+        // before requireOwns has a chance to short-circuit, so even the
+        // 403 path needs findActive to return a real Mono. Lenient
+        // default keeps every test from having to stub it explicitly.
+        lenient().when(modScopes.findActive(anyString(), anyString())).thenReturn(Mono.empty());
     }
 
     @Test

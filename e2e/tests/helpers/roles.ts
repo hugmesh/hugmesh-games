@@ -143,7 +143,11 @@ export async function login(page: Page, user: SeedUser): Promise<void> {
   await page.fill('input[formControlName="username"]', user.username);
   await page.fill('input[formControlName="password"]', passwordFor(user));
   await page.click('button.login-btn');
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+  // 60 s budget here is intentional — federated `login` remote +
+  // Casdoor /api/auth/token + the host's federation init can stack
+  // up to ~30 s on a cold worker, and Live Sessions UI scenarios
+  // sign in 3 users in sequence so per-login slack is needed.
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 60_000 });
   await page.waitForFunction(
     () => {
       const raw = window.localStorage.getItem('tw_auth');

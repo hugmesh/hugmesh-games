@@ -48,14 +48,20 @@ Then('the game tree shows at least one game row', async () => {
   expect(await rows.count()).toBeGreaterThan(0);
 });
 
+// `.first()` is applied across the row locators because the dev
+// compose stack reuses the same Postgres data between BDD runs;
+// identically-named fixture rows accumulate, so strict-mode picks
+// would throw "resolved to N elements". The asserts are row-local
+// (paused pill, status tag) so picking any matching row is fine.
+
 When('the admin clicks the row for game {string}', async ({}, slug: string) => {
   const page = pageRegistry.get('admin')!;
-  await page.locator('.game-row').filter({ hasText: slug }).click();
+  await page.locator('.game-row').filter({ hasText: slug }).first().click();
 });
 
 Then('the expanded game shows session {string}', async ({}, sessionName: string) => {
   const page = pageRegistry.get('admin')!;
-  await expect(page.locator('.session-rows li').filter({ hasText: sessionName }))
+  await expect(page.locator('.session-rows li').filter({ hasText: sessionName }).first())
     .toBeVisible({ timeout: 5_000 });
 });
 
@@ -73,25 +79,25 @@ When('the admin types {string} into the session-log search box', async ({}, q: s
 Then(/^session "(.+)" is visible under game "(.+)"$/,
   async ({}, sessionName: string, _slug: string) => {
     const page = pageRegistry.get('admin')!;
-    await expect(page.locator('.session-rows li').filter({ hasText: sessionName }))
+    await expect(page.locator('.session-rows li').filter({ hasText: sessionName }).first())
       .toBeVisible({ timeout: 5_000 });
   });
 
 Then('the row for game {string} shows a paused-count badge', async ({}, slug: string) => {
   const page = pageRegistry.get('admin')!;
-  const row = page.locator('.game-row').filter({ hasText: slug });
+  const row = page.locator('.game-row').filter({ hasText: slug }).first();
   await expect(row.locator('.game-paused-count')).toBeVisible();
 });
 
 Then('the row for session {string} shows a paused pill', async ({}, sessionName: string) => {
   const page = pageRegistry.get('admin')!;
-  const row = page.locator('.session-rows li').filter({ hasText: sessionName });
+  const row = page.locator('.session-rows li').filter({ hasText: sessionName }).first();
   await expect(row.locator('.paused-pill')).toBeVisible();
 });
 
 Then('the row for {string} shows a paused status tag', async ({}, sessionName: string) => {
   const page = pageRegistry.get('player1')!;
   // Player session-log table uses .status-paused on the Status cell.
-  const row = page.locator('.session-log-table tbody tr').filter({ hasText: sessionName });
+  const row = page.locator('.session-log-table tbody tr').filter({ hasText: sessionName }).first();
   await expect(row.locator('.status-paused')).toBeVisible({ timeout: 5_000 });
 });

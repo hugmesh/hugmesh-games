@@ -35,10 +35,14 @@ describe('ApiBridgeService', () => {
   afterEach(() => httpMock.verify());
 
   function dispatch(type: string, payload: unknown): void {
-    window.dispatchEvent(Object.assign(
-      new MessageEvent('message', { data: { type, payload } }),
-      { source: fakeSource as unknown as Window },
-    ));
+    // Newer Chromium versions make MessageEvent.source a read-only
+    // getter AND the constructor option `source` must be a real
+    // EventTarget. The bridge only ever calls `event.source.postMessage`,
+    // so we override the property descriptor to return our fake
+    // source without going through either gate.
+    const ev = new MessageEvent('message', { data: { type, payload } });
+    Object.defineProperty(ev, 'source', { value: fakeSource, configurable: true });
+    window.dispatchEvent(ev);
   }
 
   it('SD_API_REQUEST: GETs the path and posts the response back to the iframe', async () => {

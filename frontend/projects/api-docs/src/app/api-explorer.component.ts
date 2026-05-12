@@ -3,7 +3,7 @@
  * OpenAPI spec. Shown on the "Try it out" tab of DocsShellComponent.
  *
  * Features (per the project requirement):
- *   • Auth-token override textbox preloaded from sessionStorage.tw_auth.
+ *   • Auth-token override textbox preloaded from localStorage.tw_auth.
  *   • Path / query / header parameter form, defaulted from the spec.
  *   • Request-body editor (JSON for application/json, file picker for
  *     multipart/form-data with a binary field).
@@ -108,7 +108,7 @@ interface HeaderParams { [k: string]: string; }
 
     <h3>Authentication</h3>
     <label for="tok">Bearer token (override; preloaded from
-      <code>sessionStorage.tw_auth</code>)</label>
+      <code>localStorage.tw_auth</code>)</label>
     <input id="tok" type="text" [(ngModel)]="token"
            placeholder="eyJhbGciOiJSUzI1NiJ9..." />
 
@@ -205,14 +205,14 @@ export class ApiExplorerComponent implements OnChanges {
   ngOnChanges(): void {
     if (!this.active) return;
     this.resetForm();
-    // Preload token from sessionStorage.tw_auth if available.
+    // Preload token from localStorage.tw_auth if available.
     try {
-      const raw = sessionStorage.getItem('tw_auth');
+      const raw = localStorage.getItem('tw_auth');
       if (raw) {
         const parsed = JSON.parse(raw);
         this.token = parsed?.accessToken || '';
       }
-    } catch { /* tab without sessionStorage access — ignore */ }
+    } catch { /* tab without localStorage access — ignore */ }
     // Preload sample body when available.
     const sample = this.active.op?.['x-snapdragon']?.sampleRequest;
     if (sample && this.hasJsonBody()) {

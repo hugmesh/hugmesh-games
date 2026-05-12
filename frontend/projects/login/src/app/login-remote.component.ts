@@ -28,7 +28,7 @@ const STORAGE_KEY = 'tw_auth';
  * bundle and is NOT shared via the federation manifest. HttpClient and
  * Router ARE shared (`shareAll({singleton: true})` in
  * federation.config.js), so they reach this remote through the host's
- * env injector. The token shape we write into sessionStorage mirrors
+ * env injector. The token shape we write into localStorage mirrors
  * AuthService.StoredAuth exactly — the interceptor + guard read the
  * same key on the next request, no second authentication round.
  */
@@ -177,8 +177,10 @@ export class LoginRemoteComponent {
       next: resp => {
         // Mirror AuthService.StoredAuth exactly — same key, same fields,
         // so the host's interceptor + guard see this token without a
-        // second login round.
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+        // second login round. Storage backend is `localStorage` (PR #57
+        // moved it off sessionStorage so middle-click/Ctrl-click "open in
+        // new tab" on any menu link survives the per-tab storage isolation).
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
           accessToken: resp.access_token,
           idToken: resp.id_token ?? '',
           expiry: Date.now() + resp.expires_in * 1000,

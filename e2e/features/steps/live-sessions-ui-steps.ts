@@ -26,7 +26,20 @@ async function ensureAdmin(browser: Browser): Promise<Page> {
 When('the admin opens {string}', async ({ browser }, path: string) => {
   const page = await ensureAdmin(browser);
   await page.goto(path);
-  await page.waitForSelector('input.search-input', { timeout: 10_000 });
+  // Wait for the SPA route to commit + the federated SessionsShell to
+  // render — log the final URL on miss so we know whether AuthGuard
+  // bounced us to /login or the iframe just didn't paint in time.
+  try {
+    await page.waitForSelector('input.search-input', { timeout: 30_000 });
+  } catch (e) {
+    const diag = await page.evaluate(() => ({
+      url:          window.location.href,
+      hasSessions:  !!document.querySelector('app-sessions-remote'),
+      mainHtml:     (document.querySelector('main')?.innerHTML ?? '').slice(0, 800),
+    }));
+    console.error('[live-sessions-ui] search-input never appeared:', JSON.stringify(diag));
+    throw e;
+  }
 });
 
 When('the admin types {string} into the session search box', async ({}, q: string) => {
@@ -41,9 +54,16 @@ When('the admin clears the session search box', async () => {
   await page.locator('input.search-input').fill('');
 });
 
+// `.first()` is used across the row matchers because the dev compose
+// stack's DB isn't wiped between BDD runs; identically-named fixture
+// rows accumulate, so the strict-mode selector would explode with
+// "resolved to N elements". `.first()` picks any matching row — the
+// assertions on its content (visibility tag, paused pill) are
+// row-local so a duplicate row's state is the same regardless.
+
 Then('the session list shows {string}', async ({}, name: string) => {
   const page = pageRegistry.get('admin')!;
-  await expect(page.locator('.sessions-list li').filter({ hasText: name }))
+  await expect(page.locator('.sessions-list li').filter({ hasText: name }).first())
     .toBeVisible({ timeout: 5_000 });
 });
 
@@ -55,25 +75,25 @@ Then('the session list does not show {string}', async ({}, name: string) => {
 
 Then(/^the session list shows "(.+)" and "(.+)"$/, async ({}, a: string, b: string) => {
   const page = pageRegistry.get('admin')!;
-  await expect(page.locator('.sessions-list li').filter({ hasText: a })).toBeVisible();
-  await expect(page.locator('.sessions-list li').filter({ hasText: b })).toBeVisible();
+  await expect(page.locator('.sessions-list li').filter({ hasText: a }).first()).toBeVisible();
+  await expect(page.locator('.sessions-list li').filter({ hasText: b }).first()).toBeVisible();
 });
 
 Then('the row for {string} shows a paused pill', async ({}, name: string) => {
   const page = pageRegistry.get('admin')!;
-  const row = page.locator('.sessions-list li').filter({ hasText: name });
+  const row = page.locator('.sessions-list li').filter({ hasText: name }).first();
   await expect(row.locator('.paused-pill')).toBeVisible();
 });
 
 Then('the row for {string} shows visibility {string}', async ({}, name: string, vis: string) => {
   const page = pageRegistry.get('admin')!;
-  const row = page.locator('.sessions-list li').filter({ hasText: name });
+  const row = page.locator('.sessions-list li').filter({ hasText: name }).first();
   await expect(row.locator('.vis-tag')).toHaveText(vis);
 });
 
 When('the admin selects the session {string}', async ({}, name: string) => {
   const page = pageRegistry.get('admin')!;
-  await page.locator('.sessions-list li').filter({ hasText: name })
+  await page.locator('.sessions-list li').filter({ hasText: name }).first()
     .locator('button').click();
   await page.waitForSelector('.session-detail h2', { timeout: 5_000 });
 });
