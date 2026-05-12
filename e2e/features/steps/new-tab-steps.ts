@@ -94,7 +94,7 @@ When('the {word} opens {string} in a new tab',
     s.opened = opened;
   });
 
-Then('the new tab lands on {string} without redirecting to /login',
+Then(/^the new tab lands on "(.+)" without redirecting to \/login$/,
   async ({ browser }, expectedPath: string) => {
     const s = state(browser);
     expect(s.opened).not.toBeNull();
