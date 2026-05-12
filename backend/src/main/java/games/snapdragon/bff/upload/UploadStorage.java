@@ -78,4 +78,27 @@ public interface UploadStorage {
      * Surfaced on boot so a misconfigured stack is debuggable.
      */
     String label();
+
+    /**
+     * Optional pre-signed read URL (decision 020 follow-up). When the
+     * backing store supports it (S3-compatible buckets), the BFF can
+     * 302-redirect asset reads to a short-lived URL the browser fetches
+     * directly from the object store, taking the WASM hot-path off the
+     * BFF cold path. Implementations that can't pre-sign — e.g. the
+     * filesystem strategy — return {@code null} so {@code AssetController}
+     * falls back to streaming the bytes through the BFF.
+     *
+     * <p>The returned URL MUST be valid for at least the TTL the caller
+     * requested AND short enough that a leaked URL can't be replayed
+     * indefinitely. S3-style presigners cap on the request's TTL.
+     *
+     * @param locator     storage locator from {@link #installFromStaging}.
+     * @param relativePath path within that version dir.
+     * @param ttl         requested validity window (capped by the backend).
+     * @return a fetchable URL, or {@code null} if pre-signing isn't
+     *         supported / the object doesn't exist.
+     */
+    default java.net.URI presignReadUrl(String locator, String relativePath, java.time.Duration ttl) {
+        return null;
+    }
 }

@@ -17,10 +17,15 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -46,12 +51,26 @@ public class S3UploadStorage implements UploadStorage {
     private static final Logger log = LoggerFactory.getLogger(S3UploadStorage.class);
     private static final String PREFIX = "s3://";
 
+    /** Hard cap on every presigned URL — defensive guard against a
+     *  caller-supplied long TTL leaking a long-lived URL into a log
+     *  or a CDN. The AssetController never asks for more than this. */
+    private static final Duration MAX_PRESIGN_TTL = Duration.ofMinutes(15);
+
     private final S3Client s3;
     private final String bucket;
+    /** Optional — present only when the same S3 client config supports
+     *  presigning (always true for AWS SDK v2 in this codebase; left
+     *  null-checkable for forward-compat / test doubles). */
+    private final S3Presigner presigner;
 
     public S3UploadStorage(S3Client s3, String bucket) {
+        this(s3, bucket, null);
+    }
+
+    public S3UploadStorage(S3Client s3, String bucket, S3Presigner presigner) {
         this.s3 = s3;
         this.bucket = bucket;
+        this.presigner = presigner;
     }
 
     @Override
@@ -140,6 +159,47 @@ public class S3UploadStorage implements UploadStorage {
     @Override
     public String label() {
         return "s3";
+    }
+
+    /**
+     * Pre-signed GET URL (decision-020 follow-up). When the storage was
+     * constructed with a non-null {@link S3Presigner}, returns a
+     * short-lived URL the browser can fetch directly — taking the WASM
+     * asset hot path off the BFF cold path. Requested TTLs are capped
+     * at {@link #MAX_PRESIGN_TTL} so a misconfigured caller can't mint
+     * a long-lived link.
+     *
+     * <p>Returns {@code null} when:
+     * <ul>
+     *   <li>The presigner wasn't wired (legacy two-arg constructor).</li>
+     *   <li>The locator isn't an s3:// URI for this bucket.</li>
+     *   <li>The object doesn't exist (HEAD probe before presign).</li>
+     * </ul>
+     * The {@code AssetController} reads a {@code null} as "fall back to
+     * streaming the bytes through me" so the change is a strict
+     * opt-in performance optimisation, not a regression risk.
+     */
+    @Override
+    public URI presignReadUrl(String locator, String relativePath, Duration ttl) {
+        if (presigner == null) return null;
+        String key = keyFromLocator(locator, relativePath);
+        if (key == null) return null;
+        if (!exists(locator, relativePath)) return null;
+        Duration effectiveTtl = (ttl == null || ttl.isNegative() || ttl.isZero()
+                                 || ttl.compareTo(MAX_PRESIGN_TTL) > 0)
+                                ? MAX_PRESIGN_TTL : ttl;
+        try {
+            GetObjectPresignRequest req = GetObjectPresignRequest.builder()
+                    .signatureDuration(effectiveTtl)
+                    .getObjectRequest(GetObjectRequest.builder()
+                            .bucket(bucket).key(key).build())
+                    .build();
+            PresignedGetObjectRequest signed = presigner.presignGetObject(req);
+            return signed.url().toURI();
+        } catch (Exception ex) {
+            log.warn("[upload-storage:s3] presign failed for {}: {}", key, ex.getMessage());
+            return null;
+        }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

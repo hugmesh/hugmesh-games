@@ -113,6 +113,14 @@ app:
       # AWS proper accepts both; flip to false only if you target a
       # subdomain-style bucket on real AWS.
       path-style: ${APP_UPLOADS_S3_PATH_STYLE:true}
+      # Decision-020 follow-up. When `true`, AssetController returns a
+      # 302 redirect to a short-lived pre-signed URL instead of
+      # streaming the asset bytes through the BFF. Takes the WASM hot
+      # path off the BFF cold path entirely. Default `false` keeps the
+      # original streaming semantics. TTL caps at 15 minutes inside the
+      # storage layer regardless of the configured value.
+      presigned-reads: ${APP_UPLOADS_S3_PRESIGNED_READS:false}
+      presigned-reads-ttl-seconds: ${APP_UPLOADS_S3_PRESIGNED_TTL_SEC:300}
 
   # Streaming audit + telemetry pipeline (decision 021).
   #

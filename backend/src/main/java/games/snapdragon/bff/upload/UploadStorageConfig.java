@@ -13,6 +13,7 @@ import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -67,7 +68,25 @@ public class UploadStorageConfig {
         if (!endpoint.isBlank()) {
             builder = builder.endpointOverride(URI.create(endpoint));
         }
-        UploadStorage raw = new S3UploadStorage(builder.build(), bucket);
+        // Companion presigner — shares credentials + region + endpoint
+        // + path-style with the S3Client so presigned URLs target the
+        // same bucket the regular client reads from. Wired into
+        // S3UploadStorage as the third constructor arg so
+        // `presignReadUrl` can mint short-lived GET URLs when
+        // AssetController opts into the redirect path
+        // (`app.uploads.s3.presigned-reads=true`). Decision-020
+        // follow-up.
+        var presignerBuilder = S3Presigner.builder()
+                .region(Region.of(region))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKey, secretKey)))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(pathStyleAccess)
+                        .build());
+        if (!endpoint.isBlank()) {
+            presignerBuilder = presignerBuilder.endpointOverride(URI.create(endpoint));
+        }
+        UploadStorage raw = new S3UploadStorage(builder.build(), bucket, presignerBuilder.build());
         // Wrap with Resilience4j circuit breaker — a hung S3 endpoint
         // otherwise blocks every AssetController request on the thread
         // pool until it times out. Reads soft-fall through to null on
