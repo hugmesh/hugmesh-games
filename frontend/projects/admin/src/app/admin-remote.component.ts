@@ -66,7 +66,7 @@ interface PlayerSession {
       </header>
 
       @if (errorMessage) {
-        <p class="error-banner">{{ errorMessage }}</p>
+        <p class="error-banner" role="alert" aria-live="assertive">{{ errorMessage }}</p>
       }
 
       @if (stats$ | async; as stats) {
