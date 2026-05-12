@@ -8,7 +8,7 @@ COPY . .
 RUN test -s openapi.json && npm run gen || echo "No openapi.json — skipping API client generation"
 RUN npm run build -- --configuration production
 
-# Native-federation post-process. Two HTML rewrites needed:
+# Native-federation post-process. Three HTML rewrites needed:
 #
 #  1. Strip Angular's auto-generated <link rel="modulepreload" href=
 #     "@bare-specifier"> tags. The browser preloads them BEFORE
@@ -24,9 +24,18 @@ RUN npm run build -- --configuration production
 #     native module loader fails to resolve it. module-shim hands
 #     the script to es-module-shims, which respects the import map
 #     hydrated by initFederation when it runs main.js.
+#
+#  3. Strip the auto-injected <script type="esms-options">{...}</script>
+#     block the native-federation builder writes into the BODY. We
+#     already deliver the same options via `assets/esms-init.js`
+#     (loaded in the head BEFORE es-module-shims.js — see
+#     src/index.html), so the inline copy is redundant AND it trips
+#     CSP `'unsafe-inline'` now that strict-CSP step 1 dropped that
+#     token from `script-src` (decision-023).
 RUN sed -i \
         -e 's|<link rel="modulepreload"[^>]*>||g' \
         -e 's|<script type="module" src="\(polyfills[^"]*\)"|<script type="module-shim" src="\1"|g' \
+        -e 's|<script type="esms-options">[^<]*</script>||g' \
         /app/dist/snapdragon-games-frontend/browser/index.html
 
 # Real upstream nginx (Debian-based), pinned to a current stable release
