@@ -57,7 +57,7 @@ export SNAPDRAGON_BUILD_DATETIME
 BUILD_STAMP_TEX := $(ARCH_DIR)/build-stamp.tex
 
 .PHONY: all pdf slides javadocs clean help bundle \
-        venv pdf-once diagrams screenshots userguides openapi-spec openapi-latex \
+        venv pdf-once diagrams schema-diagram screenshots userguides openapi-spec openapi-latex \
         slides-intro slides-admin slides-godot \
         slides-fullstack slides-maintainer slides-data-architect \
         slides-moderator slides-publisher
@@ -210,8 +210,18 @@ javadocs:
 # Compile every TikZ diagram + marble standalone and convert to PNG so
 # python-pptx (slides) and the user-guide LaTeX builds can embed them
 # directly. Output is git-ignored.
-diagrams:
+diagrams: schema-diagram
 	$(ROOT)/diagrams-rendered/render-all.sh
+
+# Complete physical + logical schema diagram across every database in the
+# stack (BFF Postgres, RPG-builder Postgres, VN-builder Postgres,
+# Cassandra). Re-generated from the live Liquibase XML + Cassandra CQL
+# on every build so the embedded PDF pages track the schema as it
+# evolves. Emits one combined PDF + four per-database PDFs into
+# diagrams-rendered/build/.
+schema-diagram:
+	@command -v dot >/dev/null 2>&1 || { echo "ERROR: graphviz not found — install graphviz"; exit 1; }
+	@python3 $(ROOT)/scripts/build-schema-diagram.py
 
 # ── Screenshots (Selenium) ────────────────────────────────────────────────
 # Captures the live UI through a headless browser. Falls back to branded

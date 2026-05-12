@@ -1,0 +1,35 @@
+\chapter{Schema diagrams (appendix)}\label{ch:schema-diagrams}
+
+The five auto-generated database diagrams below cover every table in
+the platform. Each diagram is included on its own page sized to match
+the source PDF's natural dimensions so a reviewer can pinch-zoom in
+any PDF viewer without the content being rasterised down to thumbnail
+size. Regenerated from the live Liquibase + Cassandra sources on every
+\texttt{make docs-schema-diagram} run.
+
+\begin{itemize}
+  \item \textbf{BFF Postgres} --- catalog, identity, sessions, uploads,
+        federation, role grants, friend graph, plus the per-game
+        scope tables.
+  \item \textbf{RPG-builder Postgres} --- Mudlet-shaped editor model
+        (projects, areas, rooms, exits, items, NPCs, scripts) +
+        per-job build state.
+  \item \textbf{VN-builder Postgres} --- godot-2d-visual-novel-shaped
+        editor model (projects, acts, characters, backgrounds,
+        scenes, dialogue lines, branching choices) + per-job build
+        state.
+  \item \textbf{Cassandra} --- the cache, audit log, and rate-limit
+        event log (active\_sessions, controller\_lease,
+        character\_position\_cache, chapter\_membership,
+        session\_membership, session\_view\_state, rate\_limit\_events,
+        aggregate\_counters, pod\_heartbeats).
+  \item \textbf{Combined view} --- every table across all four stores,
+        with the cross-cluster foreign keys drawn explicitly.
+\end{itemize}
+
+% The script emits one \afterpage hook + \includepdf pair per diagram.
+% \afterpage queues actions FIFO, so each shipout picks up the right
+% \pdfpagewidth/\pdfpageheight for its diagram. The whole section
+% lives in this appendix so the over-sized pages don't disrupt earlier
+% chapters' typography.
+\input{../diagrams-rendered/build/schema-diagram-includes-arch.tex}

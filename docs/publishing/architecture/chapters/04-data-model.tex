@@ -315,3 +315,80 @@ audio cue the Godot bundle emits. The Rust GDExtension's
 named signals without caring whether the source was a player's
 USB Pro Controller, a \texttt{<kbd>W</kbd>} keypress, or an SSE
 emit from a cross-tab subscriber.
+
+\section{Per-game mod / publisher scopes}
+
+Mod and publisher authorisation is split intentionally:
+
+\begin{itemize}
+  \item \textbf{Casdoor} owns ``is a mod / publisher at all'' ---
+        \texttt{ROLE\_MOD} / \texttt{ROLE\_PUBLISHER} claim membership.
+  \item \textbf{Postgres} owns ``for which games'' ---
+        \texttt{mod\_game\_scopes} (Liquibase 032) and
+        \texttt{publisher\_game\_scopes} (Liquibase 033) each hold one
+        row per (casdoorId, gameSlug) pair.
+\end{itemize}
+
+The BFF reads both layers for every mod- or publisher-only mutation. A
+Casdoor token alone authenticates the request but doesn't authorise it;
+the Postgres row provides the per-game gate. Identity-provider replacement
+(Auth0, Cognito, Entra) carries the role membership but the per-game
+scope stays in the relational store.
+
+Mutation endpoints follow a strict admin / publisher split. Only
+\texttt{/api/admin/role-grants/*} (admin) and
+\texttt{/api/publisher/grant-mod} (publisher within scope) write rows;
+everything else is read-only.
+
+\section{Maker side databases (RPG + VN)}
+
+The RPG and VN makers each ship as their own Spring Boot side service
+with its own Postgres instance, separate from the BFF's. Schemas live
+under \snapfile{rpg-builder/src/main/resources/db/changelog/} and
+\snapfile{vn-builder/src/main/resources/db/changelog/} --- managed by
+Liquibase end-to-end (no JPA \texttt{ddl-auto}, no psql-init seed).
+
+\begin{itemize}
+  \item \snapfile{postgres-rpg-builder} --- areas, rooms, exits, items,
+        NPCs, scripts. Mudlet-shaped.
+  \item \snapfile{postgres-vn-builder} --- acts, characters, backgrounds,
+        scenes, dialogue lines, branching choices. godot-2d-visual-novel-
+        shaped.
+\end{itemize}
+
+Each side service's build worker walks its project tree, renders a
+Godot 4 source tree (with \snapfile{snapdragon\_bridge.gdextension}
+baked in), invokes the Godot CLI per area (RPG) or act (VN), zips the
+result, and POSTs to the BFF \texttt{/api/admin/games/upload}
+endpoint with the originating user's bearer token, so the BFF's
+existing \texttt{publisher\_game\_scopes} check enforces who can ship
+which slug.
+
+Each area / act becomes a Chapter row in the BFF's \texttt{chapters}
+table on upload. The three Postgres instances live in the same compose
+stack today but have nothing in common at the schema level; cloud
+relocation can move them independently. Decision 018 has the full
+shape.
+
+\section{Identity widening (Liquibase 036)}
+
+\snapfile{Crypto.mintUid()} replaced \texttt{UUID.randomUUID()} for
+every UI-facing UID and URL token. Output: 43-character URL-safe base64
+of \texttt{SHA3-256(64 random bytes from BouncyCastle SP800-90A
+HMAC-SHA256 DRBG)}. Liquibase 036 widens session-id columns from
+\texttt{varchar(36)} to \texttt{varchar(64)} to fit the new shape;
+pre-existing UUID-shape rows (36 chars) continue to fit unchanged.
+Cross-system joins on session id keep working because the migration
+widens every join target in the same changeset.
+
+\section{Complete schema diagram}
+
+The auto-generated diagrams covering every table across all four
+storage tiers live in the \emph{Schema diagrams} appendix at the end
+of this document (chapter~\ref{ch:schema-diagrams}). Each diagram
+renders to its own over-sized page so a reviewer can pinch-zoom in any
+PDF viewer without the content getting rasterised down. The combined
+view shows cross-cluster foreign keys; each per-database view is the
+same content scoped to one tenant. All diagrams regenerate from the
+live Liquibase + Cassandra sources on every
+\texttt{make docs-schema-diagram} run.

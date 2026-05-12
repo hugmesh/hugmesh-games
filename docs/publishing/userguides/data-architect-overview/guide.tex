@@ -129,4 +129,25 @@ remove host-disk pressure and enable CDN delivery for
 \texttt{wasm-fragment}. All additive --- the data model doesn't need
 a rewrite to enable any of them.
 
+\chapter{Complete schema diagram (all databases)}
+
+The five diagrams below cover every table across the platform's four
+storage tiers: BFF Postgres (catalog + identity + sessions),
+RPG-builder Postgres, VN-builder Postgres, Cassandra (cache + audit
+log + rate-limit events), and a combined cross-database view that
+shows the foreign keys spanning clusters.
+
+Each is rendered as its own auto-sized page so any PDF viewer's zoom
+control reveals the column-level detail without rasterising.
+Regenerated from the live Liquibase changelogs + Cassandra CQL on
+every \texttt{make docs-schema-diagram} run, so this view tracks the
+schema as it evolves.
+
+% This chapter is intentionally placed LAST in the guide --- the
+% \afterpage hooks that resize each diagram page override the global
+% \pdfpagewidth/\pdfpageheight, and the values persist for subsequent
+% pages. Keeping it at the end means no subsequent typography is
+% affected.
+\input{schema-diagram-includes-userguide.tex}
+
 \end{document}

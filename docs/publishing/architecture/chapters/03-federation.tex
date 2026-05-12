@@ -156,6 +156,34 @@ banner with the human-readable label of the broken route, plus a
 \texttt{FEDERATED\_ROUTE\_LABELS} (longest-prefix-first, so
 \texttt{/admin/games} resolves before \texttt{/admin}).
 
+\section{Maker remotes (RPG + VN)}
+
+Two newer remotes were added alongside the original four to ship the
+\emph{maker} side services as federated Angular projects. They follow
+exactly the same pattern as \texttt{login} / \texttt{admin}, but their
+backing data-source is a separate Spring Boot side service rather than
+the BFF:
+
+\begin{itemize}
+  \item \texttt{games-rpg-maker} (kind \texttt{remote-shell}) ---
+        mounted at \texttt{/rpg-maker}. Talks to
+        \snapfile{rpg-builder/} via the BFF's \texttt{/api/rpg/*} proxy
+        path.
+  \item \texttt{games-vn-maker} (kind \texttt{remote-shell}) ---
+        mounted at \texttt{/vn-maker}. Talks to \snapfile{vn-builder/}
+        via \texttt{/api/vn/*}.
+\end{itemize}
+
+The federation manifest seed for both lives in
+\reposrc{backend/src/main/resources/db/changelog/037-rpg-and-vn-maker-federation.xml}
+so the host shell discovers them at bootstrap without a redeploy. The
+host nginx config (and the TLS twin --- see chapter~\ref{ch:builddeploy})
+needs matching \texttt{location /\_remotes/games-rpg-maker/}
+and \texttt{/\_remotes/games-vn-maker/} proxy blocks alongside the
+\texttt{/api/rpg/} and \texttt{/api/vn/} sub-service proxies; drift
+between the plain and TLS variants produces ``Couldn't reach \emph{X}
+--- federated module didn't load.''
+
 \begin{snapcaution}[title={CORP saves WASM iframes}]
 WASM games loading inside the federated iframe need
 \texttt{Cross-Origin-Resource-Policy: cross-origin} on the

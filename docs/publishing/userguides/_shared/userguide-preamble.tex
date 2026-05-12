@@ -15,6 +15,13 @@
 \usepackage{snapdragon-theme}
 \usepackage{microtype}
 \usepackage[hidelinks]{hyperref}
+% pdfpages: lets the data-architect guide drop the auto-sized DB-diagram
+% PDFs onto their own zoomable pages.
+\usepackage{pdfpages}
+% afterpage: queues per-page geometry hooks; the auto-generated
+% schema-diagram includes use it to override \pdfpagewidth/\pdfpageheight
+% per diagram (each diagram has its own natural page size).
+\usepackage{afterpage}
 
 \sloppy
 
