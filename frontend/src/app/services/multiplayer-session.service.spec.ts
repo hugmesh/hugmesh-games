@@ -31,6 +31,7 @@ describe('MultiplayerSessionService', () => {
     return {
       id: 'sess-1', name: 'Demo', gameSlug: 'three-wizards',
       creatorCasdoorId: 'alice', maxPlayers: 3, activePlayers: 1,
+      visibility: 'public',
       createdAt: '2026-04-27T10:00:00Z', closedAt: null,
       members: [],
       ...over,
