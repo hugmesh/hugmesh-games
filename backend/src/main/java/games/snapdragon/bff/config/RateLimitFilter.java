@@ -126,12 +126,22 @@ public class RateLimitFilter implements WebFilter {
         // that somehow bypassed the gateway (e.g. service-to-service
         // on the Compose network) or arrived before the gateway's
         // refresh tick caught a fresh revocation.
+        //
+        // Errors here must be SWALLOWED (treat as not-revoked) so the
+        // request still runs through the downstream chain. The
+        // onErrorResume MUST sit between revocationCheck and
+        // switchIfEmpty — putting it AFTER switchIfEmpty would catch
+        // downstream controller errors too (a Mono.error from
+        // @PostMapping handlers gets converted into a fresh retry of
+        // chain.filter, which double-writes the response and the
+        // framework defaults to 400). Pinned by the diagnostics-gate
+        // e2e spec.
         return revocationCheck(exchange)
-            .switchIfEmpty(Mono.defer(() -> rateLimitCheck(exchange, chain, path)))
             .onErrorResume(e -> {
                 log.warn("[rate-limit] revocation-check failed: {}", e.getMessage());
-                return rateLimitCheck(exchange, chain, path);
-            });
+                return Mono.empty();
+            })
+            .switchIfEmpty(Mono.defer(() -> rateLimitCheck(exchange, chain, path)));
     }
 
     /** Returns a non-empty Mono (the 403 response) iff the principal
