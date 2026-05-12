@@ -98,6 +98,19 @@ SECTIONS = [
         "dark": True,
     },
     {
+        "title": "Friends and blocks",
+        "body": [
+            "Single user_relationships graph table backs both features.",
+            "Friends are mutual: a pair lands as two `friend` rows.",
+            "Blocks are one-directional: one `blocked` row hides target from blocker in BOTH directions (lobby + roster).",
+            "Publishers can't be blocked at the data layer; admins can't be blocked at the controller layer.",
+            "Sessions have visibility: public / friends / private. Lobby filter runs against caller's friend graph + blocklist BEFORE returning.",
+            "Pinning: e2e/features/social/friends-and-blocks.feature + lobby/session-visibility.feature.",
+            "If a player reports 'I can't see X's session', check the block graph first. The filter doesn't leak the distinction between blocked-from and friends-only.",
+        ],
+        "dark": True,
+    },
+    {
         "title": "Common fires",
         "body": [
             "/mod 403 banner → Casdoor has ROLE_MOD, no mod_game_scopes row. Ask admin.",
