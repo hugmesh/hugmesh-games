@@ -6,9 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.r2dbc.core.DatabaseClient;
 
@@ -35,18 +35,27 @@ import org.springframework.r2dbc.core.DatabaseClient;
  *   }
  * </pre>
  *
- * <p>Fallback behaviour: when {@code app.r2dbc.replica.url} is empty
- * (the default), the {@code "replica"} qualifier resolves to the
- * SAME {@link ConnectionFactory} as {@code @Primary} — so call sites
- * with the qualifier wired now will transparently keep working in
- * single-DB deployments. Provisioning the replica is a config-only
- * flip once the streaming-replication container is up.
+ * <p>This entire configuration is gated by
+ * {@code @ConditionalOnProperty(name = "app.r2dbc.replica.url")} —
+ * so it's only loaded when a replica URL is actually configured.
+ * The dev / test default (replica URL empty) keeps Spring Boot's
+ * auto-configured {@code connectionFactory} / {@code r2dbcEntityTemplate}
+ * / {@code databaseClient} beans intact and no @Qualifier("replica")
+ * bean exists. Per-service consumers of the replica qualifier must
+ * therefore also be conditional on the same property (or accept a
+ * compile-time guarantee that this config is active in their target
+ * deployment).
  *
- * <p>The primary {@link ConnectionFactory} is still built by Spring
- * Boot's auto-config from {@code spring.r2dbc.*}; this class only
- * adds the qualified secondary beans + lookups.
+ * <p>Why conditional, not unconditional with fallback: a same-type
+ * {@link ConnectionFactory} bean trips Spring Boot's
+ * {@code @ConditionalOnMissingBean(ConnectionFactory.class)} gate
+ * on its auto-config — the framework's own primary CF then never
+ * gets created, and either Spring Data repositories fail to wire
+ * or our replica CF becomes the only candidate for its own
+ * {@code primary} parameter (cycle).
  */
 @Configuration
+@ConditionalOnProperty(name = "app.r2dbc.replica.url")
 public class R2dbcReadReplicaConfig {
 
     private static final Logger log = LoggerFactory.getLogger(R2dbcReadReplicaConfig.class);
@@ -97,35 +106,4 @@ public class R2dbcReadReplicaConfig {
         return DatabaseClient.create(replicaConnectionFactory);
     }
 
-    /**
-     * Explicit primary {@link R2dbcEntityTemplate}. Required because the
-     * replica bean above is also a {@code R2dbcEntityTemplate}, which
-     * trips Spring Boot's
-     * {@link org.springframework.boot.autoconfigure.data.r2dbc.R2dbcDataAutoConfiguration}
-     * {@code @ConditionalOnMissingBean(R2dbcEntityTemplate.class)} —
-     * the framework's default {@code r2dbcEntityTemplate} bean is then
-     * never created, and Spring Data repositories fail to wire with
-     * "bean named 'r2dbcEntityTemplate' could not be found". We define
-     * it ourselves, mark it {@code @Primary}, and keep the bean name
-     * matching Spring's so {@code @Autowired R2dbcEntityTemplate}
-     * resolves without any qualifier at the injection site.
-     */
-    @Bean(name = "r2dbcEntityTemplate")
-    @Primary
-    public R2dbcEntityTemplate r2dbcEntityTemplate(ConnectionFactory primary) {
-        return new R2dbcEntityTemplate(primary);
-    }
-
-    /**
-     * Explicit primary {@link DatabaseClient}. Same reasoning as
-     * {@link #r2dbcEntityTemplate(ConnectionFactory)} — Spring Boot's
-     * R2dbcAutoConfiguration provides {@code databaseClient} behind a
-     * {@code @ConditionalOnMissingBean} gate, which our replica
-     * DatabaseClient trips.
-     */
-    @Bean(name = "databaseClient")
-    @Primary
-    public DatabaseClient databaseClient(ConnectionFactory primary) {
-        return DatabaseClient.create(primary);
-    }
 }
