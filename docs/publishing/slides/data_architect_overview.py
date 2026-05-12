@@ -116,6 +116,50 @@ SECTIONS = [
         "image": "diagram:scenario-upload-rollback",
     },
     {
+        "title": "Per-game scope tables",
+        "body": [
+            "Mod/publisher auth is split: Casdoor owns the role, Postgres owns the per-game scope.",
+            "mod_game_scopes / publisher_game_scopes — one row per (casdoorId, gameSlug) pair.",
+            "BFF reads BOTH layers for every mod/publisher mutation; one alone is insufficient.",
+            "Cloud-relocation property: identity provider can move (Auth0/Cognito/Entra), per-game scope stays in your relational store.",
+            "Mutation endpoints: /api/admin/role-grants/* (admin) + /api/publisher/grant-mod (publisher within scope) — only these write rows.",
+            "Pinning: e2e/features/security/mod-grant-gates.feature.",
+        ],
+    },
+    {
+        "title": "Maker side databases",
+        "body": [
+            "RPG and VN makers each ship as their own Spring Boot side service with its own Postgres instance.",
+            "postgres-rpg-builder — Mudlet-shaped (areas/rooms/exits/items/NPCs).",
+            "postgres-vn-builder — godot-2d-vn-shaped (acts/characters/backgrounds/scenes/lines/choices).",
+            "Schemas exclusively Liquibase-managed; no JPA ddl-auto, no psql-init seed.",
+            "Build worker walks the project tree → Godot 4 source → godot --export-release → POSTs to BFF /api/admin/games/upload WITH ORIGINATING USER'S BEARER.",
+            "Each area (RPG) / act (VN) becomes a Chapter row in the BFF. Three Postgres instances live in the same compose today but can move independently. See decision 018.",
+        ],
+        "dark": True,
+    },
+    {
+        "title": "Identity widening (Liquibase 036)",
+        "body": [
+            "Crypto.mintUid() replaced UUID.randomUUID() everywhere for UI-facing UIDs + URL tokens.",
+            "Output: 43-char URL-safe base64 of SHA3-256(64 random bytes from BC SP800-90A HMAC-SHA256 DRBG).",
+            "Liquibase 036 widens session-id columns from varchar(36) to varchar(64) — fits 43-char SHA3 plus headroom.",
+            "Pre-existing UUID-shape rows (36 chars) keep fitting; migration widens never narrows. No data rewrite.",
+            "Cross-system joins still work — the migration widens every join target in the same changeset.",
+            "Log shippers / analytics warehouses pulling session id need a 64-char buffer (relevant only for length-aware external schemas).",
+        ],
+    },
+    {
+        "title": "Rate-limit telemetry",
+        "body": [
+            "rate_limit_events Cassandra table — append-only log of cross-pod rate-limit decisions, 90 s TTL.",
+            "Window-bounded COUNT(*) against event_id >= minTimeuuid(now − WINDOW) gives the cluster-wide budget.",
+            "Aggregates back to per-user / per-zone counters without bloating durable state.",
+            "Disable via app.rate-limit.distributed.enabled=false; falls back to local-only when Cassandra is unreachable.",
+            "Paired with nginx zones at the edge (decision 019) — JVM never sees rejected floods.",
+        ],
+    },
+    {
         "title": "Read patterns",
         "body": [
             "Catalog reads (games, levels) — heavy cache, ttl ~60 s, served from Postgres directly. Index on slug.",

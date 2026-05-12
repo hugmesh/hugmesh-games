@@ -156,6 +156,31 @@ SECTIONS = [
         "code": "$GameBridge.request_level_transition(\"forest-glade\", 3)",
     },
     {
+        "title": "Multiplayer-aware bridge",
+        "body": [
+            "HostBridge gained two methods for multiplayer:",
+            (1, "register_player_slot(slot, character_id) — called from multiplayer_lobby.gd as each player joins."),
+            (1, "view_egress(camera_pos, look_dir) — ~10 Hz POST to /api/view fanned out to the admin observation stream."),
+            "Every POST /api/controls/{character_id} MUST carry an X-Session-Id header.",
+            "Without it, two players sharing a character record across sessions race Postgres' first-row pick and one gets 403.",
+            "On 403, post SD_SESSION_EXPIRED — ApiBridgeService re-runs session.connect → claimControl automatically.",
+            "game_bridge.gd already adds X-Session-Id; if you fork it, keep that line.",
+        ],
+        "dark": True,
+    },
+    {
+        "title": "Two-player local test",
+        "body": [
+            "Browser-side multiplayer contract is pinned by e2e/features/multiplayer/rpg-two-players.feature.",
+            "Two browser profiles (normal + incognito) — cookies must be isolated, otherwise the session tracker races.",
+            "Log in as player1 + player2 (E2E_PASSWORD=e2e-pass on the integration-test profile).",
+            "Profile A creates a public lobby; profile B joins on the new row. Both Launch.",
+            "WASM compile is 15–90 s cold — gate input on ?sessionId= EventSource open before pressing keys.",
+            "Window controls (fullscreen / open-in-new-tab / open-in-new-window with pause / resume) — e2e/features/multiplayer/window-controls.feature.",
+            "Open-in-new-window posts SD_GAME_PAUSE to the parent iframe — mirror that if you wire a custom toolbar.",
+        ],
+    },
+    {
         "title": "Common mistakes",
         "body": [
             "Slugs differ across the four contract points → iframe 404s or wrong scene loads.",
