@@ -309,10 +309,14 @@ public class GameStateService {
 
     public void notifyCharacterStatChange(CharacterDto dto) {
         charStatSink.tryEmitNext(dto);
+        eventPublisher.ifPresent(pub -> pub.publish(
+                "character", null, null, null, dto));
     }
 
     public void notifySceneEvent(SceneEvent event) {
         sceneSink.tryEmitNext(event);
+        eventPublisher.ifPresent(pub -> pub.publish(
+                "scene", null, null, null, event));
     }
 
     public Flux<PlayerMovement>  movementStream()    { return movementSink.asFlux(); }
@@ -342,6 +346,8 @@ public class GameStateService {
         if (ev.sessionId() != null) {
             sessionSinksFor(ev.sessionId()).view.tryEmitNext(ev);
         }
+        eventPublisher.ifPresent(pub -> pub.publish(
+                "view", null, ev.sessionId(), null, ev));
     }
 
     /**
@@ -354,6 +360,8 @@ public class GameStateService {
         if (sessionIdOpt != null) {
             sessionSinksFor(sessionIdOpt).character.tryEmitNext(dto);
         }
+        eventPublisher.ifPresent(pub -> pub.publish(
+                "character", null, sessionIdOpt, null, dto));
     }
 
     private SessionSinks sessionSinksFor(String sessionId) {
@@ -368,13 +376,19 @@ public class GameStateService {
         inputSink.tryEmitNext(ev);
         if (InputEventKinds.AUDIO.equals(ev.kind())) {
             audioSink.tryEmitNext(ev);
+            eventPublisher.ifPresent(pub -> pub.publish(
+                    "audio", null, null, null, ev));
         }
+        eventPublisher.ifPresent(pub -> pub.publish(
+                "input", null, null, null, ev));
     }
 
     /** Forward one console line from the WASM iframe to the host's
      *  devtools subscribers. */
     public void emitWasmConsole(WasmConsoleLine line) {
         wasmConsoleSink.tryEmitNext(line);
+        eventPublisher.ifPresent(pub -> pub.publish(
+                "wasm-console", null, null, null, line));
     }
 
     public GameState currentState() {
@@ -461,6 +475,8 @@ public class GameStateService {
                     if (sessionIdOpt != null) {
                         sessionSinksFor(sessionIdOpt).world.tryEmitNext(world);
                     }
+                    eventPublisher.ifPresent(pub -> pub.publish(
+                            "world", null, sessionIdOpt, null, world));
                 }, err -> {
                     // Cassandra unreachable — emit local-only roster.
                     List<PlayerMovement> snapshot = roster.stream()
@@ -471,6 +487,8 @@ public class GameStateService {
                     if (sessionIdOpt != null) {
                         sessionSinksFor(sessionIdOpt).world.tryEmitNext(world);
                     }
+                    eventPublisher.ifPresent(pub -> pub.publish(
+                            "world", null, sessionIdOpt, null, world));
                 });
     }
 

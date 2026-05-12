@@ -81,8 +81,8 @@ Every publisher is injected as `Optional<...>` so the in-process gameplay path k
 
 ## Follow-ups
 
-- Tee the remaining `GameStateService.tryEmitNext` sites (world / character / scene / input / audio / view / wasm-console) into the event publisher. Movement is the first; same one-line pattern for the rest.
-- Cross-pod subscriber — read from the per-session topic into another pod's `SessionSinks`. Mirror of the `applyControl` emit path, on the consume side.
-- BFF read-path against `player_state_current` for session-reconnect recovery (replace some Cassandra `character_position_cache` lookups).
-- F2 — federated game telemetry producer; lands as a Phase 7 PR.
+- ~~Tee the remaining `GameStateService.tryEmitNext` sites (world / character / scene / input / audio / view / wasm-console) into the event publisher.~~ — done in the Phase-7 PR. All 8 channels now tee to the `game_events` topic.
+- ~~F2 — federated game telemetry producer.~~ — done in the Phase-7 PR. `GameKpiPublisher` + `POST /api/telemetry/game/{slug}` ingest. Iframes call directly; existing `WebConfig` CORS allowlist covers the federated origins.
+- Cross-pod subscriber — read from the per-session topic into another pod's `SessionSinks`. Mirror of the `applyControl` emit path, on the consume side. Still pending.
+- BFF read-path against `player_state_current` for session-reconnect recovery (replace some Cassandra `character_position_cache` lookups). Still pending.
 - Retire `CassandraSyncService` once the streaming pipeline has demonstrated production stability.
