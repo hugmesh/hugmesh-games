@@ -105,4 +105,10 @@ public final class Roles {
     public static Set<String> setFromJwt(Jwt jwt) {
         return Set.copyOf(fromJwt(jwt));
     }
+
+    /** Casdoor user id (JWT subject). Drive-by fix — main references
+     *  this from RateLimitFilter but the method was missing. */
+    public static String casdoorIdOf(Jwt jwt) {
+        return jwt == null ? null : jwt.getSubject();
+    }
 }
