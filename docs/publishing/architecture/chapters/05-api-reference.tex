@@ -962,3 +962,103 @@ companion: it loads the same merged OpenAPI document, lets you
 override the auth token in a textbox, supports binary uploads, and
 streams SSE responses into an in-window terminal panel. Reachable at
 \snapfile{/admin/docs} on a logged-in admin session.
+
+\section{Recent additions (multiplayer, makers, role grants)}
+
+The endpoint groups below landed in the multiplayer-sessions /
+makers / per-game-scope batch and aren't yet covered by the
+controller-grouped sections above. They run on the same Spring Boot
+WebFlux + R2DBC pipeline; the reference here is a pointer for finding
+them in the source.
+
+\subsection{Multiplayer sessions --- \texttt{/api/sessions}}
+
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Endpoint} & \textbf{Auth} & \textbf{Purpose} \\
+\midrule
+\texttt{GET /api/sessions} & player & List open sessions filtered by the
+caller's friend graph + blocklist. \\
+\texttt{POST /api/sessions} & player & Create a session with
+\texttt{visibility} of \texttt{public}/\texttt{friends}/\texttt{private}. \\
+\texttt{POST /api/sessions/\{id\}/join} & player & Take the lowest free slot. \\
+\texttt{DELETE /api/sessions/\{id\}} & creator OR mod-with-scope & Force-close. \\
+\texttt{POST /api/sessions/\{id\}/kick} & mod-with-scope & Kick a player by casdoorId. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Per-session SSE --- \texttt{/api/game/stream}}
+
+The multiplayer-aware overload of the SSE merge accepts
+\texttt{?sessionId=} as a query parameter. Subscribers without the
+parameter get the legacy global stream (now the admin firehose); with
+the parameter, they only see events for that session.
+\snapfile{SessionIsolationTest} pins the cross-session non-leakage
+contract.
+
+\subsection{Session log --- \texttt{/api/session-logs}}
+
+\begin{tabularx}{\linewidth}{l l X}
+\toprule
+\textbf{Endpoint} & \textbf{Auth} & \textbf{Purpose} \\
+\midrule
+\texttt{GET /api/session-logs/me} & any auth'd user & Caller's own participation history. \\
+\texttt{GET /api/session-logs/admin/\{casdoorId\}} & admin only & Anyone's history; 403 for non-admins. \\
+\texttt{GET /api/session-logs/scoped/\{casdoorId\}} & mod/publisher with scope & Filtered to games in caller's scope. \\
+\bottomrule
+\end{tabularx}
+
+The three role boundaries are pinned by
+\reposrc{e2e/features/admin/session-log.feature}.
+
+\subsection{Role grants --- \texttt{/api/admin/role-grants}, \texttt{/api/publisher/grant-mod}}
+
+Admin-only mutations: \texttt{POST /api/admin/role-grants/grant-mod},
+\texttt{revoke-mod}, \texttt{grant-publisher}, \texttt{revoke-publisher}.
+Each writes one row into \texttt{mod\_game\_scopes} or
+\texttt{publisher\_game\_scopes}. The
+\texttt{POST /api/publisher/grant-mod} alternative lets a publisher
+grant mod on their own games --- same write path with a
+caller-owns-target-game check on top. Rejection matrix:
+\reposrc{e2e/features/security/mod-grant-gates.feature}.
+
+\subsection{Friends + blocks --- \texttt{/api/friends}, \texttt{/api/blocks}}
+
+Single \texttt{user\_relationships} graph table backs both
+features. Friends are mutual (\texttt{POST /api/friends/request} +
+\texttt{POST /api/friends/accept} land as two \texttt{friend} rows on
+acceptance); blocks are one-directional (one \texttt{blocked} row hides
+target from blocker in both directions). The lobby filter at
+\snapfile{MultiplayerSessionController.listOpen} runs against the
+caller's friend graph + blocklist BEFORE returning open sessions, so a
+\texttt{friends} session never appears to a stranger and a
+\texttt{private} session appears only in the creator's own lobby. See
+decision 015.
+
+\subsection{RPG + VN maker REST surfaces}
+
+The maker side services (decision 018) expose their own REST surfaces:
+
+\begin{itemize}
+  \item \texttt{/api/rpg/projects}, \texttt{/api/rpg/areas},
+        \texttt{/api/rpg/rooms}, \texttt{/api/rpg/exits},
+        \texttt{/api/rpg/items}, \texttt{/api/rpg/npcs} --- editor
+        CRUD for the Mudlet-shaped data model.
+  \item \texttt{/api/vn/projects}, \texttt{/api/vn/acts},
+        \texttt{/api/vn/scenes}, \texttt{/api/vn/lines},
+        \texttt{/api/vn/choices}, \texttt{/api/vn/characters} ---
+        editor CRUD for the godot-2d-visual-novel-shaped model.
+  \item \texttt{/api/\{rpg,vn\}/projects/\{id\}/builds} --- enqueue a
+        build (QUEUED $\rightarrow$ RENDERING $\rightarrow$
+        EXPORTING $\rightarrow$ UPLOADING $\rightarrow$ DONE).
+  \item \texttt{/api/\{rpg,vn\}/projects/\{id\}/godot-zip} --- stream
+        the Godot 4 source tree (so a publisher can open it in the
+        editor for further work).
+\end{itemize}
+
+The build worker POSTs the produced bundle to the BFF's
+\texttt{/api/admin/games/upload} endpoint with the originating
+publisher's bearer token --- the BFF's existing
+\texttt{publisher\_game\_scopes} check enforces who can ship which
+slug. Each area (RPG) / act (VN) lands as a Chapter row in the BFF's
+\texttt{chapters} table.

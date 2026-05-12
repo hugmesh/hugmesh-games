@@ -68,3 +68,49 @@ developer walkthrough are separate slide decks under
 \reposrc{docs/publishing/slides/} and target their respective audiences
 without overlap.
 \end{snapnote}
+
+\section{What's new since the post-federation snapshot}
+
+Several feature batches have landed on top of the eight-section
+post-federation plan; each is covered in detail in its own chapter:
+
+\begin{itemize}
+  \item \textbf{Multiplayer sessions.} Per-session SSE sinks
+        (\snapfile{ConcurrentHashMap<String, SessionSinks>}) layered over
+        the legacy global sink; \texttt{applyControl(event, characterId,
+        sessionId)} is the multiplayer-aware overload.
+        \snapfile{SessionIsolationTest} pins the cross-session
+        non-leakage contract. See chapter~\ref{ch:runtime}.
+  \item \textbf{Friends, blocks, session visibility.} Single
+        \texttt{user\_relationships} graph table backs both mutual
+        friendship and one-directional blocks; \texttt{game\_sessions
+        .visibility} is one of \texttt{public} / \texttt{friends} /
+        \texttt{private}. The lobby filter runs against the caller's
+        friend graph + blocklist. Decision 015 has the full design.
+  \item \textbf{Mod and publisher roles with per-game scope.} Casdoor
+        owns role membership; Postgres owns the per-game scope in
+        \texttt{mod\_game\_scopes} and \texttt{publisher\_game\_scopes}.
+        See chapter~\ref{ch:datamodel}.
+  \item \textbf{RPG + VN makers.} Two reactive Spring Boot side services
+        (\reposrc{rpg-builder/} and \reposrc{vn-builder/}) with their
+        own Postgres instances, federated frontend remotes at
+        \texttt{/rpg-maker} and \texttt{/vn-maker}, and a build pipeline
+        that POSTs the produced bundle to the BFF's
+        \texttt{/api/admin/games/upload} endpoint with the publisher's
+        bearer. Decision 018 covers the side-service architecture.
+  \item \textbf{Production rate-limit zones.} Six nginx
+        \texttt{limit\_req\_zone} declarations in
+        \snapfile{frontend/nginx.conf} (and the TLS twin) sized for
+        $\sim$10 000 concurrent users. The BFF still runs its per-pod
+        \snapfile{RateLimitFilter} + Cassandra cross-pod aggregator
+        behind the edge. Decision 019.
+  \item \textbf{LAN access + TLS overlay.} \snapfile{lan.properties}
+        env-file with literal \texttt{FRONTEND\_BIND=0.0.0.0:} values;
+        \texttt{make lan-up\{,-tls\}} wraps the stack with self-signed
+        TLS (cert SAN includes detected LAN IPs).
+  \item \textbf{Crypto.mintUid() + Liquibase 036.} 43-char URL-safe
+        base64 SHA3-256 minter replacing \texttt{UUID.randomUUID()} for
+        every UI-facing UID; Liquibase 036 widens session-id columns to
+        \texttt{varchar(64)} to fit the new shape without disturbing
+        pre-existing UUID rows.
+\end{itemize}

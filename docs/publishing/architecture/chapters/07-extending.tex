@@ -142,6 +142,71 @@ as Casdoor's catalog has them.
         consumed.
 \end{enumerate}
 
+\section{Adding a new mod / publisher scope check}
+
+The mod / publisher RBAC pattern (decision 011) is two-layer: Casdoor
+owns the role membership, Postgres owns the per-game scope. To extend
+the surface with a new scope-gated endpoint:
+
+\begin{enumerate}
+  \item Gate the controller class with
+        \texttt{@PreAuthorize("hasAnyRole('PUBLISHER','ADMIN')")} (or
+        the mod equivalent). This handles the Casdoor-side check.
+  \item In the service, look up the scope row before mutating:
+\begin{lstlisting}[language=Java,xleftmargin=4mm]
+publisherGameScopeRepository
+    .existsByCasdoorIdAndGameSlug(casdoorId, slug);
+\end{lstlisting}
+        Reject with 403 when admin-bypass doesn't apply.
+  \item Mutations of scope rows themselves go through
+        \texttt{/api/admin/role-grants/*} (admin-only) or
+        \texttt{/api/publisher/grant-mod} (publisher within scope).
+        Don't add a new mutation endpoint without a clear caller-
+        owns-target-game check.
+  \item Add a Gherkin rejection scenario keyed to the new endpoint.
+        \reposrc{e2e/features/security/mod-grant-gates.feature} is
+        the template: unauthenticated 401, plain player 403,
+        wrong-scope publisher 403, admin bypass 200.
+\end{enumerate}
+
+\section{Adding a new maker side service}
+
+The RPG and VN makers (decision 018) are the template for shipping a
+new editor-style side service:
+
+\begin{enumerate}
+  \item Create the side service under \snapfile{<name>-builder/} as a
+        reactive Spring Boot project with its own Liquibase changelog
+        tree. Use \reposrc{rpg-builder/} as the template; copy the
+        Maven shape + Dockerfile + application.yml.
+  \item Add a \texttt{postgres-<name>-builder} service to
+        \snapfile{docker-compose.yml} as a dedicated DB tenant. The
+        builder service handles its own schema via Liquibase --- no
+        psql-init seed needed.
+  \item Wire \texttt{/api/<name>/*} proxy blocks into BOTH
+        \snapfile{frontend/nginx.conf} and
+        \snapfile{frontend/nginx-tls.conf} (lockstep edit; see
+        decision 019).
+  \item Build a federated Angular remote at
+        \snapfile{frontend/projects/games-<name>-maker/}; seed the
+        manifest row via a Liquibase changelog along the lines of
+        \reposrc{backend/src/main/resources/db/changelog/037-rpg-and-vn-maker-federation.xml}.
+  \item Implement the build worker: walk the project tree $\rightarrow$
+        emit a Godot 4 source tree with
+        \snapfile{snapdragon\_bridge.gdextension} baked in $\rightarrow$
+        \texttt{godot --export-release} per area / act $\rightarrow$
+        zip $\rightarrow$ POST to \texttt{/api/admin/games/upload}
+        \emph{with the originating publisher's bearer token}. The
+        BFF's existing \texttt{publisher\_game\_scopes} check
+        enforces who can ship which slug.
+\end{enumerate}
+
+The matching BDD coverage lives in
+\reposrc{e2e/features/makers/} --- one feature file per maker, plus a
+shared \texttt{dev-fixtures.feature} for the pre-seeded fixture user
+(see \texttt{publisher-flatland} in
+\reposrc{backend/src/main/resources/db/changelog/038-flatland-publisher-scopes.xml}).
+
 \section{Adding a new database column}
 
 \begin{enumerate}

@@ -17,6 +17,15 @@
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{datetime}
+% pdfpages lets us drop the auto-sized DB-diagram PDFs onto their own
+% over-sized pages so a reviewer can pinch-zoom in any PDF viewer without
+% the included content getting rasterised down to thumbnail size.
+\usepackage{pdfpages}
+% afterpage queues multiple per-page hooks (unlike \AddToHookNext{shipout}
+% which only retains the most-recent call); used by the schema-diagram
+% includes to set \pdfpagewidth / \pdfpageheight independently per
+% diagram page.
+\usepackage{afterpage}
 
 \hypersetup{
   pdftitle={Snapdragon Games — Architecture Reference},
@@ -123,6 +132,7 @@ git-ignored.
 \input{chapters/05-api-reference.tex}
 \input{chapters/06-build-and-deploy.tex}
 \input{chapters/07-extending.tex}
+\input{chapters/99-schema-diagrams.tex}
 
 % ── Back matter ───────────────────────────────────────────────────────────
 \backmatter
