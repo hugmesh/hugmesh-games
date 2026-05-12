@@ -257,7 +257,7 @@ E2E BDD coverage: [`e2e/features/makers/rpg-maker.feature`](e2e/features/makers/
 ## Known gaps / TODO
 
 - Full Content-Security-Policy needs an inventory of the federation runtime's eval / inline-script needs first.
-- Per-form a11y sweep (login form labels, error messaging, validation announcements).
+- ~~Per-form a11y sweep (login form labels, error messaging, validation announcements).~~ — first pass done. The login form's username/password inputs now have visually-hidden `<label>` elements, `[attr.aria-invalid]` reflects per-field touched-invalid state, and the error message is a `role="alert" aria-live="assertive"` live region so failures announce without re-tabbing. Producer-registration error message is now a live region too. RPG/VN maker top-level error banners already had `role="alert"` (kept). Follow-up: per-input label sweep across the maker forms (each `<input>` needs an id + label) and the admin upload-shell.
 - WCAG colour-contrast audit on the Snapdragon palette.
 - ~~Cassandra-backed cross-pod rate-limit storage~~ — done. `RateLimitFilter` runs the local in-process bucket as the fast pre-check, then augments cluster-wide via `DistributedRateLimitService` (append-row log on the Cassandra `rate_limit_events` table with a 90 s TTL; window-bounded `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`). Disable with `app.rate-limit.distributed.enabled=false` (default `true`); falls back to local-only when Cassandra is unreachable.
 - Iframe-side keyboard input still uses Godot's `_unhandled_input` — focus management means a freshly-mounted iframe needs a click before keys land. The host's `GameControlsComponent` covers the host-focused case via `@HostListener('window:keydown')` + `/api/controls/{id}`.
