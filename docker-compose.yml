@@ -132,13 +132,26 @@ services:
     # Bitnami images (matches Postgres + Casdoor pattern in this stack).
     # Standalone mode — KRaft-mode Kafka would skip this entirely but the
     # Bitnami Kafka image still expects Zookeeper at the time of writing.
-    image: bitnami/zookeeper:3.9
+    # NB: Bitnami's 2025 re-org moved versioned tags out of the `bitnami/`
+    # namespace; they now live under `bitnamilegacy/` (the unversioned
+    # `latest` is the only thing still on the `bitnami/` namespace and
+    # we never want unpinned in compose). Don't switch back to plain
+    # `bitnami/zookeeper:3.9` — the registry returns 404.
+    image: bitnamilegacy/zookeeper:3.9.3-debian-12-r22
     environment:
       ALLOW_ANONYMOUS_LOGIN: "yes"
     expose:
       - "2181"
     healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+      # Newer Apache ZooKeeper (3.9.3) ships with only `mntr` + `srvr`
+      # in the 4LW whitelist by default — `ruok` is no longer enabled,
+      # so the historical `echo ruok | nc ... | grep imok` probe
+      # returns "ruok is not executed because it is not in the
+      # whitelist" and trips the healthcheck. `srvr` is whitelisted
+      # out of the box and prints the broker mode line as the third
+      # token, so `grep -q "^Mode: standalone"` is the cheap signal
+      # the broker is up and serving.
+      test: ["CMD-SHELL", "echo srvr | nc -w 2 localhost 2181 | grep -q '^Mode: standalone'"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -148,8 +161,9 @@ services:
     # Single-broker dev cluster. Production points at managed Kafka
     # (MSK / Confluent Cloud / Aiven / Redpanda Cloud) by overriding
     # `app.kafka.bootstrap-servers`; the broker config below is
-    # dev-only.
-    image: bitnami/kafka:3.7
+    # dev-only. Same Bitnami 2025 re-org caveat as the zookeeper
+    # entry above — pinned to a versioned `bitnamilegacy/` tag.
+    image: bitnamilegacy/kafka:3.7.1-debian-12-r9
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -213,7 +227,11 @@ services:
         soft: 262144
         hard: 262144
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
+      # Explicit IPv4: this image's wget prefers IPv6, which resolves
+      # `localhost` → `::1`. ClickHouse only listens on IPv4 0.0.0.0,
+      # so `localhost` here returns "Connection refused" and trips
+      # the healthcheck.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8123/ping"]
       interval: 10s
       timeout: 5s
       retries: 20
