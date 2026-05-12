@@ -116,5 +116,10 @@ the whole palette without re-auditing each component.
 - Document the tokens in `frontend/README.md` so contributors know to
   reach for the named token instead of pasting hex into a new
   component.
-- Once decisions 020-023 (uploads / Kafka / replica / CSP) merge,
-  remove the strike-through item from `CLAUDE.md` "Known gaps / TODO".
+- ~~Once decisions 020-023 (uploads / Kafka / replica / CSP) merge,
+  remove the strike-through item from `CLAUDE.md` "Known gaps / TODO".~~
+  — superseded. All four decisions merged; the strike-through bullets
+  stay in `CLAUDE.md` as a changelog of completed platform work
+  (institutional memory) rather than being deleted. The section header
+  remains `Known gaps / TODO` so future un-struck bullets read as live
+  work.

@@ -1,0 +1,31 @@
+% ProfileController: /api/profile/me/{player,producer,mod}
+% Per-role profile read/write against the accounts schema.
+% GET lazy-populates accounts.players; producer/mod returns 404 if not
+% in accounts.{producers|mods}.
+\begin{tikzpicture}[x=1cm,y=1cm,
+                    every node/.style={font=\sffamily\footnotesize}]
+  \snapmarbleline{up}{2.4}{Mono<Req>}{0}{12.6}
+  \node[marbleMono] (u1) at (1.2,2.4) {q};
+  \node[marbletype,above=1pt of u1] {GET .../me/player};
+  \node[marbleMono] (u2) at (3.4,2.4) {q};
+  \node[marbletype,above=1pt of u2] {GET .../me/producer};
+  \node[marbleMono] (u3) at (5.6,2.4) {q};
+  \node[marbletype,above=1pt of u3] {GET .../me/mod};
+
+  \node[marbleop] (op1) at (7.0,1.0) {roleGate\\ \scriptsize match JWT authority};
+  \draw[marbleline] (u1.south) |- ([yshift=2pt]op1.west);
+  \draw[marbleline] (u2.south) |- ([yshift=2pt]op1.west);
+  \draw[marbleline] (u3.south) |- ([yshift=2pt]op1.west);
+
+  \node[marbleop] (op2) at (10.0,-0.4) {repo.findById\\ \scriptsize accounts.\{players|producers|mods\}};
+  \draw[marbleline] ([yshift=-2pt]op1.east) -| ([yshift=2pt]op2.west);
+
+  \snapmarbleline{m1}{-1.8}{Mono<R>}{0}{12.6}
+  \node[marbleTx] (d1) at (11.4,-1.8) {b};
+  \node[marbletype,above=1pt of d1] {200 ProfileDto};
+  \draw[marbleline] ([yshift=-2pt]op2.east) -| (d1.north);
+
+  \node[marbleErr] (e1) at (8.6,-2.6) {!};
+  \node[marbletype,below=1pt of e1] {404 (producer/mod not approved)};
+  \draw[marbleline,red!70!black,dashed] (op2.south) to[bend right=12] (e1.north);
+\end{tikzpicture}

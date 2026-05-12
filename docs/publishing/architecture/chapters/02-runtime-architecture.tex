@@ -214,3 +214,84 @@ enforces caller-owns-target-game before mutating. The full rejection
 matrix is pinned by
 \reposrc{e2e/features/security/mod-grant-gates.feature} on the BDD side
 and a \texttt{@WebFluxTest} on the controller side.
+
+\section{Perimeter: snapdragon-gateway}
+
+All browser traffic enters through \snapfile{snapdragon-gateway} (Spring
+Cloud Gateway). The gateway terminates TLS, holds the
+\emph{primary} rate-limit (per-key token bucket) and revocation list
+(stamps \texttt{X-Revoked} on requests from banned keys), and routes:
+
+\begin{itemize}
+  \item \texttt{/api/*} $\rightarrow$ the BFF (Spring Boot, this
+        chapter's focus).
+  \item Everything else $\rightarrow$ the Angular host nginx
+        (SPA + \texttt{/\_remotes/*} federation surface).
+\end{itemize}
+
+The BFF runs the same revocation + rate-limit checks as
+defence-in-depth: \snapfile{RevocationListService} polls the same
+Cassandra-backed revocation cache the gateway writes, and
+\snapfile{RateLimitFilter} runs a local in-process token bucket
+augmented by \snapfile{DistributedRateLimitService} (cluster-wide log
+on the Cassandra \texttt{rate\_limit\_events} table, 90s TTL). So
+service-to-service traffic on the compose network that bypasses the
+gateway --- or any request that arrives before the gateway's
+revocation cache has caught up --- stays gated.
+
+\section{Streaming audit + telemetry pipeline (Kafka + ClickHouse)}
+
+Decision 021 introduces a streaming side-channel that runs alongside
+the in-process gameplay path without changing it. Gated by
+\texttt{app.kafka.enabled} (default \texttt{false}) so vanilla
+\texttt{compose up} keeps the slim path.
+
+\begin{itemize}
+  \item \snapfile{GameAuditPublisher} emits state-transition rows to
+        the \texttt{state\_audit} Kafka topic.
+  \item \snapfile{GameEventPublisher} tees all 8 SSE channels to
+        \texttt{game\_events} from
+        \texttt{GameStateService.tryEmitNext} --- the same call site
+        that fans out to local sinks. Per-session topics
+        (\texttt{session.<id>.events}) created by
+        \snapfile{SessionTopicManager} on session-create let
+        consumers subscribe to a single session.
+  \item \snapfile{GameKpiPublisher} ships per-game KPIs posted by
+        federated game remotes via
+        \texttt{POST /api/telemetry/game/\{slug\}} to
+        \texttt{game\_kpi}. ClickHouse aggregates into
+        \texttt{kpi\_rolling\_avg\_24h} for admin dashboards.
+\end{itemize}
+
+ClickHouse consumes via Kafka-engine tables + materialised views
+(\snapfile{docker/clickhouse-init/01-snapdragon-schema.sql}) and stores
+each topic durably in a MergeTree counterpart. The
+\texttt{player\_state\_current} ReplacingMergeTree captures the latest
+per-character state for cross-pod recovery.
+
+\subsection{Cross-pod fan-out and recovery}
+
+\snapfile{KafkaSessionSubscriber} consumes \texttt{game\_events},
+filters self-published events via \texttt{pod\_id}, and dispatches
+per-channel to handlers registered in
+\texttt{GameStateService.@PostConstruct}. All 8 channels are covered
+(movement / world / character / view $\rightarrow$ per-session +
+global; scene / input / audio / wasm-console $\rightarrow$ global
+only).
+
+\snapfile{PlayerStateRecoveryService} queries the ClickHouse
+\texttt{player\_state\_current FINAL} table via the HTTP interface
+(WebClient) for session-reconnect recovery. The
+\texttt{hydrate(characterId, chapterId, gameSlug, sessionId)} overload
+on \snapfile{GameStateService} consults this service before the legacy
+Cassandra $\rightarrow$ Postgres $\rightarrow$ defaults chain.
+\texttt{Mono.empty()} is the expected miss path; SSE / gameplay never
+blocks on the recovery lookup.
+
+\begin{snapnote}
+The streaming pipeline is additive: turning off
+\texttt{app.kafka.enabled} reverts the BFF to the in-process path with
+the Cassandra audit log as the only durable record. The pipeline is
+slated to replace the Cassandra audit log once it has soaked in
+production.
+\end{snapnote}
