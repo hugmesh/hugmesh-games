@@ -1,5 +1,6 @@
 package games.snapdragon.bff.upload;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,7 +52,8 @@ public class UploadStorageConfig {
             @Value("${app.uploads.s3.access-key:}") String accessKey,
             @Value("${app.uploads.s3.secret-key:}") String secretKey,
             @Value("${app.uploads.s3.bucket:snapdragon-uploads}") String bucket,
-            @Value("${app.uploads.s3.path-style:true}") boolean pathStyleAccess) {
+            @Value("${app.uploads.s3.path-style:true}") boolean pathStyleAccess,
+            CircuitBreakerRegistry circuitBreakerRegistry) {
         log.info("[upload-storage] s3 mode → endpoint={} bucket={} region={} pathStyle={}",
                 endpoint, bucket, region, pathStyleAccess);
         var builder = S3Client.builder()
@@ -65,6 +67,17 @@ public class UploadStorageConfig {
         if (!endpoint.isBlank()) {
             builder = builder.endpointOverride(URI.create(endpoint));
         }
-        return new S3UploadStorage(builder.build(), bucket);
+        UploadStorage raw = new S3UploadStorage(builder.build(), bucket);
+        // Wrap with Resilience4j circuit breaker — a hung S3 endpoint
+        // otherwise blocks every AssetController request on the thread
+        // pool until it times out. Reads soft-fall through to null on
+        // breaker-open (AssetController has a classpath fallback);
+        // writes propagate so the catalog doesn't silently miss
+        // installs. Tuning lives in application.yml under
+        // resilience4j.circuitbreaker.instances.s3 (decision-020
+        // follow-up).
+        return new CircuitBreakerUploadStorage(
+                raw,
+                circuitBreakerRegistry.circuitBreaker("s3"));
     }
 }
