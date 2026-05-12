@@ -80,6 +80,6 @@ Until then, production sets `APP_R2DBC_REPLICA_URL` env var to point at a manage
 
 ## Follow-ups
 
-- Compose-level Bitnami primary + replica pair (separate PR; needs the pgdata-migration story).
+- ~~Compose-level Bitnami primary + replica pair~~ — done. The compose-level pair landed as an OPT-IN OVERLAY at [`docker-compose.replica.yml`](../../../docker-compose.replica.yml) using the existing `postgres:16-alpine` image for BOTH primary and replica (no Bitnami swap — keeps the existing `pgdata` volume layout). Activation flow + smoke test in [`scripts/setup-pg-replica.sh`](../../../scripts/setup-pg-replica.sh): bounces primary with `wal_level=replica` + replication role + mounted `pg_hba.conf`, brings the replica up which `pg_basebackup`s on first boot via [`docker/postgres-replica-entrypoint.sh`](../../../docker/postgres-replica-entrypoint.sh), then writes a tag to primary and reads it back from replica to prove streaming is live.
 - Snapshot of migrated services in `CLAUDE.md` once the catalog repos are switched.
 - Decision-023 if production picks a managed replica that needs a different routing strategy (e.g., pgpool-II in front of both).

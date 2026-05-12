@@ -73,9 +73,33 @@ The TLS conf had drifted from the plain conf — it was missing `Cross-Origin-Re
 
 Three steps to drop both `'unsafe-eval'` and `'unsafe-inline'`:
 
-1. **Move the `esms-options` inline block to a separate file.** `<script type="esms-options" src="/assets/esms-options.json"></script>` (es-module-shims supports the `src` form). Drops `script-src 'unsafe-inline'`.
-2. **Disable es-module-shims shimMode.** Modern browsers support native import maps; once we drop legacy-browser support, `shimMode` becomes optional. The shim only `new Function`s in shimMode. Drops `script-src 'unsafe-eval'`.
-3. **Wire `ngCspNonce` on the Angular bootstrap.** `bootstrapApplication(AppComponent, { providers: [{ provide: CSP_NONCE, useValue: '<nonce>' }] })`. The nonce flows to every `<style>` Angular injects. Drops `style-src 'unsafe-inline'`.
+### Step 1 — externalise `esms-options`  ✅ DONE (#54 follow-up)
+
+The inline `<script type="esms-options">{ "shimMode": true }</script>` block in `frontend/src/index.html` is now `<script src="assets/esms-init.js"></script>`, where the new file sets `window.esmsInitOptions = { shimMode: true }` BEFORE es-module-shims.js loads. es-module-shims accepts both option-delivery paths (inline `type="esms-options"` AND the global). Both `nginx.conf` and `nginx-tls.conf` now ship CSP **without** `script-src 'unsafe-inline'`.
+
+### Step 2 — disable `shimMode`  🚧 BLOCKED on federation builder
+
+`shimMode: true` is what makes es-module-shims call `new Function(...)` (hence `'unsafe-eval'`). Dropping it requires the `@angular-architects/native-federation` build to emit plain `<script type="module">` tags instead of `<script type="module-shim">`. The builder currently hardcodes the `module-shim` type; without it, native browsers ignore the federation entry scripts and the SPA fails to bootstrap.
+
+Paths forward (each its own follow-up PR):
+- Upstream patch / configuration option on `@angular-architects/native-federation` to opt out of shimMode.
+- Migrate off native-federation onto `@module-federation/runtime` (the Webpack-derived federation library that emits plain `type="module"`).
+- Post-build script that rewrites `type="module-shim"` → `type="module"` after the federation build completes (brittle).
+
+Until one of those lands, `script-src 'unsafe-eval'` stays. The scope is narrowed by `script-src 'self'` so the worst case still requires planted code to clear sanitisation.
+
+### Step 3 — `ngCspNonce`  🚧 BLOCKED on per-request nonce flow
+
+Angular's component encapsulation injects per-component `<style>` elements at runtime, which need either:
+- `style-src 'unsafe-inline'` (current state), OR
+- `style-src 'nonce-<value>'` with a fresh nonce per request that the server writes into both the CSP header AND every dynamically-injected style tag (via `CSP_NONCE` provider).
+
+The blocker is the nonce-per-request flow. nginx alone can't easily generate a unique nonce and inject it into the response body (which `<app-root>`'s `ngCspNonce` attribute lives on). Options:
+- Have the BFF (Java) serve `index.html` and template the nonce in. Requires moving SPA shell serving off nginx.
+- Use an nginx Lua module (`ngx_http_lua_module`) to generate the nonce + sub_filter the body. Adds Lua to the image.
+- Have a dedicated SSR / edge service template the nonce in.
+
+Each is a substantial architecture change. Deferred until the rest of the platform pulls in one of these capabilities for other reasons.
 
 Each step is independent and lands as its own PR; all three together produce a "strict" CSP with no `'unsafe-*'` tokens.
 

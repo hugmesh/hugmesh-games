@@ -1,0 +1,115 @@
+# Postgres primary + streaming-replica overlay (decision 022 follow-up).
+#
+# OPTIONAL. The default `docker compose up -d` boots a single-node
+# Postgres; this overlay adds a streaming replica + reconfigures the
+# primary for WAL replication. Activate with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.replica.yml up -d
+#
+# The BFF picks up the replica via `APP_R2DBC_REPLICA_URL` (set below).
+# When the env var is empty (default compose flow), the BFF aliases the
+# replica qualifier to the primary CF — call sites with
+# `@Qualifier("replica")` keep working in single-DB mode.
+#
+# Volume + image strategy:
+#   - Same `postgres:16-alpine` image for primary AND replica. No
+#     Bitnami swap; the existing `pgdata` volume keeps working
+#     untouched.
+#   - Primary's postgresql.conf is mutated in-place on first boot
+#     via the new init SQL block (ALTER SYSTEM). Reversing the
+#     overlay is `ALTER SYSTEM RESET wal_level` + restart.
+#   - Replica's volume (`pgdata_replica`) is populated by an
+#     in-image entrypoint script that runs `pg_basebackup` from the
+#     primary on the FIRST boot only. On subsequent boots the volume
+#     is already initialised and Postgres just resumes replay.
+#
+# Production deployments that point `APP_R2DBC_REPLICA_URL` at an
+# externally-managed replica (RDS, Cloud SQL, …) don't need this
+# overlay — that mode skips both containers + uses the primary
+# alone in compose.
+
+services:
+
+  postgres:
+    # Override the base service's startup so wal_level + replication
+    # role land before any client connects.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./docker/postgres-replica-init.sql:/docker-entrypoint-initdb.d/02-replication.sql
+      # Custom pg_hba.conf — adds the replication-role rule the
+      # replica container's pg_basebackup + streaming connection
+      # needs. Mounted at the path the postgres image reads on
+      # boot (POSTGRES_INITDB_ARGS uses this same convention).
+      - ./docker/postgres-pg-hba.conf:/etc/postgresql/pg_hba.conf:ro
+    environment:
+      POSTGRES_DB: threewizards
+      POSTGRES_USER: threewizards
+      POSTGRES_PASSWORD: threewizards
+      # Force the server to load our mounted pg_hba.conf — the
+      # default install reads from $PGDATA/pg_hba.conf, which the
+      # image overwrites on initdb.
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    command:
+      # Streaming-replication essentials. Defaults are tight enough
+      # for the demo / staging scale this repo targets; production
+      # tuning belongs in a separate config-map overlay.
+      # `hba_file` flag points at our mounted pg_hba.conf so the
+      # replication rule actually loads.
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=5"
+      - "-c"
+      - "wal_keep_size=64MB"
+      - "-c"
+      - "hot_standby=on"
+      - "-c"
+      - "listen_addresses=*"
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
+
+  postgres-replica:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: threewizards
+      POSTGRES_PASSWORD: threewizards
+      POSTGRES_DB: threewizards
+      PRIMARY_HOST: postgres
+      REPLICATOR_USER: replicator
+      REPLICATOR_PASSWORD: replicator
+    ports:
+      - "${POSTGRES_REPLICA_BIND:-127.0.0.1:}5433:5432"
+    volumes:
+      - pgdata_replica:/var/lib/postgresql/data
+      - ./docker/postgres-replica-entrypoint.sh:/usr/local/bin/replica-entrypoint.sh:ro
+    entrypoint: ["/usr/local/bin/replica-entrypoint.sh"]
+    command: ["postgres", "-c", "hot_standby=on", "-c", "listen_addresses=*"]
+    healthcheck:
+      # Hot-standby answers SELECT 1 via pg_isready once it's accepting
+      # connections in read-only mode.
+      test: ["CMD-SHELL", "pg_isready -U threewizards"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    # Point the BFF at the replica via the env var the
+    # R2dbcReadReplicaConfig conditional looks for. Empty in the
+    # default flow → replica beans don't load; non-empty here → the
+    # conditional fires and @Qualifier("replica") routes to the
+    # replica container.
+    environment:
+      APP_R2DBC_REPLICA_URL: "r2dbc:postgresql://postgres-replica:5432/threewizards"
+      APP_R2DBC_REPLICA_USER: "threewizards"
+      APP_R2DBC_REPLICA_PASS: "threewizards"
+    depends_on:
+      postgres-replica:
+        condition: service_healthy
+
+volumes:
+  pgdata_replica:

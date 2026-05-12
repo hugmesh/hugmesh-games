@@ -16,8 +16,13 @@
     container — which can't reach external CDNs — still gets the
     shim, and so it's loaded SYNCHRONOUSLY before the federated
     bundle scripts run.
+
+    The init options are externalised in assets/esms-init.js so
+    CSP can drop `script-src 'unsafe-inline'` (decision-023
+    strict-CSP step 1). MUST load BEFORE es-module-shims.js so the
+    `window.esmsInitOptions` global is set in time.
   -->
-  <script type="esms-options">{ "shimMode": true }</script>
+  <script src="assets/esms-init.js"></script>
   <script src="assets/es-module-shims.js"></script>
 </head>
 <body>

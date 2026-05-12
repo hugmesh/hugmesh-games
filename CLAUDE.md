@@ -241,6 +241,25 @@ E2E BDD coverage: [`e2e/features/makers/rpg-maker.feature`](e2e/features/makers/
 
 ## Postgres read replica routing (decision 022)
 
+### Activation in compose (optional)
+
+A single-host streaming-replica overlay ships at [`docker-compose.replica.yml`](docker-compose.replica.yml). The default `docker compose up -d` flow runs a single Postgres node (zero change). Activate the replica with:
+
+```bash
+# Fresh deploy — the bootstrap script handles role creation +
+# pg_basebackup + a write-and-read smoke test:
+./scripts/setup-pg-replica.sh
+
+# Subsequent boots — just pass both files:
+docker compose -f docker-compose.yml -f docker-compose.replica.yml up -d
+```
+
+Both containers use `postgres:16-alpine` (same image as the default), so the existing `pgdata` volume keeps working untouched. The replica gets its own `pgdata_replica` volume, populated by `pg_basebackup` on first boot via [`docker/postgres-replica-entrypoint.sh`](docker/postgres-replica-entrypoint.sh). The overlay also sets `APP_R2DBC_REPLICA_URL` on the `api` service so the BFF's `R2dbcReadReplicaConfig` conditional fires and the `@Qualifier("replica")` beans load.
+
+Reverting to single-node: bring everything down and drop the overlay. The primary's `wal_level=replica` setting can stay (it's harmless without a replica); to fully revert, restart the primary without the overlay's command-line flags.
+
+### BFF-side wiring
+
 The replica wiring is in place in `backend/src/main/java/games/snapdragon/bff/config/R2dbcReadReplicaConfig.java`: when `app.r2dbc.replica.url` is non-empty, three `@Qualifier("replica")` beans become available — `ConnectionFactory`, `R2dbcEntityTemplate`, `DatabaseClient`. When the URL is empty (dev / single-DB), the config skips and Spring Boot auto-config provides the normal primary beans alone.
 
 **Per-service migration pattern.** Read-only endpoints that hit the catalog tables (games / chapters / federation_modules / per-game access rules) can opt into the replica by injecting the qualified template directly, bypassing the Spring Data repo for that specific call:
