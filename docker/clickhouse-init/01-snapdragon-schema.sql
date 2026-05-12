@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS snapdragon.game_events_stream
 (
     event_id        String,
     occurred_at     DateTime64(3, 'UTC'),
+    pod_id          LowCardinality(String),
     channel         LowCardinality(String),
     game_slug       LowCardinality(String),
     session_id      String,
@@ -146,12 +147,14 @@ SETTINGS
     kafka_group_name    = 'clickhouse-game-events',
     kafka_format        = 'JSONEachRow',
     kafka_num_consumers = 2,
-    kafka_skip_broken_messages = 1000;
+    kafka_skip_broken_messages = 1000,
+    input_format_skip_unknown_fields = 1;
 
 CREATE TABLE IF NOT EXISTS snapdragon.game_events
 (
     event_id        String,
     occurred_at     DateTime64(3, 'UTC'),
+    pod_id          LowCardinality(String),
     channel         LowCardinality(String),
     game_slug       LowCardinality(String),
     session_id      String,
@@ -169,6 +172,7 @@ TO snapdragon.game_events
 AS SELECT
     event_id,
     occurred_at,
+    pod_id,
     channel,
     game_slug,
     session_id,

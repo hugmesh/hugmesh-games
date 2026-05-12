@@ -60,17 +60,20 @@ public class GameEventPublisher {
     private final ObjectMapper mapper = new ObjectMapper();
     private final AtomicLong emitted = new AtomicLong();
     private final AtomicLong dropped = new AtomicLong();
+    private final String podId;
 
     public GameEventPublisher(
             org.springframework.kafka.core.KafkaTemplate<String, String> auditKafkaTemplate,
+            PodIdentity.PodId podIdBean,
             @Value("${app.kafka.topic.game-events:game_events}") String topic) {
-        this((key, json) -> auditKafkaTemplate.send(topic, key, json), topic);
+        this((key, json) -> auditKafkaTemplate.send(topic, key, json), podIdBean.value(), topic);
     }
 
     /** Test-friendly constructor — see {@link GameAuditPublisher} for rationale. */
-    public GameEventPublisher(KafkaSender sender, String topicLabel) {
+    public GameEventPublisher(KafkaSender sender, String podId, String topicLabel) {
         this.sender = sender;
-        log.info("[events] GameEventPublisher → topic={}", topicLabel);
+        this.podId = podId;
+        log.info("[events] GameEventPublisher → topic={} pod={}", topicLabel, podId);
     }
 
     /**
@@ -91,6 +94,11 @@ public class GameEventPublisher {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("event_id",    Crypto.mintUid());
         row.put("occurred_at", DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
+        // pod_id is the discriminator the cross-pod subscriber checks to
+        // skip events this pod produced — prevents the in-process
+        // Sinks.Many from re-receiving its own emissions through the
+        // Kafka loop-back.
+        row.put("pod_id",      podId == null ? "" : podId);
         row.put("channel",     channel == null ? "" : channel);
         row.put("game_slug",   gameSlug == null ? "" : gameSlug);
         row.put("session_id",  sessionId == null ? "" : sessionId);

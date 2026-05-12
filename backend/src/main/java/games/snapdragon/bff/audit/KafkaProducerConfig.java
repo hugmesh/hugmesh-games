@@ -1,6 +1,8 @@
 package games.snapdragon.bff.audit;
 
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +10,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.annotation.EnableKafka;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
@@ -31,6 +37,7 @@ import java.util.Map;
  */
 @Configuration
 @ConditionalOnProperty(name = "app.kafka.enabled", havingValue = "true")
+@EnableKafka
 public class KafkaProducerConfig {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaProducerConfig.class);
@@ -61,5 +68,44 @@ public class KafkaProducerConfig {
     public KafkaTemplate<String, String> auditKafkaTemplate(
             ProducerFactory<String, String> auditProducerFactory) {
         return new KafkaTemplate<>(auditProducerFactory);
+    }
+
+    // ── Consumer side (cross-pod subscriber) ──────────────────────────
+
+    @Bean
+    public ConsumerFactory<String, String> crossPodConsumerFactory(
+            @Value("${app.kafka.bootstrap-servers:kafka:9092}") String bootstrap,
+            @Value("${app.kafka.client-id:snapdragon-bff}")     String clientId,
+            @Value("${app.kafka.consumer.group-id:snapdragon-bff-cross-pod}") String groupId) {
+        log.info("[kafka] consumer factory wired → bootstrap={} group={} clientId={}",
+                bootstrap, groupId, clientId);
+        Map<String, Object> cfg = new HashMap<>();
+        cfg.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,  bootstrap);
+        cfg.put(ConsumerConfig.CLIENT_ID_CONFIG,          clientId + "-consumer");
+        cfg.put(ConsumerConfig.GROUP_ID_CONFIG,           groupId);
+        cfg.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,   StringDeserializer.class);
+        cfg.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        // `latest` so a restart doesn't replay 30 days of game_events
+        // into local sinks; catching up on stale events would
+        // double-fire the in-process emission.
+        cfg.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,  "latest");
+        // We're processing each record idempotently (a tryEmitNext on
+        // an in-process sink) — at-least-once is fine; auto-commit
+        // keeps the consumer simple.
+        cfg.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+        return new DefaultKafkaConsumerFactory<>(cfg);
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
+            ConsumerFactory<String, String> crossPodConsumerFactory) {
+        ConcurrentKafkaListenerContainerFactory<String, String> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(crossPodConsumerFactory);
+        // Single-threaded per listener — the cross-pod re-emit path is
+        // a non-blocking Sinks.Many.tryEmitNext call; parallelism would
+        // only complicate ordering guarantees without throughput win.
+        factory.setConcurrency(1);
+        return factory;
     }
 }

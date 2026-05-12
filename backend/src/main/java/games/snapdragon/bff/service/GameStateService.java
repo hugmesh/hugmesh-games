@@ -138,22 +138,54 @@ public class GameStateService {
      */
     private final java.util.Optional<games.snapdragon.bff.audit.GameEventPublisher> eventPublisher;
 
+    /**
+     * Cross-pod receiver. When wired, registers a handler per channel so
+     * a movement event produced by Pod A → Kafka → Pod B's subscriber
+     * lands in Pod B's matching per-session sink. Self-loops are
+     * prevented at the subscriber via {@code pod_id} filtering.
+     */
+    private final java.util.Optional<games.snapdragon.bff.audit.KafkaSessionSubscriber> kafkaSubscriber;
+
     public GameStateService(PlayerCharacterRepository characterRepo,
                             PlayerPositionRepository  positionRepo,
                             GameTimeService           gameTimeService,
                             PgNotificationService     pgNotify,
                             ObjectProvider<PositionCacheService> positionCacheProvider,
-                            java.util.Optional<games.snapdragon.bff.audit.GameEventPublisher> eventPublisher) {
+                            java.util.Optional<games.snapdragon.bff.audit.GameEventPublisher> eventPublisher,
+                            java.util.Optional<games.snapdragon.bff.audit.KafkaSessionSubscriber> kafkaSubscriber) {
         this.characterRepo  = characterRepo;
         this.positionRepo   = positionRepo;
         this.gameTimeService = gameTimeService;
         this.pgNotify       = pgNotify;
         this.positionCache  = positionCacheProvider.getIfAvailable();
         this.eventPublisher = eventPublisher;
+        this.kafkaSubscriber = kafkaSubscriber;
     }
 
     @PostConstruct
     public void init() {
+        // Register cross-pod re-emit handlers — one per channel. The
+        // subscriber pulls each game_events row, filters self-published
+        // (via pod_id), and dispatches to the matching handler below.
+        // Each handler emits into the LOCAL session-scoped sink so an
+        // SSE subscriber on this pod sees the cross-pod event without
+        // ever knowing which pod produced it.
+        //
+        // SSE remains the gameplay-driving path; this completes the
+        // cross-pod loop introduced by decision 021 (Phase-6 + Phase-7
+        // delivered the producer side).
+        kafkaSubscriber.ifPresent(sub -> {
+            sub.registerHandler("movement",     (sid, json) -> reemitToSession(sid, "movement",     json));
+            sub.registerHandler("world",        (sid, json) -> reemitToSession(sid, "world",        json));
+            sub.registerHandler("character",    (sid, json) -> reemitToSession(sid, "character",    json));
+            sub.registerHandler("scene",        (sid, json) -> reemitToSession(sid, "scene",        json));
+            sub.registerHandler("view",         (sid, json) -> reemitToSession(sid, "view",         json));
+            sub.registerHandler("input",        (sid, json) -> reemitToSession(sid, "input",        json));
+            sub.registerHandler("audio",        (sid, json) -> reemitToSession(sid, "audio",        json));
+            sub.registerHandler("wasm-console", (sid, json) -> reemitToSession(sid, "wasm-console", json));
+            log.info("[kafka-sub] handlers registered for 8 channels");
+        });
+
         // Seed the default character on the default chapter so the
         // single-player local-play case has state from the moment the
         // first SSE subscriber connects. Multi-player connects hydrate
@@ -367,6 +399,99 @@ public class GameStateService {
     private SessionSinks sessionSinksFor(String sessionId) {
         return sessionSinks.computeIfAbsent(sessionId, id -> new SessionSinks());
     }
+
+    /**
+     * Cross-pod re-emit entry point. The Kafka subscriber dispatches
+     * here once per consumed game_events row that didn't originate on
+     * this pod. We deserialise the payload string into the matching
+     * channel-specific record type and emit into the local SessionSinks
+     * (for the four per-session channels) or the global sink (for the
+     * four global-only channels).
+     *
+     * <p>Best-effort throughout — a deserialise failure logs + drops
+     * the event; the gameplay path isn't disturbed. Per decision 021
+     * the streaming pipeline is purely additive over the in-process
+     * Sinks.Many; cross-pod re-emit improves the multi-pod experience
+     * but never blocks the same-pod path.
+     */
+    private void reemitToSession(String sessionId, String channel, String payloadJson) {
+        if (payloadJson == null || payloadJson.isEmpty()) return;
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = sharedMapper;
+            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(payloadJson);
+            switch (channel) {
+                case "movement" -> {
+                    games.snapdragon.bff.model.PlayerMovement m = new games.snapdragon.bff.model.PlayerMovement(
+                            root.path("characterId").asLong(0L),
+                            root.has("chapterId") && !root.get("chapterId").isNull()
+                                    ? root.path("chapterId").asLong() : null,
+                            root.path("x").asDouble(),
+                            root.path("y").asDouble(),
+                            root.path("z").asDouble(),
+                            root.path("rotationY").asDouble(),
+                            root.path("action").asText(null),
+                            root.path("pressed").asBoolean(false),
+                            root.path("tick").asLong(0L));
+                    movementSink.tryEmitNext(m);
+                    if (sessionId != null && !sessionId.isEmpty()) {
+                        sessionSinksFor(sessionId).movement.tryEmitNext(m);
+                    }
+                }
+                case "world" -> {
+                    games.snapdragon.bff.model.WorldState w = mapper.treeToValue(root,
+                            games.snapdragon.bff.model.WorldState.class);
+                    worldSink.tryEmitNext(w);
+                    if (sessionId != null && !sessionId.isEmpty()) {
+                        sessionSinksFor(sessionId).world.tryEmitNext(w);
+                    }
+                }
+                case "character" -> {
+                    games.snapdragon.bff.model.CharacterDto c = mapper.treeToValue(root,
+                            games.snapdragon.bff.model.CharacterDto.class);
+                    charStatSink.tryEmitNext(c);
+                    if (sessionId != null && !sessionId.isEmpty()) {
+                        sessionSinksFor(sessionId).character.tryEmitNext(c);
+                    }
+                }
+                case "scene" -> {
+                    games.snapdragon.bff.model.SceneEvent s = mapper.treeToValue(root,
+                            games.snapdragon.bff.model.SceneEvent.class);
+                    sceneSink.tryEmitNext(s);
+                }
+                case "view" -> {
+                    games.snapdragon.bff.model.PlayerViewEvent v = mapper.treeToValue(root,
+                            games.snapdragon.bff.model.PlayerViewEvent.class);
+                    String vSession = sessionId != null && !sessionId.isEmpty() ? sessionId : v.sessionId();
+                    if (vSession != null && !vSession.isEmpty()) {
+                        sessionSinksFor(vSession).view.tryEmitNext(v);
+                    }
+                }
+                case "input" -> {
+                    games.snapdragon.bff.model.InputEvent i = mapper.treeToValue(root,
+                            games.snapdragon.bff.model.InputEvent.class);
+                    inputSink.tryEmitNext(i);
+                }
+                case "audio" -> {
+                    games.snapdragon.bff.model.InputEvent a = mapper.treeToValue(root,
+                            games.snapdragon.bff.model.InputEvent.class);
+                    audioSink.tryEmitNext(a);
+                }
+                case "wasm-console" -> {
+                    games.snapdragon.bff.model.WasmConsoleLine line = mapper.treeToValue(root,
+                            games.snapdragon.bff.model.WasmConsoleLine.class);
+                    wasmConsoleSink.tryEmitNext(line);
+                }
+                default -> log.debug("[kafka-sub] dropped unknown channel={}", channel);
+            }
+        } catch (Exception ex) {
+            log.debug("[kafka-sub] reemit failed for channel={} session={}: {}",
+                    channel, sessionId, ex.getMessage());
+        }
+    }
+
+    /** Shared ObjectMapper for cross-pod re-emit deserialisation. */
+    private final com.fasterxml.jackson.databind.ObjectMapper sharedMapper =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     /** Push a generalised input event onto the SSE channel. The audio
      *  kind also fan-outs to the audio sink so a subscriber can opt
