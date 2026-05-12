@@ -167,6 +167,61 @@ Always run the matching tests: \texttt{make test-backend},
 \texttt{make test-frontend}.
 
 % ── Chapter 7 ─────────────────────────────────────────────────────────────
+\chapter{Roles you'll meet}
+The Casdoor seed data ships twelve users. Every one can log in to the
+catalog out of the box (pinned by
+\reposrc{e2e/features/auth/per-role-login.feature}); what differs is
+what each one sees and is allowed to do after that.
+
+\begin{itemize}
+  \item \texttt{player}, \texttt{player1}, \texttt{player2},
+        \texttt{player3} --- ordinary players. Land on the catalog;
+        can create + join sessions; cannot reach \texttt{/admin}.
+  \item \texttt{admin} --- ROLE\_ADMIN. Sees every game in the catalog
+        regardless of \texttt{game\_access}; can grant mod / publisher
+        scope; observes any live session.
+  \item \texttt{mod} --- ROLE\_MOD with no per-game scope. Authenticates
+        but every mod-tier action returns 403 until an admin grants a
+        \texttt{mod\_game\_scope} row.
+  \item \texttt{mod-three-wizards}, \texttt{mod-dodecahedron} --- mod
+        with a specific game scope. Can act on that game's sessions;
+        gets 403 on any other game.
+  \item \texttt{publisher} --- ROLE\_PUBLISHER with no scope. Same
+        shape as \texttt{mod}: authenticates, but any
+        \texttt{/api/publisher/*} call needs a matching
+        \texttt{publisher\_game\_scope} row.
+  \item \texttt{publisher-three-wizards}, \texttt{publisher-dodecahedron},
+        \texttt{publisher-flatland} --- per-game publisher fixtures.
+        The Flatland one auto-seeds an RPG-maker + VN-maker project
+        owned by that user, so logging in as them opens the maker UI
+        on a ready-to-build project tree.
+\end{itemize}
+
+The two-axis split (\emph{role} in Casdoor, \emph{game scope} in
+Postgres) is the same shape for mod and publisher --- decision 015 +
+018 in the wiki cover the wiring.
+
+% ── Chapter 8 ─────────────────────────────────────────────────────────────
+\chapter{Multiplayer in one paragraph}
+Two players in the \emph{same} session share state via per-session SSE
+sinks. \texttt{GameStateService.applyControl(event, characterId,
+sessionId)} fans every event to the matching
+\texttt{ConcurrentHashMap<String, SessionSinks>} entry; subscribers on
+\texttt{/api/game/stream?sessionId=$\alpha$} only see events for
+session $\alpha$. Two players in \emph{different} sessions never see
+each other's events --- the isolation contract is pinned by
+\snapfile{SessionIsolationTest} on the BFF side and
+\reposrc{e2e/features/multiplayer/rpg-two-players.feature} on the
+browser side.
+
+Visibility comes from two more layers. The lobby filters sessions by
+the caller's \texttt{user\_relationships} graph: a \texttt{friends}
+session is invisible to non-friends; a \texttt{blocked} user is
+invisible to the blocker in both directions (lobby list AND the
+in-game player roster). The friend-graph happy path is pinned by
+\reposrc{e2e/features/social/friends-and-blocks.feature}.
+
+% ── Chapter 9 ─────────────────────────────────────────────────────────────
 \chapter{Reading list}
 \begin{itemize}
   \item \reposrc{README.md} — installation, build, deploy, troubleshooting.
