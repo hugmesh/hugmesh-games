@@ -182,7 +182,7 @@ interface PlayerSession {
                    background: linear-gradient(135deg, #7c4dff 0%, #b388ff 100%);
                    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
                    background-clip: text; }
-    .admin-subtitle { font-size: 0.82rem; color: #7070a0; }
+    .admin-subtitle { font-size: 0.82rem; color: #a8acc4; }
     .admin-subtitle code { background: rgba(255,255,255,0.05); padding: 1px 5px;
                             border-radius: 3px; font-size: 0.78rem; }
 
@@ -199,7 +199,7 @@ interface PlayerSession {
                   gap: 16px; padding: 24px 40px 0; }
     .stat-card { background: #12121e; border: 1px solid #1e1e32; border-radius: 10px;
                  padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; }
-    .stat-card .stat-label { font-size: 0.72rem; color: #7070a0;
+    .stat-card .stat-label { font-size: 0.72rem; color: #a8acc4;
                              text-transform: uppercase; letter-spacing: 0.06em; }
     .stat-card .stat-value { font-size: 1.8rem; font-weight: 800; }
     .stat-card--accent { border-color: #7c4dff;
@@ -218,29 +218,29 @@ interface PlayerSession {
     .data-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
     .data-table th { text-align: left; padding: 10px 16px; font-size: 0.68rem;
                       font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
-                      color: #7070a0; border-bottom: 1px solid #1e1e32; white-space: nowrap; }
+                      color: #a8acc4; border-bottom: 1px solid #1e1e32; white-space: nowrap; }
     .data-table td { padding: 10px 16px; border-bottom: 1px solid rgba(30,30,50,0.6);
                       color: #e8e8f0; vertical-align: middle; }
     .data-table tr:last-child td { border-bottom: none; }
     .data-table tr:hover td { background: rgba(124,77,255,0.04); }
 
-    .td-id { color: #7070a0; font-family: monospace; font-size: 0.8rem; }
-    .td-mono { font-family: monospace; font-size: 0.78rem; color: #7070a0; }
-    .td-empty { text-align: center; color: #7070a0; padding: 32px 16px; font-size: 0.85rem; }
+    .td-id { color: #a8acc4; font-family: monospace; font-size: 0.8rem; }
+    .td-mono { font-family: monospace; font-size: 0.78rem; color: #a8acc4; }
+    .td-empty { text-align: center; color: #a8acc4; padding: 32px 16px; font-size: 0.85rem; }
 
     .badge { display: inline-block; font-size: 0.68rem; font-weight: 700;
               letter-spacing: 0.06em; text-transform: uppercase; border-radius: 4px;
               padding: 2px 8px; }
     .badge--yes { color: #4ade80; background: rgba(74,222,128,0.1);
                   border: 1px solid rgba(74,222,128,0.3); }
-    .badge--no { color: #7070a0; background: rgba(112,112,160,0.08);
+    .badge--no { color: #a8acc4; background: rgba(112,112,160,0.08);
                  border: 1px solid rgba(112,112,160,0.2); }
 
     .error-banner { margin: 16px 40px 0; background: rgba(255,107,107,0.1);
                     border: 1px solid #ff6b6b; color: #ff6b6b;
                     padding: 12px 16px; border-radius: 8px; }
-    .admin-nav-back { padding: 24px 40px; color: #7070a0; font-size: 0.88rem; }
-    .admin-nav-back a { color: #7070a0; text-decoration: none; }
+    .admin-nav-back { padding: 24px 40px; color: #a8acc4; font-size: 0.88rem; }
+    .admin-nav-back a { color: #a8acc4; text-decoration: none; }
     .admin-nav-back a:hover { color: #b388ff; }
   `],
 })

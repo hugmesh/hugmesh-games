@@ -1,3 +1,22 @@
+/* Snapdragon palette — centralised here so component-level overrides can
+ * reach for the same CSS variables instead of pasting hex literals. Tokens
+ * carry their WCAG-AA contrast ratio against #0a0a12 (the darkest shell
+ * background) in the comment alongside, so a future contrast regression is
+ * obvious at the source. Audit details: decisions/024-wcag-palette-audit.md.
+ */
+:root {
+  --sd-bg-0:        #0a0a12; /* shell + login backdrop */
+  --sd-bg-1:        #12121e; /* cards, panels */
+  --sd-bg-2:        #1a1a2e; /* scrollbar trough */
+  --sd-border:      #1e1e32;
+  --sd-text:        #e8e8f0; /* 15.9:1 AAA */
+  --sd-text-muted:  #a8acc4; /*  8.77:1 AAA — replaces #7070a0 (3.88:1) */
+  --sd-accent:      #7c4dff; /* backgrounds/borders only — 3.22:1 as text */
+  --sd-accent-soft: #b388ff; /*  7.38:1 AAA — use this for accent text */
+  --sd-success:     #4caf50;
+  --sd-error:       #ff6b6b;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -6,7 +25,7 @@
 
 html, body {
   height: 100%;
-  background: #0a0a0f;
+  background: var(--sd-bg-0);
   color: #e8e0d0;
   font-family: 'Segoe UI', system-ui, sans-serif;
   overflow: hidden;
