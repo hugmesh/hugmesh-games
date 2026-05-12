@@ -256,7 +256,7 @@ E2E BDD coverage: [`e2e/features/makers/rpg-maker.feature`](e2e/features/makers/
 
 ## Known gaps / TODO
 
-- Full Content-Security-Policy needs an inventory of the federation runtime's eval / inline-script needs first.
+- ~~Full Content-Security-Policy needs an inventory of the federation runtime's eval / inline-script needs first.~~ — first cut done. `frontend/nginx.conf` + `frontend/nginx-tls.conf` both ship the policy in lockstep: `default-src 'self'` + `connect-src 'self'` + `frame-ancestors 'self'` + `object-src 'none'` + `base-uri 'self'`. The two retained `'unsafe-*'` tokens (`script-src 'unsafe-eval' 'unsafe-inline'` + `style-src 'unsafe-inline'`) are load-bearing for es-module-shims shimMode, the `esms-options` inline block, and Angular's runtime style injection. Path to strict (drop all `'unsafe-*'`) documented in [decision 023](docs/wiki/decisions/023-content-security-policy.md). Drive-by: closed the nginx-tls.conf header drift gap (it was missing CORP / HSTS / X-Frame-Options / Referrer-Policy / Permissions-Policy).
 - Per-form a11y sweep (login form labels, error messaging, validation announcements).
 - WCAG colour-contrast audit on the Snapdragon palette.
 - ~~Cassandra-backed cross-pod rate-limit storage~~ — done. `RateLimitFilter` runs the local in-process bucket as the fast pre-check, then augments cluster-wide via `DistributedRateLimitService` (append-row log on the Cassandra `rate_limit_events` table with a 90 s TTL; window-bounded `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`). Disable with `app.rate-limit.distributed.enabled=false` (default `true`); falls back to local-only when Cassandra is unreachable.
