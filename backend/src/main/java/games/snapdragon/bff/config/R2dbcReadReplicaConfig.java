@@ -6,9 +6,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
+import org.springframework.context.annotation.ConditionContext;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.type.AnnotatedTypeMetadata;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.r2dbc.core.DatabaseClient;
 
@@ -55,8 +57,24 @@ import org.springframework.r2dbc.core.DatabaseClient;
  * {@code primary} parameter (cycle).
  */
 @Configuration
-@ConditionalOnProperty(name = "app.r2dbc.replica.url")
+@Conditional(R2dbcReadReplicaConfig.NonEmptyReplicaUrl.class)
 public class R2dbcReadReplicaConfig {
+
+    /**
+     * Custom condition that matches only when {@code app.r2dbc.replica.url}
+     * is present AND non-empty. Spring's stock {@code @ConditionalOnProperty}
+     * treats an empty value as "matching" (only literal "false" is treated
+     * as non-match) — but our application.yml defines the property with an
+     * empty default so the env var can override it, which means an empty
+     * value is the dev / test mode and must NOT activate this config.
+     */
+    static final class NonEmptyReplicaUrl implements org.springframework.context.annotation.Condition {
+        @Override
+        public boolean matches(ConditionContext ctx, AnnotatedTypeMetadata md) {
+            String url = ctx.getEnvironment().getProperty("app.r2dbc.replica.url");
+            return url != null && !url.isBlank();
+        }
+    }
 
     private static final Logger log = LoggerFactory.getLogger(R2dbcReadReplicaConfig.class);
 
