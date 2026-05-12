@@ -134,6 +134,82 @@ atomically moves to \texttt{<gamesDir>/<slug>/<sha-prefix>}, and runs
         restart api wasm-fragment}.
 \end{enumerate}
 
+\chapter{Multiplayer-aware bridge}
+The Rust HostBridge gained two methods the single-player demo didn't
+need:
+
+\begin{itemize}
+  \item \texttt{register\_player\_slot(slot, character\_id)} ---
+        called from \snapfile{games/<slug>/scripts/multiplayer\_lobby.gd}
+        once per player as they join. The GDScript reference is
+        \snapfile{multiplayer\_lobby.gd}; it spawns one wizard
+        \texttt{CharacterBody3D} per registered slot.
+  \item \texttt{view\_egress(camera\_pos, look\_dir)} --- $\sim$10\,Hz
+        posts to \texttt{/api/view}. The BFF fans these out on the
+        per-session \emph{view} sink that the admin console at
+        \texttt{/admin/sessions/\{id\}/stream} subscribes to. Don't
+        rate-limit yourself; the nginx \texttt{sse} zone caps at
+        30 r/s per IP anyway.
+\end{itemize}
+
+Two contracts your scene must respect:
+
+\begin{enumerate}
+  \item Every \texttt{POST /api/controls/\{character\_id\}} must
+        carry an \texttt{X-Session-Id} header. Without it, two players
+        sharing the same character record across sessions race
+        Postgres' first-row pick at
+        \texttt{findActiveOwnerOfCharacter(character\_id)} and one
+        side gets 403. The \snapfile{game\_bridge.gd} api client
+        already adds the header --- if you fork it, keep that line.
+  \item On a 403 from \texttt{/api/controls}, post
+        \texttt{SD\_SESSION\_EXPIRED} to the parent window. The
+        Angular wrapper's \snapfile{ApiBridgeService.handleSessionExpired()}
+        will re-run the session.connect $\rightarrow$ claimControl
+        chain automatically.
+\end{enumerate}
+
+The HostBridge build is the same one used by the RPG + VN makers ---
+those bundles already ship \snapfile{snapdragon\_bridge.gdextension}
+in the produced source tree, so multiplayer-awareness comes for free
+when a publisher uses a maker rather than authoring directly in Godot.
+
+\chapter{Two-player local test}
+The browser-side multiplayer contract is pinned by
+\reposrc{e2e/features/multiplayer/rpg-two-players.feature}: two real
+Casdoor users open the lobby, join the same session, launch the same
+chapter; each one's control event must reach the other's iframe via
+the per-session SSE sink.
+
+To exercise it locally without Playwright:
+
+\begin{enumerate}
+  \item Open two browser profiles (e.g. one normal + one incognito).
+        \emph{Cookies must be isolated} --- shared cookies race the
+        session tracker.
+  \item In each, log in as a different player (the
+        \texttt{player1} and \texttt{player2} seed users have
+        deterministic passwords on the integration-test profile;
+        export \texttt{E2E\_PASSWORD=e2e-pass} when running
+        \texttt{make e2e}).
+  \item Profile A: open the game, \emph{Create lobby}, public
+        visibility. Profile B: open the same game, \emph{Join} on the
+        new row.
+  \item Both click \emph{Launch}. The WASM compile is 15--90\,s on a
+        cold image --- gate input on the \texttt{?sessionId=\ldots}
+        EventSource open before pressing keys, or the spec races
+        the subscription.
+  \item Move profile A; profile B's iframe should see the movement
+        within a few hundred ms.
+\end{enumerate}
+
+The four canvas-window controls (Fullscreen, Open-in-new-tab,
+Open-in-new-window with pause, Resume) are covered by
+\reposrc{e2e/features/multiplayer/window-controls.feature}. The
+``open in new window'' button posts \texttt{SD\_GAME\_PAUSE} to the
+parent iframe so only one window plays at a time --- if you wire a
+custom toolbar, mirror that behaviour.
+
 \chapter{Common mistakes}
 \begin{itemize}
   \item Slugs differ across the four contract points $\rightarrow$

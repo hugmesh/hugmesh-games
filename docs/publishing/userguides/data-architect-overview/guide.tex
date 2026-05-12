@@ -88,6 +88,11 @@ Postgres + replay. Postgres is the source of truth.
         the upload R2DBC transaction; failure rolls everything back.
   \item \textbf{Observability} --- scheduled jobs (Sweeper, Pruner,
         CassandraSync) emit one line per run for log scraping.
+  \item \textbf{Rate-limit telemetry} --- the
+        \texttt{rate\_limit\_events} Cassandra table holds an
+        append-only log of every cross-pod rate-limit decision with a
+        90\,s TTL. Aggregates back to per-user / per-zone counters
+        without bloating durable state.
 \end{itemize}
 
 \chapter{Identity, regulatory, DR}
@@ -104,6 +109,91 @@ Postgres + replay. Postgres is the source of truth.
         \texttt{characters}, NULL out \texttt{casdoor\_user\_id} in
         audit rows.
 \end{itemize}
+
+\chapter{Per-game scope tables}
+Mod and publisher authorisation is split intentionally:
+
+\begin{itemize}
+  \item \textbf{Casdoor} owns ``is a mod / publisher at all'' ---
+        \texttt{ROLE\_MOD} / \texttt{ROLE\_PUBLISHER} membership lives
+        in the Casdoor tenant.
+  \item \textbf{Postgres} owns ``for which games'' ---
+        \texttt{mod\_game\_scopes} and \texttt{publisher\_game\_scopes}
+        each hold one row per (casdoorId, gameSlug) pair.
+\end{itemize}
+
+The BFF reads both layers for every mod- or publisher-only mutation.
+A Casdoor token alone authenticates the request but doesn't authorise
+it; the Postgres row provides the per-game gate. This means an
+identity provider replacement (Auth0, Cognito, Entra) carries the
+role membership but the per-game scope stays in your relational
+store --- a clean separation for cloud relocation.
+
+Mutation endpoints follow a strict admin / publisher split. Only
+\texttt{/api/admin/role-grants/*} (admin) and
+\texttt{/api/publisher/grant-mod} (publisher within scope) write
+rows; everything else is read-only. The rejection matrix is pinned by
+\reposrc{e2e/features/security/mod-grant-gates.feature}.
+
+\chapter{Maker side databases}
+The RPG and VN makers each ship as their own Spring Boot side service
+with its own Postgres instance. Schemas live under
+\snapfile{rpg-builder/src/main/resources/db/changelog/} and
+\snapfile{vn-builder/src/main/resources/db/changelog/} respectively
+--- managed by Liquibase end-to-end (no JPA \texttt{ddl-auto}, no
+psql-init seed file).
+
+\begin{itemize}
+  \item \snapfile{postgres-rpg-builder} --- areas, rooms, exits,
+        items, NPCs, scripts. Mudlet-shaped.
+  \item \snapfile{postgres-vn-builder} --- acts, characters,
+        backgrounds, scenes, dialogue lines, branching choices.
+        godot-2d-visual-novel-shaped.
+  \item Each side service's build worker walks its project tree,
+        renders a Godot 4 source tree (with
+        \snapfile{snapdragon\_bridge.gdextension} baked in), invokes
+        the Godot CLI per area / act, zips the result, and POSTs to
+        the BFF \texttt{/api/admin/games/upload} endpoint with the
+        originating user's bearer token --- so the BFF's existing
+        \texttt{publisher\_game\_scopes} check enforces who can ship
+        which slug.
+  \item Each area (RPG) or act (VN) becomes a Chapter row in the BFF's
+        \texttt{chapters} table on upload. The host portal's
+        existing chapter chooser handles multi-chapter games out of
+        the box.
+\end{itemize}
+
+The three Postgres instances (BFF, RPG builder, VN builder) live in
+the same compose stack today but have nothing in common at the
+schema level; cloud relocation can move them independently if cost
+or scale warrants. See decision 018.
+
+\chapter{Identity widening}
+Liquibase 036 widens session-id columns from \texttt{varchar(36)} to
+\texttt{varchar(64)} to fit \snapfile{Crypto.mintUid()} output ---
+43-character URL-safe base64 of \texttt{SHA3-256(64 random bytes
+from BouncyCastle SP800-90A HMAC-SHA256 DRBG)}, replacing
+\texttt{UUID.randomUUID()} for every UI-facing UID and URL token.
+
+Implications for the data model:
+
+\begin{itemize}
+  \item Pre-existing UUID-shape rows (36 chars) continue to fit ---
+        the migration widens, never narrows. No data rewrite.
+  \item Cross-system joins on session id keep working because the
+        column types match across consuming tables (the migration
+        widens every join target in the same changeset).
+  \item External integrations that cached session ids assuming a
+        36-char shape need a 64-char buffer --- relevant only for
+        log shippers or analytics warehouses pulling \texttt{game\_sessions.id}
+        without a length-aware schema.
+\end{itemize}
+
+The DRBG is a process-singleton, so caller code doesn't need to
+thread state. Hashing for non-UID purposes uses
+\texttt{Crypto.sha3\_256(...)} from the same module; the wiki
+decision document covers the threat model that motivated leaving
+\texttt{UUID.randomUUID()} behind.
 
 \chapter{Cloud relocation swap-points}
 \begin{itemize}

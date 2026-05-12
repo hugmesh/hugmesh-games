@@ -55,7 +55,13 @@ role broadly; per-game scope stays tight.
         caller's active scope --- HTTP 403.
 \end{itemize}
 
-See architecture decision 011 for the design rationale.
+See architecture decision 011 for the design rationale. The full
+rejection matrix --- unauthenticated 401, plain player 403, publisher
+misusing the admin endpoint 403, publisher trying to grant on a game
+they don't own 403 --- is pinned by
+\reposrc{e2e/features/security/mod-grant-gates.feature}. Same shape
+of test will be added for any new mod-tier endpoint; copy the existing
+scenarios as a template.
 
 \chapter{What you can see}
 \texttt{/mod} is the federated mod console
@@ -124,6 +130,42 @@ The full admin dashboard at \texttt{/admin} is gated to
         participation. Use this to decide whether to escalate to a
         permanent ban (admin-only via \texttt{/admin/users}).
 \end{enumerate}
+
+\chapter{Friends and blocks}
+The platform has a single mutual friend graph and a unidirectional
+blocklist, both living in \snapfile{user\_relationships}. As a
+moderator you don't manage either directly --- they're player-level
+features --- but they shape what \emph{you} see in the mod console
+because mod-tier reads run through the same visibility filter.
+
+\begin{itemize}
+  \item \textbf{Friends} are mutual. A friend pair lands as two
+        \texttt{friend} rows in the relationships table; the
+        friend-graph happy path is pinned by
+        \reposrc{e2e/features/social/friends-and-blocks.feature}.
+  \item \textbf{Blocks} are one-directional. A row with
+        \texttt{relationship\_type=blocked} hides the target from the
+        blocker in both directions: the lobby list AND the in-game
+        player roster.
+  \item Publishers cannot be blocked at the data layer; admins cannot
+        be blocked at the controller layer. Don't be surprised when a
+        reported abuse-of-publisher complaint can't be resolved with
+        a normal block --- escalate to admin.
+\end{itemize}
+
+For the \texttt{visibility} setting on sessions
+(\texttt{public} / \texttt{friends} / \texttt{private}): the
+lobby filter at \snapfile{MultiplayerSessionController.listOpen} runs
+against the caller's friend graph + blocklist before the list is
+returned, so you only see sessions you'd be allowed to join. Decision
+015 in the wiki has the full table; the visibility tiers themselves
+are pinned by \reposrc{e2e/features/lobby/session-visibility.feature}.
+
+What this means in practice: if a player reports
+``I can't see X's session,'' check first whether they've blocked X,
+or X has blocked them. The session may also just be friends-only
+or private --- the filter doesn't leak that distinction to keep
+private-tier sessions actually private.
 
 \chapter{Common fires}
 \begin{itemize}
