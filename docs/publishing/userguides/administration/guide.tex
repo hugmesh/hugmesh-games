@@ -64,6 +64,40 @@ isn't installed. Fix: user-local install of the v0.18 binary into
 \texttt{\textasciitilde/.docker/cli-plugins/docker-buildx} (no sudo).
 \end{snapcaution}
 
+\section{LAN access, TLS, and the prod overlay}
+A plain \texttt{docker compose up -d} binds the frontend +
+Postgres to \texttt{127.0.0.1} only --- safe on a shared
+Wi-Fi network. Opt in to LAN access with the \snapfile{lan.properties}
+env file (literal \texttt{FRONTEND\_BIND=0.0.0.0:} / \texttt{POSTGRES\_BIND=}
+values, no boolean indirection):
+
+\begin{lstlisting}[language=bash]
+make lan-up        # bind frontend to 0.0.0.0:8080 over plain HTTP
+make lan-up-tls    # same, but wrap in HTTPS with a self-signed cert
+make lan-info      # print reachable URLs (incl. detected LAN IPs)
+make lan-down      # stop + restore loopback-only binds
+\end{lstlisting}
+
+\texttt{make gen-certs} fills the cert's SAN list with the host's
+detected LAN IPs so \texttt{https://<lan-ip>:8080/} is name-valid, not
+just \texttt{localhost}. The TLS overlay lives in
+\snapfile{docker-compose.tls.yml} and mounts
+\snapfile{frontend/nginx-tls.conf}. The plain-HTTP and TLS confs must
+list the same set of \texttt{/\_remotes/<slug>/} proxy blocks ---
+adding a federated remote means editing both in lockstep; drift
+manifests as ``Couldn't reach \emph{X} --- federated module didn't load.''
+
+For production, \snapfile{compose.prod.yml} layers in nginx rate-limit
+zones sized for $\sim$10 000 concurrent users: \texttt{browse}
+(100 r/s, burst 200), \texttt{api} (50 r/s), \texttt{sse} (30 r/s,
+nodelay), \texttt{auth} + \texttt{admin} (5 r/s, nodelay),
+\texttt{maker\_api} (10 r/s). Tripped requests return 429 (not the
+default 503) so well-behaved clients back off correctly.
+\texttt{PROD\_FRONTEND\_BIND} defaults to loopback (the overlay
+assumes an upstream LB / TLS terminator); set it to
+\texttt{0.0.0.0:} for a single-VM deploy that fronts the internet
+directly. Decision 019 in the wiki has the full table.
+
 \chapter{The admin UI}
 \begin{figure}[!h]\centering
 \includegraphics[width=0.92\linewidth]{admin-dashboard.png}
@@ -118,6 +152,61 @@ Three additive scopes: \texttt{all}, \texttt{role} (e.g.
 \texttt{ROLE\_PLAY\_THREE\_WIZARDS}), \texttt{user} (specific Casdoor
 ID). Add via the admin UI; idempotent on the
 \texttt{uq\_game\_access\_triple} constraint.
+
+\chapter{Granting mod / publisher scope}
+Mod and publisher are \emph{two-layer} roles. Casdoor owns the role
+membership (\texttt{ROLE\_MOD}, \texttt{ROLE\_PUBLISHER}); Postgres
+owns the per-game scope (\texttt{mod\_game\_scopes},
+\texttt{publisher\_game\_scopes}). A user with the role but no scope
+row authenticates successfully and gets 403 on every scoped action ---
+which is why the seed includes both unscoped fixtures
+(\texttt{mod}, \texttt{publisher}) and scoped ones
+(\texttt{mod-three-wizards}, \texttt{publisher-flatland}, etc.).
+
+\begin{lstlisting}[language=bash]
+# Grant mod on a specific game (admin only).
+curl -X POST /api/admin/role-grants/grant-mod \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -d '{"casdoorId":"tw-player-002","gameSlug":"three-wizards"}'
+
+# Revoke is the inverse endpoint.
+curl -X POST /api/admin/role-grants/revoke-mod ...
+
+# Publishers can grant mod on their OWN games via /api/publisher/grant-mod.
+# Same shape, but the service checks publisher_game_scopes for the caller.
+\end{lstlisting}
+
+The full rejection matrix --- unauthenticated 401, plain player 403,
+publisher misusing the admin endpoint 403, publisher trying to grant
+on a game they don't own 403 --- is pinned by
+\reposrc{e2e/features/security/mod-grant-gates.feature}.
+
+\chapter{Session log and admin observation}
+Every join leaves a row in \texttt{session\_members}. Three read paths
+fan out:
+
+\begin{itemize}
+  \item \texttt{GET /api/session-logs/me} --- the caller's own history.
+        Returns 200 for any authenticated user.
+  \item \texttt{GET /api/session-logs/admin/\{casdoorId\}} ---
+        admin-only. 200 for admin, 403 for anyone else.
+  \item \texttt{GET /api/session-logs/scoped/\{casdoorId\}} ---
+        mod with matching game scope OR publisher with matching scope.
+        Lets a moderator pull a player's history on the games they
+        moderate without escalating to admin.
+\end{itemize}
+
+The three role boundaries are pinned by
+\reposrc{e2e/features/admin/session-log.feature}.
+
+For live observation, \texttt{/api/admin/sessions/\{id\}/stream}
+merges every per-session sink (movement, world, character, view) into
+one SSE stream that the admin console at \texttt{/admin/sessions/}
+renders. Use it to watch a complaint in real time without joining the
+session yourself --- the per-player \emph{view} channel is what makes
+this useful: HostBridge posts $\sim$10 Hz camera samples to
+\texttt{/api/view}, fanned out on the same per-session sink, so the
+admin sees what each player is looking at.
 
 \chapter{Scheduled jobs and troubleshooting}
 \begin{itemize}

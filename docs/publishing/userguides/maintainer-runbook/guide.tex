@@ -49,7 +49,17 @@ SSE / Reactor stack traces.
   \item \texttt{curl /api/game/stream} --- holds open with a
         \texttt{ping} keepalive every 15 s.
   \item Casdoor is internal --- no public endpoint to curl. Check via
-        \texttt{docker compose logs casdoor}.
+        \texttt{docker compose logs casdoor}. Note: seed credentials
+        regenerate on a fresh DB; if Casdoor + the BFF disagree on the
+        client secret you'll see the BFF in a restart loop. Re-read
+        \texttt{docker compose logs casdoor | grep -A4 "Casdoor seed"}
+        and refresh \snapfile{.env}.
+  \item Distributed rate-limit health:
+        \texttt{docker compose exec cassandra cqlsh -e "SELECT count(*)
+        FROM threewizards.rate\_limit\_events WHERE event\_id $>$
+        minTimeuuid(now() - 90s) ALLOW FILTERING"}. Values trending
+        toward the per-zone burst (see administration guide, prod
+        rate-limit table) mean traffic is being shaped.
 \end{itemize}
 
 \chapter{Runbook 1 --- BFF flapping}
@@ -124,6 +134,89 @@ on-disk move. Recovery:
   \item If row exists but dir is missing, restore from snapshot or pin
         to a previous version.
 \end{itemize}
+
+\chapter{Runbook 6 --- Session leak between players}
+\textbf{Symptom.} A player in session A reports seeing another player's
+character on their screen --- the other player is in session B. The
+isolation contract has broken.
+
+\begin{enumerate}
+  \item Reproduce locally: \texttt{./mvnw test -Dtest=SessionIsolationTest}.
+        That test emits on session A's sinks and asserts session B's
+        per-session subscriber sees nothing. If it fails, you have a
+        regression in \texttt{GameStateService}.
+  \item Check that the recent diff didn't drop the 3-arg
+        \texttt{applyControl(event, characterId, sessionId)} signature
+        for the 2-arg legacy form. Old call sites land in the global
+        sink, which the admin firehose drains but per-session
+        subscribers don't.
+  \item In production, see what the BFF is fanning out:
+\begin{lstlisting}[language=bash,xleftmargin=4mm]
+docker compose exec api \
+  curl localhost:8080/api/admin/sessions/{leaking-id}/stream
+\end{lstlisting}
+        Compare against the affected player's network panel.
+  \item Mitigation: restart the BFF (drops every sink; subscribers
+        re-create with the correct \texttt{?sessionId=} filter). The
+        fix lives in the source.
+\end{enumerate}
+
+The e2e flip-side of \texttt{SessionIsolationTest} is
+\reposrc{e2e/features/multiplayer/rpg-two-players.feature} (positive)
+and \texttt{tests/cross-session-isolation.spec.ts} (negative).
+
+\chapter{Runbook 7 --- Mod / publisher 403 on a game they should own}
+\textbf{Symptom.} \texttt{mod-three-wizards} or
+\texttt{publisher-three-wizards} gets 403 from a mod- or
+publisher-tier action against the game named in their fixture.
+
+99\% of the time: the \texttt{mod\_game\_scopes} or
+\texttt{publisher\_game\_scopes} row is missing or has the wrong
+\texttt{game\_slug}. Casdoor owns the role; Postgres owns the scope.
+The role is the necessary condition; the scope is the sufficient one.
+
+\begin{lstlisting}[language=bash]
+# Confirm the role membership (Casdoor):
+curl /api/admin/users/{casdoorId} | jq .roles
+
+# Confirm the scope row (Postgres):
+docker compose exec postgres psql -U threewizards -d threewizards -c \
+  "SELECT * FROM mod_game_scopes WHERE casdoor_id='tw-mod-tw-001'"
+\end{lstlisting}
+
+Fix path: \texttt{POST /api/admin/role-grants/grant-mod} (or
+\texttt{grant-publisher}). The Liquibase 038-flatland fixture is the
+worked example. Pinning scenarios:
+\reposrc{e2e/features/security/mod-grant-gates.feature} +
+\reposrc{e2e/features/security/upload-auth-gates.feature}.
+
+\chapter{Runbook 8 --- ``Couldn't reach \emph{X}'' federated remote}
+\textbf{Symptom.} The host shell shows
+``Couldn't reach \emph{publisher} --- the federated module didn't
+load'' for one specific remote, while others work fine.
+
+If the broken route is hit under TLS (\texttt{make lan-up-tls},
+\texttt{compose.staging.yml}, or production), the
+\snapfile{frontend/nginx-tls.conf} drift trap is almost certainly the
+cause. The TLS variant must list the same set of
+\texttt{location /\_remotes/<slug>/} proxy blocks as
+\snapfile{frontend/nginx.conf}; when a new remote is added to one but
+not the other, nginx falls through to \texttt{try\_files} and serves
+the host's \texttt{index.html} for the bundle URL --- the federation
+loader gets HTML when it expected JS and fails.
+
+\begin{enumerate}
+  \item \texttt{diff frontend/nginx.conf frontend/nginx-tls.conf | grep
+        \_remotes}. The missing block names the guilty remote.
+  \item Copy the matching block from the plain conf into the TLS conf
+        (same \texttt{location} prefix, same \texttt{proxy\_pass}
+        target).
+  \item \texttt{docker compose restart frontend}. The host nginx
+        reloads in $<$5 s.
+  \item Same rule applies to \texttt{/api/<sub-service>/} blocks
+        (\texttt{/api/rpg/}, \texttt{/api/vn/}) --- the maker side
+        services need the TLS-side proxy too.
+\end{enumerate}
 
 \chapter{Backup, capacity, escalation}
 \textbf{Backup:} \texttt{pg\_dump} from inside the postgres container
