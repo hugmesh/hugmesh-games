@@ -35,8 +35,8 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
         <button class="btn" (click)="refreshProjects()">&#8635; Refresh</button>
       </header>
 
-      @if (errorBanner) { <p class="error-banner" role="alert">{{ errorBanner }}</p> }
-      @if (successBanner) { <p class="success-banner">{{ successBanner }}</p> }
+      @if (errorBanner) { <p class="error-banner" role="alert" aria-live="assertive">{{ errorBanner }}</p> }
+      @if (successBanner) { <p class="success-banner" role="status">{{ successBanner }}</p> }
 
       <div class="three-pane">
         <!-- Projects -->
@@ -59,13 +59,13 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
               <input name="newProjSlug" [(ngModel)]="newProj.slug" placeholder="my-vn" />
             </label>
             @if (newProj.slug && !slugOk(newProj.slug)) {
-              <p class="field-error">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+              <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
             }
             <label>Display name
               <input name="newProjName" [(ngModel)]="newProj.displayName" />
             </label>
             @if ((submitted.project || slugOk(newProj.slug)) && !newProj.displayName?.trim()) {
-              <p class="field-error">display name is required.</p>
+              <p class="field-error" role="alert">display name is required.</p>
             }
             <label>Description
               <textarea name="newProjDesc" [(ngModel)]="newProj.description" rows="2"></textarea>
@@ -84,15 +84,15 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
               <legend>New character</legend>
               <label>Slug<input name="newCharSlug" [(ngModel)]="newChar.slug" placeholder="dani" /></label>
               @if (newChar.slug && !slugOk(newChar.slug)) {
-                <p class="field-error">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
               }
               <label>Display name<input name="newCharName" [(ngModel)]="newChar.displayName" /></label>
               @if (submitted.character && !newChar.displayName?.trim()) {
-                <p class="field-error">character display name is required.</p>
+                <p class="field-error" role="alert">character display name is required.</p>
               }
               <label>Colour<input name="newCharColor" [(ngModel)]="newChar.color" placeholder="#aabbcc" /></label>
               @if (newChar.color && !colorOk(newChar.color)) {
-                <p class="field-error">colour must look like #rgb / #rrggbb.</p>
+                <p class="field-error" role="alert">colour must look like #rgb / #rrggbb.</p>
               }
               <button type="button" class="primary-btn" (click)="createCharacter()"
                       [disabled]="!slugOk(newChar.slug) || !newChar.displayName?.trim() || (!!newChar.color && !colorOk(newChar.color))">Add</button>
@@ -118,11 +118,11 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
               <legend>New act</legend>
               <label>Slug<input name="newActSlug" [(ngModel)]="newAct.slug" placeholder="prologue" /></label>
               @if (newAct.slug && !slugOk(newAct.slug)) {
-                <p class="field-error">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
               }
               <label>Name<input name="newActName" [(ngModel)]="newAct.name" /></label>
               @if (submitted.act && !newAct.name?.trim()) {
-                <p class="field-error">act name is required.</p>
+                <p class="field-error" role="alert">act name is required.</p>
               }
               <button type="button" class="primary-btn" (click)="createAct()"
                       [disabled]="!slugOk(newAct.slug) || !newAct.name?.trim()">Add act</button>
@@ -145,11 +145,11 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
                 <legend>New scene</legend>
                 <label>Slug<input name="newSceneSlug" [(ngModel)]="newScene.slug" /></label>
                 @if (newScene.slug && !slugOk(newScene.slug)) {
-                  <p class="field-error">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+                  <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
                 }
                 <label>Name<input name="newSceneName" [(ngModel)]="newScene.name" /></label>
                 @if (submitted.scene && !newScene.name?.trim()) {
-                  <p class="field-error">scene name is required.</p>
+                  <p class="field-error" role="alert">scene name is required.</p>
                 }
                 <label><input type="checkbox" name="newSceneEntry" [(ngModel)]="newScene.entryPoint" /> Entry point of this act</label>
                 <button type="button" class="primary-btn" (click)="createScene()"
@@ -181,7 +181,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
               </label>
               <label>Text<textarea name="newLineText" [(ngModel)]="newLine.text" rows="2"></textarea></label>
               @if (submitted.line && !newLine.text?.trim()) {
-                <p class="field-error">line text is required.</p>
+                <p class="field-error" role="alert">line text is required.</p>
               }
               <button type="button" class="primary-btn" (click)="createLine()"
                       [disabled]="!newLine.text?.trim()">Add line</button>
@@ -193,7 +193,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
                 <legend>New choice</legend>
                 <label>Label<input name="newChoiceLabel" [(ngModel)]="newChoice.label" /></label>
                 @if (submitted.choice && !newChoice.label?.trim()) {
-                  <p class="field-error">choice label is required.</p>
+                  <p class="field-error" role="alert">choice label is required.</p>
                 }
                 <label>Target scene
                   <select name="newChoiceTarget" [(ngModel)]="newChoice.targetSceneId">
@@ -202,7 +202,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
                   </select>
                 </label>
                 @if ((submitted.choice || !!newChoice.label?.trim()) && !newChoice.targetSceneId) {
-                  <p class="field-error">target scene is required.</p>
+                  <p class="field-error" role="alert">target scene is required.</p>
                 }
                 <button type="button" class="primary-btn" (click)="createChoice()"
                         [disabled]="!newChoice.label?.trim() || !newChoice.targetSceneId">Add choice</button>
@@ -216,7 +216,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
               <legend>Compile to a Snapdragon-bridge bundle</legend>
               <label>Target slug<input name="vnTarget" [(ngModel)]="buildTargetSlug" /></label>
               @if (buildTargetSlug && !slugOk(buildTargetSlug)) {
-                <p class="field-error">target slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+                <p class="field-error" role="alert">target slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
               }
               <button type="button" class="primary-btn" (click)="enqueueBuild()"
                       [disabled]="buildInFlight || (!!buildTargetSlug && !slugOk(buildTargetSlug))">
@@ -233,7 +233,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
                   <strong>{{ currentBuild.status }}</strong> — {{ currentBuild.progressPct }}%
                   <progress [value]="currentBuild.progressPct" max="100"></progress>
                   <pre>{{ currentBuild.logTail }}</pre>
-                  @if (currentBuild.errorMessage) { <p class="field-error">{{ currentBuild.errorMessage }}</p> }
+                  @if (currentBuild.errorMessage) { <p class="field-error" role="alert">{{ currentBuild.errorMessage }}</p> }
                 </div>
               }
             </fieldset>

@@ -2,6 +2,7 @@ package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.GameUpload;
 import games.snapdragon.bff.repository.GameUploadRepository;
+import games.snapdragon.bff.upload.UploadStorage;
 import io.r2dbc.spi.ConnectionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +19,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -67,19 +67,35 @@ public class GameUploadService {
     private static final long MAX_BUNDLE_BYTES = 200L * 1024 * 1024;
     private static final int MAX_ZIP_ENTRIES = 500;
 
-    private final Path gamesDir;
+    /**
+     * Staging directory under which every upload's pre-validation files
+     * land before being handed to the storage strategy. Stays on the
+     * host filesystem regardless of the configured storage backend ---
+     * the strategy is responsible for COPYING (S3) or MOVING (filesystem)
+     * the staged tree into its final home.
+     */
+    private final Path stagingRoot;
+    private final UploadStorage storage;
     private final GameUploadRepository uploads;
     private final DatabaseClient db;
     private final TransactionalOperator tx;
 
     public GameUploadService(@Value("${app.uploads.games-dir:/var/snapdragon/games}") String gamesDirCfg,
+                             UploadStorage storage,
                              GameUploadRepository uploads,
                              ConnectionFactory connectionFactory,
                              TransactionalOperator tx) {
-        this.gamesDir = Path.of(gamesDirCfg);
+        // The staging root re-uses gamesDir for the filesystem strategy
+        // (no behaviour change), and for the S3 strategy lives in /tmp
+        // so we don't require gamesDir to exist on the BFF host at all.
+        this.stagingRoot = "s3".equals(storage.label())
+                ? Path.of(System.getProperty("java.io.tmpdir"), "snapdragon-uploads")
+                : Path.of(gamesDirCfg);
+        this.storage = storage;
         this.uploads = uploads;
         this.db = DatabaseClient.create(connectionFactory);
         this.tx = tx;
+        log.info("[upload] storage={} stagingRoot={}", storage.label(), stagingRoot);
     }
 
     public record InstalledUpload(String slug, String contentHash, String versionDir, Instant uploadedAt) {}
@@ -144,8 +160,8 @@ public class GameUploadService {
     private StagedBundle stageAndValidate(byte[] zipBytes) {
         Path staging;
         try {
-            Files.createDirectories(gamesDir);
-            staging = Files.createTempDirectory(gamesDir, "snapdragon-staging-");
+            Files.createDirectories(stagingRoot);
+            staging = Files.createTempDirectory(stagingRoot, "snapdragon-staging-");
         } catch (IOException e) {
             throw new ResponseStatusException(BAD_REQUEST, "could not create staging dir: " + e.getMessage());
         }
@@ -250,28 +266,25 @@ public class GameUploadService {
     // ── install (atomic move + transactional DB updates) ─────────────────────
 
     private Mono<InstalledUpload> writeAndRegister(StagedBundle staged, String uploadedBy) {
-        Path versionDir;
+        String locator;
         try {
-            Path slugDir = gamesDir.resolve(staged.slug());
-            Files.createDirectories(slugDir);
-            versionDir = slugDir.resolve(staged.contentHash().substring(0, 16));
-            if (Files.exists(versionDir)) {
-                // Same hash already installed — skip the move, still
-                // write a fresh upload row + flip current_version_dir
-                // so we have an audit trail of the re-upload.
-                cleanup(staged.stagingDir());
-            } else {
-                Files.move(staged.stagingDir(), versionDir, StandardCopyOption.ATOMIC_MOVE);
-            }
-        } catch (IOException ex) {
+            // Storage strategy claims ownership of stagingDir from here.
+            // Filesystem impl atomically moves it under gamesDir/<slug>/<hash>;
+            // S3 impl walks + putObject's each file and cleans the dir up.
+            // The returned locator is what we persist in game_uploads.version_dir
+            // for both AssetController reads + the pruner sweeps.
+            locator = storage.installFromStaging(
+                    staged.slug(),
+                    staged.contentHash().substring(0, 16),
+                    staged.stagingDir());
+        } catch (RuntimeException ex) {
             cleanup(staged.stagingDir());
-            return Mono.error(new ResponseStatusException(BAD_REQUEST,
-                    "atomic-move failed: " + ex.getMessage()));
+            return Mono.error(ex);
         }
 
         GameUpload row = new GameUpload();
         row.setSlug(staged.slug());
-        row.setVersionDir(versionDir.toString());
+        row.setVersionDir(locator);
         row.setContentHash(staged.contentHash());
         row.setManifestJson(staged.manifestJson());
         row.setUploadedBy(uploadedBy);
@@ -282,7 +295,7 @@ public class GameUploadService {
                             ? Mono.empty()
                             : runRegisterSql(staged.registerSql());
                     Mono<Long> markCurrent = db.sql("UPDATE games SET current_version_dir = :dir WHERE slug = :slug")
-                            .bind("dir", versionDir.toString())
+                            .bind("dir", locator)
                             .bind("slug", staged.slug())
                             .fetch()
                             .rowsUpdated();

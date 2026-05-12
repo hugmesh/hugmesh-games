@@ -86,6 +86,83 @@ app:
     enabled: ${APP_REVOCATION_ENABLED:true}
     refresh-interval-ms: ${APP_REVOCATION_REFRESH_MS:5000}
 
+  # Upload storage strategy for hot-uploaded game bundles. Two backends:
+  #   filesystem (default) — bundle files land under `games-dir` on the
+  #                          BFF host's filesystem. Same behaviour the
+  #                          platform shipped with; no new infra needed.
+  #   s3                    — bundle files land in an S3-compatible
+  #                          bucket. compose ships a `minio` container
+  #                          for dev; prod points the four `s3.*` knobs
+  #                          at a real bucket (or any S3-compatible
+  #                          service: Cloudflare R2, Backblaze B2, etc.).
+  #
+  # Picking `s3` removes the single-host disk-pressure failure mode and
+  # is the precondition for horizontally scaling the BFF beyond one host.
+  uploads:
+    storage: ${APP_UPLOADS_STORAGE:filesystem}
+    games-dir: ${APP_UPLOADS_GAMES_DIR:/var/snapdragon/games}
+    versions-to-keep: ${APP_UPLOADS_VERSIONS_TO_KEEP:3}
+    s3:
+      endpoint:   ${APP_UPLOADS_S3_ENDPOINT:}
+      region:     ${APP_UPLOADS_S3_REGION:us-east-1}
+      access-key: ${APP_UPLOADS_S3_ACCESS_KEY:}
+      secret-key: ${APP_UPLOADS_S3_SECRET_KEY:}
+      bucket:     ${APP_UPLOADS_S3_BUCKET:snapdragon-uploads}
+      # path-style URLs (bucket-in-path, not bucket-as-subdomain) are
+      # the MinIO + many third-party S3 clones' required dialect.
+      # AWS proper accepts both; flip to false only if you target a
+      # subdomain-style bucket on real AWS.
+      path-style: ${APP_UPLOADS_S3_PATH_STYLE:true}
+
+  # Streaming audit + telemetry pipeline (decision 021).
+  #
+  # When `app.kafka.enabled=true`, the BFF produces state-transition
+  # events to the `state_audit` topic; a follow-up PR will also produce
+  # F2 game-KPI events to `game_kpi`. ClickHouse consumes both via its
+  # built-in Kafka engine table so the BFF doesn't ship a separate
+  # consumer service.
+  #
+  # Default OFF — vanilla compose-up doesn't bring the kafka container
+  # up. Flip to `true` in production + integration-test profiles.
+  kafka:
+    enabled: ${APP_KAFKA_ENABLED:false}
+    bootstrap-servers: ${APP_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    client-id:         ${APP_KAFKA_CLIENT_ID:snapdragon-bff}
+    topic:
+      state-audit: ${APP_KAFKA_TOPIC_STATE_AUDIT:state_audit}
+      game-kpi:    ${APP_KAFKA_TOPIC_GAME_KPI:game_kpi}
+      game-events: ${APP_KAFKA_TOPIC_GAME_EVENTS:game_events}
+    consumer:
+      group-id:    ${APP_KAFKA_CONSUMER_GROUP_ID:snapdragon-bff-cross-pod}
+
+  # ClickHouse client — used by PlayerStateRecoveryService to read the
+  # latest player position from snapdragon.player_state_current FINAL
+  # when a player reconnects via a pod that wasn't the original
+  # session host (decision 021). Disabled by default; enabled in
+  # production + integration-test profiles alongside app.kafka.enabled.
+  clickhouse:
+    enabled:  ${APP_CLICKHOUSE_ENABLED:false}
+    endpoint: ${APP_CLICKHOUSE_ENDPOINT:http://clickhouse:8123}
+    user:     ${APP_CLICKHOUSE_USER:default}
+    password: ${APP_CLICKHOUSE_PASSWORD:}
+    database: ${APP_CLICKHOUSE_DATABASE:snapdragon}
+    tables:
+      player-state-current: ${APP_CLICKHOUSE_TBL_PLAYER_STATE_CURRENT:snapdragon.player_state_current}
+
+  pod-id: ${APP_POD_ID:}
+
+  # Optional Postgres read replica (decision 022 / F3). When provisioned,
+  # catalog reads (/api/games/* and friends) qualified with
+  # @Qualifier("replica") route here instead of hitting the primary.
+  # When the URL is empty (the default), the @Qualifier("replica") bean
+  # aliases the primary CF — services with the qualifier already wired
+  # keep working in single-DB deployments.
+  r2dbc:
+    replica:
+      url:      ${APP_R2DBC_REPLICA_URL:}
+      username: ${APP_R2DBC_REPLICA_USER:${DB_USER:threewizards}}
+      password: ${APP_R2DBC_REPLICA_PASS:${DB_PASS:threewizards}}
+
 # Resilience4j — wraps the cluster-wide Cassandra calls inside
 # RateLimitFilter. An open breaker means subsequent requests skip
 # the cluster check (fall back to local-bucket only) instead of

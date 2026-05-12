@@ -63,7 +63,8 @@ class SessionIsolationTest {
         lenient().when(pgNotify.publish(anyString(), anyString())).thenReturn(Mono.empty());
         lenient().when(cacheProvider.getIfAvailable()).thenReturn(null);
 
-        state = new GameStateService(characterRepo, positionRepo, gameTimeService, pgNotify, cacheProvider);
+        state = new GameStateService(characterRepo, positionRepo, gameTimeService, pgNotify, cacheProvider,
+                java.util.Optional.empty(), java.util.Optional.empty(), java.util.Optional.empty());
     }
 
     /**

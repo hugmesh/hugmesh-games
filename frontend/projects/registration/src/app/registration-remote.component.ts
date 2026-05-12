@@ -98,7 +98,7 @@ import { Router } from '@angular/router';
     h1 span { background: linear-gradient(135deg,#7c4dff,#b388ff);
               -webkit-background-clip: text;
               -webkit-text-fill-color: transparent; }
-    .subtitle, .hint { color: #7070a0; font-size: 0.95rem;
+    .subtitle, .hint { color: #a8acc4; font-size: 0.95rem;
                        line-height: 1.5; margin: 0 0 24px; }
     .hint { font-size: 0.85rem; margin-top: 20px; }
     .provider-btn {

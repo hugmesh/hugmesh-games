@@ -85,7 +85,7 @@ import { ActivatedRoute } from '@angular/router';
     h1 { font-size: 1.6rem; font-weight: 700; margin: 0 0 12px;
          text-align: center; }
     h2 { font-size: 1.1rem; margin: 28px 0 12px; }
-    .lead, p { color: #7070a0; font-size: 0.95rem; line-height: 1.5; margin: 0 0 12px; }
+    .lead, p { color: #a8acc4; font-size: 0.95rem; line-height: 1.5; margin: 0 0 12px; }
     .meta { background: #1a1d28; padding: 12px 16px;
             border-radius: 8px; font-size: 0.85rem; color: #aab1c1; }
     .meta code { background: #ffffff0d; padding: 2px 6px; border-radius: 4px; }
@@ -106,7 +106,7 @@ import { ActivatedRoute } from '@angular/router';
     }
     .mailto-btn:hover { background: #8b5cff; }
     .back { text-align: center; margin-top: 24px; font-size: 0.85rem; }
-    .back a { color: #7070a0; text-decoration: none; }
+    .back a { color: #a8acc4; text-decoration: none; }
     .back a:hover { color: #b388ff; }
   `],
 })

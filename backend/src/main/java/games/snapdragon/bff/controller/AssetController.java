@@ -2,11 +2,11 @@ package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.repository.GameLaunchRepository;
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.upload.UploadStorage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -15,8 +15,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -37,22 +35,22 @@ public class AssetController {
      */
     private final boolean requireLaunchUid;
     /**
-     * Filesystem root for HOT-uploaded games. AssetController falls back
-     * to {@code <gamesDir>/<slug>/<version>/<file>} when the classpath
-     * version isn't found, so games installed via
-     * {@code /api/admin/games/upload} serve without rebuilding the API
-     * image. Empty string disables the fallback.
+     * Storage strategy for hot-uploaded games. Resolves {@code locator +
+     * relativePath} into either a {@code FileSystemResource} (filesystem
+     * strategy) or a {@code ByteArrayResource} pulled from S3.
+     * Configured via {@code app.uploads.storage}; see
+     * {@link games.snapdragon.bff.upload.UploadStorageConfig}.
      */
-    private final String gamesDir;
+    private final UploadStorage storage;
 
     public AssetController(GameLaunchRepository launches,
                            GameRepository games,
-                           @Value("${app.assets.require-launch-uid:false}") boolean requireLaunchUid,
-                           @Value("${app.uploads.games-dir:/var/snapdragon/games}") String gamesDir) {
+                           UploadStorage storage,
+                           @Value("${app.assets.require-launch-uid:false}") boolean requireLaunchUid) {
         this.launches = launches;
         this.games = games;
+        this.storage = storage;
         this.requireLaunchUid = requireLaunchUid;
-        this.gamesDir = gamesDir;
     }
 
     private static final Map<String, MediaType> MEDIA_TYPES = Map.ofEntries(
@@ -175,20 +173,20 @@ public class AssetController {
         return s.startsWith("/") ? s.substring(1) : s;
     }
 
-    private Mono<ResponseEntity<Resource>> serveFromPinnedDir(String versionDir,
+    private Mono<ResponseEntity<Resource>> serveFromPinnedDir(String locator,
                                                               String slug,
                                                               String filename) {
         return Mono.fromCallable(() -> {
-            Path base = Path.of(versionDir).normalize();
-            Path target = base.resolve(filename).normalize();
-            if (!target.startsWith(base) || !Files.isRegularFile(target)) {
-                // Pinned dir gone (manual cleanup, disk pressure prune)
-                // — fall back to the classpath build of the level. This
-                // accepts a small mid-session asset drift but avoids 404.
+            Resource res = storage.read(locator, filename);
+            if (res == null) {
+                // Pinned location gone (manual cleanup, disk pressure prune,
+                // S3 bucket lifecycle delete) — fall back to the classpath
+                // build of the level. This accepts a small mid-session
+                // asset drift but avoids 404.
                 return respondWith(new ClassPathResource("assets/levels/" + slug + "/" + filename),
                                    filename);
             }
-            return respondWith(new FileSystemResource(target), filename);
+            return respondWith(res, filename);
         });
     }
 
@@ -199,34 +197,37 @@ public class AssetController {
     /**
      * Two-tier resolution for level assets:
      * <ol>
-     *   <li>Hot-uploaded version (filesystem) — read
-     *       {@code games.current_version_dir} and look for the file there.</li>
+     *   <li>Hot-uploaded version — read {@code games.current_version_dir}
+     *       (an opaque locator the {@link UploadStorage} strategy
+     *       understands) and look for the file there.</li>
      *   <li>Classpath fallback — for games shipped in the API image
      *       (cave / field / dodecahedron at boot).</li>
      * </ol>
-     * The first non-404 wins. Zip-slip-safe: rejects any filename that
-     * would escape the version dir after normalisation.
+     * The first non-404 wins. Zip-slip-safety lives in the strategy
+     * itself: {@code FilesystemUploadStorage.read} rejects any filename
+     * that would escape the version dir after normalisation; the S3
+     * strategy can't be zip-slipped because the key is built by
+     * concatenation, never resolved against a filesystem path.
      */
     private Mono<ResponseEntity<Resource>> serveLevelFile(String slug, String filename) {
         return games.findBySlug(slug)
                 .map(g -> {
-                    String versionDir = g.getCurrentVersionDir();
-                    if (versionDir == null || versionDir.isBlank() || gamesDir.isBlank()) {
+                    String locator = g.getCurrentVersionDir();
+                    if (locator == null || locator.isBlank()) {
                         return Mono.fromCallable(() ->
                                 respondWith(new ClassPathResource("assets/levels/" + slug + "/" + filename),
                                             filename));
                     }
                     return Mono.fromCallable(() -> {
-                        Path base = Path.of(versionDir).normalize();
-                        Path target = base.resolve(filename).normalize();
-                        if (!target.startsWith(base) || !Files.isRegularFile(target)) {
-                            // Fall back to classpath if the filesystem
+                        Resource res = storage.read(locator, filename);
+                        if (res == null) {
+                            // Fall back to classpath if the hot-uploaded
                             // version doesn't have the file (a partial
                             // upload or a renamed asset).
                             return respondWith(new ClassPathResource("assets/levels/" + slug + "/" + filename),
                                                filename);
                         }
-                        return respondWith(new FileSystemResource(target), filename);
+                        return respondWith(res, filename);
                     });
                 })
                 .flatMap(m -> m)

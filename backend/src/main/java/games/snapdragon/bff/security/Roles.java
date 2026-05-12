@@ -105,4 +105,12 @@ public final class Roles {
     public static Set<String> setFromJwt(Jwt jwt) {
         return Set.copyOf(fromJwt(jwt));
     }
+
+    /** Casdoor's {@code sub} claim is the user UUID — same shape the
+     *  revocation list keys + per-user scope tables use. Returns
+     *  {@code null} for an anonymous principal so callers can short-
+     *  circuit instead of branching on an empty string. */
+    public static String casdoorIdOf(Jwt jwt) {
+        return jwt == null ? null : jwt.getSubject();
+    }
 }

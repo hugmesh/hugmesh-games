@@ -42,13 +42,27 @@ public class GameSessionService {
     private final GameSessionRepository    sessions;
     private final SessionMemberRepository  members;
     private final RelationshipQuery  relationships;
+    /**
+     * Optional Kafka tap. When {@code app.kafka.enabled=true} the audit
+     * publisher emits session-lifecycle events to the {@code state_audit}
+     * topic and the topic manager creates / deletes the per-session
+     * Kafka topic that cross-pod consumers subscribe to. Both are
+     * {@code Optional} so the in-process gameplay path keeps working when
+     * Kafka is disabled (the default).
+     */
+    private final java.util.Optional<games.snapdragon.bff.audit.GameAuditPublisher> audit;
+    private final java.util.Optional<games.snapdragon.bff.audit.SessionTopicManager> topicManager;
 
     public GameSessionService(GameSessionRepository sessions,
                               SessionMemberRepository members,
-                              RelationshipQuery relationships) {
+                              RelationshipQuery relationships,
+                              java.util.Optional<games.snapdragon.bff.audit.GameAuditPublisher> audit,
+                              java.util.Optional<games.snapdragon.bff.audit.SessionTopicManager> topicManager) {
         this.sessions      = sessions;
         this.members       = members;
         this.relationships = relationships;
+        this.audit         = audit;
+        this.topicManager  = topicManager;
     }
 
     /**
@@ -90,8 +104,23 @@ public class GameSessionService {
 
         return sessions.save(s)
                 .flatMap(saved -> members.save(firstMember).thenReturn(saved))
-                .doOnNext(saved -> log.info("Session created: {} ({}, vis={}) by {}",
-                        saved.getId(), saved.getName(), vis, creatorCasdoorId))
+                .doOnNext(saved -> {
+                    log.info("Session created: {} ({}, vis={}) by {}",
+                            saved.getId(), saved.getName(), vis, creatorCasdoorId);
+                    // Kafka tap — create the per-session topic + emit
+                    // a lifecycle event. Best-effort; the in-process
+                    // SSE sinks remain the gameplay-driving path.
+                    topicManager.ifPresent(tm -> tm.createForSession(saved.getId()));
+                    audit.ifPresent(a -> a.emit(
+                            saved.getGameSlug(),
+                            saved.getId(),
+                            creatorCasdoorId,
+                            "session.created",
+                            java.util.Map.of(
+                                    "visibility", vis,
+                                    "max_players", cap,
+                                    "name", saved.getName())));
+                })
                 .flatMap(this::toDtoWithMembers);
     }
 
@@ -204,7 +233,10 @@ public class GameSessionService {
         return members.findActive(sessionId, casdoorId)
                 .flatMap(existing -> {
                     existing.setLeftAt(Instant.now());
-                    return members.save(existing).then();
+                    return members.save(existing).then()
+                            .doOnSuccess(v -> audit.ifPresent(a -> a.emit(
+                                    null, sessionId, casdoorId, "session.left",
+                                    java.util.Map.of())));
                 })
                 .then(members.countBySessionIdAndLeftAtIsNull(sessionId))
                 .flatMap(remaining -> {
@@ -214,7 +246,15 @@ public class GameSessionService {
                                 if (s.getClosedAt() != null) return Mono.empty();
                                 s.setClosedAt(Instant.now());
                                 log.info("Session auto-closed (no active members): {}", sessionId);
-                                return sessions.save(s).then();
+                                return sessions.save(s).then()
+                                        .doOnSuccess(v -> {
+                                            audit.ifPresent(a -> a.emit(
+                                                    s.getGameSlug(), sessionId, null,
+                                                    "session.closed",
+                                                    java.util.Map.of("reason", "auto-empty")));
+                                            topicManager.ifPresent(tm ->
+                                                    tm.deleteForSession(sessionId));
+                                        });
                             });
                 });
     }
@@ -230,7 +270,15 @@ public class GameSessionService {
                 .flatMap(s -> {
                     if (s.getClosedAt() != null) return Mono.empty();
                     s.setClosedAt(Instant.now());
-                    return sessions.save(s).then();
+                    return sessions.save(s).then()
+                            .doOnSuccess(v -> {
+                                audit.ifPresent(a -> a.emit(
+                                        s.getGameSlug(), sessionId, null,
+                                        "session.closed",
+                                        java.util.Map.of("reason", "force-close")));
+                                topicManager.ifPresent(tm ->
+                                        tm.deleteForSession(sessionId));
+                            });
                 });
     }
 

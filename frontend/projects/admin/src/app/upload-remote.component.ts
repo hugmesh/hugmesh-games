@@ -76,7 +76,9 @@ interface AccessGrantRequest { scope: AccessScope; value?: string; }
         } @else {
           <p>Drop a bundle zip here or</p>
         }
-        <input type="file" accept=".zip" (change)="onFilePicked($event)">
+        <input type="file" accept=".zip"
+               aria-label="Upload Snapdragon bundle zip"
+               (change)="onFilePicked($event)">
       </div>
 
       <button class="primary"
@@ -86,21 +88,23 @@ interface AccessGrantRequest { scope: AccessScope; value?: string; }
       </button>
 
       @if (uploadStatus() === 'success' && uploadResult()) {
-        <div class="result success">
+        <div class="result success" role="status">
           ✓ Installed <code>{{ uploadResult()!.slug }}</code>
           &#64; <code>{{ uploadResult()!.contentHash.substring(0, 12) }}…</code>
           ({{ uploadResult()!.uploadedAt }})
         </div>
       }
       @if (uploadStatus() === 'error') {
-        <div class="result error">✗ {{ uploadError() }}</div>
+        <div class="result error" role="alert" aria-live="assertive">✗ {{ uploadError() }}</div>
       }
     </section>
 
     <section class="history-page">
       <h2>Upload history</h2>
       <div class="row">
-        <input [(ngModel)]="historySlug" placeholder="game slug (e.g. dodecahedron)">
+        <input [(ngModel)]="historySlug"
+               aria-label="Game slug for upload history lookup"
+               placeholder="game slug (e.g. dodecahedron)">
         <button (click)="loadHistory()">Load</button>
       </div>
       @if (history().length) {
@@ -162,7 +166,7 @@ interface AccessGrantRequest { scope: AccessScope; value?: string; }
           <button (click)="revoke()">Revoke</button>
         </div>
         @if (accessStatus()) {
-          <p class="status">{{ accessStatus() }}</p>
+          <p class="status" role="status">{{ accessStatus() }}</p>
         }
       </div>
     </section>

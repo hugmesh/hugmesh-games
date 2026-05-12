@@ -30,6 +30,34 @@
       <artifactId>spring-boot-starter-webflux</artifactId>
     </dependency>
 
+    <!-- AWS S3 v2 (object-storage strategy for game uploads).
+         Used when app.uploads.storage=s3 — points at MinIO in dev,
+         a real S3 bucket in prod. The filesystem strategy stays the
+         default to avoid breaking compose-up-without-MinIO flows. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+      <version>2.31.0</version>
+      <!-- Exclude the AWS SDK's default Netty client; we already have
+           Reactor Netty from WebFlux and don't want two HTTP stacks
+           in the JVM. Falls back to URL-connection-based client. -->
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>apache-client</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>url-connection-client</artifactId>
+      <version>2.31.0</version>
+    </dependency>
+
     <!-- R2DBC — reactive non-blocking data access -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -45,6 +73,16 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-cassandra-reactive</artifactId>
+    </dependency>
+
+    <!-- Spring Kafka — streaming audit + telemetry pipeline (decision 021).
+         Producer side only in this PR; ClickHouse consumes via its built-in
+         Kafka engine table so the BFF doesn't ship a separate consumer
+         service. Disabled by default (app.kafka.enabled=false) so vanilla
+         compose-up keeps working without the Kafka container. -->
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka</artifactId>
     </dependency>
 
     <!-- JDBC (DataSource only) — used exclusively by Liquibase -->
