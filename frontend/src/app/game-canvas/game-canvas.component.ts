@@ -173,6 +173,23 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
 
   onFrameLoad(): void {
     this.gameLoaded = true;
+    // Auto-grab keyboard focus on iframe mount so the player doesn't
+    // have to click on the canvas before WASD lands in Godot's
+    // `_unhandled_input`. The previous behaviour (from the README's
+    // "Movement doesn't happen in the WASM iframe" troubleshooting
+    // note) was a quiet UX papercut: every fresh load required a
+    // click before keys did anything. CLAUDE.md's "Known gaps" listed
+    // this as the remaining iframe-focus item.
+    //
+    // Schedule the focus on the next microtask so the browser has a
+    // beat to complete the iframe's own load handlers — focusing
+    // mid-load can race the WASM-frame's own focus-grab and end up
+    // with neither side holding it.
+    queueMicrotask(() => {
+      try {
+        this.gameFrame?.nativeElement?.focus({ preventScroll: true });
+      } catch { /* iframe detached mid-mount */ }
+    });
   }
 
   /** Toolbar: hard-reload the iframe by re-issuing the same URL with a
