@@ -146,13 +146,25 @@ public class GameStateService {
      */
     private final java.util.Optional<games.snapdragon.bff.audit.KafkaSessionSubscriber> kafkaSubscriber;
 
+    /**
+     * Optional ClickHouse cross-pod recovery surface. When wired,
+     * {@link #hydrate(long, long)} consults
+     * {@code snapdragon.player_state_current FINAL} BEFORE the legacy
+     * Cassandra → Postgres → defaults chain — the warehouse has the
+     * freshest cross-pod position because every channel emission tees
+     * into it. Returns {@code Mono.empty()} when no row exists; the
+     * caller seamlessly falls through to the existing chain.
+     */
+    private final java.util.Optional<games.snapdragon.bff.audit.PlayerStateRecoveryService> stateRecovery;
+
     public GameStateService(PlayerCharacterRepository characterRepo,
                             PlayerPositionRepository  positionRepo,
                             GameTimeService           gameTimeService,
                             PgNotificationService     pgNotify,
                             ObjectProvider<PositionCacheService> positionCacheProvider,
                             java.util.Optional<games.snapdragon.bff.audit.GameEventPublisher> eventPublisher,
-                            java.util.Optional<games.snapdragon.bff.audit.KafkaSessionSubscriber> kafkaSubscriber) {
+                            java.util.Optional<games.snapdragon.bff.audit.KafkaSessionSubscriber> kafkaSubscriber,
+                            java.util.Optional<games.snapdragon.bff.audit.PlayerStateRecoveryService> stateRecovery) {
         this.characterRepo  = characterRepo;
         this.positionRepo   = positionRepo;
         this.gameTimeService = gameTimeService;
@@ -160,6 +172,7 @@ public class GameStateService {
         this.positionCache  = positionCacheProvider.getIfAvailable();
         this.eventPublisher = eventPublisher;
         this.kafkaSubscriber = kafkaSubscriber;
+        this.stateRecovery  = stateRecovery;
     }
 
     @PostConstruct
@@ -318,7 +331,34 @@ public class GameStateService {
      * snapshot. Called from SessionController on session connect.
      */
     public Mono<PlayerState> hydrate(long characterId, long chapterId) {
-        return loadState(characterId, chapterId)
+        return hydrate(characterId, chapterId, null, null);
+    }
+
+    /**
+     * Cross-pod-aware hydrate. When {@code gameSlug} + {@code sessionId}
+     * are provided AND the ClickHouse recovery service is wired, the
+     * BFF consults the {@code player_state_current FINAL} view BEFORE
+     * the legacy Cassandra → Postgres → defaults chain. This is how a
+     * player reconnecting via a different pod picks up their freshest
+     * cross-pod position without waiting for the Cassandra cache to
+     * roll forward.
+     *
+     * <p>{@code Mono.empty()} from the recovery service is the
+     * expected miss path — fall through to the existing chain.
+     */
+    public Mono<PlayerState> hydrate(long characterId, long chapterId,
+                                     String gameSlug, String sessionId) {
+        Mono<PlayerState> source;
+        if (stateRecovery.isPresent() && gameSlug != null && sessionId != null) {
+            source = stateRecovery.get()
+                    .recover(gameSlug, sessionId, characterId)
+                    .map(rec -> PlayerState.defaults()
+                            .withPosition(rec.posX(), rec.posY(), rec.posZ()))
+                    .switchIfEmpty(loadState(characterId, chapterId));
+        } else {
+            source = loadState(characterId, chapterId);
+        }
+        return source
                 .doOnNext(state -> {
                     putState(characterId, chapterId, state);
                     activeChapter.put(characterId, chapterId);

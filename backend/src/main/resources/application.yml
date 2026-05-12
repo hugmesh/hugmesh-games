@@ -103,6 +103,25 @@ app:
     topic:
       state-audit: ${APP_KAFKA_TOPIC_STATE_AUDIT:state_audit}
       game-kpi:    ${APP_KAFKA_TOPIC_GAME_KPI:game_kpi}
+      game-events: ${APP_KAFKA_TOPIC_GAME_EVENTS:game_events}
+    consumer:
+      group-id:    ${APP_KAFKA_CONSUMER_GROUP_ID:snapdragon-bff-cross-pod}
+
+  # ClickHouse client — used by PlayerStateRecoveryService to read the
+  # latest player position from snapdragon.player_state_current FINAL
+  # when a player reconnects via a pod that wasn't the original
+  # session host (decision 021). Disabled by default; enabled in
+  # production + integration-test profiles alongside app.kafka.enabled.
+  clickhouse:
+    enabled:  ${APP_CLICKHOUSE_ENABLED:false}
+    endpoint: ${APP_CLICKHOUSE_ENDPOINT:http://clickhouse:8123}
+    user:     ${APP_CLICKHOUSE_USER:default}
+    password: ${APP_CLICKHOUSE_PASSWORD:}
+    database: ${APP_CLICKHOUSE_DATABASE:snapdragon}
+    tables:
+      player-state-current: ${APP_CLICKHOUSE_TBL_PLAYER_STATE_CURRENT:snapdragon.player_state_current}
+
+  pod-id: ${APP_POD_ID:}
 
 # Resilience4j — wraps the cluster-wide Cassandra calls inside
 # RateLimitFilter. An open breaker means subsequent requests skip
