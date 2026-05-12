@@ -65,9 +65,14 @@ import { HttpClient } from '@angular/common/http';
                         rows="4"
                         placeholder="One short paragraph the admin will read on review."></textarea>
             </label>
-            @if (errorMessage()) {
-              <p class="error">{{ errorMessage() }}</p>
-            }
+            <!-- Live region so screen readers announce submit
+                 failures without the user having to re-tab to find
+                 them. role=alert implies aria-live=assertive +
+                 aria-atomic=true. -->
+            <p class="error" role="alert" aria-live="assertive"
+               [class.empty]="!errorMessage()">
+              {{ errorMessage() }}
+            </p>
             <button type="submit"
                     [disabled]="form.invalid || sending()"
                     class="submit-btn">
@@ -120,7 +125,12 @@ import { HttpClient } from '@angular/common/http';
     .submit-btn:hover:not(:disabled) { background: #8b5cff; }
     .submit-btn:disabled { opacity: .6; cursor: not-allowed; }
     .success { color: #4caf50; font-weight: 600; text-align: center; }
-    .error   { color: #ff6b6b; }
+    .error   { color: #ff6b6b; min-height: 1.2em; }
+    .error.empty { color: transparent; }   /* keep the live region in
+                                              the DOM (so screen
+                                              readers see the next
+                                              assertion) but hide it
+                                              visually until populated */
   `],
 })
 export class ProducerRegistrationRemoteComponent {
