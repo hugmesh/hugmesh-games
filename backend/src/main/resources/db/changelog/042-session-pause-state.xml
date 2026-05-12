@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+      Session pause state — supports two scenarios:
+
+        1. Session-wide pause. The session creator (or the game's own
+           logic, via PAUSE script kind in rpg-scripts / vn-lines with
+           kind=PAUSE) freezes the running session for every player.
+           `game_sessions.paused_at` stamps when it happened; the
+           SSE `session-control` event fans the state out to every
+           subscriber so the WASM iframe knows to freeze ticks.
+
+        2. Player-view pause. The owning player opened the running
+           game in a new tab / window; the new window will take over
+           rendering once it's loaded all SSE streams + assets, but
+           in the meantime the old window pauses its view so the
+           player isn't fighting two iframes for input focus. Tracked
+           per (session, casdoor_id) in `session_player_pauses` rather
+           than on session_members so the leave path doesn't have to
+           know about pause state.
+
+      Both kinds clear automatically when the session closes
+      (game_sessions.closed_at gets stamped); resume is an explicit
+      action by the same authority that paused.
+  -->
+
+  <changeSet id="042-1-session-paused-columns" author="nin">
+    <addColumn tableName="game_sessions">
+      <column name="paused_at"             type="timestamp with time zone"/>
+      <column name="paused_by_casdoor_id"  type="text"/>
+      <column name="pause_reason"          type="text"/>
+    </addColumn>
+  </changeSet>
+
+  <!--
+      Per-player view pauses are intentionally NOT persisted. They
+      live for the brief window between "player opens the running
+      game in a new tab" and "the new tab finishes loading streams +
+      assets" — typically a few seconds. The pause state is tracked
+      in {@code GameSessionService}'s in-memory map and broadcast via
+      the SessionControlEvent SSE channel, so a pod restart simply
+      clears all pending takeovers and the old / new tabs reconcile
+      via their own BroadcastChannel handshake.
+  -->
+
+</databaseChangeLog>

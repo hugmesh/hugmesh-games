@@ -22,7 +22,9 @@ public class SessionLogRepositoryImpl implements SessionLogRepository {
                    sm.is_creator      AS is_creator,
                    sm.joined_at       AS joined_at,
                    sm.left_at         AS left_at,
-                   gs.closed_at       AS session_closed_at
+                   gs.closed_at       AS session_closed_at,
+                   gs.paused_at       AS session_paused_at,
+                   gs.pause_reason    AS session_pause_reason
               FROM session_members sm
               JOIN game_sessions   gs ON gs.id = sm.session_id
              WHERE sm.casdoor_id = :casdoor
@@ -42,7 +44,9 @@ public class SessionLogRepositoryImpl implements SessionLogRepository {
                    sm.is_creator      AS is_creator,
                    sm.joined_at       AS joined_at,
                    sm.left_at         AS left_at,
-                   gs.closed_at       AS session_closed_at
+                   gs.closed_at       AS session_closed_at,
+                   gs.paused_at       AS session_paused_at,
+                   gs.pause_reason    AS session_pause_reason
               FROM session_members sm
               JOIN game_sessions   gs ON gs.id = sm.session_id
              WHERE sm.casdoor_id = :casdoor
@@ -97,7 +101,9 @@ public class SessionLogRepositoryImpl implements SessionLogRepository {
                 Boolean.TRUE.equals(creator),
                 row.get("joined_at", Instant.class),
                 row.get("left_at", Instant.class),
-                row.get("session_closed_at", Instant.class)
+                row.get("session_closed_at", Instant.class),
+                row.get("session_paused_at", Instant.class),
+                row.get("session_pause_reason", String.class)
         );
     }
 }

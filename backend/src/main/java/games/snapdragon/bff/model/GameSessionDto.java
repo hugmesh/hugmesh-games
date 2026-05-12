@@ -23,6 +23,9 @@ public record GameSessionDto(
         String visibility,
         Instant createdAt,
         Instant closedAt,
+        Instant pausedAt,
+        String  pausedByCasdoorId,
+        String  pauseReason,
         List<MemberDto> members
 ) {
     public record MemberDto(
@@ -44,6 +47,8 @@ public record GameSessionDto(
                 s.getId(), s.getName(), s.getGameSlug(), s.getCreatorCasdoorId(),
                 s.getMaxPlayers(), activePlayers,
                 s.getVisibility() != null ? s.getVisibility() : "public",
-                s.getCreatedAt(), s.getClosedAt(), members);
+                s.getCreatedAt(), s.getClosedAt(),
+                s.getPausedAt(), s.getPausedByCasdoorId(), s.getPauseReason(),
+                members);
     }
 }

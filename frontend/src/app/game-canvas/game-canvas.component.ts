@@ -1,9 +1,10 @@
 import {
-  Component, HostListener, Input, OnChanges, OnDestroy, OnInit,
-  ElementRef, ViewChild,
+  Component, EffectRef, HostListener, Input, OnChanges, OnDestroy, OnInit,
+  ElementRef, ViewChild, effect, inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { SessionControlService } from '../services/session-control.service';
 
 /**
  * Same-origin broadcast channel used to coordinate "only one window plays
@@ -94,7 +95,34 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
    *  agent so multiple tabs / windows of snapdragon.games share one. */
   private _presence: BroadcastChannel | null = null;
 
-  constructor(private sanitizer: DomSanitizer) {}
+  private readonly sessionControl = inject(SessionControlService);
+  private _sessionControlEffect: EffectRef | null = null;
+
+  constructor(private sanitizer: DomSanitizer) {
+    // Mirror the SessionControlService's `paused` signal onto the
+    // iframe — when the BFF emits SESSION_PAUSED / PLAYER_PAUSED (for
+    // self) via the session-control SSE channel, the service flips
+    // `paused`, and we forward SD_GAME_PAUSE to the bridge. Same on
+    // SESSION_RESUMED / PLAYER_RESUMED.
+    this._sessionControlEffect = effect(() => {
+      const remotePaused = this.sessionControl.paused();
+      if (remotePaused && !this.paused) {
+        this.pauseGame('manual');
+      } else if (!remotePaused && this.paused) {
+        // Only auto-resume when the local pause originated from the
+        // session-control channel; a peer-mounted pause still waits
+        // for an explicit Resume click.
+        if (this._pauseOrigin === 'session-control') {
+          this.resumeGame();
+        }
+      }
+    });
+  }
+  /** Tracks whether the most recent `pauseGame` came from peer-presence
+   *  or from the session-control SSE channel. Needed so the effect
+   *  above doesn't undo a peer-presence pause when the SSE side
+   *  happens to be un-paused. */
+  private _pauseOrigin: 'peer-mounted' | 'self-popout' | 'manual' | 'session-control' | null = null;
 
   ngOnChanges(): void {
     if (!this.game) return;
@@ -145,10 +173,11 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
    *  Called both from cross-window coordination and from the
    *  "open in new window" button itself (the new popup wants exclusive
    *  control of the player's inputs). */
-  pauseGame(_reason: 'peer-mounted' | 'self-popout' | 'manual' = 'manual'): void {
+  pauseGame(reason: 'peer-mounted' | 'self-popout' | 'manual' | 'session-control' = 'manual'): void {
     if (this.paused) return;
     this.paused = true;
-    this._postToIframe({ type: 'SD_GAME_PAUSE' });
+    this._pauseOrigin = reason;
+    this._postToIframe({ type: 'SD_GAME_PAUSE', reason });
   }
 
   /** Inverse of `pauseGame`. Bound to the Resume CTA in the overlay. */
@@ -165,7 +194,7 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
     });
   }
 
-  private _postToIframe(msg: { type: string }): void {
+  private _postToIframe(msg: { type: string; reason?: string }): void {
     try {
       this.gameFrame?.nativeElement?.contentWindow?.postMessage(msg, '*');
     } catch { /* iframe gone */ }
@@ -202,9 +231,13 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
     }
   }
 
-  /** Toolbar: open the current game in a new tab. */
+  /** Toolbar: open the current game in a new tab. The new tab will
+   *  broadcast a takeover-claim on its own mount; we pre-pause locally
+   *  so the brief window between click and the new tab's broadcast
+   *  doesn't leak keyboard input into the old iframe. */
   openInNewTab(): void {
     if (!this._frameUrl) return;
+    this.pauseGame('self-popout');
     window.open(this._frameUrl, '_blank', 'noopener');
   }
 

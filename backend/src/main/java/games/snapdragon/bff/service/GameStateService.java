@@ -106,6 +106,8 @@ public class GameStateService {
     private final Sinks.Many<InputEvent>      inputSink       = Sinks.many().multicast().onBackpressureBuffer(128, false);
     private final Sinks.Many<InputEvent>      audioSink       = Sinks.many().multicast().onBackpressureBuffer(64, false);
     private final Sinks.Many<WasmConsoleLine> wasmConsoleSink = Sinks.many().multicast().onBackpressureBuffer(64, false);
+    private final Sinks.Many<games.snapdragon.bff.model.SessionControlEvent> sessionControlSink =
+            Sinks.many().multicast().onBackpressureBuffer(16, false);
 
     /**
      * Per-multiplayer-session sink bundles. Lazy-allocated on first emit
@@ -407,6 +409,29 @@ public class GameStateService {
     public Flux<CharacterDto>    charStatStream(String sessionId)  { return sessionSinksFor(sessionId).character.asFlux(); }
     /** Per-session player-view stream — admin watches each slot's camera. */
     public Flux<PlayerViewEvent> viewStream(String sessionId)      { return sessionSinksFor(sessionId).view.asFlux(); }
+    /** Per-session lifecycle events: pause / resume / closed (decision-???). */
+    public Flux<games.snapdragon.bff.model.SessionControlEvent> sessionControlStream(String sessionId) {
+        return sessionSinksFor(sessionId).sessionControl.asFlux();
+    }
+    /** Global session-control stream — every player's host shell subscribes
+     *  to react to SESSION_CLOSED (collapse iframe) and to PLAYER_PAUSED
+     *  events that target their own casdoor id. */
+    public Flux<games.snapdragon.bff.model.SessionControlEvent> sessionControlStream() {
+        return sessionControlSink.asFlux();
+    }
+
+    /**
+     * Emit a {@link games.snapdragon.bff.model.SessionControlEvent} onto
+     * both the per-session sink (admin observers see only their session's
+     * events) and the global sink (every player's host shell can react to
+     * close events targeting them). Best-effort emit — overflow on the
+     * fan-out sinks is acceptable, the next emit replaces the lost frame.
+     */
+    public void emitSessionControl(games.snapdragon.bff.model.SessionControlEvent ev) {
+        if (ev == null || ev.sessionId() == null) return;
+        sessionSinksFor(ev.sessionId()).sessionControl.tryEmitNext(ev);
+        sessionControlSink.tryEmitNext(ev);
+    }
 
     /**
      * Push a per-player view event onto the session-scoped {@code view}

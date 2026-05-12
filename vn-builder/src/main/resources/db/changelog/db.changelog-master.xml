@@ -7,4 +7,5 @@
   <include file="db/changelog/002-vn-domain.xml"/>
   <include file="db/changelog/003-build-jobs.xml"/>
   <include file="db/changelog/004-seed-flatland-fixture.xml"/>
+  <include file="db/changelog/005-pause-aware-scenes.xml"/>
 </databaseChangeLog>

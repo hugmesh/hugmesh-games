@@ -156,4 +156,94 @@ public class MultiplayerSessionController {
                     return service.close(id);
                 });
     }
+
+    public record PauseRequest(String reason) {}
+    public record PlayerPauseRequest(String reason, String supersededLaunchUid) {}
+
+    @Operation(
+        summary = "Session-wide pause",
+        description = """
+            Freezes every player's WASM iframe inside the session. The session
+            creator or an admin may call this; the request fires the
+            SESSION_PAUSED SessionControlEvent over the per-session and global
+            SSE channels so every subscriber's game-bridge picks it up. Game
+            content drives the actual pause behaviour (timeScale=0,
+            stop-physics, etc.) via the HostBridge `session_control_received`
+            signal. Idempotent: re-pausing an already-paused session re-emits
+            the event without bumping `paused_at`.
+            """)
+    @PostMapping("/{id:[A-Za-z0-9_\\-]{16,86}}/pause")
+    public Mono<GameSessionDto> pause(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String id,
+            @RequestBody(required = false) PauseRequest body) {
+        String reason = body != null ? body.reason() : null;
+        return service.get(id)
+                .flatMap(s -> {
+                    boolean isCreator = jwt.getSubject().equals(s.creatorCasdoorId());
+                    boolean isAdmin   = jwt.getClaimAsBoolean("isAdmin") != null
+                                     && Boolean.TRUE.equals(jwt.getClaimAsBoolean("isAdmin"));
+                    if (!isCreator && !isAdmin) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "only the creator or an admin may pause this session"));
+                    }
+                    return service.pauseSession(id, jwt.getSubject(), reason);
+                });
+    }
+
+    @Operation(
+        summary = "Resume a session-wide pause",
+        description = """
+            Clears `paused_at` and fires SESSION_RESUMED over the SSE channels.
+            Creator-or-admin gated, same as pause.
+            """)
+    @PostMapping("/{id:[A-Za-z0-9_\\-]{16,86}}/resume")
+    public Mono<GameSessionDto> resume(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String id) {
+        return service.get(id)
+                .flatMap(s -> {
+                    boolean isCreator = jwt.getSubject().equals(s.creatorCasdoorId());
+                    boolean isAdmin   = jwt.getClaimAsBoolean("isAdmin") != null
+                                     && Boolean.TRUE.equals(jwt.getClaimAsBoolean("isAdmin"));
+                    if (!isCreator && !isAdmin) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "only the creator or an admin may resume this session"));
+                    }
+                    return service.resumeSession(id, jwt.getSubject());
+                });
+    }
+
+    @Operation(
+        summary = "Tab-takeover pause for self",
+        description = """
+            Posted by a NEW tab when it opens the running game: tells the BFF
+            to fire PLAYER_PAUSED so the OLD tab's WASM iframe releases input
+            focus while the new tab loads its streams + assets. Caller targets
+            themselves only — the JWT subject is the affected casdoor id.
+            Ephemeral; the BFF tracks pending takeovers in-memory.
+            """)
+    @PostMapping("/{id:[A-Za-z0-9_\\-]{16,86}}/players/me/pause")
+    public Mono<Void> pauseSelf(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String id,
+            @RequestBody(required = false) PlayerPauseRequest body) {
+        String reason  = body != null ? body.reason() : null;
+        String supUid  = body != null ? body.supersededLaunchUid() : null;
+        return service.pausePlayer(id, jwt.getSubject(), reason, supUid);
+    }
+
+    @Operation(
+        summary = "Tab-takeover resume for self",
+        description = """
+            Posted by the NEW tab once it has finished loading streams + assets
+            and is ready to drive input. Fires PLAYER_RESUMED so the OLD tab
+            can fully tear down.
+            """)
+    @PostMapping("/{id:[A-Za-z0-9_\\-]{16,86}}/players/me/resume")
+    public Mono<Void> resumeSelf(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String id) {
+        return service.resumePlayer(id, jwt.getSubject());
+    }
 }

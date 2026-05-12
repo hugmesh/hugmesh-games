@@ -143,6 +143,31 @@ impl HostBridge {
     #[signal] fn slot_registered(slot: i64, character_id: i64, is_local: bool);
     #[signal] fn slot_released(slot: i64);
 
+    /// Session lifecycle pause / resume / close. Routed in from the
+    /// Angular wrapper when the BFF's `session-control` SSE channel
+    /// fires (decision: session-pause feature).
+    ///
+    /// `action` is one of
+    /// `SESSION_PAUSED` / `SESSION_RESUMED` / `PLAYER_PAUSED` /
+    /// `PLAYER_RESUMED` / `SESSION_CLOSED`. `payload` is the full
+    /// JSON event from the BFF
+    /// (`{sessionId, action, casdoorId, launchUid, reason, occurredAt}`),
+    /// so game scripts can implement per-game pause semantics — e.g.
+    /// `get_tree().paused = true` on SESSION_PAUSED, stop physics on
+    /// PLAYER_PAUSED that targets the local slot, or tear down the
+    /// scene on SESSION_CLOSED.
+    ///
+    /// Connect from GDScript:
+    /// ```gdscript
+    /// bridge.session_control_received.connect(_on_session_control)
+    /// func _on_session_control(action: String, payload: String) -> void:
+    ///     match action:
+    ///         "SESSION_PAUSED":  get_tree().paused = true
+    ///         "SESSION_RESUMED": get_tree().paused = false
+    ///         "SESSION_CLOSED":  queue_free()
+    /// ```
+    #[signal] fn session_control_received(action: GString, payload: GString);
+
     /// Outbound API request — `BridgeGlue` postMessages each payload
     /// to the Angular wrapper, which performs the actual HTTP call (so
     /// the host's HttpClient interceptor + auth header flow apply
@@ -200,7 +225,19 @@ impl HostBridge {
     /// gamepad poll relayed through postMessage.
     #[func]
     pub fn dispatch_event(&mut self, event_type: GString, payload: GString) {
-        let signal = match event_type.to_string().as_str() {
+        // session-control is a two-argument signal (action + full
+        // payload); every other signal is one-argument (payload only).
+        // Parse the action from the JSON and emit accordingly.
+        let event_type_str = event_type.to_string();
+        if event_type_str == "session-control" {
+            let action = parse_json_string(&payload.to_string(), "action")
+                .unwrap_or_else(|| "UNKNOWN".to_string());
+            self.base_mut().emit_signal(
+                "session_control_received",
+                &[GString::from(action.as_str()).to_variant(), payload.to_variant()]);
+            return;
+        }
+        let signal = match event_type_str.as_str() {
             "movement"    => "movement_received",
             "world"       => "world_received",
             "character"   => "character_received",
@@ -425,4 +462,20 @@ impl HostBridge {
             &[payload.to_variant()],
         );
     }
+}
+
+/// Tiny ad-hoc JSON field extractor — pulls the string value of one
+/// top-level key out of a JSON object. We avoid pulling in a full JSON
+/// parser dependency here because the only consumer is the
+/// `session-control` action dispatch (one specific key, well-formed
+/// payload from our own BFF). Returns None on any structural mismatch.
+fn parse_json_string(json: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{}\":", key);
+    let i = json.find(&needle)?;
+    let rest = &json[i + needle.len()..];
+    let rest = rest.trim_start();
+    if !rest.starts_with('"') { return None; }
+    let body = &rest[1..];
+    let end = body.find('"')?;
+    Some(body[..end].to_string())
 }

@@ -22,5 +22,7 @@ public record SessionLogEntry(
         boolean wasCreator,
         Instant joinedAt,
         Instant leftAt,
-        Instant sessionClosedAt
+        Instant sessionClosedAt,
+        Instant sessionPausedAt,
+        String  sessionPauseReason
 ) {}

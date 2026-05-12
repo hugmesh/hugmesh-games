@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+      Make RPG-maker projects pause-aware so the BFF's
+      session-pause / session-resume SSE flow has a place to live in
+      the maker's own data model rather than being a runtime-only
+      concept.
+
+      Two changes:
+
+        1. `rpg_scripts.kind` enum gains PAUSE — the existing TRIGGER/
+           ALIAS/KEY/SCRIPT enum now also covers a script body that
+           is run when the BFF emits a session-pause event for the
+           session this game is running inside. The body is GDScript,
+           same as SCRIPT kind, but is invoked via the HostBridge's
+           `session_control_received` signal rather than a player
+           keystroke.
+
+        2. `rpg_rooms.pause_on_enter` boolean — when true, entering
+           the room emits a session-pause event automatically. Lets
+           a designer mark cutscene / dialog rooms that should freeze
+           every player while the room owner reads the text. Default
+           false so existing rooms keep their behaviour.
+  -->
+
+  <changeSet id="005-1-rpg-scripts-pause-kind" author="nin">
+    <sql>
+      ALTER TABLE rpg_scripts DROP CONSTRAINT ck_rpg_scripts_kind;
+      ALTER TABLE rpg_scripts
+        ADD CONSTRAINT ck_rpg_scripts_kind
+        CHECK (kind IN ('TRIGGER','ALIAS','KEY','SCRIPT','PAUSE'));
+    </sql>
+  </changeSet>
+
+  <changeSet id="005-2-rpg-rooms-pause-on-enter" author="nin">
+    <addColumn tableName="rpg_rooms">
+      <column name="pause_on_enter" type="boolean" defaultValueBoolean="false">
+        <constraints nullable="false"/>
+      </column>
+    </addColumn>
+  </changeSet>
+
+</databaseChangeLog>

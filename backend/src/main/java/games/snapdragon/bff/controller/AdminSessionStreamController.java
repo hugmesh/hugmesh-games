@@ -93,6 +93,8 @@ public class AdminSessionStreamController {
                 .map(c -> sse(sseId, "character", c));
         Flux<ServerSentEvent<Object>> view = gameState.viewStream(id)
                 .map(v -> sse(sseId, "view", v));
+        Flux<ServerSentEvent<Object>> sessionControl = gameState.sessionControlStream(id)
+                .map(ev -> sse(sseId, "session-control", ev));
 
         Flux<ServerSentEvent<Object>> keepalive = Flux.interval(Duration.ZERO, Duration.ofSeconds(15))
                 .map(i -> ServerSentEvent.<Object>builder().comment("keepalive").build());
@@ -100,7 +102,7 @@ public class AdminSessionStreamController {
         // Touch the session early so 404s on non-existent ids surface
         // immediately instead of after a long silent connection.
         return sessions.get(id)
-                .thenMany(Flux.merge(movement, world, character, view, keepalive));
+                .thenMany(Flux.merge(movement, world, character, view, sessionControl, keepalive));
     }
 
     private ServerSentEvent<Object> sse(AtomicLong id, String event, Object data) {

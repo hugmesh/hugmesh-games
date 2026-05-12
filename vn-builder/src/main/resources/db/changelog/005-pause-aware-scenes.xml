@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+      Make VN-maker projects pause-aware. Mirrors the rpg-builder 005
+      changelog shape:
+
+        1. `vn_scenes.pauses_on_enter` — when a scene becomes active
+           the BFF emits a session-pause event automatically. Useful
+           for cutscene / climax scenes where every player should
+           freeze input until the active reader hits "continue".
+
+        2. `vn_lines.kind` — new column with check constraint over the
+           literal set {SAY, PAUSE, RESUME}. SAY is the existing
+           default (a character speaks the `text` value); PAUSE is a
+           runtime pause-the-session marker that the BFF picks up
+           when stepping through the scene; RESUME un-pauses. Default
+           SAY so every existing line keeps its current shape; the
+           column is non-null with a default so no data migration is
+           needed.
+  -->
+
+  <changeSet id="005-1-vn-scenes-pauses-on-enter" author="nin">
+    <addColumn tableName="vn_scenes">
+      <column name="pauses_on_enter" type="boolean" defaultValueBoolean="false">
+        <constraints nullable="false"/>
+      </column>
+    </addColumn>
+  </changeSet>
+
+  <changeSet id="005-2-vn-lines-kind" author="nin">
+    <addColumn tableName="vn_lines">
+      <column name="kind" type="varchar(16)" defaultValue="SAY">
+        <constraints nullable="false"/>
+      </column>
+    </addColumn>
+    <sql>
+      ALTER TABLE vn_lines
+        ADD CONSTRAINT ck_vn_lines_kind
+        CHECK (kind IN ('SAY','PAUSE','RESUME'));
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

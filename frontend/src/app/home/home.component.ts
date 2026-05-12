@@ -1,5 +1,5 @@
 import {
-  Component, CUSTOM_ELEMENTS_SCHEMA, ElementRef, HostListener, OnInit, ViewChild, inject
+  Component, CUSTOM_ELEMENTS_SCHEMA, ElementRef, HostListener, OnInit, ViewChild, effect, inject
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -12,6 +12,7 @@ import {
   MultiplayerSessionService, GameSession, SessionVisibility,
 } from '../services/multiplayer-session.service';
 import { NotificationService } from '../services/notification.service';
+import { SessionControlService } from '../services/session-control.service';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { GameCanvasComponent } from '../game-canvas/game-canvas.component';
 import { GameHudComponent } from '../game-hud/game-hud.component';
@@ -77,6 +78,7 @@ export class HomeComponent implements OnInit {
   private readonly multiplayer = inject(MultiplayerSessionService);
   private readonly http = inject(HttpClient);
   private readonly notify = inject(NotificationService);
+  private readonly sessionControl = inject(SessionControlService);
 
   characterId = 1;
   /** Game-level cards on the home page. Each carries its embedded
@@ -153,6 +155,23 @@ export class HomeComponent implements OnInit {
       catchError(() => of(null)),
     ).subscribe();
   }
+
+  /**
+   * Field-initialised effect (must run in injection context) — when the
+   * BFF emits SESSION_CLOSED for the session we're in (host dropped,
+   * force-closed by moderator, last member left) the open chapter
+   * tears down so the iframe + WASM bundle stop immediately. The toast
+   * itself is pushed by SessionControlService; this handler closes the
+   * UI surface.
+   */
+  private readonly _sessionClosedEffect = effect(() => {
+    const closed = this.sessionControl.sessionClosed();
+    if (!closed) return;
+    if (this.activeSessionId && closed.sessionId === this.activeSessionId && this.activeLevel) {
+      this.closeLevel();
+      this.activeSessionId = null;
+    }
+  });
 
   /** Open the chapter modal for the clicked game. Disabled for
    *  games with zero unlocked chapters. */
@@ -316,6 +335,16 @@ export class HomeComponent implements OnInit {
           next: r => {
             this.activeLaunchUid = r.uid;
             console.log(`[home] launch minted uid=${r.uid.substring(0, 8)}… expires=${r.expiresAt}`);
+            // Broadcast a takeover-claim to sibling tabs of the same
+            // player. If another tab is already running this game, it
+            // pauses its iframe + POSTs /players/me/pause so the BFF
+            // fires PLAYER_PAUSED for all subscribers. The current tab
+            // is the new "active" one for this player.
+            this.sessionControl.claimTakeover({
+              gameSlug,
+              launchUid: r.uid,
+              sessionId: this.activeSessionId,
+            });
           },
           error: e => console.warn('[home] /launch failed; continuing without uid', e),
         });

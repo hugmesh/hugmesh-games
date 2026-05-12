@@ -107,6 +107,16 @@ public class GameStreamController {
         Flux<ServerSentEvent<Object>> wasmConsole = gameStateService.wasmConsoleStream()
                 .map(c -> sse(sseId, "wasm-console", c));
 
+        // Session lifecycle (pause / resume / close) — per-session when
+        // X-Session-Id is set so a player only sees their own session's
+        // lifecycle events; global otherwise so the host shell can react
+        // to a SESSION_CLOSED that targets a session this tab knows
+        // about even when no session header is present.
+        Flux<ServerSentEvent<Object>> sessionControl = (sessionId != null && !sessionId.isBlank()
+                        ? gameStateService.sessionControlStream(sessionId)
+                        : gameStateService.sessionControlStream())
+                .map(ev -> sse(sseId, "session-control", ev));
+
         // First keepalive at t=0 so response headers flush immediately —
         // browser EventSource only fires onopen once headers arrive, and the
         // Angular HUD's connected$ stays false until then ("API offline").
@@ -115,7 +125,7 @@ public class GameStreamController {
                 .map(i -> ServerSentEvent.<Object>builder().comment("keepalive").build());
 
         return Flux.merge(movement, world, stats, time, scene,
-                          input, audio, wasmConsole, keepalive);
+                          input, audio, wasmConsole, sessionControl, keepalive);
     }
 
     @Operation(

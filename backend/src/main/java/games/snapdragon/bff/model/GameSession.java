@@ -48,6 +48,12 @@ public class GameSession implements Persistable<String> {
     private Instant createdAt;
     @Column("closed_at")
     private Instant closedAt;
+    @Column("paused_at")
+    private Instant pausedAt;
+    @Column("paused_by_casdoor_id")
+    private String pausedByCasdoorId;
+    @Column("pause_reason")
+    private String pauseReason;
 
     @Transient
     private boolean newRecord;
@@ -60,6 +66,9 @@ public class GameSession implements Persistable<String> {
     public String  getVisibility() { return visibility; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getClosedAt() { return closedAt; }
+    public Instant getPausedAt() { return pausedAt; }
+    public String  getPausedByCasdoorId() { return pausedByCasdoorId; }
+    public String  getPauseReason() { return pauseReason; }
 
     public void setId(String id) { this.id = id; }
     public void setName(String name) { this.name = name; }
@@ -69,6 +78,9 @@ public class GameSession implements Persistable<String> {
     public void setVisibility(String visibility) { this.visibility = visibility; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public void setClosedAt(Instant closedAt) { this.closedAt = closedAt; }
+    public void setPausedAt(Instant pausedAt) { this.pausedAt = pausedAt; }
+    public void setPausedByCasdoorId(String s) { this.pausedByCasdoorId = s; }
+    public void setPauseReason(String s) { this.pauseReason = s; }
 
     public GameSession markNew() { this.newRecord = true; return this; }
 

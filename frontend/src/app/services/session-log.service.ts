@@ -3,18 +3,20 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 export interface SessionLogEntry {
-  sessionId:        string;
-  sessionName:      string;
-  gameSlug:         string;
-  visibility:       'public' | 'friends' | 'private';
-  creatorCasdoorId: string;
-  memberCasdoorId:  string;
-  characterId:      number | null;
-  slotIndex:        number | null;
-  wasCreator:       boolean;
-  joinedAt:         string;
-  leftAt:           string | null;
-  sessionClosedAt:  string | null;
+  sessionId:           string;
+  sessionName:         string;
+  gameSlug:            string;
+  visibility:          'public' | 'friends' | 'private';
+  creatorCasdoorId:    string;
+  memberCasdoorId:     string;
+  characterId:         number | null;
+  slotIndex:           number | null;
+  wasCreator:          boolean;
+  joinedAt:            string;
+  leftAt:              string | null;
+  sessionClosedAt:     string | null;
+  sessionPausedAt:     string | null;
+  sessionPauseReason:  string | null;
 }
 
 /**

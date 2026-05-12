@@ -16,12 +16,13 @@
           <th scope="col">Slot</th>
           <th scope="col">Joined</th>
           <th scope="col">Duration</th>
+          <th scope="col">Status</th>
           <th scope="col">Role</th>
         </tr>
       </thead>
       <tbody>
         @for (r of rows(); track r.sessionId + ':' + r.joinedAt) {
-          <tr>
+          <tr [class.row-paused]="!!r.sessionPausedAt && !r.sessionClosedAt">
             <td>{{ r.gameSlug }}</td>
             <td>{{ r.sessionName }}</td>
             <td>
@@ -30,6 +31,20 @@
             <td>{{ r.slotIndex ?? '—' }}</td>
             <td>{{ r.joinedAt | date:'medium' }}</td>
             <td>{{ duration(r) }}</td>
+            <td>
+              @if (r.sessionClosedAt) {
+                <span class="status-tag status-closed">closed</span>
+              } @else if (r.sessionPausedAt) {
+                <span class="status-tag status-paused"
+                      [attr.title]="'Paused: ' + (r.sessionPauseReason || 'manual')">
+                  ⏸ paused
+                </span>
+              } @else if (r.leftAt) {
+                <span class="status-tag status-left">left</span>
+              } @else {
+                <span class="status-tag status-active">active</span>
+              }
+            </td>
             <td>
               @if (r.wasCreator) { <span class="role-tag role-creator">Creator</span> }
               @else { <span class="role-tag">Player</span> }
