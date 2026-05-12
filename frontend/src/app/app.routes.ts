@@ -6,6 +6,7 @@ import { PlayerDashboardComponent } from './player-dashboard/player-dashboard.co
 import { BannedPageComponent } from './banned-page/banned-page.component';
 import { FriendsComponent } from './friends/friends.component';
 import { SessionLogPageComponent } from './session-log/session-log-page.component';
+import { AdminSessionLogPageComponent } from './session-log/admin-session-log-page.component';
 import { authGuard } from './auth.guard';
 
 // Federated route loaders. main.ts stashes
@@ -48,6 +49,11 @@ export const routes: Routes = [
   // Per-session live observation including per-player view SSE — admin
   // SessionsShell ships from the same admin remote bundle.
   { path: 'admin/sessions', loadComponent: () => loadRemote('admin', './SessionsShell', 'SessionsRemoteComponent'), canActivate: [authGuard] },
+  // Admin session-log tree: every open multiplayer session grouped by
+  // game, searchable. Lives in the host shell (not federated) since it
+  // shares the GameLibraryService + auth interceptor with the player
+  // session-log page.
+  { path: 'admin/session-log', component: AdminSessionLogPageComponent, canActivate: [authGuard] },
   { path: 'admin/docs', loadComponent: () => loadRemote('api-docs', './DocsShell', 'DocsShellComponent'), canActivate: [authGuard] },
   // Per-game moderator console — ROLE_MOD or ROLE_ADMIN. The BFF
   // controllers @PreAuthorize so the route mounts for any authenticated

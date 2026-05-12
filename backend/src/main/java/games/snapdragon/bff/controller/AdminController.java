@@ -2,8 +2,10 @@ package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.model.AdminStatsDto;
 import games.snapdragon.bff.model.CharacterDto;
+import games.snapdragon.bff.model.GameSessionDto;
 import games.snapdragon.bff.model.SessionDto;
 import games.snapdragon.bff.repository.PlayerCharacterRepository;
+import games.snapdragon.bff.service.GameSessionService;
 import games.snapdragon.bff.service.SessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,10 +27,14 @@ public class AdminController {
 
     private final PlayerCharacterRepository characters;
     private final SessionService sessionService;
+    private final GameSessionService multiplayerSessions;
 
-    public AdminController(PlayerCharacterRepository characters, SessionService sessionService) {
-        this.characters     = characters;
-        this.sessionService = sessionService;
+    public AdminController(PlayerCharacterRepository characters,
+                           SessionService sessionService,
+                           GameSessionService multiplayerSessions) {
+        this.characters          = characters;
+        this.sessionService      = sessionService;
+        this.multiplayerSessions = multiplayerSessions;
     }
 
     @Operation(
@@ -45,6 +51,24 @@ public class AdminController {
     @GetMapping("/sessions")
     public Flux<SessionDto> sessions() {
         return sessionService.activeSessions();
+    }
+
+    @Operation(
+        summary = "Admin oversight — list every open multiplayer session",
+        description = """
+            Mirrors `GET /api/sessions` but bypasses the friend-graph / visibility
+            filter so an admin sees every open session regardless of who created
+            it or what visibility (public / friends / private) was set at create
+            time. Optionally narrow to one game with the `gameSlug` query param.
+
+            Backed by `GameSessionService.listAllOpenForOversight` so the read
+            path is identical to the player-facing list otherwise — same DTO,
+            same active-member roll-up.
+            """)
+    @GetMapping("/multiplayer-sessions")
+    public Flux<GameSessionDto> multiplayerSessions(
+            @RequestParam(required = false) String gameSlug) {
+        return multiplayerSessions.listAllOpenForOversight(gameSlug);
     }
 
     @Operation(

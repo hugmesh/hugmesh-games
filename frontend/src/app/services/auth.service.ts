@@ -18,6 +18,13 @@ interface StoredAuth {
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
+
+  // localStorage (not sessionStorage) so right-click → open-in-new-tab
+  // on a menu link (`/admin`, `/admin/sessions`, `/rpg-maker`, …) keeps
+  // the user signed in. sessionStorage is per-tab; a fresh tab would
+  // see empty auth and the AuthGuard would bounce to /login on every
+  // middle-click. Cross-tab logout is signalled via the `storage` DOM
+  // event below.
   private readonly STORAGE_KEY = 'tw_auth';
 
   login(username: string, password: string): Observable<void> {
@@ -28,14 +35,14 @@ export class AuthService {
           idToken: resp.id_token ?? '',
           expiry: Date.now() + resp.expires_in * 1000,
         };
-        sessionStorage.setItem(this.STORAGE_KEY, JSON.stringify(stored));
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(stored));
       }),
       map(() => void 0),
     );
   }
 
   logout(): void {
-    sessionStorage.removeItem(this.STORAGE_KEY);
+    localStorage.removeItem(this.STORAGE_KEY);
   }
 
   isAuthenticated(): boolean {
@@ -81,7 +88,7 @@ export class AuthService {
 
   private _stored(): StoredAuth | null {
     try {
-      const raw = sessionStorage.getItem(this.STORAGE_KEY);
+      const raw = localStorage.getItem(this.STORAGE_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
