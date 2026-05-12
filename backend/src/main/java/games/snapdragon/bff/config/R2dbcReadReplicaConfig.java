@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.r2dbc.core.DatabaseClient;
 
@@ -94,5 +95,37 @@ public class R2dbcReadReplicaConfig {
     public DatabaseClient replicaDatabaseClient(
             @Qualifier("replica") ConnectionFactory replicaConnectionFactory) {
         return DatabaseClient.create(replicaConnectionFactory);
+    }
+
+    /**
+     * Explicit primary {@link R2dbcEntityTemplate}. Required because the
+     * replica bean above is also a {@code R2dbcEntityTemplate}, which
+     * trips Spring Boot's
+     * {@link org.springframework.boot.autoconfigure.data.r2dbc.R2dbcDataAutoConfiguration}
+     * {@code @ConditionalOnMissingBean(R2dbcEntityTemplate.class)} —
+     * the framework's default {@code r2dbcEntityTemplate} bean is then
+     * never created, and Spring Data repositories fail to wire with
+     * "bean named 'r2dbcEntityTemplate' could not be found". We define
+     * it ourselves, mark it {@code @Primary}, and keep the bean name
+     * matching Spring's so {@code @Autowired R2dbcEntityTemplate}
+     * resolves without any qualifier at the injection site.
+     */
+    @Bean(name = "r2dbcEntityTemplate")
+    @Primary
+    public R2dbcEntityTemplate r2dbcEntityTemplate(ConnectionFactory primary) {
+        return new R2dbcEntityTemplate(primary);
+    }
+
+    /**
+     * Explicit primary {@link DatabaseClient}. Same reasoning as
+     * {@link #r2dbcEntityTemplate(ConnectionFactory)} — Spring Boot's
+     * R2dbcAutoConfiguration provides {@code databaseClient} behind a
+     * {@code @ConditionalOnMissingBean} gate, which our replica
+     * DatabaseClient trips.
+     */
+    @Bean(name = "databaseClient")
+    @Primary
+    public DatabaseClient databaseClient(ConnectionFactory primary) {
+        return DatabaseClient.create(primary);
     }
 }
