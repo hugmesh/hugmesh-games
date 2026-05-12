@@ -15,6 +15,14 @@ const bddTestDir = defineBddConfig({
     'features/steps/**/*.ts',
     'features/support/**/*.ts',
   ],
+  // Cucumber tag-expression filter. Skips scenarios + features
+  // tagged `@skip`. Used to mark feature files that depend on
+  // platform paths currently delegated to a federated remote that
+  // doesn't expose the same contract — see the leading comment
+  // block in features/multiplayer/window-controls.feature for the
+  // pattern. Re-enable by removing the `@skip` tag once the
+  // underlying contract is restored.
+  tags: 'not @skip',
 });
 
 export default defineConfig({

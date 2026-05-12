@@ -166,6 +166,17 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- spring-kafka-test — provides @EmbeddedKafka for the
+         TwoPodKafkaCrossPodIT integration test (decision-021
+         follow-up). Spins up an in-process Kafka broker so the
+         producer ↔ subscriber wiring can be exercised end-to-end
+         without docker. -->
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <!-- BouncyCastle — supplies the SHA3 digests we use to derive
          every UI-facing UID (launch tokens, session ids, pod ids)
          and the SP800-90A HMAC-SHA256 DRBG that backs the Crypto

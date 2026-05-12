@@ -113,6 +113,14 @@ app:
       # AWS proper accepts both; flip to false only if you target a
       # subdomain-style bucket on real AWS.
       path-style: ${APP_UPLOADS_S3_PATH_STYLE:true}
+      # Decision-020 follow-up. When `true`, AssetController returns a
+      # 302 redirect to a short-lived pre-signed URL instead of
+      # streaming the asset bytes through the BFF. Takes the WASM hot
+      # path off the BFF cold path entirely. Default `false` keeps the
+      # original streaming semantics. TTL caps at 15 minutes inside the
+      # storage layer regardless of the configured value.
+      presigned-reads: ${APP_UPLOADS_S3_PRESIGNED_READS:false}
+      presigned-reads-ttl-seconds: ${APP_UPLOADS_S3_PRESIGNED_TTL_SEC:300}
 
   # Streaming audit + telemetry pipeline (decision 021).
   #
@@ -176,6 +184,20 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
+      # S3 / MinIO bucket calls. Wraps CircuitBreakerUploadStorage
+      # (decision-020 follow-up). Tighter window than cassandra
+      # because a hung S3 endpoint stalls AssetController on every
+      # asset fetch — open the breaker faster, recover faster.
+      # Reads soft-fall through to null on OPEN so AssetController
+      # can serve the classpath fallback bundles; writes propagate
+      # the UploadStorageException so the catalog doesn't silently
+      # miss installs.
+      s3:
+        sliding-window-size: 10
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+        permitted-number-of-calls-in-half-open-state: 2
 
 # Management endpoints: lock down what /actuator can expose so
 # even if SecurityConfig regressed, the surface is the bare

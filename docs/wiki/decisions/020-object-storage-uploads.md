@@ -88,7 +88,7 @@ curl -X POST /api/admin/games/upload -F file=@bundle.zip   # → 200, version_di
 
 ## Follow-ups
 
-- Pre-signed-URL reads (move the WASM `.wasm` hot path off the BFF cold path).
-- Migration script `scripts/migrate-uploads-to-s3.sh` (one-shot copy of existing host-filesystem uploads into MinIO).
-- Resilience4j circuit breaker around S3 calls (mirror the Cassandra pattern in `RateLimitFilter`).
+- ~~Pre-signed-URL reads (move the WASM `.wasm` hot path off the BFF cold path).~~ — done. `UploadStorage#presignReadUrl(locator, relativePath, ttl)` is the strategy hook; `S3UploadStorage` returns a short-lived AWS-SDK-v2 `S3Presigner` URL (capped at 15 min hard maximum); `FilesystemUploadStorage` returns null (no pre-signing). `AssetController.tryPresignRedirect(...)` mints the URL and 302s when both `app.uploads.s3.presigned-reads=true` AND the strategy returns non-null; otherwise the streaming path is unchanged. Pinned by 2 new `AssetControllerTest` cases (legacy + UID paths). Browser fetches the WASM directly from the bucket once enabled — BFF cold path stays cold.
+- ~~Migration script `scripts/migrate-uploads-to-s3.sh`~~ — done. One-shot DRY-RUN-by-default copy of existing host-filesystem uploads into MinIO + `version_dir` column flip.
+- ~~Resilience4j circuit breaker around S3 calls~~ — done. `CircuitBreakerUploadStorage` decorator wraps the S3 strategy with the `s3` Resilience4j breaker. Reads soft-fall through to null on OPEN (AssetController has a classpath fallback); writes propagate `UploadStorageException`. Tuning in `application.yml` under `resilience4j.circuitbreaker.instances.s3`. Pinned by 5-case unit test.
 - AWS S3 + Cloudflare R2 + Backblaze B2 acceptance matrix.

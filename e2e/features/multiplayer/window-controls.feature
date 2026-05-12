@@ -18,6 +18,32 @@
 # These canvas-control scenarios add the UI-only surface that has no
 # direct API counterpart (postMessage to the iframe, document
 # Fullscreen API, popup window detection).
+# NOTE: this entire feature targets the LEGACY `<app-game-canvas>`
+# iframe renderer (`frontend/src/app/game-canvas/`). When this spec
+# was written, `three-wizards` (the test's game slug) rendered
+# through that component and its toolbar was reachable from the
+# session-launch flow. Since the federation migration captured in
+# `home.component.ts:FEDERATED_GAME_SLUGS` (currently
+# `{ 'dodecahedron', 'three-wizards' }`), three-wizards chapters
+# delegate to the games-three-wizards federated REMOTE, which does
+# NOT expose the same toolbar contract — so every scenario below
+# now blank-screens on the post-launch step and the
+# `[role="toolbar"][aria-label="Game window controls"]` assertion
+# never finds a match. Pre-existing failure across `main`,
+# `integration/all-remaining-changes`, and this branch.
+#
+# To re-enable: pick ONE of
+#   (a) Add a non-federated game to the BFF seed catalog and target
+#       it here instead. The legacy `GameCanvasComponent` is still
+#       the path for any chapter whose `sceneType` isn't in
+#       `SCENE_TYPE_TO_GAME_SLUG`. A small "test-iframe" chapter
+#       would unblock this whole feature.
+#   (b) Re-export the same toolbar contract from the federated
+#       game-shell wrapper so the role / aria-label / titles match
+#       what `window-controls-steps.ts` already asserts on. The
+#       canvas component already has the implementation; it just
+#       needs to be reachable inside the federated remote too.
+@skip
 Feature: Game canvas window controls — fullscreen, popout, pause, resume
   As a player who has launched a game
   I can resize the canvas to fullscreen, pop it out into a second

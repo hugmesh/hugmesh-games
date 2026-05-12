@@ -239,6 +239,68 @@ E2E BDD coverage: [`e2e/features/makers/rpg-maker.feature`](e2e/features/makers/
 
 **Godot-source download per project.** Both makers expose a "Download Godot source" button next to "Build & upload" that hits `GET /api/{rpg|vn}/projects/{id}/godot-zip` on the side service. The endpoint runs the project renderer to produce the same Godot 4 source tree the build worker would feed to `godot --export-release`, zips it, and streams it back so the publisher can open the project in the Godot editor directly to tweak art/scenes the maker UI doesn't yet surface. Re-uploading after editing is just the normal publisher-console flow.
 
+## Postgres read replica routing (decision 022)
+
+### Activation in compose (optional)
+
+A single-host streaming-replica overlay ships at [`docker-compose.replica.yml`](docker-compose.replica.yml). The default `docker compose up -d` flow runs a single Postgres node (zero change). Activate the replica with:
+
+```bash
+# Fresh deploy — the bootstrap script handles role creation +
+# pg_basebackup + a write-and-read smoke test:
+./scripts/setup-pg-replica.sh
+
+# Subsequent boots — just pass both files:
+docker compose -f docker-compose.yml -f docker-compose.replica.yml up -d
+```
+
+Both containers use `postgres:16-alpine` (same image as the default), so the existing `pgdata` volume keeps working untouched. The replica gets its own `pgdata_replica` volume, populated by `pg_basebackup` on first boot via [`docker/postgres-replica-entrypoint.sh`](docker/postgres-replica-entrypoint.sh). The overlay also sets `APP_R2DBC_REPLICA_URL` on the `api` service so the BFF's `R2dbcReadReplicaConfig` conditional fires and the `@Qualifier("replica")` beans load.
+
+Reverting to single-node: bring everything down and drop the overlay. The primary's `wal_level=replica` setting can stay (it's harmless without a replica); to fully revert, restart the primary without the overlay's command-line flags.
+
+### BFF-side wiring
+
+The replica wiring is in place in `backend/src/main/java/games/snapdragon/bff/config/R2dbcReadReplicaConfig.java`: when `app.r2dbc.replica.url` is non-empty, three `@Qualifier("replica")` beans become available — `ConnectionFactory`, `R2dbcEntityTemplate`, `DatabaseClient`. When the URL is empty (dev / single-DB), the config skips and Spring Boot auto-config provides the normal primary beans alone.
+
+**Per-service migration pattern.** Read-only endpoints that hit the catalog tables (games / chapters / federation_modules / per-game access rules) can opt into the replica by injecting the qualified template directly, bypassing the Spring Data repo for that specific call:
+
+```java
+@RestController
+@RequestMapping("/api/games")
+public class GameController {
+
+    private final GameRepository games;                  // write path → primary CF
+    private final R2dbcEntityTemplate replica;           // read path → replica CF
+                                                          //   (aliases primary when no replica URL)
+
+    public GameController(GameRepository games,
+                          @Qualifier("replica") R2dbcEntityTemplate replica) {
+        this.games   = games;
+        this.replica = replica;
+    }
+
+    @GetMapping
+    public Flux<Game> list() {
+        // Was: games.findAllByOrderBySortOrderAsc();
+        return replica.select(Game.class)
+                      .matching(Query.empty().sort(Sort.by("sort_order")))
+                      .all();
+    }
+}
+```
+
+Write operations (POST / PUT / DELETE) stay on the `games` repository so they hit the primary. The `@Qualifier("replica")` injection is the SIGNAL — anyone reading the controller sees instantly which path is replica-routable.
+
+**When to migrate which service.** Start with the highest-volume catalog reads, in this rough priority order:
+1. `GameController.list()` + `GameController.get(id)`
+2. `ChapterController` reads
+3. `FederationController.manifest()` — called on every page load
+4. `GameAccessController` read paths
+
+Skip anything that mutates within the same transaction as the read. Skip anything that needs read-your-own-writes consistency.
+
+**Why per-service, not global.** Spring Data R2DBC repositories use the framework-provided primary `r2dbcEntityTemplate` bean implicitly; swapping the bean a repo uses requires `@EnableR2dbcRepositories(entityOperationsRef = "…")` per package, which fragments the repository scan. The per-call-site qualifier above keeps the migration linear: one controller method at a time, no global config flip.
+
 ## Security primitives
 
 - **All UI-facing UIDs and URL tokens come through one call**: `Crypto.mintUid()` in `backend/src/main/java/games/snapdragon/bff/util/Crypto.java`. Output: 43-character URL-safe base64 of `SHA3-256(64 random bytes from BouncyCastle SP800-90A HMAC-SHA256 DRBG)`. No more `UUID.randomUUID()` or raw `SecureRandom` in this codebase. If you need bytes, ask `Crypto.randomBytes(n)`. If you need a hash, ask `Crypto.sha3_256(...)`. The DRBG state is process-singleton so callers don't have to thread it.
