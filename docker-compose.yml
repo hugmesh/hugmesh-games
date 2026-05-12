@@ -119,6 +119,106 @@ services:
       retries: 30
       start_period: 60s
 
+  # ── Analytics pipeline (decision-021) ─────────────────────────────────
+  # The BFF produces state-transition + telemetry events to Kafka; a
+  # ClickHouse `Kafka` engine table auto-pulls those into a MergeTree
+  # table for cheap aggregate reads. Replaces the nightly batch
+  # CassandraSyncService → analytics-warehouse hand-off; the per-game
+  # KPI surface (F2) feeds the same topic shape so one consumer drains
+  # both. Containers stay opt-in: vanilla `docker compose up -d` skips
+  # them unless the explicit `--profile analytics` or env-flag enables.
+
+  zookeeper:
+    # Bitnami images (matches Postgres + Casdoor pattern in this stack).
+    # Standalone mode — KRaft-mode Kafka would skip this entirely but the
+    # Bitnami Kafka image still expects Zookeeper at the time of writing.
+    image: bitnami/zookeeper:3.9
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+    expose:
+      - "2181"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  kafka:
+    # Single-broker dev cluster. Production points at managed Kafka
+    # (MSK / Confluent Cloud / Aiven / Redpanda Cloud) by overriding
+    # `app.kafka.bootstrap-servers`; the broker config below is
+    # dev-only.
+    image: bitnami/kafka:3.7
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: "1"
+      KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners: PLAINTEXT for the compose-internal API +
+      # consumers, EXTERNAL for `kcat`/`kafka-console-consumer`
+      # debugging from the host.
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      # Auto-create topics for the dev loop — `state_audit` +
+      # `game_kpi` will be created on first produce. Pin to
+      # `false` in prod.
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CFG_NUM_PARTITIONS: "3"
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: "1"
+    ports:
+      - "127.0.0.1:9094:9094"
+    expose:
+      - "9092"
+    volumes:
+      - kafka_data:/bitnami/kafka
+    healthcheck:
+      # kafka-topics.sh succeeds only once the broker has joined the
+      # cluster; cheaper than producing a test message.
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+
+  clickhouse:
+    # The analytics warehouse — picks up events from the Kafka topics
+    # via ClickHouse's built-in Kafka engine table, materialised into
+    # MergeTree tables for cheap COUNT/AVG/percentile reads.
+    image: clickhouse/clickhouse-server:25.3-alpine
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      # Single-node defaults; the official image creates the `default`
+      # database + `default` user on first boot.
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse-dev-pass}
+    ports:
+      # 8123 = HTTP interface (for ad-hoc curl-based queries);
+      # 9000 conflicts with MinIO so we leave the native TCP protocol
+      # on its docker-internal port only.
+      - "127.0.0.1:8123:8123"
+    expose:
+      - "9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./docker/clickhouse-init:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
   cassandra-init:
     # One-shot keyspace + table bootstrap. The official cassandra image has
     # no /docker-entrypoint-initdb.d mechanism (that's Postgres-only), so we
@@ -481,3 +581,5 @@ volumes:
   vn_builds:
   vn_assets:
   minio-data:
+  kafka_data:
+  clickhouse_data:

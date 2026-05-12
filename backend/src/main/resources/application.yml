@@ -114,6 +114,43 @@ app:
       # subdomain-style bucket on real AWS.
       path-style: ${APP_UPLOADS_S3_PATH_STYLE:true}
 
+  # Streaming audit + telemetry pipeline (decision 021).
+  #
+  # When `app.kafka.enabled=true`, the BFF produces state-transition
+  # events to the `state_audit` topic; a follow-up PR will also produce
+  # F2 game-KPI events to `game_kpi`. ClickHouse consumes both via its
+  # built-in Kafka engine table so the BFF doesn't ship a separate
+  # consumer service.
+  #
+  # Default OFF — vanilla compose-up doesn't bring the kafka container
+  # up. Flip to `true` in production + integration-test profiles.
+  kafka:
+    enabled: ${APP_KAFKA_ENABLED:false}
+    bootstrap-servers: ${APP_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    client-id:         ${APP_KAFKA_CLIENT_ID:snapdragon-bff}
+    topic:
+      state-audit: ${APP_KAFKA_TOPIC_STATE_AUDIT:state_audit}
+      game-kpi:    ${APP_KAFKA_TOPIC_GAME_KPI:game_kpi}
+      game-events: ${APP_KAFKA_TOPIC_GAME_EVENTS:game_events}
+    consumer:
+      group-id:    ${APP_KAFKA_CONSUMER_GROUP_ID:snapdragon-bff-cross-pod}
+
+  # ClickHouse client — used by PlayerStateRecoveryService to read the
+  # latest player position from snapdragon.player_state_current FINAL
+  # when a player reconnects via a pod that wasn't the original
+  # session host (decision 021). Disabled by default; enabled in
+  # production + integration-test profiles alongside app.kafka.enabled.
+  clickhouse:
+    enabled:  ${APP_CLICKHOUSE_ENABLED:false}
+    endpoint: ${APP_CLICKHOUSE_ENDPOINT:http://clickhouse:8123}
+    user:     ${APP_CLICKHOUSE_USER:default}
+    password: ${APP_CLICKHOUSE_PASSWORD:}
+    database: ${APP_CLICKHOUSE_DATABASE:snapdragon}
+    tables:
+      player-state-current: ${APP_CLICKHOUSE_TBL_PLAYER_STATE_CURRENT:snapdragon.player_state_current}
+
+  pod-id: ${APP_POD_ID:}
+
 # Resilience4j — wraps the cluster-wide Cassandra calls inside
 # RateLimitFilter. An open breaker means subsequent requests skip
 # the cluster check (fall back to local-bucket only) instead of
