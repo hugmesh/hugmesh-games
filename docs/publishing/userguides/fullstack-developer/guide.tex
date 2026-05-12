@@ -113,6 +113,156 @@ go through \texttt{Flux.merge} --- see
   \item New game? Four-place slug contract (see Godot guide).
 \end{itemize}
 
+\chapter{Per-session SSE sinks}
+The single global sink that drove the original Three Wizards demo
+became a leak as soon as two players ended up in different sessions:
+every event landed on every subscriber. The current shape is a
+\texttt{ConcurrentHashMap<String, SessionSinks>} keyed on
+\texttt{sessionId}, lazy-allocated on first emit. The signature that
+matters:
+
+\begin{lstlisting}[language=Java]
+applyControl(ControlEvent event,
+             String characterId,
+             String sessionId)
+\end{lstlisting}
+
+The legacy 2-arg form still exists for the single-player path; the
+3-arg form is what every multiplayer-aware controller must call.
+\texttt{GameStreamController} accepts an optional \texttt{?sessionId=}
+query param and filters its subscription accordingly.
+
+The isolation contract --- ``emit on session A's sinks; session B's
+per-session subscriber sees nothing'' --- is locked in by
+\snapfile{SessionIsolationTest} on the BFF side and
+\reposrc{e2e/features/multiplayer/rpg-two-players.feature} on the
+browser side. \snapfile{tests/cross-session-isolation.spec.ts} is the
+explicit negative-direction spec.
+
+Live admin observation goes through
+\texttt{/api/admin/sessions/\{id\}/stream}, which merges movement +
+world + character + view per-session sinks into one Flux. The
+per-player \emph{view} channel is what makes it useful: HostBridge's
+\texttt{view\_egress} posts $\sim$10 Hz camera samples to
+\texttt{/api/view}, fanned out on the same per-session sink.
+
+\chapter{Mod / publisher scope schema}
+Roles live in Casdoor; per-game scope lives in Postgres. Two layers,
+both required, neither sufficient alone:
+
+\begin{itemize}
+  \item Casdoor membership in \texttt{ROLE\_MOD} /
+        \texttt{ROLE\_PUBLISHER} --- claims land in the JWT.
+  \item One row in \texttt{mod\_game\_scopes} /
+        \texttt{publisher\_game\_scopes} per (casdoorId, gameSlug)
+        pair --- the BFF rejects any mod/publisher action whose
+        target game isn't in the caller's active scope.
+\end{itemize}
+
+Adding a new scope check follows three steps:
+
+\begin{enumerate}
+  \item In the controller, gate the class with
+        \texttt{@PreAuthorize("hasAnyRole('PUBLISHER','ADMIN')")} (or
+        the mod equivalent).
+  \item In the service, look up the row before mutating:
+\begin{lstlisting}[language=Java,xleftmargin=4mm]
+publisherGameScopeRepository
+    .existsByCasdoorIdAndGameSlug(casdoorId, slug);
+\end{lstlisting}
+        Reject with 403 when admin-bypass doesn't apply.
+  \item Add a Gherkin rejection scenario keyed to the new endpoint
+        --- the format the existing
+        \reposrc{e2e/features/security/mod-grant-gates.feature}
+        uses (unauthenticated 401, plain player 403,
+        wrong-scope publisher 403).
+\end{enumerate}
+
+Mutation endpoints follow a strict admin / publisher split:
+
+\begin{lstlisting}[language=bash,xleftmargin=4mm]
+# Admin-only: grant or revoke on any game.
+/api/admin/role-grants/grant-mod
+/api/admin/role-grants/revoke-mod
+/api/admin/role-grants/grant-publisher
+/api/admin/role-grants/revoke-publisher
+
+# Publisher: grant mod, but only on a game in their scope.
+/api/publisher/grant-mod
+\end{lstlisting}
+
+These are the only paths that add or remove scope rows. The publisher
+endpoint walks the same write path as the admin one but enforces
+caller-owns-target-game before mutating.
+
+\chapter{Rate-limit layers}
+Two layers of throttling, deliberately split:
+
+\paragraph{Layer 1 --- nginx zones.}
+\snapfile{frontend/nginx.conf} and \snapfile{frontend/nginx-tls.conf}
+declare \texttt{limit\_req\_zone} entries sized for $\sim$10 000
+concurrent users. Per-zone caps: \texttt{browse} 100 r/s,
+\texttt{api} 50 r/s, \texttt{sse} 30 r/s (nodelay), \texttt{auth}
++ \texttt{admin} 5 r/s (nodelay), \texttt{maker\_api} 10 r/s. Plus
+\texttt{limit\_conn conn\_per\_ip 40} for parallel-socket caps.
+Tripped requests return 429, not 503, so well-behaved clients back
+off. Cheap edge rejection before traffic ever touches the JVM.
+
+\paragraph{Layer 2 --- in-pod + cross-pod.}
+\snapfile{RateLimitFilter} runs the local in-process bucket as the
+fast pre-check, then augments cluster-wide via
+\snapfile{DistributedRateLimitService} --- an append-row log on the
+Cassandra \texttt{rate\_limit\_events} table with a 90 s TTL, plus a
+window-bounded count against
+\texttt{event\_id $>=$ minTimeuuid(now $-$ WINDOW)}. Disable with
+\texttt{app.rate-limit.distributed.enabled=false} (default
+\texttt{true}); the filter falls back to local-only when Cassandra
+is unreachable.
+
+\begin{snapcaution}[title={Don't replace one layer with the other}]
+The nginx zones reject at the edge before the JVM spins up a request
+handler --- they exist so a flood can't exhaust the BFF's bounded-
+elastic scheduler. The Java-side filter exists so a user can be
+shaped per-user, not just per-IP, and so the cluster sees the same
+budget regardless of which pod a request lands on. Removing either
+opens a hole.
+\end{snapcaution}
+
+\chapter{Security primitives}
+Three small APIs the codebase has converged on:
+
+\begin{itemize}
+  \item \snapfile{Crypto.mintUid()} --- the single mint for every
+        UI-facing UID and URL token. Output: 43-character URL-safe
+        base64 of \texttt{SHA3-256(64 random bytes from BouncyCastle
+        SP800-90A HMAC-SHA256 DRBG)}. No more
+        \texttt{UUID.randomUUID()} or raw \texttt{SecureRandom}.
+        For raw bytes: \texttt{Crypto.randomBytes(n)}; for a hash:
+        \texttt{Crypto.sha3\_256(...)}. The DRBG state is a
+        process-singleton.
+  \item \snapfile{Roles.has(jwt, "ADMIN")} /
+        \texttt{Roles.fromAuthentication(auth)} /
+        \texttt{Roles.isAdmin(jwt)} --- centralised role extraction.
+        Don't copy the claim walk; use the helper. Controller-level
+        access checks should use
+        \texttt{@PreAuthorize("hasRole('ADMIN')")}; method-internal
+        checks fall through to \texttt{Roles}.
+  \item Liquibase 036 widens session-id columns from
+        \texttt{varchar(36)} to \texttt{varchar(64)} to fit the new
+        SHA3 shape (43 chars). Pre-existing UUID-shape rows continue
+        to fit.
+\end{itemize}
+
+Session-scoped control authorization: two players sharing the same
+\texttt{character\_id} in different sessions used to 403 each other
+because \texttt{findActiveOwnerOfCharacter(character\_id)} raced on
+Postgres' first-row pick. The fix is
+\texttt{findActiveOwnerInSession(sessionId, characterId)} +
+the 3-arg \texttt{authorizeControl(casdoorId, characterId,
+sessionIdOpt)} overload; \texttt{ControlController} threads the
+\texttt{X-Session-Id} header through. Pinned in
+\snapfile{GameSessionServiceTest}.
+
 \chapter{What NOT to do}
 \begin{itemize}
   \item Don't call JDBC from a WebFlux controller.

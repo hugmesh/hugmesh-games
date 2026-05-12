@@ -122,6 +122,113 @@ banner.
         that role hit 403 on the chapter scene fetch.
 \end{enumerate}
 
+\chapter{Publishing with the RPG maker}
+The publisher console exposes a \emph{Launch RPG Maker} button that
+opens \texttt{/rpg-maker} in a new tab. The maker is its own federated
+Angular remote backed by the \snapfile{rpg-builder/} side service ---
+no Godot editor needed. The data model is Mudlet-shaped: a project
+holds \emph{areas}; each area holds \emph{rooms} connected by 6+1
+direction exits, plus items, NPCs, and scripts.
+
+\begin{enumerate}
+  \item Create the project. The slug must be lowercase alphanumeric
+        with hyphens; the maker enforces this with an inline
+        ``slug must be lowercase alphanumeric'' error.
+  \item Create one or more \emph{areas}. Each becomes a Chapter in the
+        BFF catalog --- a multi-area project ships as a multi-chapter
+        game.
+  \item For each area, add rooms + exits. Rooms can hold items, NPCs,
+        and scripts; the seed Flatland fixture in
+        \snapfile{rpg-builder/src/main/resources/db/changelog/004-seed-flatland-fixture.xml}
+        is the reference for what a complete tree looks like.
+  \item Click \emph{Build}. The job walks
+        \texttt{QUEUED $\rightarrow$ RENDERING $\rightarrow$
+        EXPORTING $\rightarrow$ UPLOADING $\rightarrow$ DONE}; the
+        worker renders a Godot 4 source tree with
+        \snapfile{snapdragon\_bridge.gdextension} baked in (multiplayer-
+        aware out of the box), invokes the Godot CLI per area, zips
+        the result, and POSTs to \texttt{/api/admin/games/upload}
+        \emph{with your bearer token} --- so the BFF's
+        \texttt{publisher\_game\_scopes} check enforces who can ship
+        which slug.
+  \item Verify on the home page. The freshly-uploaded slug shows up
+        in the catalog within the next federation-manifest refresh
+        (60 s); the area you authored becomes the first chapter.
+\end{enumerate}
+
+Pinning scenario:
+\reposrc{e2e/features/makers/rpg-maker.feature}. The full
+build-then-a-player-can-run loop is the last scenario in that file.
+
+A ``Download Godot source'' button next to \emph{Build \& upload}
+streams the same Godot 4 source tree the worker would feed to
+\texttt{godot --export-release} so you can open the project in the
+Godot editor and tweak art/scenes the maker UI doesn't yet surface.
+Re-uploading after editing is the normal publisher-console flow.
+
+\paragraph{Dev fixture --- publisher-flatland.} Logging in as the
+\texttt{publisher-flatland} seed user shows a pre-seeded
+\emph{Flatland RPG} project in your makers list (Lineland, Town
+Square, A Square as themed inhabitants). Pinning scenario:
+\reposrc{e2e/features/makers/dev-fixtures.feature}.
+
+\chapter{Publishing with the visual novel maker}
+The \emph{Launch Visual Novel Maker} button opens \texttt{/vn-maker} ---
+same federated-remote shape, different data model. The VN maker is
+godot-2d-visual-novel-shaped: a project holds \emph{acts}; each act
+holds \emph{scenes}; each scene holds an ordered list of \emph{lines}
+spoken by \emph{characters}; lines can branch via \emph{choices} that
+target other scenes.
+
+The build pipeline is identical to the RPG maker: QUEUED $\rightarrow$
+RENDERING $\rightarrow$ EXPORTING $\rightarrow$ UPLOADING $\rightarrow$
+DONE. Each act becomes a Chapter in the BFF, exported as its own
+\texttt{bundle/<act-slug>/index.html} on the wasm-fragment proxy.
+
+A few VN-specific gotchas:
+
+\begin{itemize}
+  \item Character colours must look like \texttt{\#rgb} or
+        \texttt{\#rrggbb} --- the maker rejects anything else inline.
+  \item Every choice needs a target scene; submitting one without a
+        target shows ``target scene is required.''
+  \item There is exactly one \emph{entry point} scene per act ---
+        the rest are reachable only via choices or fall-through.
+\end{itemize}
+
+Pinning scenario: \reposrc{e2e/features/makers/vn-maker.feature}
+covers both the inline-validation errors and the full
+build-then-a-player-can-run loop.
+
+\chapter{Session visibility on your games}
+A session created in any of your games has a
+\texttt{visibility} setting: \texttt{public}, \texttt{friends},
+or \texttt{private}.
+
+\begin{itemize}
+  \item \texttt{public} --- shows up in every player's lobby for that
+        game (subject to the caller's blocklist).
+  \item \texttt{friends} --- shows up only in the lobbies of the
+        creator's mutual friends. Strangers don't even see the row.
+  \item \texttt{private} --- shows up nowhere except the creator's
+        own lobby; joining is by invite only.
+\end{itemize}
+
+The filter lives in \snapfile{MultiplayerSessionController.listOpen};
+\snapfile{user\_relationships} is the single graph table behind it.
+Pinning scenarios:
+\reposrc{e2e/features/lobby/session-visibility.feature} (the
+visibility tiers from a stranger's perspective) +
+\reposrc{e2e/features/social/friends-and-blocks.feature} (the
+friend-graph happy path).
+
+Why this matters for publishers: the visibility setting is per-session
+state, not per-game policy --- it's the player's choice, not yours.
+But it interacts with your \texttt{game\_access} rules: a player who
+isn't in \texttt{game\_access} for your game can't see \emph{any} of
+its sessions regardless of visibility, because the game-list step
+runs first.
+
 \chapter{Common fires}
 \begin{itemize}
   \item \textbf{\texttt{/publisher} shows a 403 banner.} Casdoor
