@@ -73,9 +73,17 @@ The TLS conf had drifted from the plain conf — it was missing `Cross-Origin-Re
 
 Three steps to drop both `'unsafe-eval'` and `'unsafe-inline'`:
 
-### Step 1 — externalise `esms-options`  ✅ DONE (#54 follow-up)
+### Step 1 — externalise `esms-options`  🟡 PARTIAL (#54 follow-up)
 
-The inline `<script type="esms-options">{ "shimMode": true }</script>` block in `frontend/src/index.html` is now `<script src="assets/esms-init.js"></script>`, where the new file sets `window.esmsInitOptions = { shimMode: true }` BEFORE es-module-shims.js loads. es-module-shims accepts both option-delivery paths (inline `type="esms-options"` AND the global). Both `nginx.conf` and `nginx-tls.conf` now ship CSP **without** `script-src 'unsafe-inline'`.
+The inline `<script type="esms-options">{ "shimMode": true }</script>` block in `frontend/src/index.html` is now `<script src="assets/esms-init.js"></script>`, where the new file sets `window.esmsInitOptions = { shimMode: true }` BEFORE es-module-shims.js loads. es-module-shims accepts both option-delivery paths (inline `type="esms-options"` AND the global). The native-federation builder ALSO auto-injects an inline `esms-options` block in the body during post-processing; a `sed -e 's|<script type="esms-options">[^<]*</script>||g'` step in `frontend/Dockerfile` strips it after the build.
+
+**However:** the live e2e on the resulting build showed three OTHER inline-script paths still active, so `'unsafe-inline'` could NOT come out of `script-src` yet. The token is documented as still load-bearing for:
+
+1. **`es-module-shims.js` itself dynamically injects inline `<script>` blocks** for each rewritten ESM module. Blocking inline → federation runtime can't load any remote → SPA blank-screens.
+2. **Angular beasties build optimisation** emits `<link rel="stylesheet" href="…" media="print" onload="this.media='all'">` — an inline event handler that CSP counts under `script-src 'unsafe-inline'`.
+3. **Godot bundle injects an inline boot script inside an `about:srcdoc` iframe** — the iframe inherits the document CSP.
+
+Each is its own follow-up before the token can come out (move beasties to runtime stylesheet load; nonce-flow the dynamic script tags es-module-shims emits — or wait for step 2 to drop shimMode entirely; iframe-side CSP override on the wasm-fragment proxy). The `esms-options` externalisation is the cheapest of the four and stays as the cleanest example of the strict-CSP migration shape.
 
 ### Step 2 — disable `shimMode`  🚧 BLOCKED on federation builder
 
