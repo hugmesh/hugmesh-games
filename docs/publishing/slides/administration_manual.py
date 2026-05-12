@@ -49,6 +49,32 @@ SECTIONS = [
         "dark": True,
     },
     {
+        "title": "LAN access, TLS, and the prod overlay",
+        "body": [
+            "Plain `docker compose up -d` binds frontend + Postgres to 127.0.0.1 (safe on shared Wi-Fi).",
+            "Opt in via lan.properties — literal FRONTEND_BIND=0.0.0.0:, no boolean indirection.",
+            "make lan-up                — bind frontend to 0.0.0.0:8080 over plain HTTP.",
+            "make lan-up-tls            — same, but wrap in HTTPS (self-signed cert; SAN includes detected LAN IPs).",
+            "make lan-info              — print reachable URLs.",
+            "Prod overlay (compose.prod.yml) adds nginx rate-limit zones; sized for ~10 000 concurrent users.",
+            "PROD_FRONTEND_BIND defaults to loopback (assumes upstream LB / TLS terminator); flip to 0.0.0.0: for single-VM deploys.",
+        ],
+        "dark": True,
+    },
+    {
+        "title": "Nginx rate-limit zones (production)",
+        "body": [
+            "browse     — 100 r/s, burst 200 (delay)     — SPA shell + static.",
+            "api        — 50 r/s,  burst 150 (delay)     — /api/* catch-all.",
+            "sse        — 30 r/s,  burst 100 (nodelay)   — /api/game/stream.",
+            "auth       — 5 r/s,   burst 20  (nodelay)   — /api/auth/*.",
+            "admin      — 5 r/s,   burst 20  (nodelay)   — /api/admin/*.",
+            "maker_api  — 10 r/s,  burst 40  (delay)     — /api/rpg/*, /api/vn/*.",
+            "Plus limit_conn conn_per_ip 40. Tripped requests return 429 (not 503).",
+            "Decision 019 has the full table. The BFF's per-pod RateLimitFilter still runs at the controller level — these are edge caps.",
+        ],
+    },
+    {
         "title": "Required user-tooling on the host",
         "body": [
             "Docker 29.x: requires docker-buildx. User-local install at ~/.docker/cli-plugins/docker-buildx (no sudo).",
@@ -172,6 +198,39 @@ SECTIONS = [
             "Each role has its own federated remote at /admin /mod /publisher.",
         ],
         "dark": True,
+    },
+    {
+        "title": "Granting mod / publisher scope",
+        "body": [
+            "Two-layer auth: Casdoor owns the role membership, Postgres owns the per-game scope.",
+            "Holding ROLE_MOD with no mod_game_scopes row authenticates but 403s every mod action.",
+            "POST /api/admin/role-grants/grant-mod { casdoorId, gameSlug } — admin-only mutation.",
+            "POST /api/admin/role-grants/revoke-mod is the inverse. Same shape for publisher.",
+            "Rejection matrix pinned by e2e/features/security/mod-grant-gates.feature (unauth 401, plain player 403, wrong-scope publisher 403).",
+        ],
+    },
+    {
+        "title": "Session log + admin observation",
+        "body": [
+            "GET /api/session-logs/me                — caller's own history (any authenticated user).",
+            "GET /api/session-logs/admin/{casdoorId} — admin-only (403 for anyone else).",
+            "GET /api/session-logs/scoped/{casdoorId} — mod/publisher with matching game scope.",
+            "/api/admin/sessions/{id}/stream         — merges movement + world + character + view per-session sinks.",
+            "Per-player view channel ($\\sim$10 Hz camera samples) makes the admin observation feed useful.",
+            "Three role boundaries pinned by e2e/features/admin/session-log.feature.",
+        ],
+        "dark": True,
+    },
+    {
+        "title": "Maker side services (RPG + VN)",
+        "body": [
+            "Two separate Spring Boot services with their own Postgres instances.",
+            "rpg-builder/  — Mudlet-shaped (areas/rooms/exits/items/NPCs). /api/rpg/* endpoints.",
+            "vn-builder/   — godot-2d-visual-novel-shaped (acts/scenes/lines/choices). /api/vn/* endpoints.",
+            "Publisher consoles expose 'Launch RPG Maker' / 'Launch Visual Novel Maker' buttons.",
+            "Build pipeline: QUEUED → RENDERING → EXPORTING → UPLOADING → DONE → BFF /api/admin/games/upload.",
+            "publisher-flatland seed user auto-grants scope on flatland-rpg + flatland-vn (Liquibase 038).",
+        ],
     },
     {
         "title": "Debug-mode toggle for diagnostics",

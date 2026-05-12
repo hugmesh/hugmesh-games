@@ -176,6 +176,29 @@ SECTIONS = [
         "dark": True,
     },
     {
+        "title": "Friends, blocks, session visibility",
+        "body": [
+            "Single user_relationships graph table backs both features.",
+            "Friends are mutual (two `friend` rows). Blocks are one-directional (one `blocked` row).",
+            "Sessions have a visibility tier: public / friends / private.",
+            "Lobby filter (MultiplayerSessionController.listOpen) runs against caller's friend graph + blocklist BEFORE returning.",
+            "Publishers can't be blocked at the data layer; admins can't be blocked at the controller layer.",
+            "Pinning: e2e/features/social/friends-and-blocks.feature + lobby/session-visibility.feature.",
+        ],
+        "dark": True,
+    },
+    {
+        "title": "RPG + VN makers (no Godot editor needed)",
+        "body": [
+            "/rpg-maker — Mudlet-shaped editor (areas/rooms/exits/items/NPCs). Federated remote.",
+            "/vn-maker  — godot-2d-visual-novel-shaped editor (acts/scenes/lines/choices). Federated remote.",
+            "Backed by rpg-builder + vn-builder side services; each has its own Postgres + Liquibase.",
+            "Build pipeline: walks the tree → renders Godot 4 source → runs godot --export-release → POST /api/admin/games/upload.",
+            "Bundles ship snapdragon_bridge.gdextension baked in — multiplayer-aware out of the box.",
+            "publisher-flatland seed user opens pre-seeded Flatland projects, ready to build.",
+        ],
+    },
+    {
         "title": "Common gotchas",
         "body": [
             "Sinks without autoCancel=false die on the first reconnect.",

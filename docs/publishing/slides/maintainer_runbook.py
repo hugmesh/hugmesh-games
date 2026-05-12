@@ -121,6 +121,40 @@ SECTIONS = [
         ],
     },
     {
+        "title": "Runbook 8: Session leak between players",
+        "body": [
+            "Symptom: player in session A sees a player from session B on their screen.",
+            "Step 1 — `./mvnw test -Dtest=SessionIsolationTest`. Failing test = regression in GameStateService.",
+            "Step 2 — Confirm the recent diff didn't drop the 3-arg applyControl(event, characterId, sessionId).",
+            "Step 3 — `docker compose exec api curl localhost:8080/api/admin/sessions/{leak-id}/stream` — see what's fanning out.",
+            "Step 4 — Mitigation: restart BFF (drops every sink; subscribers re-create with correct ?sessionId= filter).",
+            "Pinning: SessionIsolationTest + e2e/features/multiplayer/rpg-two-players.feature.",
+        ],
+        "dark": True,
+    },
+    {
+        "title": "Runbook 9: Mod / publisher 403 on a game they should own",
+        "body": [
+            "Symptom: mod-three-wizards or publisher-three-wizards gets 403 on their named game.",
+            "99% of the time: mod_game_scopes / publisher_game_scopes row missing or wrong game_slug.",
+            "Casdoor owns role (necessary); Postgres owns scope (sufficient). Check both layers.",
+            "Confirm role: curl /api/admin/users/{casdoorId} | jq .roles",
+            "Confirm scope: psql -c \"SELECT * FROM mod_game_scopes WHERE casdoor_id='...'\"",
+            "Fix: POST /api/admin/role-grants/grant-mod (or grant-publisher). 038-flatland-publisher-scopes.xml is the worked example.",
+        ],
+    },
+    {
+        "title": "Runbook 10: 'Couldn't reach X' federated remote (TLS-only)",
+        "body": [
+            "Symptom: ONE remote fails to load behind TLS while others work.",
+            "Cause: frontend/nginx-tls.conf drifted from frontend/nginx.conf — missing /_remotes/<slug>/ proxy block.",
+            "Step 1 — `diff frontend/nginx.conf frontend/nginx-tls.conf | grep _remotes`. The missing block names the guilty remote.",
+            "Step 2 — Copy the missing block into nginx-tls.conf (same location prefix, same proxy_pass).",
+            "Step 3 — `docker compose restart frontend` (<5 s reload).",
+            "Same rule for /api/<sub-service>/ blocks (/api/rpg/, /api/vn/) — maker side services need TLS proxy too.",
+        ],
+    },
+    {
         "title": "Backup and restore",
         "body": [
             "Postgres        — pg_dump from inside the container; `volumes/postgres-data` is the canonical source.",
@@ -159,6 +193,7 @@ SECTIONS = [
             "Postgres connection pool gauge — ~13 baseline; sustained spikes to 20+ mean a leak.",
             "Casdoor login rate — sudden zero usually means the login remote is down.",
             "Disk usage on `app.uploads.games-dir` — GameUploadPruner caps it but nothing automatic alarms on it.",
+            "rate_limit_events (Cassandra, 90s TTL): SELECT COUNT(*) trending toward zone burst = traffic being shaped.",
         ],
     },
     {
