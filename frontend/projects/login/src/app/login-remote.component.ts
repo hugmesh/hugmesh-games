@@ -114,14 +114,14 @@ const STORAGE_KEY = 'tw_auth';
     .game-title span { background: linear-gradient(135deg, #7c4dff 0%, #b388ff 100%);
                        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
                        background-clip: text; }
-    .subtitle { color: #7070a0; font-size: 0.95rem; margin: 0 0 32px; line-height: 1.5; }
+    .subtitle { color: #a8acc4; font-size: 0.95rem; margin: 0 0 32px; line-height: 1.5; }
     .login-form { display: flex; flex-direction: column; gap: 12px; }
     .field { text-align: left; }
     .input { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid #1e1e32;
              border-radius: 8px; padding: 12px 16px; color: #e8e8f0; font-size: 0.95rem;
              outline: none; box-sizing: border-box;
              transition: border-color 0.2s, box-shadow 0.2s; }
-    .input::placeholder { color: #7070a0; }
+    .input::placeholder { color: #a8acc4; }
     .input:focus { border-color: #7c4dff; box-shadow: 0 0 0 2px rgba(124,77,255,0.2); }
     .error-msg { color: #ff6b6b; font-size: 0.85rem; margin: 0; text-align: left;
                  min-height: 1.2em; /* reserve space so the layout doesn't jump
@@ -150,7 +150,7 @@ const STORAGE_KEY = 'tw_auth';
                                       transform: translateY(-1px); }
     .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
     .btn-icon { font-size: 1.1rem; }
-    .login-note { color: #7070a0; font-size: 0.75rem; margin: 20px 0 0; opacity: 0.7; line-height: 1.6; }
+    .login-note { color: #a8acc4; font-size: 0.75rem; margin: 20px 0 0; opacity: 0.7; line-height: 1.6; }
     .login-source { display: block; margin-top: 6px; font-size: 0.7rem; opacity: 0.85; }
     .login-source code { background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; }
   `],

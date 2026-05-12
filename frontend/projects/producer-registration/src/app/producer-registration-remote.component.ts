@@ -103,7 +103,7 @@ import { HttpClient } from '@angular/common/http';
     h1 span { background: linear-gradient(135deg,#7c4dff,#b388ff);
               -webkit-background-clip: text;
               -webkit-text-fill-color: transparent; }
-    .subtitle { color: #7070a0; font-size: 0.95rem; line-height: 1.5;
+    .subtitle { color: #a8acc4; font-size: 0.95rem; line-height: 1.5;
                 margin: 0 0 24px; text-align: center; }
     form { display: flex; flex-direction: column; gap: 14px; }
     label { display: flex; flex-direction: column; gap: 4px;
