@@ -86,6 +86,34 @@ app:
     enabled: ${APP_REVOCATION_ENABLED:true}
     refresh-interval-ms: ${APP_REVOCATION_REFRESH_MS:5000}
 
+  # Upload storage strategy for hot-uploaded game bundles. Two backends:
+  #   filesystem (default) — bundle files land under `games-dir` on the
+  #                          BFF host's filesystem. Same behaviour the
+  #                          platform shipped with; no new infra needed.
+  #   s3                    — bundle files land in an S3-compatible
+  #                          bucket. compose ships a `minio` container
+  #                          for dev; prod points the four `s3.*` knobs
+  #                          at a real bucket (or any S3-compatible
+  #                          service: Cloudflare R2, Backblaze B2, etc.).
+  #
+  # Picking `s3` removes the single-host disk-pressure failure mode and
+  # is the precondition for horizontally scaling the BFF beyond one host.
+  uploads:
+    storage: ${APP_UPLOADS_STORAGE:filesystem}
+    games-dir: ${APP_UPLOADS_GAMES_DIR:/var/snapdragon/games}
+    versions-to-keep: ${APP_UPLOADS_VERSIONS_TO_KEEP:3}
+    s3:
+      endpoint:   ${APP_UPLOADS_S3_ENDPOINT:}
+      region:     ${APP_UPLOADS_S3_REGION:us-east-1}
+      access-key: ${APP_UPLOADS_S3_ACCESS_KEY:}
+      secret-key: ${APP_UPLOADS_S3_SECRET_KEY:}
+      bucket:     ${APP_UPLOADS_S3_BUCKET:snapdragon-uploads}
+      # path-style URLs (bucket-in-path, not bucket-as-subdomain) are
+      # the MinIO + many third-party S3 clones' required dialect.
+      # AWS proper accepts both; flip to false only if you target a
+      # subdomain-style bucket on real AWS.
+      path-style: ${APP_UPLOADS_S3_PATH_STYLE:true}
+
 # Resilience4j — wraps the cluster-wide Cassandra calls inside
 # RateLimitFilter. An open breaker means subsequent requests skip
 # the cluster check (fall back to local-bucket only) instead of

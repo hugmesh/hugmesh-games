@@ -42,6 +42,7 @@ class GameUploadServiceTest {
         when(cf.getMetadata()).thenReturn(md);
         return new GameUploadService(
                 tempDir.toString(),
+                new games.snapdragon.bff.upload.FilesystemUploadStorage(tempDir),
                 mock(GameUploadRepository.class),
                 cf,
                 mock(TransactionalOperator.class)

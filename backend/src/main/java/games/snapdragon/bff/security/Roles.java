@@ -105,4 +105,18 @@ public final class Roles {
     public static Set<String> setFromJwt(Jwt jwt) {
         return Set.copyOf(fromJwt(jwt));
     }
+
+    /**
+     * The Casdoor user id (a.k.a. the JWT {@code sub} claim). Used by
+     * {@link games.snapdragon.bff.config.RateLimitFilter} to key the
+     * revocation-list lookup, and by anywhere else that needs a stable
+     * per-user identifier without re-walking the claim map.
+     *
+     * <p>Returns {@code null} when the JWT has no subject, which is
+     * unusual but possible for tokens minted by misconfigured external
+     * providers. Callers must null-check.
+     */
+    public static String casdoorIdOf(Jwt jwt) {
+        return jwt == null ? null : jwt.getSubject();
+    }
 }

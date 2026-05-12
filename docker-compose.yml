@@ -135,6 +135,50 @@ services:
     entrypoint: ["sh", "-c", "cqlsh cassandra 9042 -f /init.cql && echo '✓ keyspace ready'"]
     restart: "no"
 
+  minio:
+    # S3-compatible object store for game-bundle uploads when
+    # APP_UPLOADS_STORAGE=s3. The filesystem strategy stays the default so
+    # vanilla `docker compose up -d` keeps working without this container —
+    # spin minio up explicitly via `docker compose up -d minio` or by
+    # flipping APP_UPLOADS_STORAGE in .env.
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-snapdragon-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-snapdragon-minio-pass}
+    ports:
+      # S3 API on 9000; web console on 9001 (handy for poking at the
+      # bucket from a browser during dev).
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio-init:
+    # One-shot bucket creation against the running minio so the api
+    # container doesn't have to handle bucket-not-found on first write.
+    # Idempotent — `mc mb --ignore-existing` is a no-op on re-run.
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-snapdragon-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-snapdragon-minio-pass}
+      APP_UPLOADS_S3_BUCKET: ${APP_UPLOADS_S3_BUCKET:-snapdragon-uploads}
+    entrypoint: |
+      /bin/sh -c "
+        mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+        mc mb --ignore-existing local/\"$$APP_UPLOADS_S3_BUCKET\" &&
+        echo '✓ bucket ready'
+      "
+    restart: "no"
+
   api:
     image: snapdragon-games/bff:${SNAPDRAGON_TAG:-dev}
     build: ./backend
@@ -436,3 +480,4 @@ volumes:
   rpg_assets:
   vn_builds:
   vn_assets:
+  minio-data:

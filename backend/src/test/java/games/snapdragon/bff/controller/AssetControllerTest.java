@@ -27,12 +27,15 @@ class AssetControllerTest {
 
     private GameLaunchRepository launches() { return mock(GameLaunchRepository.class); }
     private GameRepository games() { return mock(GameRepository.class); }
+    private games.snapdragon.bff.upload.UploadStorage storage() {
+        return new games.snapdragon.bff.upload.FilesystemUploadStorage(
+                java.nio.file.Path.of("/var/snapdragon/games"));
+    }
 
     @Test
     void legacyPath403sWhenRequireLaunchUidIsOn() {
-        AssetController ctl = new AssetController(launches(), games(),
-                /* requireLaunchUid */ true,
-                "/var/snapdragon/games");
+        AssetController ctl = new AssetController(launches(), games(), storage(),
+                /* requireLaunchUid */ true);
 
         StepVerifier.create(ctl.getLevelAsset("dodecahedron", "index.wasm"))
                 .expectErrorSatisfies(err -> {
@@ -49,7 +52,7 @@ class AssetControllerTest {
         when(launchRepo.findByUidAndTerminatedAtIsNullAndExpiresAtAfter(anyString(), any(Instant.class)))
                 .thenReturn(Mono.empty());
 
-        AssetController ctl = new AssetController(launchRepo, games(), false, "/var/snapdragon/games");
+        AssetController ctl = new AssetController(launchRepo, games(), storage(), false);
 
         StepVerifier.create(ctl.getLevelAssetByUid("dodecahedron", "bogus-uid", "index.wasm"))
                 .expectErrorSatisfies(err -> {
@@ -72,7 +75,7 @@ class AssetControllerTest {
         when(launchRepo.findByUidAndTerminatedAtIsNullAndExpiresAtAfter(anyString(), any(Instant.class)))
                 .thenReturn(Mono.just(row));
 
-        AssetController ctl = new AssetController(launchRepo, games(), false, "/var/snapdragon/games");
+        AssetController ctl = new AssetController(launchRepo, games(), storage(), false);
 
         StepVerifier.create(ctl.getLevelAssetByUid("cave", "real-uid", "index.wasm"))
                 .expectErrorSatisfies(err -> {
