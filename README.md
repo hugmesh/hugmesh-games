@@ -1300,7 +1300,7 @@ api.resolve_asset(chapter_id, "oak-bark", func(url):
 Level transitions from inside the game are one call:
 
 ```gdscript
-$GameBridge.request_level_transition("field", 2)
+$GameBridge.request_chapter_transition("field", 2)
 ```
 
 See the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md#mid-game-level-transitions) for the full flow.
