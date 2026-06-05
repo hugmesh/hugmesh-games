@@ -75,11 +75,15 @@ JWT role extraction goes through one seam — [`Roles`](backend/src/main/java/ga
 
 The project is organised in three tiers:
 
-```
-Game (a title in the catalog)    e.g. "Three Wizards In A Trenchcoat", "Dodecahedron Demo"
-  └── Chapter (one WASM)         e.g. "The Enchanted Cave", "Spinning Dodecahedron"
-       └── Scene elements        fairies, lights, geometry, NPCs
-            + Chapter assets      custom textures / plugins / sounds
+```mermaid
+flowchart TB
+    Game["<b>Game</b> — a title in the catalog<br/>e.g. Three Wizards In A Trenchcoat, Dodecahedron Demo"]
+    Chapter["<b>Chapter</b> — one WASM bundle<br/>e.g. The Enchanted Cave, Spinning Dodecahedron"]
+    Scene["<b>Scene elements</b><br/>fairies · lights · geometry · NPCs"]
+    Assets["<b>Chapter assets</b><br/>custom textures · plugins · sounds"]
+    Game -->|"one or more"| Chapter
+    Chapter --> Scene
+    Chapter --> Assets
 ```
 
 - A **Game** is one row in the `games` table — it appears as a card on the Snapdragon
@@ -112,216 +116,59 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 
 All browser traffic enters through the **snapdragon-gateway** (Spring Cloud Gateway). The gateway terminates TLS, enforces the primary rate-limit, holds the revocation list (stamps `X-Revoked` on requests from banned keys), and routes `/api/*` to the BFF and everything else to the Angular host nginx. The BFF runs the same revocation + rate-limit checks as defence-in-depth (`RevocationListService` / `RateLimitFilter`), so service-to-service traffic on the compose network that bypasses the gateway stays gated.
 
-```
-  Browser / Player (up to 3)
-  ══════════════════════════════════════════════════════════════════════════════
-  snapdragon-gateway :443 / :80 (Spring Cloud Gateway — TLS terminator)
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │  • Primary rate-limit enforcement (token-bucket, per-key)                │
-  │  • Revocation list — stamps `X-Revoked` on requests from banned keys     │
-  │  • Routes `/api/*`            ──► api (BFF) :8080                        │
-  │  • Routes everything else     ──► host nginx :8080  (SPA + /_remotes/*)  │
-  │  • Optional: snapdragon-id-gateway pairs in front of Casdoor as the      │
-  │    OIDC-aware identity edge (R2DBC route table, `gateway_reader` role)   │
-  └──────────────────────────────────────┬───────────────────────────────────┘
-                                         │ (proxy_pass on compose network)
-  ══════════════════════════════════════ ▼ ══════════════════════════════════
-  Angular host shell :8080 (nginx — same-origin SPA + federated /_remotes/*)
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │                                                                          │
-  │  /login route ──loadComponent──► federated login remote                  │
-  │     LoginRemoteComponent posts /api/auth/token (ROPC proxy)              │
-  │     writes sessionStorage['tw_auth'] (= AuthService.StoredAuth shape)    │
-  │                                                                          │
-  │  HTTP Interceptor attaches Bearer <jwt> to every /api/* request          │
-  │  AuthGuard on every protected route                                      │
-  │  /admin + /admin/games ──loadComponent──► admin remote (AdminShell +     │
-  │     UploadShell — both expose under federation_modules.slug='admin')     │
-  │                                                                          │
-  │  HomeComponent (/)                                                       │
-  │   ngOnInit → SessionService.connect(1) → auto-claims controller role     │
-  │   ngOnInit → window:message listener for TW_LEVEL_TRANSITION             │
-  │   selectLevel(level):                                                    │
-  │     • SCENE_TYPE_TO_GAME_SLUG[sceneType] → federation gameSlug           │
-  │     • POST /api/games/{gameSlug}/launch — mints a launch_uid for audit   │
-  │     • RemoteLoaderService.loadGameRemote(gameSlug) — registers           │
-  │         <app-{slug}-remote> Web Component via createCustomElement        │
-  │   @switch(activeRemoteSlug):                                             │
-  │     'three-wizards' → <app-three-wizards-remote                          │
-  │                          [levelSlug] [levelId] [launchUid]>              │
-  │     'dodecahedron'  → <app-dodecahedron-remote [launchUid]>              │
-  │     fallback        → <app-game-canvas [game]> (legacy iframe path)      │
-  │                                                                          │
-  │   ┌─ iframe src="/_remotes/wasm-fragment/{slug}/index.html?chapter_id=N  │
-  │   │                                       &launch_uid=…&t=…"             │
-  │   │   (federated path; bytes served by wasm-fragment nginx, not BFF)     │
-  │       │                                                                  │
-  │       │   Godot WASM bundle (per-chapter; cave / field / …)              │
-  │       │   ┌──────────────────────────────────────────────────────────┐  │
-  │       │   │  index.html <script> prefetch JSON ────►                  │  │
-  │       │   │    fetch /api/chapters/N/scene (throws on !r.ok)          │  │
-  │       │   │    → window._twSceneConfig on success only                │  │
-  │       │   │                                                           │  │
-  │       │   │  game_bridge.gd                                           │  │
-  │       │   │    EventSource /api/game/stream ──► window._twMovement    │  │
-  │       │   │      Queue (not latest-wins, FIFO, capped 32)             │  │
-  │       │   │    _unhandled_input(KEY_1..5) ──► direct _cast_spell(N)   │  │
-  │       │   │      + parallel POST /api/controls/1 (MP / XP server-side)│  │
-  │       │   │                                                           │  │
-  │       │   │  scene_loader.gd                                          │  │
-  │       │   │    _apply.call_deferred(config) spawns lights/fairies/geo │  │
-  │       │   │    _on_time_updated() rotates DirectionalLight3D (sun)   │  │
-  │       │   │                                                           │  │
-  │       │   │  player_controller.gd   (CharacterBody3D)                 │  │
-  │       │   │    _sse_dir from MOVE_* events → _physics_process velocity│  │
-  │       │   │    HandAnchor Node3D → equipped weapon mesh               │  │
-  │       │   │    _cast_spell(N) → glowing projectile from hand anchor   │  │
-  │       │   │    _use_first_item() on E → POST use-first-item           │  │
-  │       │   └──────────────────────────────────────────────────────────┘  │
-  │       │                                                                  │
-  │       └── window:message TW_LEVEL_TRANSITION caught at HomeComponent ──► │
-  │             GameLibraryService.getLevel(id) → updates activeLevel input  │
-  │             which propagates to the federated remote's [levelSlug] —     │
-  │             the iframe re-renders with the new src (cache-busted by t=). │
-  │                                                                          │
-  │  GameControls (Angular)                                                  │
-  │    WASD / Space / 1-5 / E keyboard + on-screen buttons                   │
-  │    Digit keys 1-5 also fire a CSS spell overlay (always-visible cue)     │
-  │    HUD spell hotbar hydrates from /api/skills/character/1/slots          │
-  │    HUD item quick-slot = first row of /api/items/character/1/inventory   │
-  └──────────────────────────────┬───────────────────────────────────────────┘
-                                 │ /api/* (gateway → api:8080)
-  ══════════════════════════════ │ ═══════════════════════════════════════════
-  Spring Boot API :8080          ▼    (WebFlux, R2DBC + JDBC-for-Liquibase)
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │                                                                          │
-  │  SecurityConfig (WebFlux)                                                │
-  │  • /api/auth/**  → permitAll                                             │
-  │  • /api/admin/** → ROLE_ADMIN                                            │
-  │  • /api/characters|skills|items|quests|sessions/** → authenticated       │
-  │  • /api/security/{csp-report, appeal-contact}    → permitAll (anon)      │
-  │  • X-Frame-Options: SAMEORIGIN so the iframe can embed WASM              │
-  │  • JWT RS256 verified via ${CASDOOR}/.well-known/jwks (public)           │
-  │                                                                          │
-  │  RateLimitFilter + RevocationListService — defence-in-depth mirror of   │
-  │    the gateway's primary checks; same Cassandra-backed cluster store    │
-  │    (DistributedRateLimitService → `rate_limit_events`, 90 s TTL).       │
-  │                                                                          │
-  │  CasdoorAuthController                                                   │
-  │  POST /api/auth/token ──► ROPC proxy to Casdoor (client_secret server)   │
-  │                                                                          │
-  │  SessionController                 ControlController                     │
-  │  POST /api/sessions/connect        POST /api/controls/{charId}           │
-  │  POST /api/sessions/control          checks X-Casdoor-Id matches the     │
-  │  DELETE /api/sessions/me             holder of the controller role      │
-  │  GET   /api/sessions/history         → 403 if not; else applyControl()   │
-  │                                                                          │
-  │  GameStreamController ── GET /api/game/stream (text/event-stream)        │
-  │    Flux.merge(movement$, world$, character$, time$, scene$) + keepalive  │
-  │    Flux.interval(Duration.ZERO, 15s) keepalive → first flush at t=0      │
-  │                                                                          │
-  │                                                                          │
-  │  GameStateService                                                        │
-  │  ┌──────────────────────────────────────────────────────────────────┐    │
-  │  │ Sinks.many().multicast().onBackpressureBuffer(N, autoCancel=false)│   │
-  │  │  • movementSink  (PlayerMovement)                                │    │
-  │  │  • worldSink     (WorldState tick + everyone's positions)        │    │
-  │  │  • charStatSink  (CharacterDto HP/MP/XP/level)                   │    │
-  │  │  • sceneSink     (SceneEvent chapter_id + payload)               │    │
-  │  │  autoCancel=false is critical — default true terminates the sink │    │
-  │  │  when all subscribers disconnect, silently killing the stream.   │    │
-  │  └──────────────────────────────────────────────────────────────────┘    │
-  │                                                                          │
-  │  applyControl(ControlEvent, characterId):                                │
-  │    MOVE_*  → mutate PlayerState position                                 │
-  │    JUMP    → mutate PlayerState y                                        │
-  │    other   → no position change; emit still fires                        │
-  │    gate: posChanged || actionChanged || pressedChanged                   │
-  │           (pressedChanged catches keyup of held directions)              │
-  │                                                                          │
-  │  GameTimeService                 CharacterController                     │
-  │  scheduler: 10s real = 1 min     PUT  /characters/{id}/quests/{qid}/     │
-  │  persists to game_time_state     complete → grants reward_skill_id       │
-  │  emits time$ each tick           POST /characters/{id}/use-first-item    │
-  │                                                                          │
-  │  ┌─────────────────────────────────────────────────────────────────┐   │
-  │  │  PostgreSQL (R2DBC runtime + HikariDataSource for Liquibase)     │   │
-  │  │                                                                   │   │
-  │  │  games → chapters → scene_elements     skills ← character_skills  │   │
-  │  │          (per-chapter WASM asset_url)   quests ← character_quests │   │
-  │  │  chapter_prerequisites ── quests        items  ← character_items  │   │
-  │  │  chapter_assets (user textures/plugins)  ← character_equipment    │   │
-  │  │  player_characters    player_sessions   character_skill_slots     │   │
-  │  │  player_positions  ── NOTIFY trigger    game_time_state           │   │
-  │  └──────────────────────────┬──────────────────────────────────────┘   │
-  │                             │                                            │
-  │  PgNotificationService ◄────┘ LISTEN game_events                        │
-  │    → feeds sceneSink                                                     │
-  │                                                                          │
-  │  AssetController (legacy fallback path)                                  │
-  │    GET /api/assets/levels/{slug}/{file}     → DB version_dir → file     │
-  │       (or classpath fallback when no hot upload exists for the slug)    │
-  │    GET /api/assets/levels/{slug}/{uid}/{f}  → launch-uid-gated variant  │
-  │       (active under app.assets.require-launch-uid; see PLAN section H)   │
-  │    GET /api/assets/{filename}                → root-level static asset   │
-  │  Note: federated path (cave/field/dodecahedron) bypasses this entirely  │
-  │        — bytes flow through wasm-fragment nginx at /_remotes/wasm-      │
-  │        fragment/<slug>/<file> directly. AssetController serves only as  │
-  │        a fallback for sceneTypes outside SCENE_TYPE_TO_GAME_SLUG and    │
-  │        for the launch-uid-gated path on hot-uploaded games.             │
-  │                                                                          │
-  │  GameUploadController + Service (admin only, ROLE_ADMIN)                 │
-  │    POST /api/admin/games/upload — multipart bundle zip                  │
-  │      → validate manifest_json schema_version=2 + slug regex             │
-  │      → SHA-256 bundle/ tree → version_dir name                          │
-  │      → atomic move to <gamesDir>/<slug>/<sha-prefix>/                   │
-  │      → ONE R2DBC tx: insert game_uploads + run register.sql + UPDATE   │
-  │         games.current_version_dir + supersede prior uploads             │
-  │    @Scheduled GameUploadPruner — keep last N version_dir trees per slug │
-  │                                                                          │
-  │  GameLaunchController (mints + tracks per-session launch UIDs)           │
-  │    POST   /api/games/{slug}/launch     — 256-bit URL-safe uid           │
-  │    DELETE /api/games/launches/{uid}    — self-terminate                 │
-  │    DELETE /api/admin/launches/{uid}    — admin force-revoke (ROLE_ADMIN)│
-  │    @Scheduled GameLaunchSweeper — bulk-terminate expired launches       │
-  │                                                                          │
-  │  FederationController                                                    │
-  │    GET /api/federation/manifest — DB-backed federation_modules rows    │
-  │       (Angular host calls this BEFORE bootstrap, feeds into             │
-  │        initFederation; the host's main.ts also stashes loadRemoteModule │
-  │        on globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__ so app.routes    │
-  │        can lazy-load federated routes without a static import).        │
-  │                                                                          │
-  │  GameAccessController + RoleProxyController (admin only)                 │
-  │    POST /api/admin/games/{slug}/access      — grant scope:all|role|user│
-  │    DELETE /api/admin/games/{slug}/access    — revoke                   │
-  │    GET  /api/admin/roles                    — proxy Casdoor /get-roles │
-  │                                                                          │
-  └──────────────────────────────────────────────────────────────────────────┘
-  │  ▲   /api/* (BFF data + auth + admin)
-  │  │   /_remotes/wasm-fragment/<slug>/index.{html,js,wasm,pck}
-  │  │   /_remotes/{login,admin,games-three-wizards,games-dodecahedron}/...
-  ▼  │                       (federation manifest URLs, all proxied to
-  ┌──┴───────────────────────  same-origin through host nginx)
-  │  Federated remotes — per-service nginx, baked-in @angular-architects/
-  │  native-federation:build output. Each ships:
-  │   • remoteEntry.json — exposed modules + shared deps manifest
-  │   • exposed module bundle(s) — loaded on first reference
-  │   • COOP/COEP/CORP headers consistent with the host shell
-  │  wasm-fragment additionally bakes in /assets/levels/<slug>/ from the
-  │  api jar's classpath — the binary asset path bypasses the BFF entirely.
-  └──────────────────────────────────────────────────────────────────────────
-                    │ internal Docker network only
-  ──────────────────┼───────────────────────────────────────────────────────────
-  Casdoor :8000     ▼   (no host port binding — unreachable from the browser)
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │  entrypoint.sh renders init_data.json from env vars or random secrets   │
-  │  Prints client-id / client-secret / passwords on first-run              │
-  │                                                                          │
-  │  POST /api/login/oauth/access_token   ← ROPC grant (proxied by API)     │
-  │  GET  /.well-known/jwks               ← RS256 public keys (anonymous)   │
-  │       ⚠ /api/get-jwks requires admin auth — DO NOT use for verify       │
-  └──────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Player(["Browser / Player<br/>(up to 3 concurrent · 1 holds controller role)"])
+
+    subgraph gw["snapdragon-gateway :443 / :80 — Spring Cloud Gateway (TLS terminator)"]
+        GW["Primary token-bucket rate-limit (per-key)<br/>Revocation list — stamps X-Revoked on banned keys<br/>Routes /api/* and everything else"]
+        IDGW["snapdragon-id-gateway (optional)<br/>OIDC-aware identity edge in front of Casdoor"]
+    end
+
+    subgraph host["Angular host shell :8080 — nginx (same-origin SPA + /_remotes/*)"]
+        Shell["Host shell<br/>HTTP interceptor adds Bearer JWT · AuthGuard<br/>/login · /admin · HomeComponent → selectLevel()"]
+        Remote["Federated game remote<br/>app-(slug)-remote Web Component<br/>three-wizards · dodecahedron · legacy game-canvas"]
+        subgraph iframe["iframe — Godot WASM bundle (per chapter)"]
+            Bridge["game_bridge.gd<br/>EventSource /api/game/stream → movement queue (FIFO, cap 32)<br/>_unhandled_input(KEY_1..5) → _cast_spell(N)"]
+            SceneLoader["scene_loader.gd<br/>spawns lights / fairies / geometry · rotates the sun"]
+            PlayerCtl["player_controller.gd (CharacterBody3D)<br/>SSE dir → velocity · spells · use-first-item"]
+        end
+        Controls["GameControls (Angular)<br/>WASD / Space / 1-5 / E + on-screen buttons<br/>HUD hotbar + item quick-slot"]
+    end
+
+    subgraph api["Spring Boot API :8080 — WebFlux, R2DBC + JDBC-for-Liquibase"]
+        Sec["SecurityConfig + RateLimitFilter + RevocationListService<br/>JWT RS256 via Casdoor JWKS · defence-in-depth mirror"]
+        Stream["GameStreamController — GET /api/game/stream (SSE)<br/>Flux.merge(movement$, world$, character$, time$, scene$) + keepalive"]
+        State["GameStateService<br/>Sinks.many().multicast().onBackpressureBuffer(N, autoCancel=false)<br/>movement · world · character · scene sinks"]
+        Ctrls["Controllers — Session · Control · Character · Asset<br/>GameUpload · GameLaunch · Federation · GameAccess"]
+        PG[("PostgreSQL — R2DBC runtime + Hikari for Liquibase<br/>games → chapters → scene_elements<br/>characters · quests · sessions · positions")]
+        PgNotify["PgNotificationService<br/>LISTEN game_events → sceneSink"]
+    end
+
+    subgraph remotes["Federated remotes — per-service nginx"]
+        FedRemotes["login · admin · games-three-wizards · games-dodecahedron<br/>remoteEntry.json + exposed bundles + COOP/COEP/CORP"]
+        WasmFrag["wasm-fragment nginx<br/>bakes /assets/levels/(slug)/ — binary asset path<br/>bypasses the BFF entirely"]
+    end
+
+    Casdoor["Casdoor :8000 — internal only (no host port binding)<br/>POST /api/login/oauth/access_token (ROPC, proxied)<br/>GET /.well-known/jwks (RS256 public keys)"]
+
+    Player --> GW
+    GW -->|"/api/* → api:8080"| Sec
+    GW -->|"everything else → host nginx"| Shell
+    IDGW -.-> Casdoor
+    Shell --> Remote --> iframe
+    Shell --> Controls
+    Controls -->|"POST /api/controls/{id} + X-Casdoor-Id"| Ctrls
+    Bridge -->|"GET /api/game/stream"| Stream
+    iframe -->|"/_remotes/wasm-fragment/{slug}/*"| WasmFrag
+    Shell -->|"/_remotes/{login,admin,games-*}/*"| FedRemotes
+    Sec --> Ctrls
+    Ctrls --> State
+    State --> Stream
+    Ctrls --> PG
+    PG --> PgNotify
+    PgNotify --> State
+    Sec -->|"ROPC proxy + JWKS verify"| Casdoor
 ```
 
 ### Key architectural decisions
@@ -388,70 +235,50 @@ The host's `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (
 
 ### HUD layout
 
-```
- ┌──────────────────────────────────────────────── canvas-section ───────┐
- │  ╔═══════════════════════════════════════════════════════════════════╗ │
- │  ║                                                                   ║ │
- │  ║                        Godot iframe                               ║ │
- │  ║                  (per-level WASM bundle)                          ║ │
- │  ║                                                                   ║ │
- │  ╚═══════════════════════════════════════════════════════════════════╝ │
- │  ┌──── hud-layer (pointer-events: none) ─────────────────────────────┐ │
- │  │                                                                    │ │
- │  │  app-game-hud   (HP / MP / position / session badge)              │ │
- │  │  app-game-controls                                                 │ │
- │  │                                                                    │ │
- │  │    [W]                              ┌─────── hotbar ─────────┐     │ │
- │  │  [A][S][D]                          │ 🔥 ❄ ⚡ 🪨 ✨  │  🧪 ×3 │     │ │
- │  │    [SPACE]                          │  1  2  3  4  5   │   E  │     │ │
- │  │  (bottom-left)                      └────── bottom-center ────┘    │ │
- │  │                                     (mana cost shown per slot;    │ │
- │  │                                      item slot = first inventory  │ │
- │  │                                      row, consumed on E press)    │ │
- │  └────────────────────────────────────────────────────────────────────┘ │
- └────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph canvas["canvas-section"]
+        Godot["Godot iframe<br/>(per-chapter WASM bundle)"]
+        subgraph hud["hud-layer · pointer-events: none"]
+            HudInfo["app-game-hud<br/>HP / MP / position / session badge"]
+            Move["app-game-controls (bottom-left)<br/>W · A S D · SPACE"]
+            Hotbar["hotbar (bottom-center)<br/>🔥 ❄ ⚡ 🪨 ✨ → slots 1-5 · mana cost per slot<br/>🧪 ×3 → item slot E · first inventory row, consumed on E press"]
+        end
+    end
+    Godot -.->|"HUD overlays the canvas"| hud
 ```
 
 ### Input flow — keypress to visible effect
 
-```
-  ┌────────── parent window (Angular) ──────────┐     ┌───── iframe (Godot WASM) ─────┐
-  │                                             │     │                               │
-  │  keydown '1'                                │     │  keydown '1' (KEY_1)           │
-  │   │                                         │     │   │                            │
-  │   ▼                                         │     │   ▼                            │
-  │  game-controls.onKeyDown                    │     │  game_bridge._unhandled_input  │
-  │   ├── _fireSpellOverlay(1)                  │     │   ├── player._cast_spell(1)   │
-  │   │   (CSS orb flies up; always visible)    │     │   │   (projectile from hand)  │
-  │   │                                         │     │   │                            │
-  │   ├── ControlService.sendControl(           │     │   └── send_control(           │
-  │   │     'CAST_SPELL_1', true)               │     │         'CAST_SPELL_1', true) │
-  │   │   POST /api/controls/1                  │     │        POST /api/controls/1    │
-  │   │   + X-Casdoor-Id                        │     │        (no casdoor header)    │
-  │   │                                         │     │                               │
-  │   └── 50ms later: sendControl(…, false)     │     │   keyup: send_control(…,false)│
-  └─────────────────────────────────────────────┘     └───────────────────────────────┘
-                      ║                                                ║
-                      ╚══════════════════════╦═════════════════════════╝
-                                             ▼
-                  ┌─────────────── Spring Boot API ────────────────┐
-                  │  ControlController.receiveControl              │
-                  │  → applyControl: gate on posChanged ||         │
-                  │       actionChanged || pressedChanged          │
-                  │  → movementSink.tryEmitNext                    │
-                  └──────────────────────┬─────────────────────────┘
-                                         ▼
-                    GET /api/game/stream Flux<ServerSentEvent>
-                                         ▼
-                  ┌─────────── iframe JS SSE listener ─────────────┐
-                  │  push into window._twMovementQueue (FIFO)      │
-                  └──────────────────────┬─────────────────────────┘
-                                         ▼
-                  game_bridge._drain_movement_queue (each _process frame)
-                                         ▼
-                  player_controller._on_state_updated (per-event)
-                                         ▼
-                  match action → _cast_spell / _use_first_item / _sse_dir
+```mermaid
+flowchart TB
+    subgraph parent["parent window (Angular)"]
+        PK["keydown '1'"]
+        POnKey["game-controls.onKeyDown"]
+        POverlay["_fireSpellOverlay(1)<br/>CSS orb flies up — always visible"]
+        PSend["ControlService.sendControl('CAST_SPELL_1', true)<br/>POST /api/controls/1 + X-Casdoor-Id<br/>50 ms later: sendControl(…, false)"]
+        PK --> POnKey
+        POnKey --> POverlay
+        POnKey --> PSend
+    end
+    subgraph frame["iframe (Godot WASM)"]
+        FK["keydown '1' (KEY_1)"]
+        FInput["game_bridge._unhandled_input"]
+        FCast["player._cast_spell(1)<br/>projectile from hand"]
+        FSend["send_control('CAST_SPELL_1', true)<br/>POST /api/controls/1 (no casdoor header)<br/>keyup: send_control(…, false)"]
+        FK --> FInput
+        FInput --> FCast
+        FInput --> FSend
+    end
+    API["Spring Boot API — ControlController.receiveControl<br/>applyControl: gate on posChanged || actionChanged || pressedChanged<br/>movementSink.tryEmitNext"]
+    Stream["GET /api/game/stream — Flux&lt;ServerSentEvent&gt;"]
+    SSE["iframe JS SSE listener<br/>push into window._twMovementQueue (FIFO)"]
+    Drain["game_bridge._drain_movement_queue (each _process frame)"]
+    OnState["player_controller._on_state_updated (per-event)"]
+    Match["match action → _cast_spell / _use_first_item / _sse_dir"]
+    PSend --> API
+    FSend --> API
+    API --> Stream --> SSE --> Drain --> OnState --> Match
 ```
 
 Spells cast via two redundant paths — the direct in-WASM call fires the visual instantly; the round-trip through the API exists so the server can eventually subtract MP, grant XP, resolve collisions with enemies, etc.
@@ -479,18 +306,16 @@ Spells cast via two redundant paths — the direct in-WASM call fires the visual
 
 When a running Godot WASM needs to hand off to another chapter's bundle:
 
-```
-Godot (inside iframe)
-  $GameBridge.request_chapter_transition("field", 2)
-    │
-    ▼  postMessage({type:"TW_CHAPTER_TRANSITION", slug:"field", chapterId:2})
-Angular host (game-canvas.component.ts)
-  HostListener('window:message') catches payload
-    │
-    ▼  GameLibraryService.getChapter(2) → resolve fresh assetUrl
-  iframe.src = `${chapter.assetUrl}?chapter_id=2`
-    │
-    ▼  Godot bundle cold-boots, fetches /api/chapters/2/scene
+```mermaid
+sequenceDiagram
+    participant Godot as Godot (inside iframe)
+    participant Host as Angular host (game-canvas.component.ts)
+    Godot->>Godot: $GameBridge.request_chapter_transition("field", 2)
+    Godot->>Host: postMessage TW_CHAPTER_TRANSITION {slug:"field", chapterId:2}
+    Host->>Host: HostListener('window:message') catches payload
+    Host->>Host: GameLibraryService.getChapter(2) → resolve fresh assetUrl
+    Host->>Godot: iframe.src = chapter.assetUrl + "?chapter_id=2"
+    Godot->>Godot: cold-boot → fetch /api/chapters/2/scene
 ```
 
 The previous WASM is fully unloaded — persist any in-memory state via the API
@@ -500,26 +325,22 @@ The previous WASM is fully unloaded — persist any in-memory state via the API
 
 ## API reference
 
-Notation used in the marble diagrams below:
+The reactive endpoints below are drawn as **pipeline flowcharts** — a request flows
+left-to-right through the Reactor operators to a terminal emission:
 
+```mermaid
+flowchart LR
+    R(["HTTP request"]) --> Op["operator — repo call · map · flatMap"] --> D{"branch?"}
+    D -->|"value(s)"| OK(["● emit — Mono completes after 1, Flux after N, SSE stays open"])
+    D -->|"empty / error"| Err["✗ 4xx — switchIfEmpty(404), 403, 409"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
-──────────────────────────────────────────────►  time axis
 
-Mono<T>  (0 or 1 item, then complete)
-   ──────────●─|
-
-Flux<T>  (0..N items, then complete)
-   ──●──●──●──●──|
-
-ServerSentEvent stream  (unbounded — never completes unless client disconnects)
-   ──●────●────●────●──⋯
-
-Error / 4xx response
-   ──────────✗
-
-Empty → switchIfEmpty(404)
-   ─────────────────────✗  404
-```
+- `([ … ])` rounded ends — the incoming request and the terminal emission(s).
+- plain boxes — Reactor operators (`findById`, `map`, `flatMap`, `save`, …).
+- `{ … }` diamond — a branch (found vs empty, controller vs not).
+- red `✗` node — an error / 4xx terminal (`switchIfEmpty`, `403`, `404`, `409`).
+- A `Mono` completes after one value, a `Flux` after N; an SSE stream stays open until the client disconnects.
 
 ---
 
@@ -529,30 +350,16 @@ Empty → switchIfEmpty(404)
 
 Exchanges username + password for a Casdoor OAuth2 access token via the Resource Owner Password Credentials grant. The `client_secret` is injected server-side — the browser never sees it.
 
-```
-Client                   API                            Casdoor :8000
-  │                       │                                  │
-  │  {username, password}  │                                  │
-  │──────────────────────►│                                  │
-  │                       │  form: grant_type=password       │
-  │                       │        client_id, client_secret  │
-  │                       │  ────────────────────────────────►
-  │                       │                                  │
-  │                       │  ◄────── {access_token, …} ─────│
-  │                       │                                  │
-  │  {access_token,       │
-  │   token_type,         │
-  │   expires_in}         │
-  │◄──────────────────────│
-
-Reactor chain:
-  Mono.just(req)
-   ──●──► WebClient.post("/api/login/oauth/access_token")
-           .bodyValue(form)
-           .retrieve()
-           .bodyToMono(Map)
-   ──────────────────────────●─|
-                              {access_token, token_type, expires_in, id_token}
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as API
+    participant CAS as Casdoor :8000
+    C->>API: {username, password}
+    API->>CAS: form grant_type=password + client_id + client_secret
+    CAS-->>API: {access_token, …}
+    API-->>C: {access_token, token_type, expires_in}
+    Note over API: Reactor — Mono.just(req) → WebClient.post(/api/login/oauth/access_token).bodyValue(form).retrieve().bodyToMono(Map)
 ```
 
 ---
@@ -563,31 +370,24 @@ Reactor chain:
 
 Multiplexed SSE stream. Five reactive sources are merged into a single connection; each event carries an `event:` type field so clients can register per-type listeners.
 
-```
-movement$  (Sinks replay):   ──●──────────────●────────────●──⋯
-world$     (1 s heartbeat):  ──●──●──●──●──●──●──●──●──●──●──⋯
-character$ (stat changes):   ────────────●────────────────────⋯
-time$      (every ~10 s):    ────────────────────●────────────⋯
-scene$     (transitions):    ──●──────────────────────────────⋯
-keepalive  (30 s comment):   ─────────────────────────────────⋯
-
-Flux.merge(movement$, world$, character$, time$, scene$)
-  .mergeWith(Flux.interval(30s).map(_ -> comment))
-  ──●──●──●──●──●──●──●──●──●──●──●──●──●──●──●──⋯
-    │movement  │world  │character  │time  │scene
-    │          │heartbeat every 1s │
-    └──────────────────────────────┘
-         ServerSentEvent<Object>
+```mermaid
+flowchart LR
+    M["movement$ — Sinks replay"] --> Merge
+    W["world$ — 1 s heartbeat"] --> Merge
+    Ch["character$ — stat changes"] --> Merge
+    T["time$ — every ~10 s"] --> Merge
+    Sc["scene$ — transitions"] --> Merge
+    K["keepalive — 30 s comment"] --> Merge
+    Merge["Flux.merge(movement$, world$, character$, time$, scene$)<br/>.mergeWith(Flux.interval(30s).map(_ → comment))"] --> Out(["ServerSentEvent&lt;Object&gt; — unbounded SSE, one connection"])
 ```
 
 #### `GET /api/game/state`
 
 Snapshot of the current game state without subscribing to the stream.
 
-```
-──request──► Mono.just(gameStateService.currentState())
- ──────────────────────────●─|
-                            {snapshot}
+```mermaid
+flowchart LR
+    R(["GET /api/game/state"]) --> S["Mono.just(gameStateService.currentState())"] --> O(["● {snapshot}"])
 ```
 
 ---
@@ -598,18 +398,18 @@ Umbrella tier. Each game groups one or more Levels.
 
 #### `GET /api/games` · `GET /api/games/{id}`
 
-```
-──request──► gameRepo.findAllByOrderBySortOrderAsc()
- ──────────────●──●──|  Game{id, name, slug, sortOrder, …}
+```mermaid
+flowchart LR
+    R(["GET /api/games"]) --> Q["gameRepo.findAllByOrderBySortOrderAsc()"] --> O(["● ● …  Game{id, name, slug, sortOrder}"])
 ```
 
 #### `GET /api/games/{id}/chapters`
 
 Returns every Chapter inside the umbrella game, ordered by sort_order.
 
-```
-──request──► chapterRepo.findByGameIdOrderBySortOrderAsc(id)
- ──────────────●──●──|  Chapter{id, slug, assetUrl, sceneType, …}
+```mermaid
+flowchart LR
+    R(["GET /api/games/{id}/chapters"]) --> Q["chapterRepo.findByGameIdOrderBySortOrderAsc(id)"] --> O(["● ● …  Chapter{id, slug, assetUrl, sceneType}"])
 ```
 
 #### `GET /api/games/available/{characterId}`
@@ -618,14 +418,11 @@ Nested structure — every umbrella game with its chapters, each chapter annotat
 with `unlocked` / quest-progress for the caller's character. Drives the home
 page games-with-chapters drilldown.
 
-```
-──request──► charQuests.findByCharacterId
-              ──●──► games.findAll().flatMap(g ->
-                      chapters.findByGameId(g.id)
-                        .flatMap(build AvailableChapterDto)
-                        .collectList()
-                      .map(ls -> GameWithChaptersDto))
- ──────────────●──●──|
+```mermaid
+flowchart LR
+    R(["GET /api/games/available/{characterId}"]) --> CQ["charQuests.findByCharacterId"]
+    CQ --> G["games.findAll().flatMap(g →<br/>chapters.findByGameId(g.id)<br/>.flatMap(build AvailableChapterDto).collectList()<br/>.map(ls → GameWithChaptersDto))"]
+    G --> O(["● ● …  GameWithChaptersDto"])
 ```
 
 ### `ChapterController` — `/api/chapters`  *(public)*
@@ -634,20 +431,21 @@ One chapter = one compiled Godot WASM bundle.
 
 #### `GET /api/chapters` · `GET /api/chapters/{id}`
 
-```
-──request──► chapterRepo.findAllByOrderBySortOrderAsc()
- ──────────────●──●──|  Chapter…
+```mermaid
+flowchart LR
+    R(["GET /api/chapters"]) --> Q["chapterRepo.findAllByOrderBySortOrderAsc()"] --> O(["● ● …  Chapter"])
 ```
 
 #### `GET /api/chapters/{id}/scene`
 
 The descriptor consumed by `scene_loader.gd` at bundle startup.
 
-```
-──request──► chapters.findById(id)
-              ──●──► sceneElements.findByChapterIdOrderBySortOrder(id)
-                      ──●──●──● collectList()
-                                ──●─|  SceneDto{…, assetUrl, elements:[…]}
+```mermaid
+flowchart LR
+    R(["GET /api/chapters/{id}/scene"]) --> F["chapters.findById(id)"]
+    F --> SE["sceneElements.findByChapterIdOrderBySortOrder(id)"]
+    SE --> CL["collectList()"]
+    CL --> O(["● SceneDto{…, assetUrl, elements: list}"])
 ```
 
 ### `ChapterAssetController` — `/api/chapters/{chapterId}/assets`  *(public)*
@@ -657,36 +455,33 @@ uses labels to look up assets without hardcoding filenames.
 
 #### `GET /api/chapters/{chapterId}/assets`
 
-```
-──request──► chapterAssetRepo.findByChapterId(chapterId)
- ──────────────●──●──|  ChapterAsset{label, assetType, filePath, …}
+```mermaid
+flowchart LR
+    R(["GET /api/chapters/{chapterId}/assets"]) --> Q["chapterAssetRepo.findByChapterId(chapterId)"] --> O(["● ● …  ChapterAsset{label, assetType, filePath}"])
 ```
 
 #### `GET /api/chapters/{chapterId}/assets/by-label/{label}`
 
-```
-──request──► chapterAssetRepo.findByChapterIdAndLabel(chapterId, label)
-              │
-     ┌────────┴────────┐
-     │ found           │ empty
-     ▼                 ▼
-  ──●─|               ──✗ 404
-     ChapterAsset
+```mermaid
+flowchart LR
+    R(["GET …/assets/by-label/{label}"]) --> Q["chapterAssetRepo.findByChapterIdAndLabel(chapterId, label)"] --> D{"found?"}
+    D -->|found| OK(["● ChapterAsset"])
+    D -->|empty| NF["✗ 404"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 #### `POST /api/chapters/{chapterId}/assets`
 
-```
-body: {label, assetType, filePath, contentType, sizeBytes}
-──request──► repo.save(ChapterAsset{…})
- ──────────────────────────●─|  ChapterAsset (with id, uploadedAt)
+```mermaid
+flowchart LR
+    R(["POST …/assets<br/>{label, assetType, filePath, contentType, sizeBytes}"]) --> S["repo.save(ChapterAsset{…})"] --> O(["● ChapterAsset (with id, uploadedAt)"])
 ```
 
 #### `DELETE /api/chapters/{chapterId}/assets/{assetId}`
 
-```
-──request──► repo.deleteById(assetId)
- ──────────────────────────●─|  (empty body)
+```mermaid
+flowchart LR
+    R(["DELETE …/assets/{assetId}"]) --> S["repo.deleteById(assetId)"] --> O(["● (empty body)"])
 ```
 
 ---
@@ -704,15 +499,12 @@ and Godot fetches its `.wasm`/`.pck` from the same directory.
 Root-level static assets fetched directly from the classpath. Reserved for
 backward-compat with content that hasn't been moved to the `levels/` hierarchy yet.
 
-```
-──request──► Mono.fromCallable(() -> ClassPathResource(path))
-                   │
-         ┌─────────┴──────────┐
-         │ exists             │ missing
-         ▼                    ▼
-  .contentType(mediaType)    ResponseEntity.notFound()
-  .body(resource)
-  ──────────────●─|           ──────✗  404
+```mermaid
+flowchart LR
+    R(["GET /api/assets/{filename}"]) --> M["Mono.fromCallable(() → ClassPathResource(path))"] --> D{"exists?"}
+    D -->|exists| OK[".contentType(mediaType).body(resource)"] --> E(["● bytes"])
+    D -->|missing| NF["ResponseEntity.notFound() → ✗ 404"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 Supported extensions → content-types:
@@ -734,18 +526,12 @@ Supported extensions → content-types:
 
 Accepts control events. Validates that the `X-Casdoor-Id` header matches the session marked `is_controller = true`. Non-controllers receive `403`.
 
-```
-──request──► sessionService.isController(casdoorId, characterId)
-                   │
-         ┌─────────┴──────────────┐
-         │ is controller          │ not controller
-         ▼                        ▼
-  gameStateService                ──✗  403 Forbidden
-  .applyControl(event)
-         │
-  Sinks.many().emitNext(newState)
-         │
-  ──────●─|  ResponseEntity<Void> 200
+```mermaid
+flowchart LR
+    R(["POST /api/controls/{characterId}"]) --> Chk["sessionService.isController(casdoorId, characterId)"] --> D{"is controller?"}
+    D -->|yes| AC["gameStateService.applyControl(event)"] --> Emit["Sinks.many().emitNext(newState)"] --> O(["● 200 ResponseEntity"])
+    D -->|no| F["✗ 403 Forbidden"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 ---
@@ -756,40 +542,30 @@ Accepts control events. Validates that the `X-Casdoor-Id` header matches the ses
 
 Creates or resumes a player session, enforcing the 3-player cap.
 
-```
-──request──► sessionRepo.countActiveSessions()
-                   │
-         ┌─────────┴──────────┐
-         │ count < 3          │ count = 3
-         ▼                    ▼
-  createOrResumeSession()    ──✗  409 Conflict
-  (first joiner auto-claims
-   controller role)
-         │
-  ──────●─|  {sessionToken, isController, playerCount}
+```mermaid
+flowchart LR
+    R(["POST /api/sessions/connect"]) --> C["sessionRepo.countActiveSessions()"] --> D{"under 3-player cap?"}
+    D -->|"yes — count under 3"| OK["createOrResumeSession()<br/>first joiner auto-claims controller"] --> O(["● {sessionToken, isController, playerCount}"])
+    D -->|"no — count = 3"| F["✗ 409 Conflict"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 #### `POST /api/sessions/control`
 
 Attempts to claim the exclusive controller role.
 
-```
-──request──► sessionRepo.countByIsControllerTrue()
-                   │
-         ┌─────────┴──────────┐
-         │ count = 0          │ count > 0
-         ▼                    ▼
-  setController(true)    ──────●─|
-         │                {claimed: false}
-  ──────●─|
-  {claimed: true}
+```mermaid
+flowchart LR
+    R(["POST /api/sessions/control"]) --> C["sessionRepo.countByIsControllerTrue()"] --> D{"count = 0?"}
+    D -->|"count = 0"| OK["setController(true)"] --> O1(["● {claimed: true}"])
+    D -->|"count over 0"| O2(["● {claimed: false}"])
 ```
 
 #### `DELETE /api/sessions/me`
 
-```
-──request──► sessionRepo.deleteByCasdoorId(casdoorId)
- ──────────────────────────●─|  (no body)
+```mermaid
+flowchart LR
+    R(["DELETE /api/sessions/me"]) --> S["sessionRepo.deleteByCasdoorId(casdoorId)"] --> O(["● (no body)"])
 ```
 
 ---
@@ -798,110 +574,69 @@ Attempts to claim the exclusive controller role.
 
 #### `GET /api/characters`
 
-```
-──request──► characterRepo.findAll()
-              ──map(toDto)──►
- ──────────────●──●──●──●──|
-               CharacterDto…
+```mermaid
+flowchart LR
+    R(["GET /api/characters"]) --> Q["characterRepo.findAll()"] --> Mp["map(toDto)"] --> O(["● ● ● …  CharacterDto"])
 ```
 
 #### `GET /api/characters/{id}`
 
-```
-──request──► characterRepo.findById(id)
-                   │
-         ┌─────────┴──────────┐
-         │ found              │ empty
-         ▼                    ▼
-  map(toDto)           switchIfEmpty(404)
-  ──────●─|                   ──✗
+```mermaid
+flowchart LR
+    R(["GET /api/characters/{id}"]) --> F["characterRepo.findById(id)"] --> D{"found?"}
+    D -->|found| OK["map(toDto)"] --> O(["● CharacterDto"])
+    D -->|empty| NF["switchIfEmpty(404) → ✗"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 #### `PUT /api/characters/{id}`
 
 Patches HP, MP, level, XP, ability stats, and current scene, then notifies the SSE character channel.
 
-```
-──request──► characterRepo.findById(id)
-              ──●──► map(applyPatch)
-                      ──●──► characterRepo.save()
-                              ──●──► gameStateService.notifyCharacterChange()
- ──────────────────────────────────────────────●─|
-                                              CharacterDto (updated)
+```mermaid
+flowchart LR
+    R(["PUT /api/characters/{id}"]) --> F["characterRepo.findById(id)"] --> P["map(applyPatch)"] --> S["characterRepo.save()"] --> N["gameStateService.notifyCharacterChange()"] --> O(["● CharacterDto (updated)"])
 ```
 
 #### `PUT /api/characters/{id}/quests/{questId}/complete`
 
 Marks the quest complete and, if it has a `reward_skill_id`, grants the character that skill (idempotent).
 
-```
-──request──► charQuests.findByCharacterIdAndQuestId(id, qid)
-                   │
-         ┌─────────┴──────────┐
-         │ found              │ empty
-         ▼                    ▼
-  status='completed'     switchIfEmpty(404)
-  completedAt=NOW()            ──✗
-  charQuests.save()
-         │
-  questRepo.findById(qid)
-         │
-         ▼ reward_skill_id present?
-         │
-  charSkills.findByCharacterId
-    .filter(skillId == reward)
-    .hasElements()
-         │
-  ┌──────┴──────┐
-  │ already has │ new
-  ▼             ▼
-  no-op       charSkills.save({charId, rewardSkillId})
-  │             │
-  ●─────────────●─| CharacterQuest (updated)
+```mermaid
+flowchart TB
+    R(["PUT /api/characters/{id}/quests/{questId}/complete"]) --> F["charQuests.findByCharacterIdAndQuestId(id, qid)"] --> D{"found?"}
+    D -->|empty| NF["switchIfEmpty(404) → ✗"]:::err
+    D -->|found| S["status='completed' · completedAt=NOW()<br/>charQuests.save()"]
+    S --> Q["questRepo.findById(qid)"] --> RW{"reward_skill_id present?"}
+    RW -->|no| O(["● CharacterQuest (updated)"])
+    RW -->|yes| H["charSkills.findByCharacterId<br/>.filter(skillId == reward).hasElements()"] --> HD{"already has?"}
+    HD -->|"already has"| O
+    HD -->|new| GR["charSkills.save({charId, rewardSkillId})"] --> O
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 #### `POST /api/characters/{id}/use-first-item`
 
 Consumes the lowest-id inventory item (typically a potion), applies its JSON effect, decrements quantity, and broadcasts the updated character over SSE so the HUD HP/MP bars update instantly.
 
-```
-──request──► charItems.findByCharacterId(id)
-              .filter(qty > 0).sort(by id).next()
-                   │
-         ┌─────────┴──────────┐
-         │ found              │ empty
-         ▼                    ▼
-  itemRepo.findById    ──✗ 404 "no usable item"
-         │
-  parse effect_json:
-    "heal":N → currentHp += N (cap maxHp)
-    "mana":N → currentMp += N (cap maxMp)
-         │
-  charItems.save(qty-1)
-         │
-  characters.save(updated)
-         │
-  gameStateService.notifyCharacterStatChange
-         │
-  ──────●─|  CharacterDto (updated)
+```mermaid
+flowchart TB
+    R(["POST /api/characters/{id}/use-first-item"]) --> F["charItems.findByCharacterId(id)<br/>.filter(qty &gt; 0).sort(by id).next()"] --> D{"found?"}
+    D -->|empty| NF["✗ 404 — no usable item"]:::err
+    D -->|found| I["itemRepo.findById"]
+    I --> P["parse effect_json:<br/>heal:N → currentHp += N (cap maxHp)<br/>mana:N → currentMp += N (cap maxMp)"]
+    P --> S1["charItems.save(qty-1)"] --> S2["characters.save(updated)"] --> N["gameStateService.notifyCharacterStatChange"] --> O(["● CharacterDto (updated)"])
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 #### `GET /api/characters/{id}/dashboard`
 
 Passive snapshot for the player dashboard — character stats, time, games with levels, quests, session playtime — without loading the game canvas.
 
-```
-──request──► zip(
-                characterRepo.findById(id).map(toDto),
-                progression.availableGamesWithLevels(id).collectList(),
-                charQuests.findByCharacterId(id)
-                  .flatMap(cq → questRepo.findById → map toDto).collectList(),
-                sessions.findHistoryByCasdoorId(char.casdoorId).collectList()
-              )
-              ──map──► DashboardDto{
-                          character, gameTime, games, quests,
-                          totalPlayMinutes, totalSessions }
- ──────────────●─|
+```mermaid
+flowchart LR
+    R(["GET /api/characters/{id}/dashboard"]) --> Z["zip(<br/>characterRepo.findById(id).map(toDto),<br/>progression.availableGamesWithLevels(id).collectList(),<br/>charQuests.findByCharacterId(id).flatMap(cq → questRepo.findById → toDto).collectList(),<br/>sessions.findHistoryByCasdoorId(char.casdoorId).collectList())"]
+    Z --> Mp["map"] --> O(["● DashboardDto{character, gameTime, games,<br/>quests, totalPlayMinutes, totalSessions}"])
 ```
 
 ---
@@ -910,39 +645,30 @@ Passive snapshot for the player dashboard — character stats, time, games with 
 
 #### `GET /api/skills`
 
-```
-──request──► skillRepo.findAll()
-              ──map(toDto)──►
- ──────────────●──●──●──●──|
-               SkillDto…
+```mermaid
+flowchart LR
+    R(["GET /api/skills"]) --> Q["skillRepo.findAll()"] --> Mp["map(toDto)"] --> O(["● ● ● …  SkillDto"])
 ```
 
 #### `GET /api/skills/character/{characterId}`
 
-```
-──request──► characterSkillRepo.findByCharacterId(id)
-              ──flatMap(cs -> skillRepo.findById(cs.skillId))
-              ──map(toDto)──►
- ──────────────●──●──●──|
-               SkillDto (learned skills only)
+```mermaid
+flowchart LR
+    R(["GET /api/skills/character/{characterId}"]) --> Q["characterSkillRepo.findByCharacterId(id)"] --> FM["flatMap(cs → skillRepo.findById(cs.skillId))"] --> Mp["map(toDto)"] --> O(["● ● …  SkillDto (learned only)"])
 ```
 
 #### `GET /api/skills/character/{characterId}/slots`
 
-```
-──request──► slotRepo.findByCharacterIdOrderBySlotNumber(id)
-              ──map(slot -> {slotNumber, skill or null})──►
- ──────────────●──●──●──●──●──|
-               {slot: 1, skill: {…}}
-               {slot: 2, skill: null}   (empty slot)
-               …
+```mermaid
+flowchart LR
+    R(["GET /api/skills/character/{characterId}/slots"]) --> Q["slotRepo.findByCharacterIdOrderBySlotNumber(id)"] --> Mp["map(slot → {slotNumber, skill or null})"] --> O(["● ● …  {slot:1, skill:{…}}<br/>{slot:2, skill:null} — empty slot"])
 ```
 
 #### `PUT /api/skills/character/{characterId}/slots/{slot}`
 
-```
-──request──► slotRepo.save(CharacterSkillSlot{charId, slot, skillId})
- ──────────────────────────●─|  (no body)
+```mermaid
+flowchart LR
+    R(["PUT /api/skills/character/{characterId}/slots/{slot}"]) --> S["slotRepo.save(CharacterSkillSlot{charId, slot, skillId})"] --> O(["● (no body)"])
 ```
 
 ---
@@ -951,31 +677,23 @@ Passive snapshot for the player dashboard — character stats, time, games with 
 
 #### `GET /api/items/character/{characterId}/inventory`
 
-```
-──request──► charItemRepo.findByCharacterId(id)
-              ──flatMap(ci -> itemRepo.findById(ci.itemId)
-                               .map(item -> ItemDto{…, quantity: ci.quantity}))
- ──────────────●──●──●──|
-               ItemDto (with quantity)…
+```mermaid
+flowchart LR
+    R(["GET /api/items/character/{characterId}/inventory"]) --> Q["charItemRepo.findByCharacterId(id)"] --> FM["flatMap(ci → itemRepo.findById(ci.itemId)<br/>.map(item → ItemDto{…, quantity: ci.quantity}))"] --> O(["● ● …  ItemDto (with quantity)"])
 ```
 
 #### `GET /api/items/character/{characterId}/equipment`
 
-```
-──request──► charEquipRepo.findByCharacterId(id)
-              ──flatMap(ce -> itemRepo.findById(ce.itemId))
-              ──map(item -> {slot, item or null})──►
- ──────────────●──●──●──●──●──|
-               {slot: "head",    item: {…}}
-               {slot: "chest",   item: null}  (empty)
-               …
+```mermaid
+flowchart LR
+    R(["GET /api/items/character/{characterId}/equipment"]) --> Q["charEquipRepo.findByCharacterId(id)"] --> FM["flatMap(ce → itemRepo.findById(ce.itemId))"] --> Mp["map(item → {slot, item or null})"] --> O(["● ● …  {slot:head, item:{…}}<br/>{slot:chest, item:null} — empty"])
 ```
 
 #### `PUT /api/items/character/{characterId}/equipment/{slot}`
 
-```
-──request──► charEquipRepo.save(CharacterEquipment{charId, slot, itemId})
- ──────────────────────────●─|  (no body)
+```mermaid
+flowchart LR
+    R(["PUT /api/items/character/{characterId}/equipment/{slot}"]) --> S["charEquipRepo.save(CharacterEquipment{charId, slot, itemId})"] --> O(["● (no body)"])
 ```
 
 ---
@@ -984,22 +702,16 @@ Passive snapshot for the player dashboard — character stats, time, games with 
 
 #### `GET /api/quests`
 
-```
-──request──► questRepo.findAll()
-              ──map(toDto)──►
- ──────────────●──●──●──|
-               QuestDto…
+```mermaid
+flowchart LR
+    R(["GET /api/quests"]) --> Q["questRepo.findAll()"] --> Mp["map(toDto)"] --> O(["● ● …  QuestDto"])
 ```
 
 #### `GET /api/quests/character/{characterId}`
 
-```
-──request──► charQuestRepo.findByCharacterId(id)
-              ──flatMap(cq -> questRepo.findById(cq.questId)
-                               .map(q -> QuestDto{…, status: cq.status,
-                                                     completedAt: cq.completedAt}))
- ──────────────●──●──●──|
-               QuestDto (with character-specific status)…
+```mermaid
+flowchart LR
+    R(["GET /api/quests/character/{characterId}"]) --> Q["charQuestRepo.findByCharacterId(id)"] --> FM["flatMap(cq → questRepo.findById(cq.questId)<br/>.map(q → QuestDto{…, status, completedAt}))"] --> O(["● ● …  QuestDto (character-specific status)"])
 ```
 
 ---
@@ -1008,40 +720,34 @@ Passive snapshot for the player dashboard — character stats, time, games with 
 
 #### `GET /api/admin/sessions`
 
-```
-──request──► sessionRepo.findAll()
- ──────────────●──●──●──|
-               SessionDto…
+```mermaid
+flowchart LR
+    R(["GET /api/admin/sessions"]) --> Q["sessionRepo.findAll()"] --> O(["● ● …  SessionDto"])
 ```
 
 #### `DELETE /api/admin/sessions/{casdoorId}`
 
 Force-disconnects a player session regardless of controller status.
 
-```
-──request──► sessionRepo.deleteByCasdoorId(casdoorId)
- ──────────────────────────●─|  (no body)
+```mermaid
+flowchart LR
+    R(["DELETE /api/admin/sessions/{casdoorId}"]) --> S["sessionRepo.deleteByCasdoorId(casdoorId)"] --> O(["● (no body)"])
 ```
 
 #### `GET /api/admin/characters`
 
-```
-──request──► characterRepo.findAll()
-              ──map(toDto)──►
- ──────────────●──●──●──|
-               CharacterDto…
+```mermaid
+flowchart LR
+    R(["GET /api/admin/characters"]) --> Q["characterRepo.findAll()"] --> Mp["map(toDto)"] --> O(["● ● …  CharacterDto"])
 ```
 
 #### `PUT /api/admin/characters/{id}`
 
 Same patch pipeline as the player `CharacterController`, without the ownership check.
 
-```
-──request──► characterRepo.findById(id)
-              ──●──► map(applyPatch)
-                      ──●──► characterRepo.save()
- ──────────────────────────────────────●─|
-                                      CharacterDto (updated)
+```mermaid
+flowchart LR
+    R(["PUT /api/admin/characters/{id}"]) --> F["characterRepo.findById(id)"] --> P["map(applyPatch)"] --> S["characterRepo.save()"] --> O(["● CharacterDto (updated)"])
 ```
 
 ---
@@ -1052,18 +758,13 @@ Same patch pipeline as the player `CharacterController`, without the ownership c
 
 Returns the current in-game clock state. The `GameTimeService` scheduler advances 1 game-minute every ~10 real seconds and persists to `game_time_state`.
 
-```
-GameTimeService scheduler (every 10 s real):
-  ──tick──tick──tick──tick──⋯
-     │      │      │
-  minute++ minute++ day++ (at 23:59)
-  persist  emit time$ SSE event
-
-GET /api/time:
-──request──► timeRepo.findFirst()
-              ──map(toDto)──►
- ──────────────────────────●─|
-                            {dayNumber, hour, minute}
+```mermaid
+flowchart TB
+    subgraph sched["GameTimeService scheduler — every 10 s real"]
+        direction LR
+        T["──tick── loop"] --> Inc["minute++ · day++ at 23:59"] --> Persist["persist + emit time$ SSE event"]
+    end
+    R(["GET /api/time"]) --> Q["timeRepo.findFirst()"] --> Mp["map(toDto)"] --> O(["● {dayNumber, hour, minute}"])
 ```
 
 ---
@@ -1074,11 +775,9 @@ GET /api/time:
 
 Returns the active rows of `federation_modules` (slug + display name + kind + remote_entry_url + exposed_module + version + metadata) ordered by kind/slug. The Angular host calls this BEFORE `bootstrapApplication` and feeds the result into `initFederation(...)`. Public on purpose: the host needs the `login` remote URL before any user authenticates.
 
-```
-──request──► fedRepo.findAllByEnabledTrueOrderByKindAscSlugAsc()
-              ──map(FederationRemoteDto::from)──collectList──►
- ──────────────────────────────────────────────────────────●─|
-                                                            {generatedAt, remotes:[…]}
+```mermaid
+flowchart LR
+    R(["GET /api/federation/manifest"]) --> Q["fedRepo.findAllByEnabledTrueOrderByKindAscSlugAsc()"] --> Mp["map(FederationRemoteDto::from) · collectList"] --> O(["● {generatedAt, remotes: list}"])
 ```
 
 ---
@@ -1137,71 +836,149 @@ Proxies Casdoor's `/api/get-roles?owner=threewizards` so the admin UI's "grant r
 
 ## Database schema
 
-```
-games ────────────────────────────────────────────────────  ← umbrella tier
-  id, name, description, slug, sort_order,
-  thumbnail_url, created_at
+```mermaid
+erDiagram
+    games ||--o{ chapters : "game_id"
+    chapters ||--o{ scene_elements : "chapter_id"
+    chapters ||--o{ chapter_assets : "chapter_id"
+    chapters ||--o{ chapter_prerequisites : "chapter_id"
+    quests ||--o{ chapter_prerequisites : "required_quest_id"
+    chapters ||--o{ player_characters : "current_chapter_id"
+    player_characters ||--o{ player_sessions : "character_id"
+    player_characters ||--o{ player_positions : "character_id"
+    chapters ||--o{ player_positions : "chapter_id"
+    player_characters ||--o{ character_skills : "character_id"
+    skills ||--o{ character_skills : "skill_id"
+    player_characters ||--o{ character_skill_slots : "character_id"
+    skills ||--o{ character_skill_slots : "skill_id"
+    player_characters ||--o{ character_items : "character_id"
+    items ||--o{ character_items : "item_id"
+    player_characters ||--o{ character_equipment : "character_id"
+    items ||--o{ character_equipment : "item_id"
+    player_characters ||--o{ character_quests : "character_id"
+    quests ||--o{ character_quests : "quest_id"
+    quests ||--o{ quest_objectives : "quest_id"
+    skills ||--o{ quests : "reward_skill_id — granted on complete"
+    chapters ||--o{ quests : "chapter_id"
 
-chapters ─────────────────────────────────────────────────  ← one WASM per row
-  id, game_id(→games), name, description, slug,
-  scene_type, sort_order, asset_url, scene_config,
-  thumbnail_url, created_at
-
-scene_elements ───────────────────────────────────────────
-  id, chapter_id(→chapters), element_type, name,
-  position_x/y/z, rotation_x/y/z, properties, sort_order
-  (chapter_id renamed from level_id by Liquibase 028-12)
-
-chapter_assets ───────────────────────────────────────────  ← user-added content
-  id, chapter_id(→chapters), label, asset_type,
-  file_path, content_type, size_bytes, uploaded_at
-  (unique label per chapter)
-
-chapter_prerequisites ────────────────────────────────────
-  id, chapter_id(→chapters), required_quest_id(→quests)
-
-player_characters ────────────────────────────────────────
-  id, name, casdoor_id, level, xp, xp_to_next,
-  max_hp, current_hp, max_mp, current_mp,
-  attack, defense, speed, magic_power,
-  current_chapter_id(→chapters), created_at
-  (level here = XP level; current_chapter_id = active stage)
-
-player_sessions ──────────────────────────────────────────
-  id, session_token, casdoor_id,
-  character_id(→player_characters),
-  is_controller, connected_at, last_ping,
-  disconnected_at      (null = active; set = session history row)
-
-player_positions ─────────────────────────────────────────  ◄─ NOTIFY trigger
-  id, character_id(→player_characters),
-  chapter_id(→chapters), pos_x, pos_y, pos_z,
-  rotation_y, updated_at
-  (one row per (character_id, chapter_id) — Liquibase 027 + 028-5)
-
-game_time_state ──────────────────────────────────────────
-  id, day_number, hour, minute,
-  real_started_at, last_persisted_at
-
-skills ───────  character_skills ───  character_skill_slots
-  id, name      character_id          character_id, slot_number
-  skill_type    skill_id              skill_id
-  mana_cost     learned_at
-  effect_json
-  icon_url
-
-items ───────  character_items ─────  character_equipment
-  id, name      character_id          character_id, slot
-  item_type     item_id, quantity      item_id
-  effect_json
-  icon_url
-
-quests ──────  quest_objectives ────  character_quests
-  id, name      quest_id              character_id, quest_id
-  reward_xp     description           status, started_at
-  reward_gold   required_count        completed_at
-  reward_skill_id(→skills)  ← granted on complete
-  chapter_id(→chapters)
+    games {
+        bigint id PK
+        text name
+        text slug
+        int sort_order
+        text thumbnail_url
+        timestamp created_at
+    }
+    chapters {
+        bigint id PK
+        bigint game_id FK
+        text slug
+        text scene_type
+        text asset_url
+        jsonb scene_config
+        int sort_order
+    }
+    scene_elements {
+        bigint id PK
+        bigint chapter_id FK
+        text element_type
+        float position_x_y_z
+        jsonb properties
+    }
+    chapter_assets {
+        bigint id PK
+        bigint chapter_id FK
+        text label
+        text asset_type
+        text file_path
+        bigint size_bytes
+    }
+    chapter_prerequisites {
+        bigint id PK
+        bigint chapter_id FK
+        bigint required_quest_id FK
+    }
+    player_characters {
+        bigint id PK
+        text casdoor_id
+        int level "XP level"
+        int current_hp
+        int current_mp
+        bigint current_chapter_id FK
+    }
+    player_sessions {
+        bigint id PK
+        text session_token
+        bigint character_id FK
+        bool is_controller
+        timestamp disconnected_at "null = active"
+    }
+    player_positions {
+        bigint id PK
+        bigint character_id FK
+        bigint chapter_id FK
+        float pos_x_y_z
+        timestamp updated_at "drives pg NOTIFY trigger"
+    }
+    game_time_state {
+        bigint id PK
+        int day_number
+        int hour
+        int minute
+    }
+    skills {
+        bigint id PK
+        text name
+        text skill_type
+        int mana_cost
+        jsonb effect_json
+    }
+    character_skills {
+        bigint character_id FK
+        bigint skill_id FK
+        timestamp learned_at
+    }
+    character_skill_slots {
+        bigint character_id FK
+        int slot_number
+        bigint skill_id FK
+    }
+    items {
+        bigint id PK
+        text name
+        text item_type
+        jsonb effect_json
+    }
+    character_items {
+        bigint character_id FK
+        bigint item_id FK
+        int quantity
+    }
+    character_equipment {
+        bigint character_id FK
+        text slot
+        bigint item_id FK
+    }
+    quests {
+        bigint id PK
+        text name
+        int reward_xp
+        int reward_gold
+        bigint reward_skill_id FK
+        bigint chapter_id FK
+    }
+    quest_objectives {
+        bigint id PK
+        bigint quest_id FK
+        text description
+        int required_count
+    }
+    character_quests {
+        bigint character_id FK
+        bigint quest_id FK
+        text status
+        timestamp completed_at
+    }
 ```
 
 ### Spell catalog (migration 014)
@@ -1229,34 +1006,27 @@ each level inside that project compiles to its **own** WASM bundle. Per-game
 `godot --headless --export-release "<preset>"` from each game's directory, and
 writes the output under `backend/src/main/resources/assets/levels/<slug>/`.
 
-```
-make build-rust
-  │
-  ├─ cd extensions/snapdragon-bridge && cargo build --release
-  │    → target/release/libsnapdragon_bridge.so
-  │
-  ├─ cp …/libsnapdragon_bridge.so → games/<game>/bin/libsnapdragon_bridge.so   (each game)
-  │
-  └─ cargo build --release --target wasm32-unknown-emscripten   (skipped if emsdk missing)
-
-make build-godot         (depends on build-rust)
-  │
-  ├─ for game in $(GAME_PROJECTS):
-  │    for preset in $(PRESETS_<game>):
-  │      cd games/<game> && godot --headless --export-release "<preset>"
-  │         → backend/src/main/resources/assets/levels/<slug>/
-  │            index.html  index.wasm  index.pck  index.js  index.side.wasm
-  │      scripts/patch-godot-html.py <slug>/index.html <slug>/index.side.wasm
-  │
-  └─ ✓ all bundles exported
-
-make seed-db
-  │
-  └─ scripts/seed-games.sql  (ON CONFLICT (slug) DO UPDATE)
-       upserts game + level rows with asset_url = '/api/assets/levels/<slug>/index.html'
-
-make deploy  =  build-godot + seed-db
-  (then rebuild the api + wasm-fragment images so the new classpath assets ship)
+```mermaid
+flowchart TB
+    subgraph br["make build-rust"]
+        direction TB
+        BR1["cd extensions/snapdragon-bridge · cargo build --release<br/>→ target/release/libsnapdragon_bridge.so"]
+        BR2["cp libsnapdragon_bridge.so → games/(game)/bin/ — each game"]
+        BR3["cargo build --release --target wasm32-unknown-emscripten<br/>skipped if emsdk missing"]
+        BR1 --> BR2 --> BR3
+    end
+    subgraph bg["make build-godot — depends on build-rust"]
+        direction TB
+        BG1["for game in GAME_PROJECTS · for preset in PRESETS_(game)<br/>cd games/(game) · godot --headless --export-release preset"]
+        BG2["→ backend/src/main/resources/assets/levels/(slug)/<br/>index.html · index.wasm · index.pck · index.js · index.side.wasm"]
+        BG3["scripts/patch-godot-html.py on (slug)/index.html + index.side.wasm"]
+        BG4["✓ all bundles exported"]
+        BG1 --> BG2 --> BG3 --> BG4
+    end
+    subgraph sd["make seed-db"]
+        SD1["scripts/seed-games.sql — ON CONFLICT (slug) DO UPDATE<br/>upserts game + chapter rows · asset_url = /api/assets/levels/(slug)/index.html"]
+    end
+    br --> bg --> sd --> Deploy["make deploy = build-godot + seed-db<br/>then rebuild api + wasm-fragment images so new classpath assets ship"]
 ```
 
 The federated path serves the same exports through `wasm-fragment/` (an
