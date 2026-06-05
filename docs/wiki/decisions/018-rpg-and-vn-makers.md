@@ -45,21 +45,27 @@ already expects).
 Two reactive Spring Boot side services, twin remotes, separate DBs,
 all schemas managed by Liquibase from day one.
 
-```
-                       browser
-                          │
-                          ▼
-            host nginx ── /_remotes/games-rpg-maker  ──▶ games-rpg-maker (Angular)
-                       ── /_remotes/games-vn-maker   ──▶ games-vn-maker  (Angular)
-                       ── /api/rpg/*                  ──▶ rpg-builder (Spring/WebFlux)
-                       ── /api/vn/*                   ──▶ vn-builder  (Spring/WebFlux)
-                       ── /api/admin/games/upload     ──▶ api (BFF)
-
-   rpg-builder ─R2DBC─▶ postgres-rpg-builder   (rpg_projects, rpg_rooms, …)
-   vn-builder  ─R2DBC─▶ postgres-vn-builder    (vn_projects, vn_scenes, …)
-
-   rpg-builder ─POST bearer-forwarded zip─▶ BFF /api/admin/games/upload
-   vn-builder  ─POST bearer-forwarded zip─▶ BFF /api/admin/games/upload
+```mermaid
+flowchart LR
+    Browser(["browser"])
+    HostNginx["host nginx"]
+    RpgMaker["games-rpg-maker (Angular)"]
+    VnMaker["games-vn-maker (Angular)"]
+    RpgBuilder["rpg-builder (Spring/WebFlux)"]
+    VnBuilder["vn-builder (Spring/WebFlux)"]
+    BFF["api (BFF)"]
+    PgRpg[("postgres-rpg-builder<br/>(rpg_projects, rpg_rooms, …)")]
+    PgVn[("postgres-vn-builder<br/>(vn_projects, vn_scenes, …)")]
+    Browser --> HostNginx
+    HostNginx -->|"/_remotes/games-rpg-maker"| RpgMaker
+    HostNginx -->|"/_remotes/games-vn-maker"| VnMaker
+    HostNginx -->|"/api/rpg/*"| RpgBuilder
+    HostNginx -->|"/api/vn/*"| VnBuilder
+    HostNginx -->|"/api/admin/games/upload"| BFF
+    RpgBuilder -->|"R2DBC"| PgRpg
+    VnBuilder -->|"R2DBC"| PgVn
+    RpgBuilder -. "POST bearer-forwarded zip<br/>/api/admin/games/upload" .-> BFF
+    VnBuilder -. "POST bearer-forwarded zip<br/>/api/admin/games/upload" .-> BFF
 ```
 
 ## Build pipeline
@@ -67,8 +73,13 @@ all schemas managed by Liquibase from day one.
 Both services follow the same five-state lifecycle, persisted in a
 `*_build_jobs` row claimed atomically with `FOR UPDATE SKIP LOCKED`:
 
-```
-QUEUED ─▶ RENDERING ─▶ EXPORTING ─▶ UPLOADING ─▶ DONE | FAILED
+```mermaid
+flowchart LR
+    Queued["QUEUED"] --> Rendering["RENDERING"]
+    Rendering --> Exporting["EXPORTING"]
+    Exporting --> Uploading["UPLOADING"]
+    Uploading --> Done(["DONE"])
+    Uploading --> Failed(["FAILED"])
 ```
 
 - **Rendering** writes a Godot 4 project tree under `<workdir>/<job-id>/godot-src/`.

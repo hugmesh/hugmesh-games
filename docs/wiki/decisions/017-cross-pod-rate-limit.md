@@ -18,11 +18,15 @@ Option 2 — append-row log on Cassandra, augmenting the existing in-process buc
 
 Two-layer shape:
 
-```
-RateLimitFilter
-  ├─ in-process bucket   (per-pod, microsecond, fail-fast on obvious overshoot)
-  └─ DistributedRateLimitService.recordAndCount(bucket)
-                         (cluster-wide, ~1-2 ms, fires only when local allows)
+```mermaid
+flowchart TB
+    Filter["RateLimitFilter"]
+    Local["in-process bucket<br/>(per-pod, microsecond, fail-fast on obvious overshoot)"]
+    Dist["DistributedRateLimitService.recordAndCount(bucket)<br/>(cluster-wide, ~1-2 ms, fires only when local allows)"]
+    Cass[("Cassandra")]
+    Filter --> Local
+    Filter --> Dist
+    Dist --> Cass
 ```
 
 Local-bucket-rejected requests never round-trip Cassandra. Cluster-rejected requests already passed the local cap on this pod, so we know the rejection is multi-pod fan-out and not single-pod overshoot. Either rejection returns `429 Too Many Requests` with `Retry-After: 60`.

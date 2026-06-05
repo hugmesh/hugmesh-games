@@ -4,10 +4,54 @@
 
 This page is a Markdown-rendered companion to the generated Javadoc HTML at [`docs/publishing/javadoc-output/index.html`](../../publishing/javadoc-output/) and the live OpenAPI explorer at `/v3/api-docs`. Every controller is listed once with its endpoints, auth posture, and a one-line description of the contract.
 
-The PDF version of this chapter ([`chapters/05-api-reference.tex`](../../publishing/architecture/chapters/05-api-reference.tex)) ships **marble diagrams** for each reactive controller and service. The marble sources are under [`docs/publishing/architecture/marbles/`](../../publishing/architecture/marbles/); rendered PNGs are produced by `make docs-rendered-diagrams`.
+The PDF version of this chapter ([`chapters/05-api-reference.tex`](../../publishing/architecture/chapters/05-api-reference.tex)) ships TikZ **marble diagrams** for each reactive controller and service (sources under [`docs/publishing/architecture/marbles/`](../../publishing/architecture/marbles/), rendered to PNG by `make docs-rendered-diagrams`). On GitHub those same reactive flows render as the **mermaid pipeline flowcharts** below; the per-endpoint pipelines live in the [root README API reference](../../../README.md#api-reference).
 
-> **Reading the marbles** —
-> ◯ `Mono<T>` value · ▷ `Flux<T>` element · ★ `ServerSentEvent` (HTTP-tier emission) · ▢ persistence-tier value (R2DBC row / post-tx) · ⬡ control / signal · ✕ error · ◉ `onComplete`.
+> **Reading the pipeline flowcharts** — a request flows through the Reactor operators to a terminal emission. `([ … ])` rounded ends are the request and the emitted value(s); plain boxes are operators (`findById`, `map`, `flatMap`, `save`); `{ … }` diamonds are branches; a red `✗` node is a 4xx / error terminal. A `Mono` completes after one value, a `Flux` after N, an SSE stream stays open until the client disconnects.
+
+## Reactive pipelines at a glance
+
+**`GameStreamController` — eight SSE channels merged onto one connection.**
+
+```mermaid
+flowchart LR
+    Mv["movement$"] --> Merge
+    Wo["world$"] --> Merge
+    Ch["character$"] --> Merge
+    Sc["scene$"] --> Merge
+    In["input$"] --> Merge
+    Au["audio$"] --> Merge
+    Wc["wasm-console$"] --> Merge
+    Ti["time$ — GameTimeService"] --> Merge
+    Ka["keepalive — Flux.interval(15s), fires immediately"] --> Merge
+    Merge["GameStreamController<br/>Flux.merge(...) — 7 GameStateService Sinks.Many + time$ + keepalive"] --> Out(["GET /api/game/stream<br/>Flux&lt;ServerSentEvent&gt; — one connection, per-type event: field"])
+```
+
+**`AuthController` — ROPC token exchange (the browser never sees `client_secret`).**
+
+```mermaid
+sequenceDiagram
+    participant FE as login remote
+    participant API as AuthController
+    participant CAS as Casdoor (internal)
+    FE->>API: POST /api/auth/token {code, redirectUri}
+    API->>CAS: WebClient.post(/api/login/oauth/access_token) + client_secret
+    CAS-->>API: {access_token, …}
+    API-->>FE: {accessToken, expiresAt, casdoorUserId}
+```
+
+**`GameUploadService` — the transactional install pipeline.**
+
+```mermaid
+flowchart LR
+    R(["POST /api/admin/games/upload — multipart zip"]) --> V["validate manifest v2 + slug regex + zip-slip-safe paths"]
+    V --> H["SHA-256 the bundle/ tree → version_dir"]
+    H --> Mv["Mono.fromCallable — atomic move to gamesDir/(slug)/(sha-prefix)"]
+    Mv --> Tx["TransactionalOperator.transactional:<br/>insert game_uploads · run register.sql · update games.current_version_dir · supersede prior"]
+    Tx --> OK(["● {slug, contentHash, versionDir, uploadedAt}"])
+    V -. "bad zip / bad manifest → 400" .-> BadReq["reject 400"]:::err
+    Tx -. "register.sql throws → onError" .-> RB["rollback R2DBC tx + reverse on-disk move"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
+```
 
 ## Public surface (no JWT required)
 
@@ -362,6 +406,29 @@ The marbles in the PDF cover four scenarios beyond the happy path:
 - **Scenario 2 — SSE subscriber drops mid-stream.** A browser tab closes; client TCP closes; Reactor sees `onCancel`; subscription 1 is deregistered; *the upstream Sinks stay open* because every `Sinks.many()` in this project sets `autoCancel=false`. A reconnect from the same client gets a fresh subscription against the same Sink.
 - **Scenario 3 — Admin force-revokes (kicks) a launch.** `ROLE_ADMIN` clicks *kick*; the BFF runs the `DELETE` inside a transactional block that sets `game_launches.terminated_at = NOW()`. Bytes already in flight to the player's iframe finish; the kick lands at the next level-transition where the player's request is denied with *410 Gone*.
 - **Scenario 4 — Hot upload rolls back.** The install transaction is the most fragile path because it commits across two stores — Postgres (the games rows) *and* the filesystem (the staged bundle directory). When `register.sql` throws inside the transactional block, Reactor's `onError` unwinds: the R2DBC transaction rolls back *and* the on-disk move is reversed. The prior `games.current_version_dir` is unchanged and the active bundle keeps serving.
+
+```mermaid
+flowchart LR
+    subgraph s1["Scenario 1 — unauthenticated"]
+        direction LR
+        A1(["request, missing/expired Bearer"]) --> A2["OAuth2 resource-server filter"] --> A3["✗ 401 — no controller code runs"]:::err
+    end
+    subgraph s2["Scenario 2 — SSE subscriber drops"]
+        direction LR
+        B1(["tab closes — client TCP closes"]) --> B2["Reactor onCancel → subscription deregistered"] --> B3["Sinks stay open (autoCancel=false)"] --> B4(["reconnect → fresh subscription, same Sinks"])
+    end
+    subgraph s3["Scenario 3 — admin kicks a launch"]
+        direction LR
+        C1(["ROLE_ADMIN kick — DELETE /api/admin/launches/{uid}"]) --> C2["tx: game_launches.terminated_at = NOW()"] --> C3["in-flight bytes finish"] --> C4["next chapter-transition denied → ✗ 410 Gone"]:::err
+    end
+    subgraph s4["Scenario 4 — hot upload rolls back"]
+        direction LR
+        D1(["install tx — Postgres rows + staged dir"]) --> D2["register.sql executes"] --> D3{"throws?"}
+        D3 -->|no| D4(["● commit — new current_version_dir"])
+        D3 -->|yes| D5["onError unwind: R2DBC rollback + reverse on-disk move<br/>prior current_version_dir unchanged"]:::err
+    end
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
+```
 
 ## Where to find more detail
 

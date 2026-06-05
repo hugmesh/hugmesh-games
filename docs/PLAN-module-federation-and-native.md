@@ -43,38 +43,30 @@ These reinforce each other: (1) gives the per-game module boundary, (2) produces
 
 Three nginx tiers, one per concern:
 
-```
-                                                  ┌──── Casdoor (auth, role catalog) ────┐
-                                                  │  • role definitions                  │
-                                                  │  • role assignments per user         │
-                                                  │  • permission tab                    │
-                                                  │  • JWT signing                       │
-                                                  └──────────────────────────────────────┘
-                                                                  ▲
-                                                                  │ JWT roles claim
-                                                                  │
-  Browser ─────► [nginx#1: HOST shell] ──────────────────────────►│
-   loads          • Angular host shell                            │ /api/federation/manifest
-   /              • module-federation runtime                     │   (DB-backed)
-                  • route guards                                  │
-                       │                                          │
-                       │ initFederation(remotes from manifest)    │
-                       ▼                                          │
-              ┌──────────────────────────────┬────────────┬───────┴──────┐
-              │                              │            │              │
-              ▼                              ▼            ▼              ▼
-      [nginx#2: LOGIN remote]       [nginx#2: ADMIN]  [nginx#2:        [nginx#2:
-       • LoginComponent              • AdminShell      games-twiat]     games-dodecahedron]
-       • Casdoor RFC6749 flow        • role/access     • HUD + SSE      • chrome-less
-                                       management      • level UI       • no HUD
-                                                            │
-                                                            │ <iframe / fetch ?slug=...>
-                                                            ▼
-                                          [nginx#3: WASM FRAGMENT]
-                                          • parametrised by ?slug=&level=
-                                          • serves the Godot bundle (wasm/pck/js)
-                                          • cross-origin-isolated (COOP/COEP)
-                                          • the only place Godot's HTML shell runs
+```mermaid
+flowchart TB
+    Browser(["Browser<br/>loads /"])
+    Casdoor["Casdoor (auth, role catalog)<br/>• role definitions<br/>• role assignments per user<br/>• permission tab<br/>• JWT signing"]
+    subgraph T1["nginx#1 — HOST shell"]
+        Host["• Angular host shell<br/>• module-federation runtime<br/>• route guards"]
+    end
+    subgraph T2["nginx#2 — remotes"]
+        Login["LOGIN remote<br/>• LoginComponent<br/>• Casdoor RFC6749 flow"]
+        Admin["ADMIN<br/>• AdminShell<br/>• role/access management"]
+        Twiat["games-twiat<br/>• HUD + SSE<br/>• level UI"]
+        Dodec["games-dodecahedron<br/>• chrome-less<br/>• no HUD"]
+    end
+    subgraph T3["nginx#3 — WASM FRAGMENT"]
+        Wasm["• parametrised by ?slug=&amp;level=<br/>• serves the Godot bundle (wasm/pck/js)<br/>• cross-origin-isolated (COOP/COEP)<br/>• the only place Godot's HTML shell runs"]
+    end
+    Browser --> Host
+    Host -->|"/api/federation/manifest (DB-backed)"| Casdoor
+    Casdoor -->|"JWT roles claim"| Host
+    Host -->|"initFederation(remotes from manifest)"| Login
+    Host --> Admin
+    Host --> Twiat
+    Host --> Dodec
+    Twiat -->|"iframe / fetch ?slug=..."| Wasm
 ```
 
 Why nginx-per-remote: each remote can scale, cache, and be replaced independently. A `make e2e` run does not need to rebuild the host to verify a single game's changes. Uploads (via `/api/admin/games/upload`) drop a fresh bundle into the wasm-fragment volume + register a new `federation_modules` row + flip a current-version pointer atomically.
@@ -85,27 +77,18 @@ Why a SINGLE shared wasm-fragment instead of one per game: WASM bundles are larg
 
 ## Order of operations (dependency-aware)
 
-```
-F1. Federation manifest in DB (BFF) ──┐    ┌── E. JWT roles + game_access (BFF) ──┐
-    Replaces static manifest.json.    │    │   Casdoor owns role catalog;         │
-    Required before any UI split.     │    │   BFF maps roles claim → authority   │
-└───────────────┬──────────────────────┘    │   + filters games by access policy. │
-                │                           └─────────────┬───────────────────────┘
-                ▼                                         ▼
-A. Frontend split into host + remotes  ◄────────  Auth gate works before
-   (login / admin / portal /                       remotes are split (CharacterController
-   games-* / wasm-fragment)                        keeps a single-arg legacy fallback).
-
-         │                                           ┌─ D. GraalVM native-image ────────┐
-         ├───── B. Godot plugin v2 (DONE) ───┐       │  Independent. Add reflection     │
-         │      manifest.json + register.sql │       │  hints as build failures surface.│
-         │      auto-emit on export.         │       └──────────────────────────────────┘
-         ▼
-C. Hot upload API + admin UI
-   • Validates manifest schema_version
-   • Runs register.sql in transaction
-   • Versioned dirs + atomic swap
-   • Live sessions pin to old version dir
+```mermaid
+flowchart TB
+    F1["F1. Federation manifest in DB (BFF)<br/>Replaces static manifest.json.<br/>Required before any UI split."]
+    E["E. JWT roles + game_access (BFF)<br/>Casdoor owns role catalog;<br/>BFF maps roles claim → authority<br/>+ filters games by access policy."]
+    A["A. Frontend split into host + remotes<br/>(login / admin / portal /<br/>games-* / wasm-fragment)<br/>Auth gate works before remotes are split<br/>(CharacterController keeps a single-arg legacy fallback)."]
+    B["B. Godot plugin v2 (DONE)<br/>manifest.json + register.sql<br/>auto-emit on export."]
+    C["C. Hot upload API + admin UI<br/>• Validates manifest schema_version<br/>• Runs register.sql in transaction<br/>• Versioned dirs + atomic swap<br/>• Live sessions pin to old version dir"]
+    D["D. GraalVM native-image<br/>Independent. Add reflection<br/>hints as build failures surface."]
+    F1 --> A
+    E --> A
+    A --> C
+    B --> C
 ```
 
 E + F1 are foundational and **shipped in this branch** (see "Left off at" markers below). A is the largest remaining piece; B is done; C and D depend on A's split decisions but can scaffold in parallel.
@@ -444,21 +427,15 @@ Target: an admin uploads a zip from the browser → BFF unpacks, validates, regi
    Move the games dir OUT of the API jar's classpath into a host-mounted volume (`/var/snapdragon/games`). Update `AssetController` to read from the filesystem instead of `ClassPathResource`.
 
 2. **Upload pipeline (atomic, session-safe):**
-   ```
-   POST /api/admin/games/upload (multipart: zip file)
-     │
-     ├─ stage:    write to /var/snapdragon/staging/<random>/
-     ├─ validate: schema_version, manifest.json well-formed, expected files
-     │            present, slug regex /^[a-z0-9-]+$/
-     ├─ hash:     compute SHA-256 of bundle/ tree → version dir name
-     ├─ install:  rename(staging, /var/snapdragon/games/<slug>/<version>)
-     ├─ register: txn — INSERT/UPDATE games + levels + level_assets, set
-     │            current_version_dir on the level row
-     ├─ flip:     rename(current, .current.tmp) → rename(<version>, current)
-     │            so active sessions keep reading their pinned version dir
-     │            (asset_url resolution captures the dir at session start)
-     └─ cache:    publish 'snapdragon.catalog.invalidated' on Cassandra so
-                  every BFF pod refreshes its catalog cache
+   ```mermaid
+   flowchart TB
+       R(["POST /api/admin/games/upload — multipart zip"]) --> Stage["stage: write to /var/snapdragon/staging/(random)/"]
+       Stage --> Validate["validate: schema_version · manifest.json well-formed<br/>expected files present · slug regex ^[a-z0-9-]+$"]
+       Validate --> Hash["hash: SHA-256 of bundle/ tree → version dir name"]
+       Hash --> Install["install: rename(staging → /var/snapdragon/games/(slug)/(version))"]
+       Install --> Register["register: txn — INSERT/UPDATE games + levels + level_assets<br/>set current_version_dir on the level row"]
+       Register --> Flip["flip: rename(current → .current.tmp) → rename((version) → current)<br/>active sessions keep reading their pinned version dir<br/>(asset_url resolution captures the dir at session start)"]
+       Flip --> Cache["cache: publish snapdragon.catalog.invalidated on Cassandra<br/>every BFF pod refreshes its catalog cache"]
    ```
 
 3. **Session-safety contract.** When a player starts a game, the SSE session captures the `version_dir` path (e.g. `/var/snapdragon/games/cave/v3`) and uses THAT path until the session ends. New sessions started after the swap pick up `current` (now pointing at v4). No active stream sees a half-replaced bundle.
