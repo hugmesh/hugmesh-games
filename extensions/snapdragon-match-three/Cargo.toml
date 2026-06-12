@@ -1,0 +1,14 @@
+[package]
+name = "snapdragon-match-three"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "First-party Match-3 (Bejeweled-like) puzzle engine for snapdragon.games. Pure, deterministic, dependency-free, SEEDED. A single-player puzzle that runs entirely as wasm32 in the browser — there is NO server/relay involved for single-player; this crate is the one source of truth for the rules, and it compiles native for `cargo test`. Every game is reproducible from its seed (board generation, gravity refills, and cascades all draw from a small seeded LCG). See docs/multiplayer-chess-design.md for the wider extension model."
+
+[lib]
+# rlib for `cargo test`; cdylib for the wasm/ffi build that ships to the browser.
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
