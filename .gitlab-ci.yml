@@ -11,10 +11,14 @@
 #          vendored harness (tests/pentest/run-pentest.sh --pipeline games) against
 #          the games env-test-build (docker-compose.e2e.yml). Independent of the
 #          main platform pipeline (the TWO-SEPARATE-WORKFLOWS rule).
+#   load   the OPT-IN k6 LOAD stage — OFF BY DEFAULT, gated PENTEST_LOAD=1 (GitLab
+#          schedule or manual web). Runs the SAME vendored harness with --load
+#          (realistic-mixed + stress + nightly soak), reading the SAME per-persona
+#          tokens.env the dast seed mints. Slow/heavy, so never on an MR.
 # CI is GitLab-only (no .github/workflows). No secrets in this file — every
 # credential (Casdoor admin / the throwaway TEST-realm password / NVD key) is a
 # masked CI variable read at runtime.
-stages: [build, sca, dast]
+stages: [build, sca, dast, load]
 
 build:image:
   stage: build
@@ -125,3 +129,48 @@ dast:full:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
   script:
     - bash tests/pentest/run-pentest.sh --env compose --scan full --pipeline games
+
+# ─────────────────────────────────────────────────────────────────────────────
+# load — the OPT-IN k6 LOAD + DoS-resilience stage. OFF BY DEFAULT.
+#
+# Runs the SAME vendored games harness with --load (k6 staged scenarios:
+# realistic-mixed + stress + the nightly soak), reading the SAME per-persona
+# tokens.env the dast seed mints — so k6 runs AS the real seeded games personas
+# across the per-brand catalog. The stress scenario ramps PAST the games nginx
+# limit_req zone rates (api 50/s, sse 30/s, auth 5/s): a 429 is EXPECTED/PASS, a
+# 5xx is FAIL (graceful degradation must throttle, not error).
+#
+# DOUBLE-GATED + heavy: this job runs ONLY when PENTEST_LOAD == "1" AND the
+# pipeline is a SCHEDULE or a manual WEB run — never on an MR or a plain
+# default-branch push. Configure the schedule (PENTEST_LOAD=1, SOAK=1 for the
+# nightly soak) in the GitLab UI; see tests/pentest/load/SCHEDULE-AND-GATE.md.
+# The harness's --load step is itself gated on PENTEST_LOAD=1, so this is opt-in
+# end-to-end. No secrets here — same masked CI variables as the dast seed.
+# ─────────────────────────────────────────────────────────────────────────────
+load:k6:
+  stage: load
+  tags: [snapdragon-x86, privileged]
+  variables:
+    PENTEST_HOST_PORT: "8080"
+    # NOTE: PENTEST_LOAD is deliberately NOT defaulted here — it must arrive from
+    # the SCHEDULE / manual-run variable, so the load stage is OFF BY DEFAULT and
+    # only un-gates when an operator explicitly sets PENTEST_LOAD=1 (the harness's
+    # own --load step is gated on it too). SOAK=1 (the nightly schedule) adds soak.
+  rules:
+    # Scheduled pipeline (the nightly cadence) — the schedule must set PENTEST_LOAD=1.
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $PENTEST_LOAD == "1"'
+    # Manual web run — add PENTEST_LOAD=1 in Run pipeline to include it.
+    - if: '$CI_PIPELINE_SOURCE == "web" && $PENTEST_LOAD == "1"'
+      when: manual
+      allow_failure: true
+  script:
+    # The harness spins the games compose, seeds personas (mints tokens.env), runs
+    # the ZAP/SCA scan, THEN the k6 load stage (--load, gated on PENTEST_LOAD=1),
+    # and always tears down. --scan full pairs the load run with the active scan on
+    # the nightly schedule; the load report lands in out/pentest/<run>/load.
+    - bash tests/pentest/run-pentest.sh --env compose --scan full --pipeline games --load
+  artifacts:
+    when: always
+    paths:
+      - out/pentest/
+    expire_in: 30 days
