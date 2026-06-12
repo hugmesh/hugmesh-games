@@ -14,6 +14,7 @@ import games.snapdragon.bff.repository.ItemRepository;
 import games.snapdragon.bff.repository.PlayerCharacterRepository;
 import games.snapdragon.bff.repository.PlayerSessionRepository;
 import games.snapdragon.bff.repository.QuestRepository;
+import games.snapdragon.bff.security.Roles;
 import games.snapdragon.bff.service.GameStateService;
 import games.snapdragon.bff.service.GameTimeService;
 import games.snapdragon.bff.service.ProgressionService;
@@ -196,12 +197,12 @@ public class CharacterController {
         // don't match any game_access row for a given game won't see it on
         // the dashboard either. Anonymous (no JWT) falls through to
         // scope='all' games only.
-        java.util.List<String> roles = games.snapdragon.bff.security.Roles.fromJwt(jwt);
+        java.util.List<String> roles = Roles.fromJwt(jwt);
         String userId = jwt == null ? null : jwt.getSubject();
         Mono<List<GameWithChaptersDto>> games = progression
                 .availableGamesWithLevels(id, roles, userId,
-                        games.snapdragon.bff.security.Roles.domainOf(jwt, domainRegistry),
-                        games.snapdragon.bff.security.Roles.isSuperadmin(jwt)).collectList();
+                        Roles.domainOf(jwt, domainRegistry),
+                        Roles.isSuperadmin(jwt)).collectList();
 
         Mono<List<QuestDto>> quests = charQuests.findByCharacterId(id)
                 .flatMap(cq -> questRepo.findById(cq.getQuestId())
