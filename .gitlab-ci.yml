@@ -2,7 +2,19 @@
 # container registry. Monorepo: one image per deployable component subdir, built
 # in parallel on the privileged x86 runner (e2e is a test image, not built here).
 # Images carry NO keys — KEYS material is supplied from the USB at first boot.
-stages: [build]
+#
+# Stages, in order:
+#   build  build + push the per-component images (UNCHANGED).
+#   sca    OWASP Dependency-Check over the games components INCLUDING the Rust
+#          snapdragon-bridge (--enableExperimental, --failOnCVSS 7).
+#   dast   the snapdragon.games OWN continuous OWASP pen-test pipeline — runs the
+#          vendored harness (tests/pentest/run-pentest.sh --pipeline games) against
+#          the games env-test-build (docker-compose.e2e.yml). Independent of the
+#          main platform pipeline (the TWO-SEPARATE-WORKFLOWS rule).
+# CI is GitLab-only (no .github/workflows). No secrets in this file — every
+# credential (Casdoor admin / the throwaway TEST-realm password / NVD key) is a
+# masked CI variable read at runtime.
+stages: [build, sca, dast]
 
 build:image:
   stage: build
@@ -26,3 +38,90 @@ build:image:
     - docker build --pull -f "$DOCKERFILE" -t "$CI_REGISTRY_IMAGE/$COMPONENT:$TAG" -t "$CI_REGISTRY_IMAGE/$COMPONENT:$CI_COMMIT_REF_SLUG" "$CONTEXT"
     - docker push "$CI_REGISTRY_IMAGE/$COMPONENT:$TAG"
     - docker push "$CI_REGISTRY_IMAGE/$COMPONENT:$CI_COMMIT_REF_SLUG"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# sca — OWASP Dependency-Check over the games components, INCLUDING the Rust
+# snapdragon-bridge GDExtension (--enableExperimental analyses extensions/
+# snapdragon-bridge/Cargo.lock alongside the Java BFF + maker services (Maven) and
+# the Angular host + remotes (npm)). Fails the build on a CVSS >= 7 finding.
+#
+# The NVD feed is cached in a persistent per-project cache so re-runs don't
+# re-download it. NVD_API_KEY (optional, masked CI variable) speeds the sync. No
+# secrets in this file — the wrapper reads NVD_API_KEY from the environment.
+# ─────────────────────────────────────────────────────────────────────────────
+sca:dependency-check:
+  stage: sca
+  tags: [snapdragon-x86, privileged]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  cache:
+    # Persist the NVD feed across runs (keyed globally so every branch shares it).
+    key: dependency-check-nvd
+    paths:
+      - out/pentest/sca/nvd-cache/
+  script:
+    # The wrapper prefers a native dependency-check CLI, else the Docker image
+    # (owasp/dependency-check). --enableExperimental is ON for the Rust crate
+    # analysis; --failOnCVSS 7 is the gate. Reports land in out/pentest/sca.
+    - bash tests/pentest/dependency-check/run-sca.sh
+        --pipeline games
+        --cvss 7
+        --out out/pentest/sca
+        --data out/pentest/sca/nvd-cache
+  artifacts:
+    when: always
+    paths:
+      - out/pentest/sca/dependency-check-report.html
+      - out/pentest/sca/dependency-check-report.sarif
+      - out/pentest/sca/dependency-check-report.json
+    reports:
+      # GitLab renders Dependency-Check SARIF in the MR security widget.
+      sast: out/pentest/sca/dependency-check-report.sarif
+    expire_in: 30 days
+
+# ─────────────────────────────────────────────────────────────────────────────
+# dast — the snapdragon.games OWN continuous OWASP pen-test pipeline. Runs the
+# vendored harness against the games env-test-build (docker-compose.e2e.yml): the
+# games front door + the games BFF + the games Casdoor org, exercising the games
+# personas (player/mod/publisher/admin) across the per-brand games-catalog
+# partitioning + the DOMAIN_ guard.
+#
+#   MR / default branch : baseline (passive + spider + custom boundary probes).
+#   scheduled           : full (the above + an ENABLED active scan).
+#
+# No secrets in this file — the seed step reads the throwaway TEST-realm password
+# (PENTEST_SEED_PASSWORD / the games E2E_*_PASSWORD pattern) + the Casdoor admin
+# creds from masked CI variables at runtime and writes only short-lived bearers to
+# a gitignored tokens.env. The DoS probe is bounded (asserts the nginx 429).
+# ─────────────────────────────────────────────────────────────────────────────
+.dast:base:
+  stage: dast
+  tags: [snapdragon-x86, privileged]
+  variables:
+    # The vendored harness spins the games compose, seeds personas, scans, and
+    # always tears down (even on a mid-scan failure). ZAP runs as the host-net
+    # zaproxy image; CASDOOR_GAMES_URL + PENTEST_SEED_PASSWORD + CASDOOR_ADMIN_*
+    # come from CI variables (the profile defaults are non-secret placeholders).
+    PENTEST_HOST_PORT: "8080"
+  artifacts:
+    when: always
+    paths:
+      - out/pentest/
+    expire_in: 30 days
+
+dast:baseline:
+  extends: .dast:base
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - bash tests/pentest/run-pentest.sh --env compose --scan baseline --pipeline games
+
+dast:full:
+  extends: .dast:base
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  script:
+    - bash tests/pentest/run-pentest.sh --env compose --scan full --pipeline games
