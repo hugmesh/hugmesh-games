@@ -19,8 +19,62 @@ The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cav
 | LAN access (workstation) | [`lan.properties`](lan.properties) + `make lan-info` / `make lan-up` / `make lan-up-tls` |
 | Production deploy notes | [decision 019](docs/wiki/decisions/019-production-rate-limits.md) |
 | Contributor onboarding | [CLAUDE.md](CLAUDE.md) |
+| **Build status** | [What builds today + the key dev commands](#build-status) |
+| **Roadmap** | [Done / in progress / planned](#roadmap) |
 
 The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with [Intro for coders](docs/wiki/guides/intro-for-coders.md) for an orientation, [Architecture overview](docs/wiki/architecture/01-overview.md) for the typeset reference, or jump straight to a [how-to](docs/wiki/howto/) for a specific task.
+
+---
+
+## Build status
+
+Five components build from the monorepo, chained by the root [`Makefile`](Makefile):
+
+| Component | Toolchain | Build command | Status |
+|---|---|---|---|
+| **Snapdragon Gaming BFF** | Java 21 / Spring WebFlux (Maven wrapper) | `make build-backend` (`./mvnw package`) | Builds + tests pass on a host with JDK 21. |
+| **Angular host + remotes** | Node 20 / Angular 19, [native-federation](docs/wiki/decisions/001-native-federation.md) | `make build-frontend` (host) · `make build-frontend-all` (host + every remote bundle) | Builds + Karma unit tests pass (frontend tests run in a Chromium-baked Docker image, so the host needs no browser). |
+| **snapdragon-bridge** (Rust → native `.so`) | `cargo build --release --features api-custom` | `make build-rust` | Builds + `cargo test` pass on a host with `cargo` + Godot (gdext regenerates `extension_api.json` against your Godot binary). |
+| **snapdragon-bridge** (Rust → WASM) | `wasm32-unknown-emscripten` | `make build-rust-wasm` (dockerised emsdk) | Needs emscripten. Built via a pinned `rust + emsdk` Docker image ([`tools/build-rust-wasm/Dockerfile`](tools/build-rust-wasm/Dockerfile)) so the host never installs emscripten; produces a 3.3 MB `snapdragon_bridge.wasm`. Skipped with a warning if Docker/emsdk is absent — normal browser play does not depend on it (the GDScript path covers the bridge events). |
+| **Godot 4.6 web export** | Godot 4.6 CLI + export templates | `make build-godot` (one bundle per export preset, per game) | Needs the Godot 4.6 binary on `PATH` *and* installed 4.6 export templates. Writes one WASM bundle per chapter under `backend/src/main/resources/assets/levels/<slug>/`, then runs [`scripts/patch-godot-html.py`](scripts/patch-godot-html.py). |
+
+`make build` runs all of the above in dependency order (`build-rust → build-godot → build-backend → build-frontend`).
+
+**Tests.** `make test` fans out to `test-rust` (cargo), `test-backend` (`./mvnw test`), and `test-frontend` (Karma in Docker). End-to-end is Playwright against the live Docker Compose stack: `make e2e` (canonical suite — TLS, all images, self-isolation specs), `make e2e-bdd` (Gherkin `.feature` files with per-step screenshots), and `make e2e-native` (the same suite against the GraalVM native image overlay). Godot has no GDScript unit suite yet — the runtime layer is exercised by `make e2e` loading the real WASM bundle in a browser.
+
+**Run it.** `docker compose up -d` brings up Postgres + Cassandra + Casdoor + BFF + the Angular host + the federated remotes; Liquibase migrates the schema on first boot. `make lan-up` / `make lan-up-tls` expose the stack to the LAN via [`lan.properties`](lan.properties). Dev servers: `make dev-backend` (`:8080`) and `make dev-frontend` (`:4200`, proxied to the BFF). See [architecture · 06 — build and deploy](docs/wiki/architecture/06-build-and-deploy.md) for the full chain and the Docker 29.x buildx caveat.
+
+**CI is GitLab, not GitHub Actions.** [`.gitlab-ci.yml`](.gitlab-ci.yml) builds + pushes one Docker image per deployable component (`backend`, `frontend`, `rpg-builder`, `vn-builder`, `wasm-fragment`) to the in-cluster GitLab container registry, in parallel on a privileged x86 runner, on the default branch and tags. Images carry no secrets — key material is supplied from USB at first boot.
+
+**Opt-in / external-toolchain paths.** The GraalVM native image (`make build-backend-native`, `make e2e-native`; see [decision 004](docs/wiki/decisions/004-graalvm-native.md)) needs ~6–8 GB RAM for the AOT compile and is not gated on PR CI. The Rust→WASM bridge and the Godot export both need toolchain (emsdk / Godot binary + templates) the base JVM/Angular flow does not.
+
+---
+
+## Roadmap
+
+Status as of the current `main` plus the in-flight `feat/domain-foundation` work. Phase-2 detail lives in [`docs/PLAN-module-federation-and-native.md`](docs/PLAN-module-federation-and-native.md); per-brand tenancy detail in decisions [025](docs/wiki/decisions/025-bff-domain-guard.md) and [026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
+
+### Done — merged on `main`
+
+- **Module Federation (host + remotes + fragment).** Done. Angular host shell loads `login` / `admin` / `mod` / `publisher` / per-game remotes at runtime via native-federation, plus a `wasm-fragment` nginx serving Godot bundles; manifest is DB-backed (`GET /api/federation/manifest`). See [decision 001](docs/wiki/decisions/001-native-federation.md) and PLAN sections A & F.
+- **Native / Godot run path + per-game project layout.** Done. Per-game Godot 4.6 projects under `games/<slug>/`, the canonical `snapdragon-bridge` Rust crate (`HostBridge`), per-game WASM bundles, and the GraalVM native-image build profile + `e2e-native` overlay. PLAN sections D & G.
+- **Hot upload + cryptographic launch UIDs.** Done. `POST /api/admin/games/upload` install pipeline (validate → SHA-256 → atomic move → one R2DBC tx → version pinning + pruner); `POST /api/games/{slug}/launch` mints launch UIDs with admin revoke + sweeper. PLAN sections C & H.
+- **JWT roles + per-game access policy + mod/publisher RBAC.** Done. `game_access` scopes, `RoleProxyController`, per-game `mod_game_scopes` / `publisher_game_scopes`. Decisions [009](docs/wiki/decisions/009-game-access-scopes.md), [011](docs/wiki/decisions/011-mod-publisher-rbac.md).
+- **The makers (RPG + VN editors).** Done. `/rpg-maker` and `/vn-maker` federated remotes backed by the `rpg-builder/` + `vn-builder/` Spring services compile authored projects to upload-ready Godot bundles. [Decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
+- **Per-brand domain foundation (the `DOMAIN_` authority).** Done (merged via PR #65). The games BFF now derives a tenant the way snapdragon-gateway does — `DomainRegistry` (issuer → brand), `CasdoorAuthorities` stamping exactly one issuer-derived `DOMAIN_<x>` per token with a reserved-prefix anti-forgery guard, and `Roles.isSuperadmin` / fail-closed `Roles.domainOf`. *Note:* PR #65 stamps the authority and adds the converter hardening; it deliberately stops at the seam — **enforcement** (the BFF-side guard and catalog partitioning below) is the in-progress work, not yet on `main`.
+
+### In progress — `feat/domain-foundation` (unmerged), enforcing the `DOMAIN_` authority
+
+- **BFF-side `DOMAIN_` guard.** In progress. `DomainGuardFilter` — a reactive `WebFilter` re-running the gateway's per-instance domain hard-deny as defence-in-depth for callers that reach the BFF without traversing the gateway. Gated on `app.tenancy.domain`; a complete no-op when unset (single-tenant today). [Decision 025](docs/wiki/decisions/025-bff-domain-guard.md), 16-spec `DomainGuardFilterTest`.
+- **Per-brand games-catalog domain partitioning.** In progress. `games.domain` column (migration 043, defaults `'default'` = unscoped), `Roles.domainApplies` predicate, `DomainScopeService.requireGameDomain`, server-controlled first-writer-wins upload stamping (untrusted-`register.sql`-proof), and the `GameAccessController` list/grant/revoke enforcement surface. [Decision 026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
+- **Domain-scope fan-out across the management controllers.** In progress (uncommitted working-tree changes on `feat/domain-foundation`). The deferred follow-on from decision 026: `requireGameDomain` plumbed into `GameLaunchController` (`launch` + `adminRevoke`), `ModerationController` (`stop` / `kick`), and `PublisherController` (`grantMod` / `revokeMod`), plus `DomainScopeService.requireSessionDomain` resolving `sessionId → game_slug → domain` for the session-targeting moderation actions. Accompanied by new `*DomainScopeTest` suites for each controller.
+
+### Planned — platform integration (gated on broader Snapdragon-Systems rollout)
+
+- **Games app-store.** Planned. Per-domain catalog of dockerized FOSS game servers: a new `games-services` role lets domain admins add/run servers from a Postgres-backed catalog, superadmin gates instance creation, and mods may create/run instances. Gated on `games-up`.
+- **`games` subdomain + two-Casdoor architecture.** Planned. The games realm runs its own Casdoor distinct from the platform Casdoor (the two-Casdoor split the `DOMAIN_` foundation above is built for); the portal defaults to a `games.<domain>` subdomain until a dedicated TLD is obtained.
+- **Optional-service add/remove + graceful degradation.** Planned. The games subdomain is an add/remove-by-command optional service on any deployment; federation and UI surfaces degrade gracefully (greyed-out) when the games realm is omitted.
+- **Multi-brand e2e.** Planned. A second Casdoor issuer in the integration-test harness so the domain guard + catalog partitioning are exercised end-to-end (today the `make e2e` stack runs a single Casdoor; the filter logic is pinned by unit suites).
 
 ---
 
