@@ -50,4 +50,5 @@
     <include file="db/changelog/043-games-domain-scoping.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/044-chess-game.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/045-wave1-games.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/046-wave1-remainder-games.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Wave-1 remainder — Battleship + Go catalog registration. Same
+      host-authoritative, server-streams-only model as 044/045 (no server-side
+      game logic). Engines: extensions/snapdragon-{battleship,go}. Playable
+      Godot/WASM bundles ship per-game later (P3).
+    -->
+
+    <changeSet id="046-1-battleship" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Battleship',
+       'Hidden-fleet naval combat. Place your ships, then fire to sink the opponent fleet. Host-authoritative; only hit, miss, or sunk is revealed.',
+       'battleship',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'battleship');
+
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Battleship', 'Two 10x10 grids. Place a fleet, then take turns firing until one fleet is sunk.',
+       'battleship', 'battleship', 1, '/api/assets/levels/battleship/index.html', '{}',
+       (SELECT id FROM games WHERE slug = 'battleship'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'battleship');
+        </sql>
+    </changeSet>
+
+    <changeSet id="046-2-go" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Go',
+       'The ancient game of Go (Weiqi/Baduk) on a 9x9 board. Surround territory and capture stones; the most points wins.',
+       'go',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'go');
+
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Go', 'A 9x9 Go board. Place stones to capture and surround territory; two passes end the game.',
+       'go', 'go', 1, '/api/assets/levels/go/index.html', '{}',
+       (SELECT id FROM games WHERE slug = 'go'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'go');
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
