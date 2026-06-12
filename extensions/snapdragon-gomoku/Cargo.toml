@@ -1,0 +1,14 @@
+[package]
+name = "snapdragon-gomoku"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "First-party Gomoku (five-in-a-row, freestyle 15x15) rules engine for snapdragon.games. Pure, deterministic, dependency-free. Compiles native (cargo test) and to wasm32 for the in-browser game — the server runs NO gomoku logic, it only streams events. See docs/multiplayer-chess-design.md."
+
+[lib]
+# rlib for `cargo test`; cdylib for the wasm/ffi build that ships to the browser.
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
