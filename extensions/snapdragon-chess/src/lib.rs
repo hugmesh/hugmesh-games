@@ -48,7 +48,22 @@ impl GameStatus {
     pub fn is_terminal(self) -> bool {
         !matches!(self, GameStatus::Ongoing | GameStatus::Check)
     }
+    /// Compact wire encoding for the `world`-channel payload.
+    pub fn wire(self) -> String {
+        match self {
+            GameStatus::Ongoing => "ongoing".into(),
+            GameStatus::Check => "check".into(),
+            GameStatus::Checkmate { winner } => format!("checkmate:{}", color_wire(winner)),
+            GameStatus::Stalemate => "stalemate".into(),
+            GameStatus::DrawFiftyMove => "draw:fifty".into(),
+            GameStatus::DrawThreefold => "draw:threefold".into(),
+            GameStatus::DrawInsufficientMaterial => "draw:material".into(),
+            GameStatus::Resigned { winner } => format!("resigned:{}", color_wire(winner)),
+        }
+    }
 }
+
+fn color_wire(c: Color) -> &'static str { if c == Color::White { "white" } else { "black" } }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MoveOutcome {
@@ -65,6 +80,26 @@ pub struct MoveOutcome {
     pub fen: String,
     pub status: GameStatus,
 }
+
+impl MoveOutcome {
+    /// The JSON payload the host emits on the session `world` channel after a
+    /// move; the guest re-validates it against its own engine copy. The server
+    /// only relays this string — it never parses it.
+    pub fn to_json(&self) -> String {
+        let last = if self.from < 64 {
+            let mut s = format!("{}{}", square_str(self.from), square_str(self.to));
+            if let Some(k) = self.promotion { s.push(promo_letter(k).to_ascii_lowercase()); }
+            s
+        } else { String::new() };
+        format!(
+            "{{\"type\":\"chess.state\",\"lastMove\":\"{}\",\"san\":\"{}\",\"fen\":\"{}\",\"status\":\"{}\",\"check\":{},\"mate\":{}}}",
+            last, json_escape(&self.san), json_escape(&self.fen), self.status.wire(),
+            self.gives_check, self.is_mate
+        )
+    }
+}
+
+fn json_escape(s: &str) -> String { s.replace('\\', "\\\\").replace('"', "\\\"") }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum MoveError { BadUci, IllegalMove, GameOver }
@@ -382,6 +417,22 @@ impl Game {
         }).collect()
     }
 
+    /// perft: count leaf nodes at `depth`. The standard move-generation
+    /// correctness check — the exact known counts catch any bug in castling,
+    /// en passant, promotion, or check handling.
+    pub fn perft(&self, depth: u32) -> u64 {
+        if depth == 0 { return 1; }
+        let moves = self.legal_moves();
+        if depth == 1 { return moves.len() as u64; }
+        let mut nodes = 0;
+        for m in moves {
+            let mut g = self.clone();
+            g.make(&m);
+            nodes += g.perft(depth - 1);
+        }
+        nodes
+    }
+
     /// Apply a move that is assumed pseudo-legal. Advances the whole state.
     fn make(&mut self, m: &Move) {
         let mover = self.board[m.from as usize].take().expect("move from empty square");
@@ -422,7 +473,8 @@ impl Game {
         if is_pawn || is_capture { self.halfmove = 0; } else { self.halfmove += 1; }
         if self.side == Color::Black { self.fullmove += 1; }
         self.side = self.side.opposite();
-        self.history.push(self.position_key());
+        // NB: history (for threefold) is pushed by the public move path
+        // (apply_uci), NOT here — so legality/perft trial-makes stay cheap.
     }
 
     fn insufficient_material(&self) -> bool {
@@ -494,6 +546,7 @@ impl Game {
         let is_ep = mover.kind == PieceKind::Pawn && Some(to) == self.ep && !was_occupied;
         let capture = was_occupied || is_ep;
         self.make(&chosen);
+        self.history.push(self.position_key()); // record for threefold detection
         let gives_check = self.is_attacked(self.king_sq(self.side), self.side.opposite());
         let status = self.status();
         let is_mate = matches!(status, GameStatus::Checkmate { .. });
@@ -631,5 +684,39 @@ mod tests {
         let mut g = Game::new();
         assert_eq!(g.resign(Color::White).status, GameStatus::Resigned { winner: Color::Black });
         assert_eq!(g.status(), GameStatus::Resigned { winner: Color::Black });
+    }
+
+    // ── perft: rigorous move-generation proof (exact known node counts) ──
+    #[test]
+    fn perft_startpos() {
+        let g = Game::new();
+        assert_eq!(g.perft(1), 20);
+        assert_eq!(g.perft(2), 400);
+        assert_eq!(g.perft(3), 8902);
+        assert_eq!(g.perft(4), 197281);
+    }
+    #[test]
+    fn status_wire_encoding() {
+        assert_eq!(GameStatus::Ongoing.wire(), "ongoing");
+        assert_eq!(GameStatus::Checkmate { winner: Color::White }.wire(), "checkmate:white");
+        assert_eq!(GameStatus::Resigned { winner: Color::Black }.wire(), "resigned:black");
+        assert_eq!(GameStatus::DrawThreefold.wire(), "draw:threefold");
+    }
+    #[test]
+    fn world_payload_json() {
+        let mut g = Game::new();
+        let j = g.apply_uci("e2e4").unwrap().to_json();
+        assert!(j.contains("\"lastMove\":\"e2e4\""), "{j}");
+        assert!(j.contains("\"status\":\"ongoing\""), "{j}");
+        assert!(j.contains("\"fen\":\"rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1\""), "{j}");
+    }
+    #[test]
+    fn perft_kiwipete() {
+        // The classic "Kiwipete" position — dense with castling, en passant,
+        // promotions, pins, and checks. If perft matches here, move-gen is sound.
+        let g = Game::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1").unwrap();
+        assert_eq!(g.perft(1), 48);
+        assert_eq!(g.perft(2), 2039);
+        assert_eq!(g.perft(3), 97862);
     }
 }
