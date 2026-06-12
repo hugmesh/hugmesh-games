@@ -7,6 +7,7 @@
 extends Node3D
 
 const Exits := preload("res://scripts/exits.gd")
+const RoomIndex := preload("res://scripts/room_index.gd")
 
 @onready var current_room: Node3D = null
 
@@ -51,13 +52,15 @@ func _input(event: InputEvent) -> void:
     var direction := Exits.direction_for_keycode(key.keycode)
     if direction == "":
         return
-    if not current_room.has_meta("exits"):
+    # Each generated room script declares `var exits := { "<DIR>": "<room-uuid>" }`.
+    var exits: Variant = current_room.get("exits")
+    if not (exits is Dictionary) or not exits.has(direction):
         return
-    var exits: Dictionary = current_room.exits
-    if exits.has(direction):
-        var target_uuid: String = exits[direction]
-        # In the rendered tree each room slug = filename; future: DB lookup.
-        # For now the worker writes UUIDs as targets; the runtime can't
-        # resolve those without the lookup so we no-op until the rendered
-        # graph adds a `slug_by_uuid` map (TODO).
-        push_warning("[snapdragon-rpg] direction %s -> %s (resolution NYI)" % [direction, target_uuid])
+    var target_uuid: String = str(exits[direction])
+    # Resolve the destination room UUID to its scene path via the generated
+    # room_index.gd map, then walk through the exit.
+    var scene_path: String = RoomIndex.ROOM_SCENES.get(target_uuid, "")
+    if scene_path == "":
+        push_warning("[snapdragon-rpg] no scene for room %s" % target_uuid)
+        return
+    _enter_room(scene_path)

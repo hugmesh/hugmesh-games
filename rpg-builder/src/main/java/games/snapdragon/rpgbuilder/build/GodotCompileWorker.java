@@ -48,6 +48,7 @@ public class GodotCompileWorker {
     private final RpgBuildJobRepository jobs;
     private final RpgProjectRepository projects;
     private final RpgGodotProjectRenderer renderer;
+    private final GodotExporter exporter;
     private final BffUploadClient bff;
     private final Path workdir;
     private final boolean godotEnabled;
@@ -55,12 +56,14 @@ public class GodotCompileWorker {
     private final AtomicBoolean inFlight = new AtomicBoolean(false);
 
     public GodotCompileWorker(RpgBuildJobRepository jobs, RpgProjectRepository projects,
-                              RpgGodotProjectRenderer renderer, BffUploadClient bff,
+                              RpgGodotProjectRenderer renderer, GodotExporter exporter,
+                              BffUploadClient bff,
                               @Value("${app.build.workdir}") String workdirCfg,
                               @Value("${app.build.godot-enabled}") boolean godotEnabled) {
         this.jobs = jobs;
         this.projects = projects;
         this.renderer = renderer;
+        this.exporter = exporter;
         this.bff = bff;
         this.workdir = Path.of(workdirCfg);
         this.godotEnabled = godotEnabled;
@@ -77,7 +80,9 @@ public class GodotCompileWorker {
                         err -> log.warn("[worker] tick aborted", err));
     }
 
-    private Mono<RpgBuildJob> execute(RpgBuildJob job) {
+    /** Package-private so the full pipeline (render → export → package → upload → status)
+     *  is unit-testable end to end with test-double collaborators. */
+    Mono<RpgBuildJob> execute(RpgBuildJob job) {
         log.info("[worker] executing build {} for project {}", job.getId(), job.getProjectId());
         return projects.findById(job.getProjectId())
                 .switchIfEmpty(Mono.error(new IllegalStateException("project gone")))
@@ -114,15 +119,31 @@ public class GodotCompileWorker {
             // Fallback: at least one chapter — re-use the project slug
             // as the area slug so the BFF still gets a registerable game.
             areaDirs = List.of(godotSrc.resolve("scenes/rooms/main"));
-            Files.createDirectories(stage.resolve("bundle/main"));
-            writeStubBundle(stage.resolve("bundle/main"), project, "main");
+            Path bundleMain = stage.resolve("bundle/main");
+            Files.createDirectories(bundleMain);
+            if (godotEnabled) {
+                exporter.exportWeb(godotSrc, bundleMain.resolve("index.html"));
+            } else {
+                writeStubBundle(bundleMain, project, "main");
+            }
         } else {
+            // Real export is whole-project, so run it ONCE and copy the bundle into
+            // each area's dir (re-exporting per area would just re-emit identical
+            // bytes — the area a chapter boots is selected at runtime, not at export).
+            // Disabled mode writes a cheap per-area stub so the rest of the pipeline
+            // (zip → manifest → BFF upload → register.sql) still runs end-to-end.
+            Path firstExported = null;
             for (Path ad : areaDirs) {
                 String areaSlug = ad.getFileName().toString();
                 Path bundleAreaDir = stage.resolve("bundle/" + areaSlug);
                 Files.createDirectories(bundleAreaDir);
                 if (godotEnabled) {
-                    runGodotExport(godotSrc, areaSlug, bundleAreaDir);
+                    if (firstExported == null) {
+                        exporter.exportWeb(godotSrc, bundleAreaDir.resolve("index.html"));
+                        firstExported = bundleAreaDir;
+                    } else {
+                        copyBundle(firstExported, bundleAreaDir);
+                    }
                 } else {
                     writeStubBundle(bundleAreaDir, project, areaSlug);
                 }
@@ -205,15 +226,15 @@ public class GodotCompileWorker {
         }
     }
 
-    private void runGodotExport(Path godotSrc, String areaSlug, Path bundleAreaDir) throws IOException {
-        // Sibling-container execution: the host orchestrator (compose
-        // / k8s) mounts /var/run/docker.sock so this service can `docker
-        // run` a Godot 4 image. Out of scope for this commit (Godot 4
-        // export images are 4-6 GB and need export templates wired); we
-        // gate behind `app.build.godot-enabled`. Keeping the entry
-        // point here so the integration story is obvious.
-        log.warn("[worker] godotEnabled=true but the Godot CLI invocation is not yet implemented; falling through to stub for {}", areaSlug);
-        writeStubBundle(bundleAreaDir, null, areaSlug);
+    /** Copy a produced bundle's files ({@code index.html/js/wasm/pck}) from one area
+     *  dir to another — used when a multi-area game reuses the single whole-project
+     *  export across its chapters. */
+    private static void copyBundle(Path src, Path dst) throws IOException {
+        try (var files = Files.list(src)) {
+            for (Path f : files.filter(Files::isRegularFile).toList()) {
+                Files.copy(f, dst.resolve(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
     }
 
     private void writeStubBundle(Path bundleAreaDir, RpgProject project, String areaSlug) throws IOException {
