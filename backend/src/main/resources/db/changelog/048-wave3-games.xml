@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Wave-3 real-time duels — catalog registration. Host-authoritative
+      deterministic tick sims (the guest re-simulates); the server only STREAMS
+      inputs. Engines: extensions/snapdragon-{tron,bomberman,asteroids-duel}.
+      Playable Godot/WASM bundles ship per-game later (P3).
+    -->
+
+    <changeSet id="048-1-tron" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Tron', 'Two-player light-cycles. Outlast your opponent without crashing into a trail.',
+       'tron', (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'tron');
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Tron', 'Two light-cycles leave solid trails. Steer to survive; do not crash.', 'tron', 'tron', 1,
+       '/api/assets/levels/tron/index.html', '{}', (SELECT id FROM games WHERE slug = 'tron'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'tron');
+        </sql>
+    </changeSet>
+
+    <changeSet id="048-2-bomberman" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Bomberman', 'Two-player bomb duel. Blast blocks and your opponent; the last one standing wins.',
+       'bomberman', (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'bomberman');
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Bomberman', 'Place bombs to clear destructible blocks and catch your opponent in the blast.', 'bomberman', 'bomberman', 1,
+       '/api/assets/levels/bomberman/index.html', '{}', (SELECT id FROM games WHERE slug = 'bomberman'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'bomberman');
+        </sql>
+    </changeSet>
+
+    <changeSet id="048-3-asteroids-duel" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Asteroids', 'Blast and dodge splitting asteroids in single-ship survival or a two-ship duel.',
+       'asteroids-duel', (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'asteroids-duel');
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Asteroids', 'Thrust, rotate, and fire. Shooting a large asteroid splits it; do not get hit.', 'asteroids-duel', 'asteroids-duel', 1,
+       '/api/assets/levels/asteroids-duel/index.html', '{}', (SELECT id FROM games WHERE slug = 'asteroids-duel'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'asteroids-duel');
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
