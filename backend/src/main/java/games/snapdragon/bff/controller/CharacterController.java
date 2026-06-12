@@ -45,6 +45,7 @@ public class CharacterController {
     private final CharacterSkillRepository charSkills;
     private final CharacterItemRepository charItems;
     private final ItemRepository itemRepo;
+    private final games.snapdragon.bff.security.DomainRegistry domainRegistry;
 
     public CharacterController(PlayerCharacterRepository characters,
                                GameStateService gameStateService,
@@ -55,7 +56,8 @@ public class CharacterController {
                                PlayerSessionRepository sessionRepo,
                                CharacterSkillRepository charSkills,
                                CharacterItemRepository charItems,
-                               ItemRepository itemRepo) {
+                               ItemRepository itemRepo,
+                               games.snapdragon.bff.security.DomainRegistry domainRegistry) {
         this.characters       = characters;
         this.gameStateService = gameStateService;
         this.gameTimeService  = gameTimeService;
@@ -66,6 +68,7 @@ public class CharacterController {
         this.charSkills       = charSkills;
         this.charItems        = charItems;
         this.itemRepo         = itemRepo;
+        this.domainRegistry   = domainRegistry;
     }
 
     @Operation(
@@ -196,7 +199,9 @@ public class CharacterController {
         java.util.List<String> roles = games.snapdragon.bff.security.Roles.fromJwt(jwt);
         String userId = jwt == null ? null : jwt.getSubject();
         Mono<List<GameWithChaptersDto>> games = progression
-                .availableGamesWithLevels(id, roles, userId).collectList();
+                .availableGamesWithLevels(id, roles, userId,
+                        games.snapdragon.bff.security.Roles.domainOf(jwt, domainRegistry),
+                        games.snapdragon.bff.security.Roles.isSuperadmin(jwt)).collectList();
 
         Mono<List<QuestDto>> quests = charQuests.findByCharacterId(id)
                 .flatMap(cq -> questRepo.findById(cq.getQuestId())

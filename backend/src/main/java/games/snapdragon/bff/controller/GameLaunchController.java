@@ -159,8 +159,20 @@ public class GameLaunchController {
         description = "Active = terminated_at IS NULL. The dashboard's 'kick' button calls revoke below.")
     @GetMapping("/launches")
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
-    reactor.core.publisher.Flux<games.snapdragon.bff.model.GameLaunch> activeLaunches() {
-        return launches.findByTerminatedAtIsNullOrderByStartedAtDesc();
+    reactor.core.publisher.Flux<games.snapdragon.bff.model.GameLaunch> activeLaunches(
+            @AuthenticationPrincipal Jwt jwt) {
+        // Brand-scope the dashboard: a brand-X admin sees only their brand's (+ global)
+        // launches; SUPERADMIN sees all; single-tenant unchanged. Each launch's brand is
+        // its game's domain (resolved by slug). Decision 026.
+        reactor.core.publisher.Flux<games.snapdragon.bff.model.GameLaunch> active =
+                launches.findByTerminatedAtIsNullOrderByStartedAtDesc();
+        if (Roles.isSuperadmin(jwt)) {
+            return active;                        // cross-domain bypass — no per-launch lookup
+        }
+        String callerDomain = Roles.domainOf(jwt, domainRegistry);
+        return active.filterWhen(launch -> games.findBySlug(launch.getGameSlug())
+                .map(g -> Roles.domainApplies(g.getDomain(), callerDomain, false))
+                .defaultIfEmpty(true));           // unknown slug → no domain to filter, keep
     }
 
     @Operation(

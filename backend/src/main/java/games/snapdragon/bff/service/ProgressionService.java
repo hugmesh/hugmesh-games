@@ -2,6 +2,8 @@ package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.*;
 import games.snapdragon.bff.repository.*;
+import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.security.Roles;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -79,6 +81,27 @@ public class ProgressionService {
     public Flux<GameWithChaptersDto> availableGamesWithLevels(Long characterId,
                                                             List<String> roleNames,
                                                             String userId) {
+        // Legacy / no-brand-context callers see games of any brand they're
+        // game_access-visible to (DEFAULT_DOMAIN caller => global games pass,
+        // branded games are filtered — but legacy callers are single-tenant so
+        // every game is 'default' and nothing changes).
+        return availableGamesWithLevels(characterId, roleNames, userId,
+                DomainRegistry.DEFAULT_DOMAIN, false);
+    }
+
+    /**
+     * Brand-aware overload — additionally filters the catalog by the caller's
+     * domain (multi-tenancy, decision 026): a brand-X principal sees only their
+     * brand's games (+ unscoped/'default' globals); SUPERADMIN sees all. Inert in
+     * single-tenant (every game + caller is 'default'). The domain filter is a
+     * defence-in-depth result-set scoping on top of the existing {@code game_access}
+     * visibility intersection — it never widens visibility, only narrows it.
+     */
+    public Flux<GameWithChaptersDto> availableGamesWithLevels(Long characterId,
+                                                            List<String> roleNames,
+                                                            String userId,
+                                                            String callerDomain,
+                                                            boolean isSuperadmin) {
         String[] roles = roleNames == null ? new String[0] : roleNames.toArray(String[]::new);
         Mono<Set<Long>> visibleGameIds = access.findVisibleGameIdsForPrincipal(roles, userId)
                 .collect(java.util.stream.Collectors.toSet());
@@ -90,7 +113,9 @@ public class ProgressionService {
             Set<Long> completedIds = completedSet(tuple.getT1());
             Set<Long> allowed = tuple.getT2();
             return games.findAllByOrderBySortOrderAsc()
-                    .filter(g -> allowed.contains(g.getId()))
+                    .filter(g -> allowed.contains(g.getId())
+                            && Roles.domainApplies(
+                                    g.getDomain(), callerDomain, isSuperadmin))
                     .flatMap(game ->
                             levels.findByGameIdOrderBySortOrderAsc(game.getId())
                                     .flatMap(level -> buildLevelDto(level, completedIds))

@@ -184,6 +184,45 @@ class GameLaunchControllerDomainScopeTest {
     }
 
     // ===================================================================
+    // activeLaunches — admin dashboard is brand-FILTERED (result-set scope)
+    // ===================================================================
+    @Nested
+    class ActiveLaunches {
+
+        private GameLaunch launch(String uid, String gameSlug) {
+            GameLaunch l = new GameLaunch();
+            l.setUid(uid);
+            l.setGameSlug(gameSlug);
+            return l;
+        }
+
+        @Test
+        void filtersToCallerBrandPlusGlobalDropsForeign() {
+            GameLaunchController c = controllerFor(multiBrand());
+            when(launches.findByTerminatedAtIsNullOrderByStartedAtDesc())
+                    .thenReturn(Flux.just(launch("lx", "gx"), launch("ly", "gy"), launch("lg", "gg")));
+            stubGame("gx", "brandx", 1L);
+            stubGame("gy", "brandy", 2L);
+            stubGame("gg", "default", 3L);
+
+            // brand-X admin: keep gx (own brand) + gg (global), drop gy (foreign).
+            StepVerifier.create(c.activeLaunches(admin(ISS_X)))
+                    .expectNextMatches(l -> l.getGameSlug().equals("gx"))
+                    .expectNextMatches(l -> l.getGameSlug().equals("gg"))
+                    .verifyComplete();
+        }
+
+        @Test
+        void superadminSeesAllLaunches() {
+            GameLaunchController c = controllerFor(multiBrand());
+            when(launches.findByTerminatedAtIsNullOrderByStartedAtDesc())
+                    .thenReturn(Flux.just(launch("lx", "gx"), launch("ly", "gy")));
+            // games NOT stubbed — superadmin bypass must not need to resolve them.
+            StepVerifier.create(c.activeLaunches(superadmin(ISS_X))).expectNextCount(2).verifyComplete();
+        }
+    }
+
+    // ===================================================================
     // terminate() — self-scoped by casdoor id, NO brand gate (contract point 5)
     // ===================================================================
     @Nested

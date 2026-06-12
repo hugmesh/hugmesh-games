@@ -22,12 +22,15 @@ public class GameController {
     private final GameRepository games;
     private final ChapterRepository levels;
     private final ProgressionService progression;
+    private final games.snapdragon.bff.security.DomainRegistry domainRegistry;
 
     public GameController(GameRepository games, ChapterRepository levels,
-                          ProgressionService progression) {
-        this.games       = games;
-        this.levels      = levels;
-        this.progression = progression;
+                          ProgressionService progression,
+                          games.snapdragon.bff.security.DomainRegistry domainRegistry) {
+        this.games          = games;
+        this.levels         = levels;
+        this.progression    = progression;
+        this.domainRegistry = domainRegistry;
     }
 
     @Operation(
@@ -97,6 +100,10 @@ public class GameController {
         // scope='all' games are returned.
         java.util.List<String> roles = Roles.fromJwt(jwt);
         String userId = (jwt == null) ? null : jwt.getSubject();
-        return progression.availableGamesWithLevels(characterId, roles, userId);
+        // Brand-scope the catalog: a branded principal sees only their brand's games
+        // (+ globals); anonymous resolves to "default" → globals only; single-tenant
+        // unchanged (every game + caller is 'default'). Decision 026.
+        return progression.availableGamesWithLevels(characterId, roles, userId,
+                Roles.domainOf(jwt, domainRegistry), Roles.isSuperadmin(jwt));
     }
 }

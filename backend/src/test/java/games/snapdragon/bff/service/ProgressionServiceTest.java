@@ -116,6 +116,32 @@ class ProgressionServiceTest {
                 .verifyComplete();
     }
 
+    @Test
+    void brandFilterHidesForeignBrandGamesButKeepsGlobals() {
+        // Catalog: a global ('default'/null) game + a brandx game + a brandy game,
+        // ALL access-visible. The brand filter narrows to the caller's brand + globals.
+        Game global = gameStub(1L, "three-wizards", "TW");   // domain null = global
+        Game bx = gameStub(2L, "brandx-game", "BX");  bx.setDomain("brandx");
+        Game by = gameStub(3L, "brandy-game", "BY");  by.setDomain("brandy");
+        when(games.findAllByOrderBySortOrderAsc()).thenReturn(Flux.just(global, bx, by));
+        when(access.findVisibleGameIdsForPrincipal(any(String[].class), any()))
+                .thenReturn(Flux.just(1L, 2L, 3L));
+        when(levels.findByGameIdOrderBySortOrderAsc(anyLong())).thenReturn(Flux.empty());
+
+        // brand-X player: global + brandx, NOT brandy.
+        StepVerifier.create(service.availableGamesWithLevels(
+                        1L, List.of("player"), "u", "brandx", false).collectList())
+                .assertNext(list -> assertThat(list).extracting(GameWithChaptersDto::slug)
+                        .containsExactlyInAnyOrder("three-wizards", "brandx-game"))
+                .verifyComplete();
+
+        // superadmin: all three (cross-domain bypass).
+        StepVerifier.create(service.availableGamesWithLevels(
+                        1L, List.of("player"), "u", "brandx", true).collectList())
+                .assertNext(list -> assertThat(list).hasSize(3))
+                .verifyComplete();
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     private static Game gameStub(long id, String slug, String name) {

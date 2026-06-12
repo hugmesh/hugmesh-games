@@ -61,8 +61,15 @@ Two reactive details: (1) the gated service calls are wrapped in `Mono.defer`/`F
 ## What this does NOT do (deferred follow-on)
 
 - **Public/anonymous catalog reads** (`GameController.list/get`, `ChapterController.*`, `FederationController.manifest`) stay global — there is no JWT to scope by, and a brand-partitioned *public* catalog needs the gateway to forward a Host-derived brand (e.g. `X-Domain`), which it does not today. Same boundary [decision 025](025-bff-domain-guard.md) drew.
-- **Domain-FILTERING authenticated read lists** (`GameLaunchController.activeLaunches`, `GameController.available`) — these leak cross-brand metadata to an authenticated admin but cause no mutation; a result-set filter (not a hard-deny) is the right shape and is still deferred.
-- **Domain-FILTERING authenticated reads** (`GameLaunchController.activeLaunches`, `GameController.available`) — these leak cross-brand metadata to an authenticated admin but cause no mutation; a result-set filter (not a hard-deny) is the right shape and is deferred.
+
+## Authenticated read-list filtering (follow-on, landed)
+
+The deferred result-set filters now narrow the *authenticated* catalog/launch reads by brand — a **filter**, never a hard-deny (it only narrows what `game_access`/visibility already allowed):
+
+- **`GameController.available` + `CharacterController` dashboard** → `ProgressionService.availableGamesWithLevels(…, callerDomain, isSuperadmin)` filters the catalog by `Roles.domainApplies(game.getDomain(), …)` on top of the existing `game_access` intersection. A branded player sees only their brand's games (+ globals); anonymous resolves to `default` (globals only); SUPERADMIN sees all; single-tenant inert.
+- **`GameLaunchController.activeLaunches`** (admin dashboard) → resolves each launch's game domain by slug and keeps only the caller-brand (+ global) launches; SUPERADMIN short-circuits without a lookup.
+
+The filter lives in the service / collection pipeline — the only place the `Game.domain` is in hand (`GameWithChaptersDto` deliberately does not carry it). Covered by `ProgressionServiceTest.brandFilterHidesForeignBrandGamesButKeepsGlobals` + `GameLaunchControllerDomainScopeTest.ActiveLaunches`. Only the **public/anonymous** catalog reads above remain global (gated on a gateway `X-Domain`).
 
 ## Verification
 
