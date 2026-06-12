@@ -5,6 +5,7 @@ import games.snapdragon.bff.model.Game;
 import games.snapdragon.bff.model.GameAccess;
 import games.snapdragon.bff.repository.GameAccessRepository;
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.repository.GameSessionRepository;
 import games.snapdragon.bff.security.DomainRegistry;
 import games.snapdragon.bff.service.DomainScopeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,7 +44,7 @@ class GameAccessControllerTest {
         // "default" and these fixtures leave game.domain null (unscoped), so the new
         // per-game domain gate is a no-op and these specs assert the unchanged flow.
         ctl        = new GameAccessController(accessRepo, gameRepo,
-                new DomainScopeService(gameRepo), new DomainRegistry("", ""));
+                new DomainScopeService(gameRepo, mock(GameSessionRepository.class)), new DomainRegistry("", ""));
     }
 
     private static Game game(long id, String slug) {

@@ -47,10 +47,21 @@ A `@Service` mirroring `PublisherService.requireOwns` / `ModerationService.requi
 
 `GameAccessController.list` / `grant` / `revoke` (the canonical per-game admin management surface) are gated by `requireGameDomain` — a brand-X admin cannot read, grant, or revoke access policy on a brand-Y game. Plus the upload write/re-upload guard above.
 
+## Extended to the remaining management surfaces (follow-on, landed)
+
+The deferred admin-bypass branches are now gated too — same controller-level pattern,
+services unchanged:
+
+- **`PublisherController`** (`grantMod` / `revokeMod` / `modsForGame`) — `requireGameDomain` on the request/path `gameSlug`.
+- **`ModerationController`** (`stopSession` / `kickPlayer`) — `DomainScopeService.requireSessionDomain(sessionId, …)` resolves `sessionId → game_slug → game.domain` (the target is a session id, not a slug).
+- **`GameLaunchController`** — `launch` gates on the path slug (before the per-user `game_access` visibility check); `adminRevoke` gained an `@AuthenticationPrincipal Jwt` param and gates on the loaded launch row's `gameSlug`. `terminate()` is deliberately **left ungated** — it is already self-scoped by casdoor id (a player can only ever terminate their own launch, including cross-brand for a `'default'` game).
+
+Two reactive details: (1) the gated service calls are wrapped in `Mono.defer`/`Flux.defer` so a *denied* request assembles no side work (the gate is a clean short-circuit, not just an unsubscribed branch); (2) `requireSessionDomain` mirrors `requireGameDomain` exactly (superadmin no-lookup bypass, unknown id → empty pass-through, null caller fail-closed). Adversarially reviewed; the two confirmed findings (regression-insurance for `terminate()`'s ungated self-scope + `modsForGame`'s `Flux.defer` ALLOW path) are covered by `GameLaunchControllerDomainScopeTest.Terminate` and `PublisherControllerDomainScopeTest.modsForGameAllowsOwnBrandAndEmitsRows`.
+
 ## What this does NOT do (deferred follow-on)
 
-- **Publisher/mod admin-bypass branches** (`PublisherController.grantMod/revokeMod`, `ModerationController.stopSession/kickPlayer`) and **`GameLaunchController.adminRevoke`/`launch`** — the same `requireGameDomain` gate applies to their ADMIN-bypass path (publishers/mods are already bound by `requireOwns`/`requireScope`, which can't own/scope a foreign-brand game). Deferred because the session/launch-targeting variants need a `session→game_slug→domain` resolution step; tracked as the next increment.
 - **Public/anonymous catalog reads** (`GameController.list/get`, `ChapterController.*`, `FederationController.manifest`) stay global — there is no JWT to scope by, and a brand-partitioned *public* catalog needs the gateway to forward a Host-derived brand (e.g. `X-Domain`), which it does not today. Same boundary [decision 025](025-bff-domain-guard.md) drew.
+- **Domain-FILTERING authenticated read lists** (`GameLaunchController.activeLaunches`, `GameController.available`) — these leak cross-brand metadata to an authenticated admin but cause no mutation; a result-set filter (not a hard-deny) is the right shape and is still deferred.
 - **Domain-FILTERING authenticated reads** (`GameLaunchController.activeLaunches`, `GameController.available`) — these leak cross-brand metadata to an authenticated admin but cause no mutation; a result-set filter (not a hard-deny) is the right shape and is deferred.
 
 ## Verification

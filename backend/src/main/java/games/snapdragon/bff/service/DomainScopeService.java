@@ -1,6 +1,7 @@
 package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.repository.GameSessionRepository;
 import games.snapdragon.bff.security.Roles;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -37,9 +38,11 @@ import reactor.core.publisher.Mono;
 public class DomainScopeService {
 
     private final GameRepository games;
+    private final GameSessionRepository sessions;
 
-    public DomainScopeService(GameRepository games) {
+    public DomainScopeService(GameRepository games, GameSessionRepository sessions) {
         this.games = games;
+        this.sessions = sessions;
     }
 
     /**
@@ -69,6 +72,22 @@ public class DomainScopeService {
                                 "caller domain '" + callerDomain + "' may not act on game '"
                                         + gameSlug + "' (domain '" + game.getDomain() + "')")))
                 // Unknown slug: no domain to enforce — let the caller's own 404 surface.
+                .switchIfEmpty(Mono.empty());
+    }
+
+    /**
+     * Authorize against the game a SESSION belongs to — for moderation actions
+     * ({@code /api/mod/sessions/{id}/stop|kick}) that address a session id, not a slug.
+     * Resolves {@code sessionId → game_slug} ({@link games.snapdragon.bff.model.GameSession#getGameSlug()})
+     * and delegates to {@link #requireGameDomain}. SUPERADMIN bypasses without a lookup;
+     * an unknown session id completes empty so the handler's own {@code 404} surfaces.
+     */
+    public Mono<Void> requireSessionDomain(String sessionId, String callerDomain, boolean isSuperadmin) {
+        if (isSuperadmin) {
+            return Mono.empty();
+        }
+        return sessions.findById(sessionId)
+                .flatMap(s -> requireGameDomain(s.getGameSlug(), callerDomain, false))
                 .switchIfEmpty(Mono.empty());
     }
 }

@@ -2,6 +2,7 @@ package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.Game;
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.repository.GameSessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -45,12 +46,14 @@ import static org.mockito.Mockito.when;
 class DomainScopeServiceTest {
 
     private GameRepository games;
+    private GameSessionRepository sessions;
     private DomainScopeService service;
 
     @BeforeEach
     void setup() {
         games = mock(GameRepository.class);
-        service = new DomainScopeService(games);
+        sessions = mock(GameSessionRepository.class);
+        service = new DomainScopeService(games, sessions);
     }
 
     private Game game(String slug, String domain) {
@@ -243,6 +246,55 @@ class DomainScopeServiceTest {
             pool.shutdown();
             assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
             assertThat(wrong.get()).isZero();
+        }
+    }
+
+    // ===================================================================
+    // requireSessionDomain — resolves sessionId → game_slug → game.domain
+    // ===================================================================
+    @Nested
+    class SessionDomain {
+
+        private void stubSession(String sessionId, String gameSlug) {
+            games.snapdragon.bff.model.GameSession s = new games.snapdragon.bff.model.GameSession();
+            s.setId(sessionId);
+            s.setGameSlug(gameSlug);
+            when(sessions.findById(eq(sessionId))).thenReturn(Mono.just(s));
+        }
+
+        @Test
+        void inBrandSessionIsAllowedForeignIsDenied() {
+            stubSession("s-1", "brandx-game");
+            stub("brandx-game", "brandx");
+            assertAllowed(service.requireSessionDomain("s-1", "brandx", false));     // owner brand
+            assertForbidden(service.requireSessionDomain("s-1", "brandy", false));    // foreign brand
+        }
+
+        @Test
+        void superadminBypassesWithoutAnySessionLookup() {
+            // sessions.findById is NEVER stubbed — a stray lookup would NPE on the mock,
+            // proving the bypass short-circuits before resolving the session.
+            assertAllowed(service.requireSessionDomain("s-any", "brandx", true));
+        }
+
+        @Test
+        void unknownSessionPassesSoTheHandler404Surfaces() {
+            when(sessions.findById(eq("ghost"))).thenReturn(Mono.empty());
+            assertAllowed(service.requireSessionDomain("ghost", "brandy", false));
+        }
+
+        @Test
+        void nullCallerOnAScopedSessionFailsClosed() {
+            stubSession("s-1", "brandx-game");
+            stub("brandx-game", "brandx");
+            assertForbidden(service.requireSessionDomain("s-1", null, false));
+        }
+
+        @Test
+        void defaultSessionGameIsGlobal() {
+            stubSession("s-2", "open-game");
+            stub("open-game", "default");
+            assertAllowed(service.requireSessionDomain("s-2", "brandx", false));
         }
     }
 }

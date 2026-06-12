@@ -4,6 +4,7 @@ import games.snapdragon.bff.model.Game;
 import games.snapdragon.bff.model.GameAccess;
 import games.snapdragon.bff.repository.GameAccessRepository;
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.repository.GameSessionRepository;
 import games.snapdragon.bff.security.DomainRegistry;
 import games.snapdragon.bff.service.DomainScopeService;
 import org.junit.jupiter.api.Nested;
@@ -52,7 +53,7 @@ class GameAccessControllerDomainScopeTest {
         lenient().when(accessRepo.findByGameId(any())).thenReturn(Flux.just(new GameAccess()));
         lenient().when(accessRepo.save(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         lenient().when(accessRepo.deletePolicy(any(), any(), any())).thenReturn(Mono.empty());
-        DomainScopeService scope = new DomainScopeService(gameRepo);
+        DomainScopeService scope = new DomainScopeService(gameRepo, mock(GameSessionRepository.class));
         return new GameAccessController(accessRepo, gameRepo, scope, registry);
     }
 

@@ -3,6 +3,7 @@ package games.snapdragon.bff.controller;
 import games.snapdragon.bff.model.Game;
 import games.snapdragon.bff.model.PublisherGameScope;
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.repository.GameSessionRepository;
 import games.snapdragon.bff.repository.ModGameScopeRepository;
 import games.snapdragon.bff.repository.PublisherGameScopeRepository;
 import games.snapdragon.bff.security.DomainRegistry;
@@ -50,7 +51,7 @@ class GameUploadControllerTest {
         gameRepo = mock(GameRepository.class);
         pubScopes = mock(PublisherGameScopeRepository.class);
         PublisherService publisher = new PublisherService(pubScopes, mock(ModGameScopeRepository.class));
-        DomainScopeService scope = new DomainScopeService(gameRepo);
+        DomainScopeService scope = new DomainScopeService(gameRepo, mock(GameSessionRepository.class));
         // uploadService / uploads are unused by requireScope() and by the null-domain
         // early return, so null is safe here (and dodges mocking the concrete service).
         return new GameUploadController(null, null, publisher, scope, registry);
