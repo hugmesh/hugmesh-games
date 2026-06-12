@@ -1,23 +1,22 @@
 package games.snapdragon.bff.config;
 
+import games.snapdragon.bff.security.DomainRegistry;
 import games.snapdragon.bff.service.UserDirectoryService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.security.authentication.ReactiveAuthenticationManagerResolver;
 import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverter;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @Configuration
 @EnableWebFluxSecurity
@@ -31,8 +30,25 @@ public class SecurityConfig {
      */
     private final ObjectProvider<UserDirectoryService> directoryProvider;
 
-    public SecurityConfig(ObjectProvider<UserDirectoryService> directoryProvider) {
+    /** Issuer -&gt; brand/domain registry — the single source of truth for the
+     *  issuer-derived {@code DOMAIN_<x>} authority the shared
+     *  {@link CasdoorAuthorities} converter stamps, and the multi-issuer gate. */
+    private final DomainRegistry domainRegistry;
+
+    /** OPTIONAL per-brand multi-issuer resolver, contributed by
+     *  {@link TenancyResourceServerConfig} ONLY when {@code app.tenancy.issuers}
+     *  genuinely carries issuer=domain pairs. Absent on a single-issuer cluster
+     *  (the games realm's default — only a jwk-set-uri is configured). */
+    private final ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
+            tenantAuthManagerResolver;
+
+    public SecurityConfig(ObjectProvider<UserDirectoryService> directoryProvider,
+                          DomainRegistry domainRegistry,
+                          ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
+                                  tenantAuthManagerResolver) {
         this.directoryProvider = directoryProvider;
+        this.domainRegistry = domainRegistry;
+        this.tenantAuthManagerResolver = tenantAuthManagerResolver;
     }
 
     private static final String[] PLAYER_PATHS = {
@@ -84,7 +100,7 @@ public class SecurityConfig {
                     ex.pathMatchers(SPEC_PATHS).permitAll();
                     ex.anyExchange().permitAll();
                 })
-                .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(jwtConverter())))
+                .oauth2ResourceServer(this::configureResourceServer)
                 .csrf(csrf -> csrf.disable())
                 // Spring Security defaults X-Frame-Options to DENY which blocks even
                 // same-origin iframe embedding. The Angular game-canvas mounts the
@@ -112,7 +128,7 @@ public class SecurityConfig {
                     ex.pathMatchers(PLAYER_PATHS).authenticated();
                     ex.anyExchange().permitAll();
                 })
-                .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(jwtConverter())))
+                .oauth2ResourceServer(this::configureResourceServer)
                 .csrf(csrf -> csrf.disable())
                 // Spring Security defaults X-Frame-Options to DENY which blocks even
                 // same-origin iframe embedding. The Angular game-canvas mounts the
@@ -123,6 +139,35 @@ public class SecurityConfig {
                 .build();
     }
 
+    /**
+     * Wire the resource server. Multi-issuer (per-brand Casdoor) is OPT-IN +
+     * backward-compatible: swap to the per-issuer authentication-manager
+     * resolver ONLY when BOTH a resolver was contributed by
+     * {@link TenancyResourceServerConfig} AND the registry is genuinely
+     * multi-issuer ({@link DomainRegistry#isMultiIssuer()} — more than the lone
+     * back-compat entry). Gating on {@code isMultiIssuer()} — not merely
+     * {@code resolver != null} — keeps a single-issuer cluster on the EXISTING
+     * {@code jwk-set-uri} {@code o.jwt(...)} decoder path even if the tenancy
+     * conditional ever activates with just the lone back-compat issuer. In true
+     * multi-brand mode each trusted per-brand Casdoor validates its own tokens
+     * (unknown iss -&gt; 401, fail-closed).
+     *
+     * <p>The games realm ships a single Casdoor (only {@code jwk-set-uri} is
+     * configured, no {@code issuer-uri} / {@code app.tenancy.issuers}), so this
+     * always takes the single-issuer branch today and the existing decoder path
+     * is byte-for-byte unchanged — the converter merely additionally stamps
+     * {@code DOMAIN_default}.
+     */
+    private void configureResourceServer(ServerHttpSecurity.OAuth2ResourceServerSpec o) {
+        ReactiveAuthenticationManagerResolver<ServerWebExchange> resolver =
+                tenantAuthManagerResolver.getIfAvailable();
+        if (resolver != null && domainRegistry.isMultiIssuer()) {
+            o.authenticationManagerResolver(resolver);
+        } else {
+            o.jwt(j -> j.jwtAuthenticationConverter(jwtConverter()));
+        }
+    }
+
     private ReactiveJwtAuthenticationConverter jwtConverter() {
         ReactiveJwtAuthenticationConverter converter = new ReactiveJwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(casdoorAuthoritiesConverter());
@@ -130,80 +175,54 @@ public class SecurityConfig {
     }
 
     /**
-     * Maps Casdoor JWT claims to Spring Security authorities. Three sources, in
-     * precedence order:
+     * Maps Casdoor JWT claims to Spring Security authorities. The AUTHORITY
+     * mapping itself is delegated to the shared {@link CasdoorAuthorities}
+     * converter (COPIED VERBATIM from snapdragon-gateway) so the single-issuer
+     * path here and the optional multi-issuer path
+     * ({@link TenancyResourceServerConfig}) emit BYTE-IDENTICAL authorities.
+     * Three claim sources, in precedence order:
      * <ol>
-     *   <li>{@code roles} — array of role names assigned to the user via the
-     *       Casdoor admin console (Roles → Members). Each entry produces a
-     *       {@code ROLE_<UPPER>} authority. This is the primary mechanism;
-     *       new roles can be added in Casdoor without touching this code.</li>
-     *   <li>{@code permissions} — array of fine-grained permission strings.
-     *       Each becomes a non-prefixed authority so it doesn't collide with
-     *       role-prefixed checks (e.g. {@code @PreAuthorize("hasAuthority('upload:games')")}).</li>
-     *   <li>{@code isAdmin} (legacy boolean) — kept for backward-compatibility
-     *       with users created before role assignment was introduced.</li>
+     *   <li>{@code roles} — array of role names (strings OR {@code {name}}
+     *       objects) assigned via the Casdoor admin console. Each entry produces
+     *       a {@code ROLE_<UPPER>} authority.</li>
+     *   <li>{@code permissions} — fine-grained permission strings, each a
+     *       non-prefixed authority — EXCEPT any entry beginning with a RESERVED
+     *       prefix ({@code ROLE_}/{@code DOMAIN_}) which is DROPPED. Those
+     *       authorities come ONLY from the converter's own controlled logic, so
+     *       a token carrying {@code permissions:["ROLE_SUPERADMIN"]} or
+     *       {@code permissions:["DOMAIN_other"]} can NEVER inject a forged
+     *       super-role or cross-tenant scope (authority-injection defense).</li>
+     *   <li>{@code isAdmin} (legacy boolean) — kept for back-compat with users
+     *       created before role assignment.</li>
      * </ol>
-     * Every authenticated principal also gets {@code ROLE_USER} so
-     * {@code .authenticated()} matchers work even with no roles assigned.
+     * Every authenticated principal also gets the {@code ROLE_USER} floor PLUS
+     * exactly one issuer-derived {@code DOMAIN_<x>} authority
+     * ({@code DOMAIN_default} on this single-issuer cluster).
+     *
+     * <p>This wrapper additionally preserves the games-BFF-specific
+     * username→casdoorId {@code cacheLogin} side-effect (best-effort cache
+     * warm-up, NOT a security control) — it runs on every authenticated request
+     * but never alters the emitted authorities.
      */
     private Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
-        return new Converter<>() {
-            @Override
-            public Flux<GrantedAuthority> convert(@org.springframework.lang.NonNull Jwt jwt) {
-                // Side-effect: populate the username→casdoorId cache on every
-                // authenticated request. Without this, the first
-                // /api/relationships/blocks/add { other: "player2" } call
-                // misses the cache and falls back to a Casdoor get-user
-                // round-trip that can transiently 404, silently no-opping the
-                // block. The Javadoc on UserDirectoryService.cacheLogin
-                // documents this hook explicitly.
-                UserDirectoryService directory = directoryProvider.getIfAvailable();
-                if (directory != null) {
-                    String name = jwt.getClaimAsString("name");
-                    String sub  = jwt.getSubject();
-                    if (name != null && sub != null) {
-                        directory.cacheLogin(name, sub);
-                    }
+        Converter<Jwt, Flux<GrantedAuthority>> delegate =
+                CasdoorAuthorities.converter(domainRegistry);
+        return jwt -> {
+            // Side-effect: populate the username→casdoorId cache on every
+            // authenticated request. Without this, the first
+            // /api/relationships/blocks/add { other: "player2" } call misses the
+            // cache and falls back to a Casdoor get-user round-trip that can
+            // transiently 404, silently no-opping the block. The Javadoc on
+            // UserDirectoryService.cacheLogin documents this hook explicitly.
+            UserDirectoryService directory = directoryProvider.getIfAvailable();
+            if (directory != null) {
+                String name = jwt.getClaimAsString("name");
+                String sub  = jwt.getSubject();
+                if (name != null && sub != null) {
+                    directory.cacheLogin(name, sub);
                 }
-
-                List<GrantedAuthority> authorities = new ArrayList<>();
-                authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
-
-                // Primary: Casdoor-managed `roles` claim. The Casdoor token
-                // template can be configured to embed assigned roles as a JSON
-                // array of strings (Application → Token Format → JWT-Custom).
-                Object rolesClaim = jwt.getClaim("roles");
-                if (rolesClaim instanceof List<?> list) {
-                    for (Object r : list) {
-                        if (r != null) {
-                            authorities.add(new SimpleGrantedAuthority(
-                                    "ROLE_" + r.toString().trim().toUpperCase()));
-                        }
-                    }
-                }
-
-                // Optional: fine-grained permissions. Stored alongside roles in
-                // Casdoor (Permissions tab). Useful when a single endpoint
-                // gates on a verb-noun pair rather than a role.
-                Object permsClaim = jwt.getClaim("permissions");
-                if (permsClaim instanceof List<?> list) {
-                    for (Object p : list) {
-                        if (p != null) {
-                            authorities.add(new SimpleGrantedAuthority(p.toString().trim()));
-                        }
-                    }
-                }
-
-                // Legacy: pre-roles users with the boolean isAdmin flag still
-                // get ROLE_ADMIN. Safe to remove once everyone is migrated to
-                // Casdoor-assigned roles.
-                Object isAdmin = jwt.getClaim("isAdmin");
-                if (Boolean.TRUE.equals(isAdmin)) {
-                    authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
-                }
-
-                return Flux.fromIterable(authorities);
             }
+            return delegate.convert(jwt);
         };
     }
 }
