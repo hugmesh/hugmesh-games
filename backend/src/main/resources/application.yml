@@ -86,6 +86,22 @@ app:
     enabled: ${APP_REVOCATION_ENABLED:true}
     refresh-interval-ms: ${APP_REVOCATION_REFRESH_MS:5000}
 
+  # Multi-brand tenancy. UNSET on the games realm's single-Casdoor shape today,
+  # so every key below is inert and the BFF behaves exactly as before.
+  tenancy:
+    # The brand this BFF INSTANCE serves. When set (e.g. APP_TENANCY_DOMAIN=brandx)
+    # the DomainGuardFilter 403s any authenticated token whose issuer-derived
+    # DOMAIN_<x> authority does not match — the BFF-side, defence-in-depth mirror of
+    # the snapdragon-gateway domain hard-deny, for requests that reach the BFF on the
+    # compose network bypassing the edge. SUPERADMIN is exempt (cross-domain infra
+    # plane). Empty (default) => single-tenant => the guard is a complete no-op.
+    domain: ${APP_TENANCY_DOMAIN:}
+    # OPTIONAL per-brand multi-issuer (per-brand Casdoor) decoder map, as a CSV of
+    # issuer=domain pairs (e.g. https://casdoor.brandx.example=brandx,...). Empty
+    # (default) keeps the single jwk-set-uri decoder path. Consumed by DomainRegistry
+    # + (conditionally) TenancyResourceServerConfig.
+    issuers: ${APP_TENANCY_ISSUERS:}
+
   # Banned-user appeal channel — recipient address surfaced on the
   # /banned federated remote. AppealContactController resolves the
   # current primary / secondary on-call mod from accounts.mods and

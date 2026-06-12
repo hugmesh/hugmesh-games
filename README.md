@@ -197,6 +197,9 @@ The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WA
 **R2DBC + JDBC coexistence.**
 Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 3 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
 
+**Per-brand domain isolation, mirrored from snapdragon.systems.**
+The BFF derives a tenant the way the snapdragon-gateway does: one Casdoor per brand ⇒ a distinct, cryptographically-validated `iss`, mapped to a brand by `DomainRegistry`, stamped as exactly one `DOMAIN_<x>` authority by `CasdoorAuthorities` (with a reserved-prefix guard so a `permissions:["DOMAIN_other"]` entry can't forge a tenant). `DomainGuardFilter` is the first consumer: when `app.tenancy.domain` names the brand this instance serves, it 403s any authenticated token whose `DOMAIN_<x>` ≠ that brand (SUPERADMIN exempt) — the BFF-side, defence-in-depth mirror of the gateway's domain hard-deny, for traffic that reaches the BFF on the compose network bypassing the edge. Unset (the single-Casdoor default) ⇒ a complete no-op. An optional `app.tenancy.issuers` CSV swaps in a per-brand multi-issuer decoder (`TenancyResourceServerConfig`). See [decision 025](docs/wiki/decisions/025-bff-domain-guard.md).
+
 **Module Federation: host + four remotes + a fragment.**
 The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads four sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`:
 
