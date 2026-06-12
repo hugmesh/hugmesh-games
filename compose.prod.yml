@@ -41,6 +41,10 @@ services:
     image: snapdragon-games/bff:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on prod}
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      # Fail fast at boot if any prod-sensitive credential (Casdoor
+      # client-secret, DB password) is unset (NIST IA-5 / OWASP ASVS
+      # 6.2.2). In the real cluster these arrive via k8s + ESO + Vault.
+      APP_SECURITY_REQUIRE_MANAGED_SECRETS: "true"
       SPRING_WEB_CORS_ALLOWED_ORIGINS: "https://snapdragon.games,https://*.snapdragon.games"
       APP_PUBLIC_HOST: snapdragon.games
       APP_PUBLIC_SCHEME: https
