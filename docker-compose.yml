@@ -58,7 +58,10 @@ services:
       retries: 10
 
   casdoor:
-    image: casbin/casdoor:latest
+    # Pinned (was `:latest`) — supply-chain integrity (CIS Docker 4.x /
+    # NIST SR). Tag + immutable digest so a re-tag upstream can't swap
+    # the image out from under us. Bump deliberately, never floating.
+    image: casbin/casdoor:v1.811.0@sha256:e0a4a56125979c650283cdd738c6f05a8a29de3714758a2238019f39cfffff4a
     entrypoint: ["/bin/sh", "/casdoor-init.sh"]
     depends_on:
       postgres:
@@ -259,7 +262,9 @@ services:
     # vanilla `docker compose up -d` keeps working without this container —
     # spin minio up explicitly via `docker compose up -d minio` or by
     # flipping APP_UPLOADS_STORAGE in .env.
-    image: minio/minio:latest
+    # Pinned (was `:latest`) — supply-chain integrity (CIS Docker 4.x /
+    # NIST SR). Tag + immutable digest; bump deliberately.
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-snapdragon-minio}
@@ -281,7 +286,9 @@ services:
     # One-shot bucket creation against the running minio so the api
     # container doesn't have to handle bucket-not-found on first write.
     # Idempotent — `mc mb --ignore-existing` is a no-op on re-run.
-    image: minio/mc:latest
+    # Pinned (was `:latest`) — supply-chain integrity (CIS Docker 4.x /
+    # NIST SR). Tag + immutable digest; bump deliberately.
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
     depends_on:
       minio:
         condition: service_healthy

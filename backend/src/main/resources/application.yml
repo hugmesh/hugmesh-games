@@ -30,16 +30,24 @@ spring:
     max-in-memory-size:          ${APP_CODEC_MAX:16MB}
 
   # R2DBC — all runtime data access (non-blocking)
+  #
+  # DB_PASS has NO insecure literal default — an unset password resolves
+  # to empty, and StartupSecretValidator refuses to boot when
+  # app.security.require-managed-secrets=true (prod/staging) with a blank
+  # password (NIST IA-5 / SC-12). Local dev + compose + e2e supply DB_PASS
+  # explicitly (docker-compose.yml `DB_PASS: threewizards`; tests inject it
+  # via Testcontainers DynamicPropertySource), so this stays a non-issue
+  # for the dev/compose path.
   r2dbc:
     url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:threewizards}
     username: ${DB_USER:threewizards}
-    password: ${DB_PASS:threewizards}
+    password: ${DB_PASS:}
 
   # JDBC DataSource — used only by Liquibase (blocking migrations at startup)
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:threewizards}
     username: ${DB_USER:threewizards}
-    password: ${DB_PASS:threewizards}
+    password: ${DB_PASS:}
     driver-class-name: org.postgresql.Driver
 
   liquibase:
@@ -73,7 +81,16 @@ spring:
 casdoor:
   endpoint: ${CASDOOR_ENDPOINT:http://localhost:8000}
   client-id: ${CASDOOR_CLIENT_ID:twclient001}
-  client-secret: ${CASDOOR_CLIENT_SECRET:twsecret001}
+  # client-secret has NO insecure literal default (was hardcoded
+  # "twsecret001"). An unset CASDOOR_CLIENT_SECRET resolves to empty and
+  # StartupSecretValidator refuses to boot when
+  # app.security.require-managed-secrets=true (prod/staging) — NIST IA-5 /
+  # OWASP ASVS 6.2.2: never ship a guessable default credential. In local
+  # dev the Casdoor container prints a freshly-generated secret on first
+  # boot; paste it into .env (see CLAUDE.md "Local dev quickstart"). The
+  # empty default keeps the bean wireable for tests / api-docs generation
+  # that never exercise the OAuth code path.
+  client-secret: ${CASDOOR_CLIENT_SECRET:}
   organization: ${CASDOOR_ORGANIZATION:threewizards}
 
 # Revocation list — polled from the same Cassandra table the
@@ -93,6 +110,17 @@ app:
   # on file (e.g. a fresh stack before any mod has been approved).
   security:
     appeal-contact-fallback: ${APP_SECURITY_APPEAL_CONTACT_FALLBACK:support@snapdragon.games}
+    # Fail-fast gate for prod-sensitive credentials (NIST IA-5 / SC-12 /
+    # OWASP ASVS 6.2.2). When true, StartupSecretValidator refuses to boot
+    # if casdoor.client-secret or the DB password is blank — so a
+    # misconfigured production deploy crashes loudly instead of running
+    # with a missing/guessable credential. Default false keeps the
+    # documented local first-boot flow working (`docker compose up -d`
+    # before you've pasted the generated Casdoor secret into .env) and
+    # keeps the e2e/integration-test stack booting. compose.prod.yml and
+    # compose.staging.yml set this to true (creds arrive via k8s + ESO +
+    # Vault in the real deployment).
+    require-managed-secrets: ${APP_SECURITY_REQUIRE_MANAGED_SECRETS:false}
 
   # Upload storage strategy for hot-uploaded game bundles. Two backends:
   #   filesystem (default) — bundle files land under `games-dir` on the
@@ -113,6 +141,14 @@ app:
     s3:
       endpoint:   ${APP_UPLOADS_S3_ENDPOINT:}
       region:     ${APP_UPLOADS_S3_REGION:us-east-1}
+      # access-key / secret-key default to empty (never a literal default).
+      # When storage=s3 with blank creds, UploadStorageConfig refuses to
+      # build the S3 client and FAILS FAST with a clear error instead of
+      # letting the AWS SDK silently fall through to the default credential
+      # provider chain (env/instance-profile) and read/write the wrong
+      # bucket (NIST IA-5; OWASP ASVS 6.2.2). Provide both via
+      # APP_UPLOADS_S3_ACCESS_KEY / APP_UPLOADS_S3_SECRET_KEY (compose minio:
+      # MINIO_ROOT_USER / MINIO_ROOT_PASSWORD; prod: k8s + ESO + Vault).
       access-key: ${APP_UPLOADS_S3_ACCESS_KEY:}
       secret-key: ${APP_UPLOADS_S3_SECRET_KEY:}
       bucket:     ${APP_UPLOADS_S3_BUCKET:snapdragon-uploads}
@@ -177,7 +213,9 @@ app:
     replica:
       url:      ${APP_R2DBC_REPLICA_URL:}
       username: ${APP_R2DBC_REPLICA_USER:${DB_USER:threewizards}}
-      password: ${APP_R2DBC_REPLICA_PASS:${DB_PASS:threewizards}}
+      # Falls back to the primary DB password (also no insecure literal
+      # default — see spring.r2dbc.password above), not a hardcoded value.
+      password: ${APP_R2DBC_REPLICA_PASS:${DB_PASS:}}
 
 # Resilience4j — wraps the cluster-wide Cassandra calls inside
 # RateLimitFilter. An open breaker means subsequent requests skip
