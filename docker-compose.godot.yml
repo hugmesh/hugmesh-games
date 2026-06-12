@@ -1,0 +1,43 @@
+# Opt-in overlay that flips the RPG/VN makers from dev STUB bundles to REAL Godot 4
+# Web exports — so a maker-built game is a playable Godot WASM scene, not a placeholder
+# HTML page.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.godot.yml up -d rpg-builder vn-builder
+#   # or:  make build-with-godot
+#
+# Godot + its Web export templates are provided by the HOST (bind-mounted), NOT baked
+# into the builder image, so the default build stays small (a Godot 4 export image with
+# templates is 4-6 GB). Populate them once with:
+#
+#   make godot-export-tools        # downloads Godot 4.6 headless + Web templates into tools/godot-export/
+#
+# then point GODOT_HOST_DIR / GODOT_TEMPLATES_DIR at them (defaults below assume that layout).
+#
+# The snapdragon-bridge WASM is bind-mounted from the repo so the produced WASM carries
+# the multiplayer HostBridge (the renderer copies it into the project's bin/ via
+# app.build.bridge-dir). NOTE: the eclipse-temurin JRE base may lack a couple of shared
+# libs the Godot headless binary wants (libgl1, libxi6, libxrandr2, …); see
+# tools/godot-export/README.md if the export fails to launch.
+services:
+  rpg-builder:
+    environment:
+      APP_BUILD_GODOT_ENABLED: "true"
+      APP_BUILD_GODOT_BIN: /opt/godot/godot
+      APP_BUILD_GODOT_PRESET: "Web"
+      APP_BUILD_BRIDGE_DIR: /opt/snapdragon-bridge
+    volumes:
+      - ${GODOT_HOST_DIR:-./tools/godot-export/godot}:/opt/godot:ro
+      - ${GODOT_TEMPLATES_DIR:-./tools/godot-export/templates}:/root/.local/share/godot/export_templates:ro
+      # cave/ ships snapdragon_bridge.wasm — the renderer picks it up by filename.
+      - ./backend/src/main/resources/assets/levels/cave:/opt/snapdragon-bridge:ro
+
+  vn-builder:
+    environment:
+      APP_BUILD_GODOT_ENABLED: "true"
+      APP_BUILD_GODOT_BIN: /opt/godot/godot
+      APP_BUILD_GODOT_PRESET: "Web"
+      APP_BUILD_BRIDGE_DIR: /opt/snapdragon-bridge
+    volumes:
+      - ${GODOT_HOST_DIR:-./tools/godot-export/godot}:/opt/godot:ro
+      - ${GODOT_TEMPLATES_DIR:-./tools/godot-export/templates}:/root/.local/share/godot/export_templates:ro
+      - ./backend/src/main/resources/assets/levels/cave:/opt/snapdragon-bridge:ro

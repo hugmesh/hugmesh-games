@@ -239,12 +239,33 @@ Then('a player can launch chapter {string} of game {string}',
     const tried: Array<{ url: string; status: number }> = [];
     // Primary: uid-gated asset path. Same predicate the federated
     // remote uses in production after POST /api/games/{slug}/launch.
+    // Also probe the sibling WASM payload — a 200 on index.html alone passed even
+    // for the zero-byte STUB bundle, so assert the actual game payload (index.wasm /
+    // index.pck) is served too, and capture its byte length so a godot-enabled stack
+    // can assert it's a real (non-empty) export, not a placeholder.
+    const probeSiblings = async (htmlUrl: string) => {
+      const sib = async (name: string) => {
+        const u = htmlUrl.replace(/index\.html$/, name);
+        try {
+          const r = await fetch(u, { headers });
+          const len = r.ok ? (await r.arrayBuffer()).byteLength : 0;
+          return { url: u, status: r.status, len };
+        } catch {
+          return { url: u, status: 0, len: 0 };
+        }
+      };
+      return { wasm: await sib('index.wasm'), pck: await sib('index.pck') };
+    };
+
     if (uid) {
       const uidUrl = `/api/assets/levels/${g}/${uid}/${assetUrl}`;
       try {
         const r = await fetch(uidUrl, { headers });
         tried.push({ url: uidUrl, status: r.status });
-        if (r.ok) return { ok: true, stage: 'done', status: 200, bundleUrl: uidUrl, tried };
+        if (r.ok) {
+          return { ok: true, stage: 'done', status: 200, bundleUrl: uidUrl, tried,
+                   assets: await probeSiblings(uidUrl) };
+        }
       } catch { /* fall through */ }
     }
 
@@ -266,4 +287,17 @@ Then('a player can launch chapter {string} of game {string}',
     result.ok,
     `player launch of ${gameSlug}/${chapterSlug} failed at stage=${result.stage}: ${JSON.stringify(result)}`,
   ).toBe(true);
+
+  // The bundle must serve its WASM payload, not just the HTML shell (the old check
+  // passed on a zero-byte stub).
+  const assets = (result as { assets?: { wasm: { status: number; len: number }; pck: { status: number; len: number } } }).assets;
+  if (assets) {
+    expect(assets.wasm.status, `index.wasm not served for ${gameSlug}/${chapterSlug}`).toBe(200);
+    expect(assets.pck.status, `index.pck not served for ${gameSlug}/${chapterSlug}`).toBe(200);
+    // On a godot-enabled stack the export is real — assert it carries actual bytes.
+    if (process.env.E2E_GODOT_ENABLED === 'true') {
+      expect(assets.wasm.len, `index.wasm is empty (stub?) for ${gameSlug}/${chapterSlug}`).toBeGreaterThan(0);
+      expect(assets.pck.len, `index.pck is empty (stub?) for ${gameSlug}/${chapterSlug}`).toBeGreaterThan(0);
+    }
+  }
 });

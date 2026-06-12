@@ -196,6 +196,18 @@
       "signupApplication": "threewizards-app",
       "isAdmin": false, "isForbidden": false, "isDeleted": false,
       "score": 2000, "ranking": 1
+    },
+    {
+      "owner": "threewizards",
+      "name": "uploader",
+      "id": "tw-uploader-001",
+      "type": "normal-user",
+      "password": "CASDOOR_UPLOADER_PASS_VALUE",
+      "displayName": "Uploader (upload-only, no role management)",
+      "email": "",
+      "signupApplication": "threewizards-app",
+      "isAdmin": false, "isForbidden": false, "isDeleted": false,
+      "score": 2000, "ranking": 1
     }
   ],
   "roles": [
@@ -225,7 +237,7 @@
       "name": "uploader",
       "displayName": "Game Uploader",
       "description": "Can upload + replace game bundles; cannot manage roles.",
-      "users": [],
+      "users": ["threewizards/uploader"],
       "isEnabled": true
     },
     {

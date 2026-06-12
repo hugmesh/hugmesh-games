@@ -53,6 +53,7 @@ services:
       CASDOOR_PUB_TWIAT_PASS:    ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
       CASDOOR_PUB_DODEC_PASS:    ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
       CASDOOR_PUB_FLAT_PASS:     ${E2E_PUB_FLAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_UPLOADER_PASS:     ${E2E_UPLOADER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
       # Spring profile that toggles the integration-testing seed
       # (ChapterController fixtures + a known controller character so
       # the multi-user specs can drive deterministic positions).
@@ -72,6 +73,7 @@ services:
       CASDOOR_PUB_TWIAT_PASS:    ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
       CASDOOR_PUB_DODEC_PASS:    ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
       CASDOOR_PUB_FLAT_PASS:     ${E2E_PUB_FLAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_UPLOADER_PASS:     ${E2E_UPLOADER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
 
   e2e:
     build:

@@ -183,6 +183,37 @@ build-godot: build-rust
 	done
 	@echo "✓ All bundles exported under $(GODOT_EXPORT_ROOT)/"
 
+# ── Real maker builds (RPG/VN → playable Godot WASM) ─────────────────────────
+# The makers run a headless Web export when app.build.godot-enabled=true. The
+# docker-compose.godot.yml overlay bind-mounts a host Godot + Web export
+# templates + the snapdragon-bridge wasm. See tools/godot-export/README.md.
+
+.PHONY: godot-export-tools build-with-godot
+GODOT_TOOLS_DIR := tools/godot-export
+GODOT_MAKER_VERSION ?= 4.6-stable
+
+godot-export-tools:
+	@echo "→ Fetching Godot $(GODOT_MAKER_VERSION) headless + Web export templates into $(GODOT_TOOLS_DIR)/"
+	@mkdir -p $(GODOT_TOOLS_DIR)/godot $(GODOT_TOOLS_DIR)/templates
+	@base="https://github.com/godotengine/godot/releases/download/$(GODOT_MAKER_VERSION)"; \
+	  bin="Godot_v$(GODOT_MAKER_VERSION)_linux.x86_64"; \
+	  tpz="Godot_v$(GODOT_MAKER_VERSION)_export_templates.tpz"; \
+	  echo "  • $$bin"; \
+	  curl -fsSL "$$base/$$bin.zip" -o /tmp/godot.zip && unzip -oq /tmp/godot.zip -d $(GODOT_TOOLS_DIR)/godot && \
+	    mv $(GODOT_TOOLS_DIR)/godot/$$bin $(GODOT_TOOLS_DIR)/godot/godot && chmod +x $(GODOT_TOOLS_DIR)/godot/godot; \
+	  echo "  • $$tpz"; \
+	  curl -fsSL "$$base/$$tpz" -o /tmp/templates.tpz && \
+	    mkdir -p $(GODOT_TOOLS_DIR)/templates/$(subst -,.,$(GODOT_MAKER_VERSION)) && \
+	    unzip -oq /tmp/templates.tpz -d /tmp/godot-tpl && \
+	    cp -r /tmp/godot-tpl/templates/* $(GODOT_TOOLS_DIR)/templates/$(subst -,.,$(GODOT_MAKER_VERSION))/; \
+	  echo "✓ Godot tools ready under $(GODOT_TOOLS_DIR)/ — run 'make build-with-godot'"
+
+build-with-godot:
+	@echo "→ Bringing the makers up with REAL Godot exports (docker-compose.godot.yml)"
+	@test -x $(GODOT_TOOLS_DIR)/godot/godot || { echo "ERROR: $(GODOT_TOOLS_DIR)/godot/godot missing — run 'make godot-export-tools' first"; exit 1; }
+	docker compose -f docker-compose.yml -f docker-compose.godot.yml up -d --build rpg-builder vn-builder
+	@echo "✓ rpg-builder + vn-builder running with app.build.godot-enabled=true"
+
 # ── Post-export index.html patches ───────────────────────────────────────────
 # Godot regenerates index.html on every export. This target re-applies custom
 # patches: correct file sizes (progress bar) and scene prefetch script.
