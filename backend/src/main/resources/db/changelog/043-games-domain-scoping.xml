@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+      Per-brand catalog scoping — the multi-tenancy (snapdragon.systems) merger.
+
+      Adds a `domain` column to the umbrella `games` table (the 012-6 table; the
+      ORIGINAL 001 games table was renamed levels->chapters long ago, so this lands
+      on today's live catalog table). `domain` names the brand that OWNS a game.
+
+      Back-compat by construction: NOT NULL DEFAULT 'default'. Every existing row
+      backfills to 'default', and a 'default' (or null/blank) domain is treated as
+      UNSCOPED / global by the row-domain predicate (Roles.domainApplies, mirroring
+      the snapdragon-gateway GatewayRouteAccessService.domainApplies). So on the
+      single-Casdoor cluster every game is global and nothing changes; in a
+      multi-brand deployment new uploads are stamped with the uploader's brand
+      (GameUploadService) and a brand-X admin cannot manage a brand-Y game
+      (DomainScopeService). chapters / game_access / federation_modules derive their
+      brand THROUGH the parent game (chapters.game_id FK, game_access.game_id,
+      federation_modules.game_slug), so only `games` carries the column.
+
+      The 'default' literal is games.snapdragon.bff.security.DomainRegistry.DEFAULT_DOMAIN.
+  -->
+
+  <changeSet id="043-1-games-domain-column" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <tableExists tableName="games"/>
+      <not>
+        <columnExists tableName="games" columnName="domain"/>
+      </not>
+    </preConditions>
+    <addColumn tableName="games">
+      <column name="domain" type="VARCHAR(64)" defaultValue="default">
+        <constraints nullable="false"/>
+      </column>
+    </addColumn>
+  </changeSet>
+
+  <!--
+      Index the scope column so a multi-brand catalog filter
+      (WHERE domain = :brand OR domain = 'default') stays cheap as the catalog
+      grows. Harmless / unused on the single-tenant cluster (every row 'default').
+  -->
+  <changeSet id="043-2-games-domain-index" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not>
+        <indexExists tableName="games" indexName="ix_games_domain"/>
+      </not>
+    </preConditions>
+    <createIndex tableName="games" indexName="ix_games_domain">
+      <column name="domain"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

@@ -3,6 +3,9 @@ package games.snapdragon.bff.controller;
 import games.snapdragon.bff.model.GameAccess;
 import games.snapdragon.bff.repository.GameAccessRepository;
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.security.Roles;
+import games.snapdragon.bff.service.DomainScopeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -43,10 +46,22 @@ public class GameAccessController {
 
     private final GameAccessRepository accessRepo;
     private final GameRepository gameRepo;
+    private final DomainScopeService domainScope;
+    private final DomainRegistry domainRegistry;
 
-    public GameAccessController(GameAccessRepository accessRepo, GameRepository gameRepo) {
-        this.accessRepo = accessRepo;
-        this.gameRepo   = gameRepo;
+    public GameAccessController(GameAccessRepository accessRepo, GameRepository gameRepo,
+                                DomainScopeService domainScope, DomainRegistry domainRegistry) {
+        this.accessRepo     = accessRepo;
+        this.gameRepo       = gameRepo;
+        this.domainScope    = domainScope;
+        this.domainRegistry = domainRegistry;
+    }
+
+    /** Brand-scope gate for an admin acting on {@code slug}: a brand-X admin may not
+     *  read or mutate a brand-Y game's access policy (SUPERADMIN exempt). Inert in
+     *  single-tenant — every game is {@code domain='default'} (global). */
+    private Mono<Void> requireGameDomain(String slug, Jwt jwt) {
+        return domainScope.requireGameDomain(slug, Roles.domainOf(jwt, domainRegistry), Roles.isSuperadmin(jwt));
     }
 
     public record AccessGrantRequest(String scope, String value) {}
@@ -54,10 +69,11 @@ public class GameAccessController {
     @Operation(summary = "List access policies for one game (admin only).")
     @GetMapping("/{slug}/access")
     @PreAuthorize("hasRole('ADMIN')")
-    public Flux<GameAccess> list(@PathVariable String slug) {
-        return gameRepo.findBySlug(slug)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown game slug: " + slug)))
-                .flatMapMany(g -> accessRepo.findByGameId(g.getId()));
+    public Flux<GameAccess> list(@PathVariable String slug, @AuthenticationPrincipal Jwt jwt) {
+        return requireGameDomain(slug, jwt)
+                .thenMany(gameRepo.findBySlug(slug)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown game slug: " + slug)))
+                        .flatMapMany(g -> accessRepo.findByGameId(g.getId())));
     }
 
     @Operation(
@@ -88,7 +104,7 @@ public class GameAccessController {
 
         String adminId = jwt != null ? jwt.getSubject() : "system:unknown";
 
-        return gameRepo.findBySlug(slug)
+        return requireGameDomain(slug, jwt).then(gameRepo.findBySlug(slug)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown game slug: " + slug)))
                 .flatMap(g -> {
                     GameAccess row = new GameAccess();
@@ -107,7 +123,7 @@ public class GameAccessController {
                                 .defaultIfEmpty(new GameAccess());
                     }
                     return Mono.error(ex);
-                });
+                }));
     }
 
     @Operation(summary = "Revoke a previously-granted access policy (admin only).")
@@ -116,13 +132,14 @@ public class GameAccessController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> revoke(@PathVariable String slug,
                              @RequestParam String scope,
-                             @RequestParam(required = false) String value) {
+                             @RequestParam(required = false) String value,
+                             @AuthenticationPrincipal Jwt jwt) {
         if (!VALID_SCOPES.contains(scope)) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "scope must be one of " + VALID_SCOPES));
         }
-        return gameRepo.findBySlug(slug)
+        return requireGameDomain(slug, jwt).then(gameRepo.findBySlug(slug)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown game slug: " + slug)))
-                .flatMap(g -> accessRepo.deletePolicy(g.getId(), scope, "all".equals(scope) ? null : value));
+                .flatMap(g -> accessRepo.deletePolicy(g.getId(), scope, "all".equals(scope) ? null : value)));
     }
 }

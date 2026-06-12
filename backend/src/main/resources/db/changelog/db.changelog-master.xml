@@ -47,4 +47,5 @@
     <include file="db/changelog/040-producer-contacts.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/041-accounts-schema-split.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/042-session-pause-state.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/043-games-domain-scoping.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

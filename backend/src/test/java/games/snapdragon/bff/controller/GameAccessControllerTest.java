@@ -5,6 +5,8 @@ import games.snapdragon.bff.model.Game;
 import games.snapdragon.bff.model.GameAccess;
 import games.snapdragon.bff.repository.GameAccessRepository;
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.service.DomainScopeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
@@ -37,7 +39,11 @@ class GameAccessControllerTest {
     void setUp() {
         accessRepo = mock(GameAccessRepository.class);
         gameRepo   = mock(GameRepository.class);
-        ctl        = new GameAccessController(accessRepo, gameRepo);
+        // Single-tenant registry (no tenancy config) — every caller resolves to
+        // "default" and these fixtures leave game.domain null (unscoped), so the new
+        // per-game domain gate is a no-op and these specs assert the unchanged flow.
+        ctl        = new GameAccessController(accessRepo, gameRepo,
+                new DomainScopeService(gameRepo), new DomainRegistry("", ""));
     }
 
     private static Game game(long id, String slug) {
@@ -97,7 +103,7 @@ class GameAccessControllerTest {
 
     @Test
     void revokeRejectsUnknownScope() {
-        Mono<?> result = ctl.revoke("any-slug", "everyone", null);
+        Mono<?> result = ctl.revoke("any-slug", "everyone", null, null);
         StepVerifier.create(result)
                 .expectErrorSatisfies(err -> {
                     assertThat(err).isInstanceOf(ResponseStatusException.class);
@@ -181,7 +187,7 @@ class GameAccessControllerTest {
         when(gameRepo.findBySlug("cave")).thenReturn(Mono.just(game(7L, "cave")));
         when(accessRepo.deletePolicy(eq(7L), eq("all"), eq(null))).thenReturn(Mono.empty());
 
-        StepVerifier.create(ctl.revoke("cave", "all", "ignored")).verifyComplete();
+        StepVerifier.create(ctl.revoke("cave", "all", "ignored", null)).verifyComplete();
         verify(accessRepo, times(1)).deletePolicy(7L, "all", null);
     }
 
@@ -190,7 +196,7 @@ class GameAccessControllerTest {
         when(gameRepo.findBySlug("cave")).thenReturn(Mono.just(game(7L, "cave")));
         when(accessRepo.deletePolicy(eq(7L), eq("role"), eq("play-cave"))).thenReturn(Mono.empty());
 
-        StepVerifier.create(ctl.revoke("cave", "role", "play-cave")).verifyComplete();
+        StepVerifier.create(ctl.revoke("cave", "role", "play-cave", null)).verifyComplete();
         verify(accessRepo, times(1)).deletePolicy(7L, "role", "play-cave");
     }
 
@@ -198,7 +204,7 @@ class GameAccessControllerTest {
     void revoke404sOnUnknownSlug() {
         when(gameRepo.findBySlug("missing")).thenReturn(Mono.empty());
 
-        StepVerifier.create(ctl.revoke("missing", "all", null))
+        StepVerifier.create(ctl.revoke("missing", "all", null, null))
                 .expectErrorSatisfies(err -> {
                     assertThat(err).isInstanceOf(ResponseStatusException.class);
                     assertThat(((ResponseStatusException) err).getStatusCode())
