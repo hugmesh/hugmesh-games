@@ -334,6 +334,22 @@ async function main() {
     'an unmapped key did not advance or mutate the engine',
   );
 
+  // ── (d2) P2's UPPER-CASE WASD (Shift held / Caps Lock) still steers P2 ──────
+  // Regression: P2 bombs with Shift, so holding Shift while moving makes the
+  // browser report 'W'/'A'/'S'/'D' (upper-case). A lower-case-only KEYMAP silently
+  // dropped every P2 move under Shift. Single-player hot-seat (characterId null)
+  // lets both keysets through, so onLocalInput must map 'W' → p2:up.
+  const upperW = GAME.onLocalInput({ type: 'keydown', key: 'W', preventDefault() {} }, ctx);
+  assert(
+    upperW && upperW.input && upperW.input.payload && upperW.input.payload.player === 'p2' && upperW.input.payload.action === 'up',
+    `upper-case 'W' (Shift held) maps to p2:up (got ${upperW && upperW.input ? JSON.stringify(upperW.input.payload) : 'null'})`,
+  );
+  const upperD = GAME.onLocalInput({ type: 'keydown', key: 'D', preventDefault() {} }, ctx);
+  assert(
+    upperD && upperD.input && upperD.input.payload && upperD.input.payload.player === 'p2' && upperD.input.payload.action === 'right',
+    `upper-case 'D' (Shift held) maps to p2:right (got ${upperD && upperD.input ? JSON.stringify(upperD.input.payload) : 'null'})`,
+  );
+
   // ── (e) guest path: applying a host world snapshot renders it directly ──────
   // A guest (isHost false) does NOT re-simulate; it renders the host's snapshot.
   const guestGame = bombMod.createBombermanGame();

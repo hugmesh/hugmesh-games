@@ -207,8 +207,24 @@ async function main() {
   assert(miss.coord === 'J10' && miss.result === 'miss', `J10 is a miss (coord ${miss.coord}, result ${miss.result})`);
   assert(miss.next === 'p2', `after a miss the turn flips to p2 (got "${miss.next}")`);
   assert(miss.status === 'firing', 'game still firing after the miss');
-  // The shot payload reveals ONLY the result — never an unfired hull cell.
-  assert(!miss.coord.includes('A') || miss.result === 'miss', 'shot payload carries only coord+result, no layout');
+  // FOG OF WAR (the security-critical property): the resolved shot payload the
+  // OWNER relays back must reveal ONLY the single fired coordinate + its result —
+  // never an unhit opponent ship cell. Scan the whole serialized payload for any
+  // algebraic coordinate token; the ONLY one allowed to appear is the coord just
+  // fired. (A leak here would be a HIGH: the opponent layout escaping into the
+  // shooter's client. This asserts it cannot.)
+  function coordTokensIn(obj) {
+    return (JSON.stringify(obj).match(/[A-J](?:10|[1-9])\b/g) || []);
+  }
+  const missCoords = coordTokensIn(miss);
+  assert(
+    missCoords.every((c) => c === miss.coord),
+    `relayed shot payload contains ONLY the fired coord, no opponent layout (saw [${missCoords.join(',')}], fired ${miss.coord})`,
+  );
+  assert(
+    !('cells' in miss) && !('ships' in miss) && !('board' in miss) && !('fleet' in miss) && !('fleet' in miss),
+    'relayed shot payload has no fleet/board/ship-cells key (layout never crosses the wire)',
+  );
 
   // P2 misses to hand back (J10 on P1's board is also water).
   const p2miss = resolve('J10');
@@ -218,6 +234,16 @@ async function main() {
   const hit = resolve('A1');
   assert(hit.result === 'hit', `A1 hits P2's carrier (got "${hit.result}")`);
   assert(hit.next === 'p2', 'a hit also hands the turn over');
+  // A HIT is the most sensitive reveal: it confirms a ship occupies the fired
+  // cell but MUST NOT disclose the ship's identity or its other (still-unhit)
+  // hull cells. The result is the bare token "hit", and the only coord present
+  // is the one fired — the carrier's remaining cells B1..E1 never appear.
+  assert(hit.result === 'hit', 'a plain hit reveals no ship identity (result === "hit", not "hit:carrier")');
+  const hitCoords = coordTokensIn(hit);
+  assert(
+    hitCoords.every((c) => c === hit.coord),
+    `hit payload leaks no other hull cell (saw [${hitCoords.join(',')}], fired ${hit.coord})`,
+  );
 
   // ── 7. already-fired + off-board rejections during firing ───────────────────
   resolve('I10'); // P2 misses to hand back to P1
@@ -261,6 +287,13 @@ async function main() {
     assert(snapshot().turn === 'p1', `P1 holds the turn at shot ${i}`);
     const shot = resolve(targets[i]);
     last = shot;
+    // Every resolved payload across a full game must reveal ONLY the fired coord
+    // (a sunk/win token names the ship — public once sunk — but never a coord).
+    const shotCoords = coordTokensIn(shot);
+    assert(
+      shotCoords.every((c) => c === targets[i]),
+      `shot ${i} payload leaks no opponent cell (saw [${shotCoords.join(',')}], fired ${targets[i]})`,
+    );
     if (i + 1 < targets.length) {
       // Not the last hull cell: a hit or non-final sunk; the game continues.
       assert(

@@ -233,6 +233,90 @@ async function main() {
   assert(readPackedF(fx.tron_tick()) === '{}', 'tron_tick() on a fresh (no-game) instance is {}');
   assert(fx.tron_set_dir(ONE, UP) === 0, 'tron_set_dir on a fresh (no-game) instance is rejected (0)');
 
+  // ── 8. CROSS-INSTANCE LOCKSTEP: two INDEPENDENT module instances (the host
+  //       browser + the guest browser) fed the SAME seed + SAME tick-stamped
+  //       input sequence advance bit-for-bit identically. This is the exact
+  //       guarantee the host-authoritative guest re-validation relies on: a
+  //       guest that re-applies the host's relayed inputs at the SAME tick must
+  //       land on byte-identical state, tick by tick. (Section 6 replays on ONE
+  //       instance; this replays on TWO, which is the real two-browser shape.) ─
+  function bindInstance(exports) {
+    const d = new TextDecoder();
+    const rp = (packed) => {
+      const big = BigInt.asUintN(64, BigInt(packed));
+      const ptr = Number(big >> 32n);
+      const len = Number(big & 0xffffffffn);
+      if (ptr === 0 || len === 0) return '';
+      const s = d.decode(new Uint8Array(exports.memory.buffer, ptr, len).slice());
+      exports.dealloc(ptr, len);
+      return s;
+    };
+    return {
+      exports,
+      tick: () => JSON.parse(rp(exports.tron_tick())),
+      snapshot: () => JSON.parse(rp(exports.tron_snapshot())),
+    };
+  }
+  const { instance: hostInst } = await WebAssembly.instantiate(bytes, {});
+  const { instance: guestInst } = await WebAssembly.instantiate(bytes, {});
+  const H = bindInstance(hostInst.exports);
+  const G = bindInstance(guestInst.exports);
+  // A tick-stamped input script: each entry is the input(s) to apply BEFORE the
+  // tick at that index (i.e. the input is stamped with the tick it applies at —
+  // exactly how the relay carries the tick so both sides queue it for the same
+  // tick rather than apply-on-arrival).
+  const lockstepScript = [
+    { one: DOWN }, {}, { one: RIGHT, two: UP }, { two: LEFT },
+    { one: UP }, {}, { one: LEFT, two: DOWN }, {},
+    { one: DOWN, two: RIGHT }, {}, { two: UP }, { one: RIGHT },
+  ];
+  const LOCK_SEED = 0xBADC0DEn;
+  H.exports.tron_new_sized(LOCK_SEED, 30, 30);
+  G.exports.tron_new_sized(LOCK_SEED, 30, 30);
+  let lockstepHeld = true;
+  let lockstepTicks = 0;
+  for (let i = 0; i < lockstepScript.length; i++) {
+    const inp = lockstepScript[i];
+    // Apply the SAME tick-stamped inputs on BOTH instances before advancing.
+    if (inp.one !== undefined) {
+      H.exports.tron_set_dir(ONE, inp.one);
+      G.exports.tron_set_dir(ONE, inp.one);
+    }
+    if (inp.two !== undefined) {
+      H.exports.tron_set_dir(TWO, inp.two);
+      G.exports.tron_set_dir(TWO, inp.two);
+    }
+    const ho = H.tick();
+    const go = G.tick();
+    // Per-tick outcome JSON must match across the two browsers.
+    if (JSON.stringify(ho) !== JSON.stringify(go)) { lockstepHeld = false; break; }
+    // And so must the full snapshot (board + both cycles + status).
+    if (JSON.stringify(H.snapshot()) !== JSON.stringify(G.snapshot())) { lockstepHeld = false; break; }
+    lockstepTicks++;
+    if (ho.status !== 'playing') break;
+  }
+  assert(lockstepTicks > 0, 'cross-instance lockstep advanced at least one tick');
+  assert(
+    lockstepHeld,
+    'two INDEPENDENT instances (host+guest) stay bit-identical under the same seed + same tick-stamped inputs',
+  );
+
+  // ── 9. NO LEAK: repeated packed reads that ALWAYS dealloc must not grow the
+  //       module's linear memory without bound (the realtime tick loop calls
+  //       tron_tick + tron_snapshot every frame for a whole match). Reusing the
+  //       host instance, hammer the packed ops and assert memory is stable. ───
+  H.exports.tron_new_sized(7n, 40, 40);
+  const pagesBefore = H.exports.memory.buffer.byteLength;
+  for (let i = 0; i < 2000; i++) {
+    H.tick(); // reads + deallocs the packed Outcome
+    H.snapshot(); // reads + deallocs the packed snapshot
+  }
+  const pagesAfter = H.exports.memory.buffer.byteLength;
+  assert(
+    pagesAfter <= pagesBefore + 64 * 1024, // at most one extra 64KiB page of slack
+    `linear memory is stable across 2000 tick+snapshot reads (before=${pagesBefore} after=${pagesAfter})`,
+  );
+
   // ── report ──────────────────────────────────────────────────────────────────
   console.log(`\n${passed} assertions passed, ${failures.length} failed.`);
   if (failures.length > 0) {

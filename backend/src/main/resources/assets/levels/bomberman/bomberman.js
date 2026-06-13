@@ -89,6 +89,15 @@ const KEYMAP = {
   s: ['p2', 'down'],
   a: ['p2', 'left'],
   d: ['p2', 'right'],
+  // Uppercase twins: P2's bomb key is Shift, so a player holding Shift while
+  // pressing a movement key gets the UPPER-CASE `key` from the browser (and Caps
+  // Lock does the same). Without these, P2 movement silently dies whenever Shift
+  // is down — exactly the hot-seat case where you want to move-then-bomb. (Mirrors
+  // the same guard in games/tron/tron.js.)
+  W: ['p2', 'up'],
+  S: ['p2', 'down'],
+  A: ['p2', 'left'],
+  D: ['p2', 'right'],
   Shift: ['p2', 'bomb'],
 };
 

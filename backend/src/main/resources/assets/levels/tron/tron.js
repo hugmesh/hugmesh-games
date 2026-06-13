@@ -246,9 +246,14 @@ export function createTronGame() {
       // tick); no immediate board change, but the HUD heading hint updates.
       const snap = readEngine(host);
       state = snap;
+      // Render the current snapshot either way: an accepted turn updates the
+      // queued heading (no board change until the next tick); a rejected turn
+      // (illegal 180°) is a no-op. `accepted` is intentionally not used to gate
+      // the render — both paths render the same current snapshot.
+      void accepted;
       return {
         input: { kind: 'control', type: 'dir', payload },
-        state: accepted ? state : state, // render either way (rejected = no-op)
+        state,
       };
     },
 
@@ -345,11 +350,34 @@ export function createTronGame() {
     ui.lastTickAt = now();
     const step = () => {
       ui.rafId = requestAnimationFrame(step);
+      if (isGameOver(state.status)) {
+        // Frozen on a terminal: don't let wall-clock accumulate while paused, or
+        // a later resume would fire a burst of catch-up ticks. Keep the baseline
+        // pinned to now so the accumulator stays at ~0.
+        ui.lastTickAt = now();
+        return;
+      }
+      // FIXED-TIMESTEP ACCUMULATOR (not per-rAF-frame stepping): carry the
+      // remainder so the simulation tracks wall-clock even when rAF frames are
+      // late, and catch up multiple whole ticks in one frame after a hitch
+      // (capped to avoid a spiral-of-death on a long stall, e.g. a backgrounded
+      // tab). Each caught-up tick is a full authoritative tick that broadcasts
+      // its own `world` snapshot, so a guest re-seats every tick, not just the
+      // last.
       const t = now();
-      if (t - ui.lastTickAt < TICK_MS) return;
-      ui.lastTickAt = t;
-      if (isGameOver(state.status)) return; // freeze on terminal; engine ticks are inert anyway
-      hostTick(host, ctx, GAME, ui);
+      let elapsed = t - ui.lastTickAt;
+      const maxCatchUp = 5; // ticks per frame ceiling
+      let steps = 0;
+      while (elapsed >= TICK_MS && steps < maxCatchUp) {
+        hostTick(host, ctx, GAME, ui);
+        ui.lastTickAt += TICK_MS;
+        elapsed -= TICK_MS;
+        steps++;
+        if (isGameOver(state.status)) break; // terminal reached mid-catch-up
+      }
+      // If we hit the catch-up ceiling (a very long stall) drop the leftover
+      // backlog rather than carry an unbounded debt into the next frame.
+      if (elapsed >= TICK_MS) ui.lastTickAt = t;
     };
     ui.rafId = requestAnimationFrame(step);
   }

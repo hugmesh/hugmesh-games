@@ -184,6 +184,60 @@ async function main() {
   const tCells = tetrisMod.activeCells({ piece: 't', rot: 0, x: 3, y: 0 });
   assert(tCells.length === 4, 'activeCells() yields the 4 cells of the active piece');
 
+  // ── FIXED-TIMESTEP ACCUMULATOR: gravity must be wall-clock driven, NOT one
+  //    step per rAF frame, so it ticks IDENTICALLY at any refresh rate. Drive the
+  //    pure gravityTickPlan accumulator across a window at two refresh rates and
+  //    assert the total fixed ticks match (refresh-rate independence). ──────────
+  const { gravityTickPlan } = tetrisMod;
+  function totalTicksOverWindow(frameMs, windowMs, period) {
+    let lastTick = 0;
+    let total = 0;
+    for (let t = frameMs; t <= windowMs; t += frameMs) {
+      // Mirror the rAF loop: drain all due fixed ticks this frame (cap 8).
+      // Re-feed the updated clock each frame; this is the exact accumulator the
+      // browser loop runs minus the engine call.
+      let guard = 0;
+      while (guard++ < 64) {
+        const plan = gravityTickPlan(lastTick, t, period, 1);
+        lastTick = plan.lastTick;
+        if (plan.ticks === 0) break;
+        total++;
+      }
+    }
+    return total;
+  }
+  const PERIOD = tetrisMod.gravityMs(0); // 800ms
+  const WINDOW = 60000; // 60 wall-clock seconds
+  const ticks60 = totalTicksOverWindow(1000 / 60, WINDOW, PERIOD);
+  const ticks144 = totalTicksOverWindow(1000 / 144, WINDOW, PERIOD);
+  const ticks30 = totalTicksOverWindow(1000 / 30, WINDOW, PERIOD);
+  assert(ticks60 === ticks144 && ticks60 === ticks30,
+    `gravity ticks are refresh-rate INDEPENDENT over 60s (60Hz=${ticks60}, 144Hz=${ticks144}, 30Hz=${ticks30})`);
+  // Wall-clock-faithful: by the last sampled frame at/under the window, the tick
+  // count is floor(lastFrameTime / period). The last 60Hz frame at/under 60000ms
+  // is the largest multiple of 1000/60 not exceeding 60000. The accumulator must
+  // land there exactly — a per-frame (refresh-coupled) loop would not.
+  const lastFrame60 = Math.floor(WINDOW / (1000 / 60)) * (1000 / 60);
+  const idealTicks = Math.floor(lastFrame60 / PERIOD);
+  assert(ticks60 === idealTicks,
+    `gravity tick count tracks wall-clock, not frames (got ${ticks60}, ideal ${idealTicks})`);
+
+  // A single frame hitch must catch up MANY fixed ticks (up to the cap), not one:
+  // an 800ms-period game that stalls for 5s owes ~6 ticks the next frame.
+  const hitchPlan = gravityTickPlan(0, 5000, PERIOD, tetrisMod.MAX_TICKS_PER_FRAME);
+  assert(hitchPlan.ticks > 1,
+    `a frame hitch catches up multiple fixed ticks, not one (got ${hitchPlan.ticks})`);
+  // The accumulator preserves the sub-period remainder (NOT snapping clock to t)
+  // when under the cap: after 2.5 periods only 2 ticks fire and 0.5 period stays.
+  const remPlan = gravityTickPlan(0, PERIOD * 2.5, PERIOD, tetrisMod.MAX_TICKS_PER_FRAME);
+  assert(remPlan.ticks === 2 && !remPlan.capped &&
+         Math.abs(remPlan.lastTick - PERIOD * 2) < 1e-6,
+    `accumulator keeps the sub-period leftover (2 ticks, clock at 2*period, ${remPlan.lastTick})`);
+  // A zero/negative period can never spin the loop forever (guarded to >=1ms).
+  const safePlan = gravityTickPlan(0, 1000, 0, tetrisMod.MAX_TICKS_PER_FRAME);
+  assert(safePlan.ticks === tetrisMod.MAX_TICKS_PER_FRAME && safePlan.capped,
+    'a zero period is clamped and capped, never an infinite loop');
+
   // ── boot the real wasm engine through the shared WasmHost (loadBytes path) ──
   const bytes = await readFile(WASM_PATH);
   const host = new WasmHost(WASM_PATH);
@@ -289,6 +343,52 @@ async function main() {
   assert(restarted.active.piece === 't' && restarted.next === 's' &&
          countFilled(restarted.board) === 0 && restarted.score === 0,
     'restart re-seeded to the identical seed-1 opening (T active, S next, empty well, score 0)');
+
+  // ── (f) DETERMINISM: same seed + same fixed-tick schedule => identical state ──
+  // The whole point of the fixed-timestep accumulator: a gravity-driven game
+  // depends ONLY on the seed and the number of fixed ticks applied, never on how
+  // those ticks were spread across frames. Build a wall-clock frame schedule at
+  // two different refresh rates, run the accumulator to derive the gravity-tick
+  // count for each, and assert that (a) both refresh rates apply the SAME number
+  // of ticks over the same window, and (b) feeding that tick count into TWO fresh
+  // seed-1 engines reproduces byte-identical snapshots. If the loop had been one
+  // tick per frame, the two refresh rates would apply different tick counts and
+  // the engines would diverge.
+  function ticksOverWindow(frameMs, windowMs, periodMs) {
+    let lastTick = 0;
+    let total = 0;
+    for (let t = frameMs; t <= windowMs; t += frameMs) {
+      let guard = 0;
+      while (guard++ < 64) {
+        const plan = tetrisMod.gravityTickPlan(lastTick, t, periodMs, 1);
+        lastTick = plan.lastTick;
+        if (plan.ticks === 0) break;
+        total++;
+      }
+    }
+    return total;
+  }
+  const periodMs = tetrisMod.gravityMs(0);
+  const tA = ticksOverWindow(1000 / 60, 8000, periodMs); // 8s at 60Hz
+  const tB = ticksOverWindow(1000 / 144, 8000, periodMs); // 8s at 144Hz
+  assert(tA === tB, `accumulator applies identical tick counts at 60Hz vs 144Hz (${tA} === ${tB})`);
+
+  // Drive two fresh seed-1 engines through that many gravity ticks each and
+  // compare the authoritative snapshots — must be byte-identical.
+  function runTicks(n) {
+    host.callStatus('tetris_new', null, [1n]);
+    for (let i = 0; i < n; i++) host.callPacked('tetris_tick');
+    return host.callPacked('tetris_snapshot');
+  }
+  const det1 = runTicks(tA);
+  const det2 = runTicks(tB);
+  assert(JSON.stringify(det1) === JSON.stringify(det2),
+    'same seed + same fixed-tick count => byte-identical engine snapshot (determinism)');
+  // And a DIFFERENT tick count reaches a different state (the ticks are real, not
+  // a no-op) — guard against a vacuous pass where every run looks the same.
+  const detMore = runTicks(tA + 5);
+  assert(JSON.stringify(detMore) !== JSON.stringify(det1),
+    'a different fixed-tick count reaches a different state (the schedule is load-bearing)');
 
   // ── report ──────────────────────────────────────────────────────────────────
   console.log(`\n${passed} assertions passed, ${failures.length} failed.`);

@@ -319,20 +319,81 @@ export function gravityMs(level) {
   return Math.max(80, 800 - l * 70);
 }
 
+// Cap how many fixed gravity ticks one rAF frame may catch up after a long
+// stall (a backgrounded tab, a GC pause). Without a cap a multi-second hitch
+// would burn dozens of ticks in one frame and "teleport" the stack; clamping
+// to a few ticks keeps the catch-up bounded while still draining the bulk of
+// the accumulated time. The leftover keeps accumulating across the next frames.
+export const MAX_TICKS_PER_FRAME = 8;
+
+/**
+ * FIXED-TIMESTEP ACCUMULATOR core, factored out PURE so it is unit-testable
+ * without a browser rAF. Given the previous tick-clock `lastTick`, the current
+ * wall-clock `t`, and the gravity `period` for the current level, decide how
+ * many WHOLE fixed gravity ticks are now due and what the tick-clock advances
+ * to. Crucially it advances `lastTick += period` per due tick (preserving the
+ * sub-period leftover) instead of snapping to `t` — so the gravity RATE is a
+ * function of real wall-clock time and is IDENTICAL at 60 Hz, 144 Hz, or after
+ * a frame hitch, never quantised to the monitor refresh cadence.
+ *
+ * @param {number} lastTick  the tick-clock before this frame (ms)
+ * @param {number} t         current wall-clock (ms)
+ * @param {number} period    gravity period for the current level (ms)
+ * @param {number} [max]     catch-up cap (ticks per frame)
+ * @returns {{ ticks:number, lastTick:number, capped:boolean }}
+ *          `ticks` fixed steps are due; `lastTick` is the new tick-clock. When
+ *          `capped`, a backlog remained and the clock was snapped to `t` so the
+ *          cap doesn't re-fire every subsequent frame (a bounded, occasional
+ *          drop after a multi-second stall — the right trade for a falling-block
+ *          game vs. a runaway burst).
+ */
+export function gravityTickPlan(lastTick, t, period, max = MAX_TICKS_PER_FRAME) {
+  const p = Math.max(1, period | 0); // guard against a zero/negative period → infinite loop
+  let ticks = 0;
+  let clock = lastTick;
+  while (ticks < max && t - clock >= p) {
+    clock += p;
+    ticks++;
+  }
+  const capped = ticks >= max && t - clock >= p;
+  if (capped) clock = t; // drop the unspent backlog rather than peg at the cap
+  return { ticks, lastTick: clock, capped };
+}
+
 function startGravity(host, ui, ctx) {
   if (typeof requestAnimationFrame !== 'function') return; // headless / tests
   ui.lastTick = now();
   const step = (t) => {
     ui.raf = requestAnimationFrame(step);
     if (isGameOver(ctx.GAME._getState().status)) return; // freeze on game-over
-    const period = gravityMs(ctx.GAME._getState().level);
-    if (t - ui.lastTick >= period) {
-      ui.lastTick = t;
-      // Route the tick through the SAME authoritative input path so render +
-      // (no-op) relay sequencing matches every other action.
-      if (typeof ctx.handleLocalInput === 'function') {
-        ctx.handleLocalInput({ type: 'action', action: 'tick' });
+    // The engine is a deterministic fixed-tick sim; advance it a WHOLE NUMBER of
+    // fixed gravity steps per the wall-clock delta, NOT one step per rAF frame.
+    let fired = 0;
+    while (fired < MAX_TICKS_PER_FRAME) {
+      // Re-read the period each step: a line clear can raise the level (and thus
+      // shorten the period) mid-catch-up, so later ticks in this frame use it.
+      const period = gravityMs(ctx.GAME._getState().level);
+      const plan = gravityTickPlan(ui.lastTick, t, period, 1); // one due tick at a time
+      if (plan.ticks === 0 && !plan.capped) break; // nothing due yet
+      ui.lastTick = plan.lastTick;
+      if (plan.ticks > 0) {
+        // Route the tick through the SAME authoritative input path so render +
+        // (no-op) relay sequencing matches every other action.
+        if (typeof ctx.handleLocalInput === 'function') {
+          ctx.handleLocalInput({ type: 'action', action: 'tick' });
+        }
+        fired++;
+        // Stop catching up the instant the sim tops out — a terminal tick is a
+        // no-op but draining a backlog against game-over is pointless.
+        if (isGameOver(ctx.GAME._getState().status)) break;
       }
+      if (plan.capped) break; // backlog dropped; clock already snapped to t
+    }
+    // If MAX ticks fired and a backlog still remains, drop it so the cap doesn't
+    // re-fire every subsequent frame (a bounded, occasional drop after a stall).
+    if (fired >= MAX_TICKS_PER_FRAME &&
+        t - ui.lastTick >= gravityMs(ctx.GAME._getState().level)) {
+      ui.lastTick = t;
     }
   };
   ui.raf = requestAnimationFrame(step);
