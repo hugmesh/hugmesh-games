@@ -205,6 +205,40 @@ When('the publisher creates a line {string}', async ({}, text: string) => {
   await page.getByRole('button', { name: 'Add line' }).click();
 });
 
+When('the publisher creates an item {string} called {string}', async ({}, slug: string, name: string) => {
+  const page = pageRegistry.get('publisher')!;
+  await page.locator('input[name="newItemSlug"]').fill(slug);
+  await page.locator('input[name="newItemName"]').fill(name);
+  await page.getByRole('button', { name: 'Add item' }).click();
+});
+
+When('the publisher creates an NPC {string} called {string}', async ({}, slug: string, name: string) => {
+  const page = pageRegistry.get('publisher')!;
+  await page.locator('input[name="newNpcSlug"]').fill(slug);
+  await page.locator('input[name="newNpcName"]').fill(name);
+  await page.getByRole('button', { name: 'Add NPC' }).click();
+});
+
+When('the publisher uploads a {string} art asset {string} from a sample PNG',
+     async ({}, kind: string, slug: string) => {
+  const page = pageRegistry.get('publisher')!;
+  await page.locator('input[name="newAssetSlug"]').fill(slug);
+  await page.locator('select[name="newAssetKind"]').selectOption(kind);
+  // 1x1 transparent PNG — small enough to clear the 4 MB cap and a valid
+  // image/png so the gallery renders a thumbnail. setInputFiles with a
+  // buffer means the docker e2e needs no fixture file on disk.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  await page.locator('input[name="newAssetFile"]').setInputFiles({
+    name: `${slug}.png`,
+    mimeType: 'image/png',
+    buffer: png,
+  });
+  await page.getByRole('button', { name: 'Upload asset' }).click();
+});
+
 When('the publisher enqueues a build with target slug {string}', async ({}, slug: string) => {
   const page = pageRegistry.get('publisher')!;
   const targetInput = page.locator('input[name="targetSlug"], input[name="vnTarget"]').first();
@@ -245,6 +279,32 @@ Then('the BFF catalog lists the game {string}', async ({}, slug: string) => {
       return games.map(g => g.slug);
     }, slug);
   }, { timeout: 15_000, intervals: [500, 1000, 2000] }).toContain(slug);
+});
+
+// ── Item / NPC / art-asset listing assertions ─────────────────────────
+// The Items and NPCs panes both render a `.row-list` with the entity name
+// in a <strong>, so scope each assertion to its own `section.pane` (keyed
+// on the pane's <h2>) to avoid matching the wrong pane. The gallery has
+// its own `.asset-grid` class so it needs no extra scoping.
+
+Then('the items list contains {string}', async ({}, name: string) => {
+  const page = pageRegistry.get('publisher')!;
+  const pane = page.locator('section.pane', { has: page.getByRole('heading', { name: 'Items' }) });
+  await expect(pane.locator('.row-list strong', { hasText: name }).first())
+      .toBeVisible({ timeout: 10_000 });
+});
+
+Then('the NPCs list contains {string}', async ({}, name: string) => {
+  const page = pageRegistry.get('publisher')!;
+  const pane = page.locator('section.pane', { has: page.getByRole('heading', { name: 'NPCs' }) });
+  await expect(pane.locator('.row-list strong', { hasText: name }).first())
+      .toBeVisible({ timeout: 10_000 });
+});
+
+Then('the asset gallery shows {string}', async ({}, slug: string) => {
+  const page = pageRegistry.get('publisher')!;
+  await expect(page.locator('.asset-grid .asset-card strong', { hasText: slug }).first())
+      .toBeVisible({ timeout: 10_000 });
 });
 
 Then('the projects list contains {string}', async ({ page }, displayName: string) => {

@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -60,6 +61,11 @@ public class AssetStorageService {
         }
 
         return projects.get(projectId, ownerCasdoorId).flatMap(p -> store(p, slug, kind, mime, filePart));
+    }
+
+    public Flux<RpgAsset> list(UUID projectId, String ownerCasdoorId) {
+        return projects.get(projectId, ownerCasdoorId)
+                .flatMapMany(p -> assets.findByProjectIdOrderByUploadedAtDesc(projectId));
     }
 
     private Mono<RpgAsset> store(RpgProject p, String slug, String kind, String mime, FilePart fp) {

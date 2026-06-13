@@ -10,6 +10,7 @@ import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -31,6 +32,11 @@ public class AssetController {
                                  @RequestPart("file") FilePart file,
                                  Authentication auth) {
         return storage.upload(pid, slug, kind, file, Roles.principalOf(auth));
+    }
+
+    @GetMapping("/projects/{pid}/assets")
+    public Flux<RpgAsset> list(@PathVariable UUID pid, Authentication auth) {
+        return storage.list(pid, Roles.principalOf(auth));
     }
 
     @GetMapping("/projects/{pid}/assets/{aid}")
