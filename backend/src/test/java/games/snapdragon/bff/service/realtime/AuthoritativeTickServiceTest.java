@@ -101,9 +101,11 @@ class AuthoritativeTickServiceTest {
 
     static final class RecordingFactory implements SimCoreFactory {
         final RecordingSim sim = new RecordingSim();
+        final java.util.concurrent.atomic.AtomicInteger restores =
+                new java.util.concurrent.atomic.AtomicInteger();
         @Override public String kind() { return "recording"; }
         @Override public SimCore create(long seed, String configJson) { return sim; }
-        @Override public SimCore restore(String snapshotJson) { return sim; }
+        @Override public SimCore restore(String snapshotJson) { restores.incrementAndGet(); return sim; }
     }
 
     // ── wiring helpers ──────────────────────────────────────────────────
@@ -113,6 +115,13 @@ class AuthoritativeTickServiceTest {
 
     private AuthoritativeTickService newService(RealtimeTruthStore store,
                                                 int inputDelay, int keyframeInterval,
+                                                SimCoreFactory... extraFactories) {
+        return newService(store, inputDelay, keyframeInterval, Optional.empty(), extraFactories);
+    }
+
+    private AuthoritativeTickService newService(RealtimeTruthStore store,
+                                                int inputDelay, int keyframeInterval,
+                                                Optional<games.snapdragon.bff.audit.GameEventPublisher> publisher,
                                                 SimCoreFactory... extraFactories) {
         matchRepo = mock(RealtimeMatchRepository.class);
         memberRepo = mock(SessionMemberRepository.class);
@@ -126,7 +135,7 @@ class AuthoritativeTickServiceTest {
         factories.addAll(List.of(extraFactories));
         // tickHz=0 disables the production Flux.interval — tests own the clock.
         return new AuthoritativeTickService(factories, matchRepo, memberRepo, provider,
-                Optional.empty(), 0, inputDelay, keyframeInterval);
+                publisher, 0, inputDelay, keyframeInterval);
     }
 
     private static void start(AuthoritativeTickService svc, String sessionId,
@@ -343,6 +352,169 @@ class AuthoritativeTickServiceTest {
             StepVerifier.create(svc.recoverMatch("s"))
                     .expectError(IllegalStateException.class)
                     .verify();
+        }
+    }
+
+    // ===================================================================
+    // (c2) cross-pod AUTO-recovery — submitInput / snapshotStream on a pod
+    //      that doesn't hold the match recover it from the shared truth
+    //      instead of 404ing ("any pod can serve a match").
+    // ===================================================================
+    @Nested
+    class AutoRecovery {
+
+        private FakeTruthStore shared;
+        private RecordingFactory recording;
+        private AuthoritativeTickService svc;
+
+        /** A pod that doesn't hold session "s", with a shared truth holding
+         *  a keyframe and an active roster — recoverable once the durable
+         *  match row says the match hasn't ended. */
+        private void recoverableSetup(RealtimeTruthStore store) {
+            recording = new RecordingFactory();
+            svc = newService(store, 2, 5, recording);
+            when(memberRepo.findActiveBySession("s"))
+                    .thenReturn(Flux.just(member("s", "p1"), member("s", "p2")));
+        }
+
+        private RealtimeMatch matchRow(Instant endedAt) {
+            RealtimeMatch row = new RealtimeMatch();
+            row.setSessionId("s");
+            row.setKind("recording");
+            row.setGameSlug("arena-game");
+            row.setEndedAt(endedAt);
+            return row;
+        }
+
+        private void stubMatchRow(Instant endedAt) {
+            when(matchRepo.findById("s")).thenReturn(Mono.fromCallable(() -> matchRow(endedAt)));
+        }
+
+        private static void assert404(org.reactivestreams.Publisher<?> p) {
+            StepVerifier.create(p)
+                    .expectErrorSatisfies(err -> assertThat(((ResponseStatusException) err)
+                            .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND))
+                    .verify();
+        }
+
+        @Test
+        void submitInputAutoRecoversLandsTheInputAndSnapshotsFlow() {
+            shared = new FakeTruthStore();
+            shared.saveKeyframe("s", 5, "{}");
+            recoverableSetup(shared);
+            stubMatchRow(null);
+
+            // No explicit recoverMatch — the submit itself recovers the match.
+            assertThat(submit(svc, "s", "p1", MOVE)).isEqualTo(2);
+            assertThat(recording.restores).hasValue(1);
+
+            List<String> seen = new CopyOnWriteArrayList<>();
+            svc.snapshotStream("s").subscribe(seen::add);
+            svc.runTick("s");
+            svc.runTick("s");
+            assertThat(recording.sim.perStep.get(1))
+                    .extracting(SimCommand::payloadJson).containsExactly(MOVE);
+            assertThat(seen).hasSize(2);
+        }
+
+        @Test
+        void snapshotStreamAutoRecoversAndStreams() {
+            shared = new FakeTruthStore();
+            shared.saveKeyframe("s", 5, "{}");
+            recoverableSetup(shared);
+            stubMatchRow(null);
+
+            List<String> seen = new CopyOnWriteArrayList<>();
+            svc.snapshotStream("s").subscribe(seen::add);   // subscription triggers recovery
+            assertThat(recording.restores).hasValue(1);
+
+            svc.runTick("s");
+            assertThat(seen).containsExactly("{\"tick\":1}");
+
+            // The registry now serves the live path — no second recovery.
+            assertThat(submit(svc, "s", "p1", MOVE)).isEqualTo(3);
+            assertThat(recording.restores).hasValue(1);
+        }
+
+        @Test
+        void endedMatchRowIsNeverRecovered() {
+            shared = new FakeTruthStore();
+            shared.saveKeyframe("s", 5, "{}");
+            recoverableSetup(shared);
+            stubMatchRow(Instant.now());                    // endedAt set — match over
+
+            assert404(svc.submitInput("s", "p1", MOVE));
+            assert404(svc.snapshotStream("s"));
+            assertThat(recording.restores).hasValue(0);
+        }
+
+        @Test
+        void withoutATruthStoreThereIsNoRecoveryJust404() {
+            recoverableSetup(null);
+            stubMatchRow(null);                             // un-ended row, nothing to replay from
+
+            assert404(svc.submitInput("s", "p1", MOVE));
+            assert404(svc.snapshotStream("s"));
+            assertThat(recording.restores).hasValue(0);
+        }
+
+        @Test
+        void nonMemberCannotTriggerARecovery() {
+            // A recoverable session (un-ended row + keyframe), but the caller
+            // is NOT in the roster. The cold-path membership guard must 403
+            // BEFORE any restore — a non-member can't force a recovery onto
+            // this pod for a session they aren't in.
+            shared = new FakeTruthStore();
+            shared.saveKeyframe("s", 5, "{}");
+            recoverableSetup(shared);                       // roster = p1, p2
+            stubMatchRow(null);                             // un-ended → recoverable
+
+            StepVerifier.create(svc.submitInput("s", "intruder", MOVE))
+                    .expectErrorSatisfies(err -> assertThat(((ResponseStatusException) err)
+                            .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN))
+                    .verify();
+            assertThat(recording.restores)
+                    .as("a non-member must not trigger a recovery").hasValue(0);
+        }
+
+        @Test
+        void twoConcurrentSubmitsYieldExactlyOneRecoveryAndBothInputsLand() {
+            shared = new FakeTruthStore();
+            shared.saveKeyframe("s", 5, "{}");
+            recoverableSetup(shared);
+            // Gate the match-row lookup so BOTH submits pass the not-running
+            // check and park BEFORE recovery; releasing the gate runs their
+            // chains back-to-back — the first recovers, the second hits
+            // recoverMatch's CONFLICT and resolves it by re-reading the
+            // registry.
+            reactor.core.publisher.Sinks.Empty<Void> gate = reactor.core.publisher.Sinks.empty();
+            when(matchRepo.findById("s"))
+                    .thenReturn(gate.asMono().then(Mono.fromCallable(() -> matchRow(null))));
+
+            java.util.concurrent.atomic.AtomicReference<Long> ok1 =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicReference<Long> ok2 =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicReference<Throwable> err1 =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicReference<Throwable> err2 =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            svc.submitInput("s", "p1", MOVE).subscribe(ok1::set, err1::set);
+            svc.submitInput("s", "p2", MOVE2).subscribe(ok2::set, err2::set);
+            assertThat(recording.restores).as("both parked pre-recovery").hasValue(0);
+            gate.tryEmitEmpty();
+
+            assertThat(err1.get()).isNull();
+            assertThat(err2.get()).isNull();
+            assertThat(ok1.get()).isEqualTo(2L);
+            assertThat(ok2.get()).isEqualTo(2L);
+            assertThat(recording.restores).as("exactly one recovery").hasValue(1);
+
+            svc.runTick("s");
+            svc.runTick("s");
+            assertThat(recording.sim.perStep.get(1))
+                    .extracting(SimCommand::payloadJson)
+                    .containsExactlyInAnyOrder(MOVE, MOVE2);
         }
     }
 
@@ -622,6 +794,129 @@ class AuthoritativeTickServiceTest {
             assertThat(recording.sim.perStep.get(1))
                     .extracting(SimCommand::forTick).containsExactly(2L);
             assertThat(store.deleted).isEmpty();
+        }
+    }
+
+    // ===================================================================
+    // (i) replay-latest snapshot sink — a late subscriber gets exactly the
+    //     CURRENT authoritative snapshot, then live frames (reconnect
+    //     semantics), never a stale backlog.
+    // ===================================================================
+    @Nested
+    class ReplayLatestSnapshots {
+
+        @Test
+        void lateSubscriberGetsTheCurrentSnapshotThenLiveFrames() {
+            RecordingFactory recording = new RecordingFactory();
+            AuthoritativeTickService svc = newService(null, 2, 0, recording);
+            start(svc, "s", "recording", 1L, List.of("p1"), null);
+
+            for (int i = 0; i < 5; i++) svc.runTick("s");   // snapshots 1..5 pre-subscribe
+
+            List<String> seen = new CopyOnWriteArrayList<>();
+            svc.snapshotStream("s").subscribe(seen::add);
+            assertThat(seen)
+                    .as("a late subscriber sees the CURRENT truth, not the tick-1 backlog")
+                    .containsExactly("{\"tick\":5}");
+
+            svc.runTick("s");
+            svc.runTick("s");
+            assertThat(seen).containsExactly("{\"tick\":5}", "{\"tick\":6}", "{\"tick\":7}");
+        }
+
+        @Test
+        void lateSubscribersStayIsolatedPerSession() {
+            // The SessionIsolation contract re-checked under replay-latest:
+            // a late subscriber to B never sees A's latest frame.
+            AuthoritativeTickService svc = newService(null, 2, 0);
+            start(svc, "A", "reference-arena", 1L, List.of("pa1"), null);
+            start(svc, "B", "reference-arena", 2L, List.of("pb1"), null);
+            submit(svc, "A", "pa1", MOVE);
+            for (int i = 0; i < 3; i++) {
+                svc.runTick("A");
+                svc.runTick("B");
+            }
+
+            List<String> lateB = new CopyOnWriteArrayList<>();
+            svc.snapshotStream("B").subscribe(lateB::add);
+            assertThat(lateB).hasSize(1);
+            assertThat(lateB.get(0)).contains("pb1").doesNotContain("pa1");
+        }
+    }
+
+    // ===================================================================
+    // (j) keyframe Kafka tee — the decision-021 pipeline gets ONE event per
+    //     keyframe interval, never per-tick.
+    // ===================================================================
+    @Nested
+    class KeyframeKafkaTee {
+
+        /** Hand-rolled recording publisher (the suite's no-Mockito-on-
+         *  concrete-classes style) — captures publish() args verbatim. */
+        final class RecordingPublisher extends games.snapdragon.bff.audit.GameEventPublisher {
+            record Published(String channel, String gameSlug, String sessionId,
+                             String casdoorId, Object payload) {}
+            final List<Published> published = new CopyOnWriteArrayList<>();
+            RecordingPublisher() {
+                super((key, json) -> java.util.concurrent.CompletableFuture.completedFuture(null),
+                      "test-pod", "test-topic");
+            }
+            @Override public void publish(String channel, String gameSlug, String sessionId,
+                                          String casdoorId, Object payload) {
+                published.add(new Published(channel, gameSlug, sessionId, casdoorId, payload));
+            }
+        }
+
+        @Test
+        void publishesExactlyOnKeyframeTicksNeverInBetween() {
+            RecordingPublisher pub = new RecordingPublisher();
+            FakeTruthStore store = new FakeTruthStore();
+            AuthoritativeTickService svc = newService(store, 2, 3, Optional.of(pub));
+            start(svc, "s", "reference-arena", 5L, List.of("p1"), null);
+
+            for (int i = 0; i < 7; i++) svc.runTick("s");   // keyframes at ticks 3 and 6
+
+            assertThat(pub.published).as("keyframe events only — no per-tick spam").hasSize(2);
+            assertThat(pub.published).allSatisfy(p -> {
+                assertThat(p.channel()).isEqualTo("realtime-keyframe");
+                assertThat(p.gameSlug()).isEqualTo("arena-game");
+                assertThat(p.sessionId()).isEqualTo("s");
+                assertThat(p.casdoorId()).as("system event, no player").isNull();
+            });
+            @SuppressWarnings("unchecked")
+            Map<String, Object> first = (Map<String, Object>) pub.published.get(0).payload();
+            assertThat(first).containsEntry("tick", 3L);
+            assertThat(first).containsEntry("stateJson", store.keyframes.get("s").get(3L));
+            @SuppressWarnings("unchecked")
+            Map<String, Object> second = (Map<String, Object>) pub.published.get(1).payload();
+            assertThat(second).containsEntry("tick", 6L);
+            assertThat(second).containsEntry("stateJson", store.keyframes.get("s").get(6L));
+        }
+
+        @Test
+        void inputTeeStillFiresSeparatelyFromTheKeyframeTee() {
+            RecordingPublisher pub = new RecordingPublisher();
+            FakeTruthStore store = new FakeTruthStore();
+            AuthoritativeTickService svc = newService(store, 2, 3, Optional.of(pub));
+            start(svc, "s", "reference-arena", 5L, List.of("p1"), null);
+
+            submit(svc, "s", "p1", MOVE);                   // realtime-input tee
+            for (int i = 0; i < 3; i++) svc.runTick("s");   // keyframe at tick 3
+
+            assertThat(pub.published).extracting(RecordingPublisher.Published::channel)
+                    .containsExactly("realtime-input", "realtime-keyframe");
+            assertThat(pub.published.get(0).casdoorId()).isEqualTo("p1");
+        }
+
+        @Test
+        void absentPublisherKeyframeTickIsANoOpNotAnNpe() {
+            FakeTruthStore store = new FakeTruthStore();
+            AuthoritativeTickService svc = newService(store, 2, 3);   // Optional.empty()
+            start(svc, "s", "reference-arena", 5L, List.of("p1"), null);
+
+            for (int i = 0; i < 6; i++) svc.runTick("s");
+            assertThat(store.keyframes.get("s"))
+                    .as("keyframes still persist without the tee").containsKeys(3L, 6L);
         }
     }
 }

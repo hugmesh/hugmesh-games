@@ -79,7 +79,10 @@ public class AuthoritativeTickService {
         final ConcurrentSkipListSet<SimCommand> pending = new ConcurrentSkipListSet<>(COMMAND_ORDER);
         /** Per-tick monotonic seq stamps; entries reclaimed as ticks seal. */
         final ConcurrentHashMap<Long, AtomicInteger> nextSeq = new ConcurrentHashMap<>();
-        final Sinks.Many<String> snapshots = Sinks.many().multicast().onBackpressureBuffer(128, false);
+        /** Replay-latest: a (re)connecting subscriber receives the CURRENT
+         *  authoritative snapshot immediately, then live frames — never a
+         *  stale backlog (clients render server truth, not history). */
+        final Sinks.Many<String> snapshots = Sinks.many().replay().latest();
         volatile Disposable loop;
         volatile boolean terminal;
 
@@ -185,13 +188,22 @@ public class AuthoritativeTickService {
      * a logged-but-never-applied command breaks replay the same way.
      * Store-less deploys keep the previous immediate-apply behaviour
      * (there is no log to stay consistent with).
+     *
+     * <p>When this pod doesn't hold the match, {@link #liveOrRecovered}
+     * transparently recovers it from the cross-pod truth first.
      */
     public Mono<Long> submitInput(String sessionId, String playerId, String payloadJson) {
-        return Mono.defer(() -> {
-            MatchState ms = running.get(sessionId);
-            if (ms == null || ms.terminal) {
-                return Mono.error(new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "no running match for this session"));
+        // The cold (recovery) path verifies session membership BEFORE restoring
+        // (the guard runs only after liveOrRecovered confirms a recovery is
+        // warranted — an un-ended row + a truth store), so a non-member can't
+        // TRIGGER a recovery for a session they aren't in, yet an unknown
+        // session still 404s rather than 403s. The hot path (match live on this
+        // pod) never subscribes the guard, so input stays a DB-free in-memory
+        // path; the authoritative roster gate below (ms.playerIds) runs always.
+        return liveOrRecovered(sessionId, requireSessionMember(sessionId, playerId))
+                .flatMap(ms -> Mono.defer(() -> {
+            if (ms.terminal) {
+                return Mono.error(noRunningMatch());
             }
             if (!ms.playerIds.contains(playerId)) {
                 return Mono.error(new ResponseStatusException(
@@ -221,7 +233,7 @@ public class AuthoritativeTickService {
                                     HttpStatus.SERVICE_UNAVAILABLE,
                                     "input rejected — command log unavailable", err))
                     .then(Mono.defer(() -> schedule(sessionId, ms, cmd, store)));
-        });
+        }));
     }
 
     /** Post-append scheduling step of {@link #submitInput}: make the durably
@@ -247,16 +259,77 @@ public class AuthoritativeTickService {
                         "input could not be scheduled before its tick elapsed — resubmit")));
     }
 
-    /** Authoritative snapshot JSON stream for one session's match. */
+    /** Authoritative snapshot JSON stream for one session's match: the
+     *  CURRENT snapshot first (replay-latest — reconnect semantics), then
+     *  live frames. Auto-recovers from the cross-pod truth when this pod
+     *  doesn't hold the match. */
     public Flux<String> snapshotStream(String sessionId) {
-        return Flux.defer(() -> {
-            MatchState ms = running.get(sessionId);
-            if (ms == null) {
-                return Flux.error(new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "no running match for this session"));
+        return liveOrRecovered(sessionId).flatMapMany(ms -> ms.snapshots.asFlux());
+    }
+
+    /**
+     * The running {@link MatchState} for {@code sessionId}, transparently
+     * recovering it from the cross-pod truth first when this pod doesn't
+     * hold it — the "any pod can serve a match" contract. Recoverable means:
+     * truth store present AND a durable {@code realtime_matches} row with
+     * {@code endedAt == null}; anything else is the previous 404. Two
+     * concurrent triggers yield ONE recovery — {@link #recoverMatch}'s
+     * registry putIfAbsent protects, and the loser's CONFLICT is resolved by
+     * re-reading the registry. A recovery FAILURE (no keyframe, store error)
+     * propagates — fail-closed, never a half-restored match.
+     */
+    private Mono<MatchState> liveOrRecovered(String sessionId) {
+        return liveOrRecovered(sessionId, Mono.empty());
+    }
+
+    /**
+     * {@link #liveOrRecovered(String)} with a {@code preRecoveryGuard} that
+     * runs ONLY on the cold path, AFTER a recovery is confirmed warranted (an
+     * un-ended {@code realtime_matches} row + a truth store) and BEFORE the
+     * actual restore. Lets {@link #submitInput} reject a non-member before any
+     * recovery work without turning an unknown-session 404 into a 403, and
+     * without costing the hot path (live match) a DB round-trip — the guard's
+     * publisher is never subscribed when the match is already running here.
+     */
+    private Mono<MatchState> liveOrRecovered(String sessionId, Mono<Void> preRecoveryGuard) {
+        return Mono.defer(() -> {
+            MatchState live = running.get(sessionId);
+            if (live != null) {
+                return Mono.just(live);
             }
-            return ms.snapshots.asFlux();
+            if (truthStoreProvider.getIfAvailable() == null) {
+                return Mono.error(noRunningMatch());
+            }
+            return matches.findById(sessionId)
+                    .filter(row -> row.getEndedAt() == null)
+                    .switchIfEmpty(Mono.error(noRunningMatch()))
+                    .flatMap(row -> preRecoveryGuard.then(recoverMatch(sessionId)
+                            .onErrorResume(AuthoritativeTickService::isConcurrentRecovery,
+                                    err -> Mono.empty())
+                            .then(Mono.defer(() -> Mono.justOrEmpty(running.get(sessionId))))
+                            .switchIfEmpty(Mono.error(noRunningMatch()))));
         });
+    }
+
+    /** Cold-path guard for {@link #submitInput}: the caller must be an active
+     *  member of the session before a recovery is triggered on their behalf
+     *  (fail-closed — an empty roster or unknown caller is rejected). */
+    private Mono<Void> requireSessionMember(String sessionId, String playerId) {
+        return members.findActiveBySession(sessionId)
+                .any(m -> playerId.equals(m.getCasdoorId()))
+                .flatMap(isMember -> isMember
+                        ? Mono.empty()
+                        : Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "player is not in this match")));
+    }
+
+    private static boolean isConcurrentRecovery(Throwable err) {
+        return err instanceof ResponseStatusException rse
+                && HttpStatus.CONFLICT.equals(rse.getStatusCode());
+    }
+
+    private static ResponseStatusException noRunningMatch() {
+        return new ResponseStatusException(HttpStatus.NOT_FOUND, "no running match for this session");
     }
 
     /**
@@ -266,6 +339,9 @@ public class AuthoritativeTickService {
     void runTick(String sessionId) {
         MatchState ms = running.get(sessionId);
         if (ms == null) return;
+        boolean keyframe = false;
+        long keyframeTick = 0;
+        String keyframeSnapshot = null;
         synchronized (ms) {
             if (ms.terminal) return;
             long target = ms.sim.tick() + 1;     // the tick this step produces
@@ -284,11 +360,27 @@ public class AuthoritativeTickService {
                 // Error-swallowed inside the store; a Cassandra hiccup never
                 // stalls the loop.
                 store.saveKeyframe(sessionId, target, snapshot).subscribe();
+                keyframe = true;
+                keyframeTick = target;
+                keyframeSnapshot = snapshot;
             }
             ms.snapshots.tryEmitNext(snapshot);
             if (ms.sim.isTerminal()) {
                 finishMatch(sessionId, ms);
             }
+        }
+        // Decision-021 keyframe tee — KEYFRAMES only, never per-tick (a 30 Hz
+        // topic is a non-goal). Done OUTSIDE synchronized(ms): KafkaProducer.send
+        // can block up to max.block.ms (metadata fetch / buffer full) and must
+        // never stall the tick loop or serialize input submission — same reason
+        // the input tee in submitInput is outside its lock. Null player = a
+        // system event.
+        if (keyframe) {
+            long t = keyframeTick;
+            String s = keyframeSnapshot;
+            eventPublisher.ifPresent(pub -> pub.publish(
+                    "realtime-keyframe", ms.gameSlug, sessionId, null,
+                    Map.of("tick", t, "stateJson", s)));
         }
     }
 
