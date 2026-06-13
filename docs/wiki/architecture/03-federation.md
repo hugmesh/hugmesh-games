@@ -57,7 +57,7 @@ New remotes appear by inserting rows into `federation_modules` — no host redep
 
 ## Shared dependencies
 
-[`frontend/federation-base.js`](../../../frontend/federation-base.js) consolidates the shared-package configuration so the host and all four remotes ship the same Angular version:
+[`frontend/federation-base.js`](../../../frontend/federation-base.js) consolidates the shared-package configuration so the host and all twelve remotes ship the same Angular version:
 
 ```javascript
 // One source of truth for shareAll + skip helpers.
@@ -94,9 +94,16 @@ export function loadRemote<T>(
 The exported factory is plugged into `loadComponent` for every federated route:
 
 ```ts
-{ path: 'login',       loadComponent: loadRemote('login', './LoginComponent', 'LoginComponent') },
-{ path: 'admin',       loadComponent: loadRemote('admin', './AdminShell',     'AdminShell')     },
-{ path: 'admin/games', loadComponent: loadRemote('admin', './UploadShell',    'UploadShell')    },
+{ path: 'login',       loadComponent: loadRemote('login',                './LoginComponent',    'LoginComponent')   },
+{ path: 'register',    loadComponent: loadRemote('producer-registration', './RegistrationComponent', 'RegistrationComponent') },
+{ path: 'banned',      loadComponent: loadRemote('banned',               './BannedComponent',   'BannedComponent')  },
+{ path: 'admin',       loadComponent: loadRemote('admin',                './AdminShell',        'AdminShell')       },
+{ path: 'admin/games', loadComponent: loadRemote('admin',                './UploadShell',       'UploadShell')      },
+{ path: 'mod',         loadComponent: loadRemote('mod',                  './ModShell',          'ModShell')         },
+{ path: 'publisher',   loadComponent: loadRemote('publisher',            './PublisherShell',    'PublisherShell')   },
+{ path: 'rpg-maker',   loadComponent: loadRemote('games-rpg-maker',     './RpgMakerRemote',    'RpgMakerRemote')   },
+{ path: 'vn-maker',    loadComponent: loadRemote('games-vn-maker',      './VnMakerRemote',     'VnMakerRemote')    },
+// … plus per-game routes loaded lazily via SCENE_TYPE_TO_GAME_SLUG
 ```
 
 ## Maker remotes (RPG + VN)

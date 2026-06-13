@@ -5,7 +5,7 @@
 The runtime data flow has three tiers:
 
 1. **The player's browser** — federated Angular host, the active remote module, the WASM iframe.
-2. **Per-remote nginx fleet** — host nginx, four route-or-game remotes, the asset-tier `wasm-fragment`.
+2. **Per-remote nginx fleet** — host nginx, twelve role-gated remotes, the asset-tier `wasm-fragment`.
 3. **BFF + persistence** — Spring Boot WebFlux on top of Postgres and Cassandra, behind Casdoor.
 
 ## Three-tier topology
@@ -18,9 +18,17 @@ flowchart TB
     subgraph T2["Tier 2 — Per-remote nginx fleet"]
         H[host nginx<br/>frontend/nginx.conf]
         L[login remote]
+        Reg[registration remote]
+        PReg[producer-registration remote]
+        Ban[banned remote]
         A[admin remote]
+        Mo[mod remote]
+        Pub[publisher remote]
+        AD[api-docs remote]
         G3[games-three-wizards]
         GD[games-dodecahedron]
+        RPG[games-rpg-maker]
+        VN[games-vn-maker]
         WF[wasm-fragment<br/>Godot bundles]
     end
     subgraph T3["Tier 3 — BFF + persistence"]
@@ -31,9 +39,17 @@ flowchart TB
     end
     BR --> H
     H -->|"/_remotes/login/*"| L
+    H -->|"/_remotes/registration/*"| Reg
+    H -->|"/_remotes/producer-registration/*"| PReg
+    H -->|"/_remotes/banned/*"| Ban
     H -->|"/_remotes/admin/*"| A
+    H -->|"/_remotes/mod/*"| Mo
+    H -->|"/_remotes/publisher/*"| Pub
+    H -->|"/_remotes/api-docs/*"| AD
     H -->|"/_remotes/games-three-wizards/*"| G3
     H -->|"/_remotes/games-dodecahedron/*"| GD
+    H -->|"/_remotes/games-rpg-maker/*"| RPG
+    H -->|"/_remotes/games-vn-maker/*"| VN
     H -->|"/_remotes/wasm-fragment/*"| WF
     H -->|"/api/*"| BFF
     BFF --> PG
@@ -69,7 +85,7 @@ sequenceDiagram
     BFF-->>Godot: event:movement, event:character, event:time, …
 ```
 
-`SCENE_TYPE_TO_GAME_SLUG` forks the renderer; federated games mint a `launch_uid` for operational visibility; `TW_LEVEL_TRANSITION` `postMessage` is caught at the host level so it works regardless of which renderer is mounted.
+`SCENE_TYPE_TO_GAME_SLUG` forks the renderer; federated games mint a `launch_uid` for operational visibility; `TW_CHAPTER_TRANSITION` `postMessage` is caught at the host level so it works regardless of which renderer is mounted.
 
 ### Why `globalThis` and not a service
 
@@ -84,9 +100,17 @@ The host nginx serves the host bundle plus a set of `location /_remotes/<slug>/`
 | Slug | Kind | What it exposes / does |
 |---|---|---|
 | `login` | `remote-shell` | `./LoginComponent` — mounted via `loadComponent` on `/login`. Inline `POST /api/auth/token` + `sessionStorage.tw_auth` write, mirrors the host `AuthService.StoredAuth` shape. |
+| `registration` | `remote-shell` | `./RegistrationComponent` — intake form mounted on `/register`. |
+| `producer-registration` | `remote-shell` | `./RegistrationComponent` — producer/mod application form; POSTs to `/api/producer-contacts`. Mounted on `/register` (producer variant). |
+| `banned` | `remote-shell` | `./BannedComponent` — auth-error interceptor redirects on `X-Revoked`; resolves appeal email via `GET /api/security/appeal-contact`. |
 | `admin` | `remote-shell` | `./AdminShell` + `./UploadShell` — both expose under `federation_modules.slug='admin'` so `/admin` and `/admin/games` share a build. |
+| `mod` | `remote-shell` | `./ModShell` — per-game moderation surface; mounted on `/mod`, gated by `mod_game_scopes`. |
+| `publisher` | `remote-shell` | `./PublisherShell` — uploads + per-game grants; mounted on `/publisher`, gated by `publisher_game_scopes`. |
+| `api-docs` | `remote-shell` | OpenAPI explorer (live `/v3/api-docs` + static fallback); mounted at `/admin/docs`, gated to `ROLE_ADMIN`. |
 | `games-three-wizards` | `remote-game` | `./GameRoot` — Web Component (`createCustomElement`) with `@Input levelSlug + levelId + launchUid`. Renders cave and field. |
 | `games-dodecahedron` | `remote-game` | `./GameRoot` — same pattern, single chrome-less scene. |
+| `games-rpg-maker` | `remote-shell` | `./RpgMakerRemote` — Mudlet-shaped RPG editor; drives `rpg-builder/` side service at `/api/rpg/*`. Mounted at `/rpg-maker`. |
+| `games-vn-maker` | `remote-shell` | `./VnMakerRemote` — visual-novel editor; drives `vn-builder/` side service at `/api/vn/*`. Mounted at `/vn-maker`. |
 | `wasm-fragment` | `fragment` | Asset-tier nginx; bakes `backend/src/main/resources/assets/levels/` and serves at `/_remotes/wasm-fragment/<slug>/index.html`. |
 
 ## The BFF
@@ -97,15 +121,15 @@ The host nginx serves the host bundle plus a set of `location /_remotes/<slug>/`
 
 Casdoor is reachable only from inside the compose network. The host BFF proxies the login flow at `/api/auth/*` and verifies JWTs against the anonymous `/.well-known/jwks` endpoint (not `/api/get-jwks`, which requires admin auth and would 401 on every request). Per-game visibility is enforced by the `game_access` table — see [04 — Data model](04-data-model.md).
 
-## Server-Sent Events — eight channels on one stream
+## Server-Sent Events — nine channels on one stream
 
-[`GameStreamController`](../../../backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java) merges **eight** SSE channels onto a single `Flux<ServerSentEvent>`:
+[`GameStreamController`](../../../backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java) merges **nine** SSE channels onto a single `Flux<ServerSentEvent>`:
 
-- Seven `Sinks.Many` from `GameStateService`: `movement`, `world`, `character`, `scene`, `input`, `audio`, `wasm-console`
+- Eight `Sinks.Many` from `GameStateService`: `movement`, `world`, `character`, `scene`, `input`, `audio`, `wasm-console`, `session-control`
 - One from `GameTimeService`: `time`
 - Plus a 15-second `Flux.interval` keepalive that fires immediately on subscribe so the response headers flush at connect time and the browser `EventSource.onopen` fires in milliseconds.
 
-The latter three channels (`input`, `audio`, `wasm-console`) are part of the generalised input surface introduced for gamepad / mouse / keyboard / touch / audio support — see [04 — Data model](04-data-model.md#generalised-input-event-surface). Subscribers opt into individual channels via the EventSource event-listener model (`source.addEventListener('input', cb)`); merging onto the single connection keeps the host page from needing N EventSources.
+The `input`, `audio`, and `wasm-console` channels are part of the generalised input surface introduced for gamepad / mouse / keyboard / touch / audio support — see [04 — Data model](04-data-model.md#generalised-input-event-surface). The `session-control` channel carries session lifecycle events (pause / resume / close) — per-session when a `sessionId` is supplied, global otherwise. Subscribers opt into individual channels via the EventSource event-listener model (`source.addEventListener('input', cb)`); merging onto the single connection keeps the host page from needing N EventSources.
 
 ### ⚠ The `autoCancel` trap
 
