@@ -1,6 +1,7 @@
 package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.ControlEvent;
+import games.snapdragon.bff.model.InputEvent;
 import games.snapdragon.bff.model.PlayerMovement;
 import games.snapdragon.bff.model.PlayerViewEvent;
 import games.snapdragon.bff.model.WorldState;
@@ -156,6 +157,60 @@ class SessionIsolationTest {
 
         assertThat(seenOnA).hasSize(1).first().extracting(PlayerViewEvent::sessionId).isEqualTo("session-A");
         assertThat(seenOnB).as("session B view stream must not see session A's view events").isEmpty();
+    }
+
+    /**
+     * The {@code input} channel — the host-authoritative relay path the
+     * web-native chess game uses ({@code /api/input} → {@code emitInput}) —
+     * must be session-scoped too. A guest's {@code control/move} or the
+     * host's {@code world/state} board echo emitted in session A must never
+     * reach session B's per-session input subscriber, or two unrelated games
+     * would see each other's moves. The legacy global input firehose still
+     * sees every event (the admin diagnostics surface relies on it).
+     */
+    @Test
+    void inputEventsAreSessionScoped() {
+        List<InputEvent> seenOnA = new CopyOnWriteArrayList<>();
+        List<InputEvent> seenOnB = new CopyOnWriteArrayList<>();
+        List<InputEvent> seenGlobally = new CopyOnWriteArrayList<>();
+
+        state.inputStream("session-A").subscribe(seenOnA::add);
+        state.inputStream("session-B").subscribe(seenOnB::add);
+        state.inputStream().subscribe(seenGlobally::add);
+
+        InputEvent moveInA = InputEvent.inbound(
+                "chess", 1L, "session-A", "casdoor-host",
+                "control", "move", java.util.Map.of("uci", "e2e4"));
+        state.emitInput(moveInA);
+
+        assertThat(seenOnA).hasSize(1)
+                .first()
+                .extracting(InputEvent::sessionId).isEqualTo("session-A");
+        assertThat(seenOnB).as("session B must not see session A's relayed moves").isEmpty();
+        assertThat(seenGlobally).as("admin input firehose still sees the event").hasSize(1);
+    }
+
+    /**
+     * An input event with no sessionId (legacy single-player ingestion)
+     * must not leak into any per-session input sink. Mirrors the movement
+     * legacy-path test for the relay channel.
+     */
+    @Test
+    void inputWithNoSessionDoesNotEmitOnAnySessionSink() {
+        List<InputEvent> seenOnAnySession = new CopyOnWriteArrayList<>();
+        List<InputEvent> seenGlobally = new CopyOnWriteArrayList<>();
+
+        state.inputStream("session-A").subscribe(seenOnAnySession::add);
+        state.inputStream("session-B").subscribe(seenOnAnySession::add);
+        state.inputStream().subscribe(seenGlobally::add);
+
+        InputEvent globalOnly = InputEvent.inbound(
+                "three-wizards", 1L, /* sessionId */ null, "casdoor-x",
+                "control", "interact", java.util.Map.of());
+        state.emitInput(globalOnly);
+
+        assertThat(seenOnAnySession).as("no-session input must not leak into per-session sinks").isEmpty();
+        assertThat(seenGlobally).hasSize(1);
     }
 
     /**

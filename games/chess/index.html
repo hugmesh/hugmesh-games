@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Chess — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./chess.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="turn" aria-live="polite">Turn: White</span>
+      <span id="status" role="status" aria-live="polite">White to move</span>
+      <button id="resign" type="button">Resign</button>
+    </div>
+
+    <canvas id="board" width="480" height="480" role="img"
+            aria-label="Chess board. Click a piece, then its destination, to move."></canvas>
+
+    <!-- Promotion picker overlay (shown only when a pawn reaches the last rank). -->
+    <div id="promo" aria-hidden="true">
+      <div class="picker" role="dialog" aria-label="Choose promotion piece">
+        <button type="button" data-promo="q" aria-label="Promote to queen">♛</button>
+        <button type="button" data-promo="r" aria-label="Promote to rook">♜</button>
+        <button type="button" data-promo="b" aria-label="Promote to bishop">♝</button>
+        <button type="button" data-promo="n" aria-label="Promote to knight">♞</button>
+      </div>
+    </div>
+
+    <script type="module">
+      // The chess frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/chess/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/chess/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createChessGame } from './chess.js';
+
+      const GAME = createChessGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_chess.wasm' })
+        .then((ctx) => {
+          // The promotion picker buttons are wired inside chess.js (buildDom)
+          // so the bundle is self-contained and underpromotion works without
+          // any per-page glue — see GAME.onLocalInput's 'promote' branch.
+          window.__chessReady = true; // smoke-test boot signal
+          window.__chessCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load chess engine: ' + err.message;
+          console.error('chess mount failed', err);
+        });
+    </script>
+  </body>
+</html>

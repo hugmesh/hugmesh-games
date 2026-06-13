@@ -54,4 +54,5 @@
     <include file="db/changelog/047-wave2-games.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/048-wave3-games.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/049-realtime-matches.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/050-chess-relay-event-types.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

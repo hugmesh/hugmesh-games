@@ -66,7 +66,7 @@ public class GameStreamController {
             """)
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<Object>> stream(
-            @Parameter(description = "Optional multiplayer session id. When supplied, movement / world / character events are filtered to this session only — subscribers of session A never see session B's emissions. Time / scene / input / audio / wasm-console channels remain global because they're not session-scoped.")
+            @Parameter(description = "Optional multiplayer session id. When supplied, movement / world / character / input events are filtered to this session only — subscribers of session A never see session B's emissions. Time / scene / audio / wasm-console channels remain global because they're not session-scoped.")
             @RequestParam(value = "sessionId", required = false) String sessionId) {
         AtomicLong sseId = new AtomicLong(0);
 
@@ -100,7 +100,15 @@ public class GameStreamController {
         // event-listener model (`source.addEventListener('input', cb)`).
         // Merging onto a single connection keeps the host page from
         // needing N EventSources to see everything.
-        Flux<ServerSentEvent<Object>> input = gameStateService.inputStream()
+        //
+        // The `input` channel is session-scoped when sessionId is set: the
+        // host-authoritative relay (chess control/move + world/state board
+        // echo) rides this channel, and a move in session A must NOT reach
+        // session B's subscribers. Audio + WASM-console stay global (shared
+        // dev/infra surfaces, not session state).
+        Flux<ServerSentEvent<Object>> input = (sessionId != null && !sessionId.isBlank()
+                        ? gameStateService.inputStream(sessionId)
+                        : gameStateService.inputStream())
                 .map(i -> sse(sseId, "input", i));
         Flux<ServerSentEvent<Object>> audio = gameStateService.audioStream()
                 .map(a -> sse(sseId, "audio", a));
