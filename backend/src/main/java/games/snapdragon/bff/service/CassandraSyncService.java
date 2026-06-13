@@ -4,12 +4,9 @@ import games.snapdragon.bff.model.AdminStatsDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.cassandra.core.ReactiveCassandraTemplate;
 import org.springframework.data.cassandra.core.cql.ReactiveCqlTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -33,9 +30,10 @@ import java.time.Instant;
  * {@code spring.cassandra.contact-points} being set so a developer running
  * {@code make dev-backend} without Cassandra doesn't crash on startup.
  */
-@Service
-@ConditionalOnProperty(value = "app.cassandra-sync.enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnBean(ReactiveCassandraTemplate.class)
+// Registered by CassandraBackedServicesAutoConfiguration (NOT component-scanned):
+// @ConditionalOnBean on a scanned @Service evaluates before the Cassandra
+// auto-configuration contributes the template beans, so it was always false
+// and this service was silently absent from real deployments.
 public class CassandraSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(CassandraSyncService.class);

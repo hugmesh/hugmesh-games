@@ -102,6 +102,10 @@ ERROR: Error loading extension: 'res://snapdragon_bridge.gdextension'.
 - WASM export and browser play both **work** — the `snapdragon_bridge.wasm` is built in Docker and runs under the standard `web_release.zip` template, which still has the v1 functions.
 - For full editor bridge support, use a stock (non-Gentoo) Godot 4.6.x binary: download from godotengine.org and set `GODOT=path/to/godot4` before `make build-rust`.
 
+### Cassandra-backed optional services: NEVER `@ConditionalOnBean` on a scanned `@Service`
+
+`@ConditionalOnBean(ReactiveCassandraTemplate.class)` on a component-scanned class evaluates BEFORE Spring Boot's auto-configuration registers the template, so the condition is deterministically false and the service silently never exists — exactly this killed `PositionCacheService`, `CassandraSyncService`, `DistributedRateLimitService`, `RevocationListService`, and `RealtimeTruthStore` in every real deployment (unit suites passed because they hand-inject instances; the empty `pod_heartbeats` table was the tell). All five are now registered by `games.snapdragon.autoconfigure.CassandraBackedServicesAutoConfiguration` (a true `@AutoConfiguration` listed in `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`, in a package deliberately OUTSIDE the `games.snapdragon.bff` scan root) — add any new Cassandra-conditional bean THERE, not as an annotated `@Service`. The auto-config also contributes the `ReactiveCqlTemplate` bean Boot doesn't provide. Live tell that it works: `pod_heartbeats` gets a row within ~20s of boot.
+
 ### Liquibase 028 patterns
 
 PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tables/columns. The fix protocol when a fresh `column X.Y does not exist` shows up:

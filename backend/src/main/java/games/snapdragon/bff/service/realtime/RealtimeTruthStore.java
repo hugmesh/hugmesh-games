@@ -2,11 +2,8 @@ package games.snapdragon.bff.service.realtime;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.cassandra.core.ReactiveCassandraTemplate;
 import org.springframework.data.cassandra.core.cql.ReactiveCqlTemplate;
-import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -31,9 +28,10 @@ import reactor.core.publisher.Mono;
  * bit-exact replay invariant), so it PROPAGATES failures and the
  * submit path rejects the input instead of applying it unlogged.
  */
-@Service
-@ConditionalOnProperty(name = "app.realtime.truth-store.enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnBean(ReactiveCassandraTemplate.class)
+// Registered by CassandraBackedServicesAutoConfiguration (NOT component-scanned):
+// @ConditionalOnBean on a scanned @Service evaluates before the Cassandra
+// auto-configuration contributes the template beans, so it was always false
+// and this service was silently absent from real deployments.
 public class RealtimeTruthStore {
 
     private static final Logger log = LoggerFactory.getLogger(RealtimeTruthStore.class);
