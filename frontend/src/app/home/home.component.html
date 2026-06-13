@@ -262,9 +262,21 @@
             }
           }
         } @else {
-          <app-game-canvas [game]="activeLevel"></app-game-canvas>
+          <!-- Legacy AND web-native games both render through the host's
+               iframe component. For web-native (wasm-game) chapters the
+               [webNativeBaseUrl] is set, so the canvas mounts the
+               wasm-fragment URL with the session params instead of the
+               assetUrl path. activeWebNativeBaseUrl is null for true
+               legacy chapters, leaving that path byte-for-byte unchanged. -->
+          <app-game-canvas
+            [game]="activeLevel"
+            [webNativeBaseUrl]="activeWebNativeBaseUrl"
+            [launchUid]="activeLaunchUid"
+            [sessionId]="activeSessionId"
+            [slotIndex]="activeSlotIndex"
+            [localCharacterId]="characterId"></app-game-canvas>
         }
-        @if (!isChromeless(activeLevel)) {
+        @if (!isChromeless(activeLevel) && !isWebNative(activeLevel)) {
           <div class="hud-layer">
             <app-game-hud></app-game-hud>
             <app-game-controls></app-game-controls>

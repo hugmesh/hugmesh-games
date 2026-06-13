@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Web-native game federation rows.
+
+      The 14 web-native games seeded in 044-048 (chess, connect-four, reversi,
+      gomoku, dots-and-boxes, go, battleship, tetris, minesweeper, sudoku,
+      match-three, tron, bomberman, asteroids-duel) already appear in the
+      catalog grid and have playable, self-contained bundles served by the
+      wasm-fragment nginx at /_remotes/wasm-fragment/<slug>/index.html. They
+      need NO per-game Angular remote (there is no remoteEntry.json) — they are
+      plain iframe bundles.
+
+      The only gap was launch recognition: the host shell fell through to the
+      legacy <app-game-canvas> path because nothing told it these games are
+      launchable as parametrised iframes. This changeset closes that by adding
+      a federation_modules row per game with a NEW kind, 'wasm-game':
+
+        * remote_entry_url points DIRECTLY at the wasm-fragment index.html
+          (not a remoteEntry.json) — the host mounts it as an iframe and
+          threads the session query params (chapter_id, launch_uid, session_id,
+          slot_index, character_id) onto the URL, exactly like the existing
+          three-wizards federated remote does.
+        * exposed_module is NULL — there is no Angular module to load.
+        * game_slug carries the games.slug so the host can map a clicked
+          chapter to its bundle without a level-metadata join, mirroring the
+          'remote-game' rows.
+
+      The launch decision in the host (home.component.ts isWebNative/webNativeSlug)
+      reads these rows off GET /api/federation/manifest, so future web-native
+      games need ONLY this kind of row — no frontend change.
+
+      NOTE: 'wasm-game' rows are deliberately NOT fed into native-federation's
+      initFederation map (main.ts only wires kind in {'remote-game','remote-shell'}),
+      so adding them can't break the federation runtime — they're consumed only
+      by the manifest reader on the host.
+
+      Idempotent: ON CONFLICT (slug) DO NOTHING and a tableExists precondition,
+      matching the 050 pattern. Re-runs on partial state are no-ops.
+    -->
+    <changeSet id="051-1-web-game-federation-rows" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="federation_modules"/>
+        </preConditions>
+        <sql>
+INSERT INTO federation_modules
+    (slug, display_name, kind, remote_entry_url, exposed_module, game_slug, version, enabled, metadata)
+VALUES
+    ('games-chess',          'Chess',          'wasm-game', '/_remotes/wasm-fragment/chess/index.html',          NULL, 'chess',          '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-connect-four',   'Connect Four',   'wasm-game', '/_remotes/wasm-fragment/connect-four/index.html',   NULL, 'connect-four',   '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-reversi',        'Reversi',        'wasm-game', '/_remotes/wasm-fragment/reversi/index.html',        NULL, 'reversi',        '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-gomoku',         'Gomoku',         'wasm-game', '/_remotes/wasm-fragment/gomoku/index.html',         NULL, 'gomoku',         '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-dots-and-boxes', 'Dots and Boxes', 'wasm-game', '/_remotes/wasm-fragment/dots-and-boxes/index.html', NULL, 'dots-and-boxes', '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-go',             'Go',             'wasm-game', '/_remotes/wasm-fragment/go/index.html',             NULL, 'go',             '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-battleship',     'Battleship',     'wasm-game', '/_remotes/wasm-fragment/battleship/index.html',     NULL, 'battleship',     '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-tetris',         'Tetris',         'wasm-game', '/_remotes/wasm-fragment/tetris/index.html',         NULL, 'tetris',         '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-minesweeper',    'Minesweeper',    'wasm-game', '/_remotes/wasm-fragment/minesweeper/index.html',    NULL, 'minesweeper',    '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-sudoku',         'Sudoku',         'wasm-game', '/_remotes/wasm-fragment/sudoku/index.html',         NULL, 'sudoku',         '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-match-three',    'Match Three',    'wasm-game', '/_remotes/wasm-fragment/match-three/index.html',    NULL, 'match-three',    '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-tron',           'Tron',           'wasm-game', '/_remotes/wasm-fragment/tron/index.html',           NULL, 'tron',           '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-bomberman',      'Bomberman',      'wasm-game', '/_remotes/wasm-fragment/bomberman/index.html',      NULL, 'bomberman',      '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb),
+    ('games-asteroids-duel', 'Asteroids',      'wasm-game', '/_remotes/wasm-fragment/asteroids-duel/index.html', NULL, 'asteroids-duel', '0.1.0', true, '{"sse":true,"hostAuthoritative":true}'::jsonb)
+ON CONFLICT (slug) DO NOTHING;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

@@ -56,6 +56,32 @@ export interface PlayableGame {
 export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
   @Input() game!: PlayableGame;
 
+  /**
+   * Web-native launch mode. When set, the iframe loads this wasm-fragment
+   * base URL (e.g. `/_remotes/wasm-fragment/chess/index.html`) with the
+   * session query params appended, INSTEAD of deriving the URL from
+   * `game.assetUrl`. This reuses the host's iframe chrome (toolbar,
+   * presence/pause, focus-grab, fullscreen) for the 14 web-native games,
+   * threading the exact same session params the federated three-wizards
+   * remote passes. Null ⇒ legacy assetUrl path (byte-for-byte unchanged).
+   */
+  @Input() webNativeBaseUrl: string | null = null;
+
+  /** Launch UID minted by `POST /api/games/{slug}/launch`. Threaded onto
+   *  the web-native iframe URL as `?launch_uid=` for audit/traceability. */
+  @Input() launchUid: string | null = null;
+
+  /** Multiplayer session id — written to the iframe URL as `?session_id=`
+   *  so the bundle's host bridge scopes control/view egress to the
+   *  per-session SSE sinks. */
+  @Input() sessionId: string | null = null;
+
+  /** This player's slot inside the multiplayer session (0..maxPlayers-1). */
+  @Input() slotIndex: number | null = null;
+
+  /** Character id this player is driving in the session. */
+  @Input() localCharacterId: number | null = null;
+
   @ViewChild('gameFrame') gameFrame!: ElementRef<HTMLIFrameElement>;
   @ViewChild('wrapper')   wrapper!:   ElementRef<HTMLDivElement>;
 
@@ -80,6 +106,12 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
    *  remounts (and the SSE / WASM tear-down they trigger) when Angular
    *  fires `ngOnChanges` for unrelated input identity changes. */
   private _mountedId: number | null = null;
+
+  /** Identity of the inputs the iframe was last mounted for. A web-native
+   *  game keeps the same `game.id` while its launch_uid / session params
+   *  arrive asynchronously (the `/launch` POST resolves after the initial
+   *  bind), so id alone can't gate the remount — we key on the full set. */
+  private _mountedKey: string | null = null;
 
   /** Per-instance window id so the presence-channel handler can tell
    *  its own broadcasts from a peer's. Random-enough for a tab-scope id. */
@@ -126,8 +158,24 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
 
   ngOnChanges(): void {
     if (!this.game) return;
-    if (this.game.id === this._mountedId) return;
+    const key = this._mountKey(this.game);
+    if (key === this._mountedKey) return;
     this._mountLevel(this.game);
+  }
+
+  /** Stable identity of everything that feeds the iframe URL. A change
+   *  here (new chapter id, or the async-arriving web-native session
+   *  params) triggers a single clean remount; identical re-binds are
+   *  no-ops so the SSE/WASM state isn't recycled needlessly. */
+  private _mountKey(level: PlayableGame): string {
+    return [
+      level.id,
+      this.webNativeBaseUrl ?? '',
+      this.launchUid ?? '',
+      this.sessionId ?? '',
+      this.slotIndex ?? '',
+      this.localCharacterId ?? '',
+    ].join('|');
   }
 
   ngOnInit(): void {
@@ -227,6 +275,7 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
   reload(): void {
     if (this.game) {
       this._mountedId = null;
+      this._mountedKey = null;
       this._mountLevel(this.game);
     }
   }
@@ -285,14 +334,40 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
   private _mountLevel(level: PlayableGame): void {
     this.gameLoaded = false;
     this._mountedId = level.id;
+    this._mountedKey = this._mountKey(level);
+    const url = this.webNativeBaseUrl
+      ? this._webNativeUrl(this.webNativeBaseUrl, level)
+      : this._legacyUrl(level);
+    this._frameUrl = url;
+    this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+  }
+
+  /** Legacy path: derive the bundle URL from the level's assetUrl/slug. */
+  private _legacyUrl(level: PlayableGame): string {
     const base = level.assetUrl
       ?? (level.slug ? `/api/assets/levels/${level.slug}/index.html`
                       : '/api/assets/levels/cave/index.html');
     // Cache-bust on actual mount only — the timestamp changes only when the
     // chapter id changes, so stable in-place renders don't recycle the iframe
     // (which would kill the SSE channels and WASM state).
-    const url = `${base}?chapter_id=${level.id}&t=${Date.now()}`;
-    this._frameUrl = url;
-    this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+    return `${base}?chapter_id=${level.id}&t=${Date.now()}`;
+  }
+
+  /**
+   * Web-native path: the wasm-fragment base URL + the session query
+   * params, identical in shape to the federated three-wizards remote
+   * (chapter_id, launch_uid, session_id, slot_index, character_id, t).
+   * The bundle's host bridge reads these to scope its control/view
+   * egress onto the per-session SSE sinks.
+   */
+  private _webNativeUrl(base: string, level: PlayableGame): string {
+    const params = new URLSearchParams();
+    params.set('chapter_id', String(level.id));
+    if (this.launchUid) params.set('launch_uid', this.launchUid);
+    if (this.sessionId) params.set('session_id', this.sessionId);
+    if (this.slotIndex !== null) params.set('slot_index', String(this.slotIndex));
+    if (this.localCharacterId !== null) params.set('character_id', String(this.localCharacterId));
+    params.set('t', String(Date.now()));
+    return `${base}?${params}`;
   }
 }
