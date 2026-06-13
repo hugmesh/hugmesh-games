@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Match-3 — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./match-three.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="score" aria-live="polite">Score: 0</span>
+      <span id="moves" aria-live="polite">Moves: 0</span>
+      <span id="status" role="status" aria-live="polite">Swap two adjacent gems</span>
+      <button id="new-game" type="button">New game</button>
+    </div>
+
+    <canvas id="board" width="480" height="480" role="img"
+            aria-label="Match-3 board. Click a gem then an adjacent gem to swap them and make a run of three or more."></canvas>
+
+    <script type="module">
+      // The match-three frontend = the shared shell + this game's GAME object.
+      // SINGLE-PLAYER puzzle: no session relay. Paths are RELATIVE so the same
+      // bundle serves correctly both from
+      //   games/match-three/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/match-three/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createMatchThreeGame } from './match-three.js';
+
+      const GAME = createMatchThreeGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_match_three_wasm.wasm' })
+        .then((ctx) => {
+          window.__matchThreeReady = true; // smoke-test boot signal
+          window.__matchThreeCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load match-three engine: ' + err.message;
+          console.error('match-three mount failed', err);
+        });
+    </script>
+  </body>
+</html>

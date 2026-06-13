@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Sudoku — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./sudoku.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="status" role="status" aria-live="polite">Loading…</span>
+      <button id="hint" type="button">Hint</button>
+      <button id="reset" type="button">New game</button>
+    </div>
+
+    <canvas id="board" width="540" height="540" role="img"
+            aria-label="Sudoku grid, 9 by 9. Click a cell, then press a digit 1 to 9 to fill it, or 0 to erase."></canvas>
+
+    <p id="help" class="sr-only">
+      Click a cell to select it, then type a digit 1 to 9 to place it, or press 0,
+      Backspace, or Delete to clear it. Arrow keys move the selection. Conflicting
+      digits and clue cells are rejected.
+    </p>
+
+    <script type="module">
+      // The Sudoku frontend = the shared shell + this game's GAME object. Sudoku
+      // is SINGLE-PLAYER: it runs entirely locally against the wasm engine, never
+      // opens a session, never relays. Paths are RELATIVE so the same bundle
+      // serves correctly both from
+      //   games/sudoku/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/sudoku/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createSudokuGame } from './sudoku.js';
+
+      const GAME = createSudokuGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_sudoku_wasm.wasm' })
+        .then((ctx) => {
+          window.__sudokuReady = true; // smoke-test boot signal
+          window.__sudokuCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load Sudoku engine: ' + err.message;
+          console.error('sudoku mount failed', err);
+        });
+    </script>
+  </body>
+</html>

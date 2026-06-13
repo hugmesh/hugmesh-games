@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Minesweeper — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./minesweeper.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="mines" class="counter" role="status" aria-live="polite"
+            aria-label="Mines remaining">010</span>
+      <span id="status" role="status" aria-live="polite">Find all the mines</span>
+      <span id="timer" class="counter" role="timer" aria-live="off"
+            aria-label="Elapsed time in seconds">000</span>
+      <button id="reset" type="button">🙂 New game</button>
+    </div>
+
+    <canvas id="board" width="324" height="324" role="img"
+            aria-label="Minesweeper board. Left-click a cell to reveal it, right-click to flag a suspected mine."></canvas>
+
+    <p id="hint">Left-click to reveal · Right-click to flag</p>
+
+    <script type="module">
+      // The Minesweeper frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/minesweeper/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/minesweeper/index.html   (BFF-served; _shared copied in)
+      //
+      // SINGLE-PLAYER: no session_id is required — the frame runs the wasm
+      // engine purely locally (no relay).
+      import { mountGame } from './_shared/game-frame.js';
+      import { createMinesweeperGame } from './minesweeper.js';
+
+      const GAME = createMinesweeperGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_minesweeper_wasm.wasm' })
+        .then((ctx) => {
+          window.__minesweeperReady = true; // smoke-test boot signal
+          window.__minesweeperCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load Minesweeper engine: ' + err.message;
+          console.error('minesweeper mount failed', err);
+        });
+    </script>
+  </body>
+</html>

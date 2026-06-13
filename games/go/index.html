@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Go — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./go.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="turn" aria-live="polite">Turn: Black</span>
+      <span id="status" role="status" aria-live="polite">Black to move</span>
+      <span id="score" aria-live="polite">Captures — Black: 0  White: 0</span>
+      <button id="pass" type="button">Pass</button>
+    </div>
+
+    <canvas id="board" width="540" height="540" role="img"
+            aria-label="Go board, 9 by 9. Click an empty intersection to place your stone. Press Pass to skip your turn; two passes in a row end the game."></canvas>
+
+    <script type="module">
+      // The Go frontend = the shared shell + this game's GAME object. Paths are
+      // RELATIVE so the same bundle serves correctly both from
+      //   games/go/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/go/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createGoGame } from './go.js';
+
+      const GAME = createGoGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_go.wasm' })
+        .then((ctx) => {
+          window.__goReady = true; // smoke-test boot signal
+          window.__goCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load Go engine: ' + err.message;
+          console.error('go mount failed', err);
+        });
+    </script>
+  </body>
+</html>

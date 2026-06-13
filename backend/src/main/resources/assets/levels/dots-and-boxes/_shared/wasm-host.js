@@ -160,18 +160,21 @@ export class WasmHost {
    *        a no-argument export.
    * @param {Array<number|bigint>} [leadingArgs] args BEFORE the (ptr,len) pair —
    *        e.g. fps_new(seed, cfgPtr, cfgLen) passes [seed].
+   * @param {Array<number|bigint>} [trailingArgs] args AFTER the (ptr,len) pair —
+   *        e.g. go_from_board(boardPtr, boardLen, size, side) passes [] leading
+   *        and [size, side] trailing. Ignored for a no-argument (null) call.
    */
-  callRaw(fnName, jsonStringOrNull = null, leadingArgs = []) {
+  callRaw(fnName, jsonStringOrNull = null, leadingArgs = [], trailingArgs = []) {
     const fn = this.exports[fnName];
     if (typeof fn !== 'function') {
       throw new Error(`WasmHost: export '${fnName}' is not a function`);
     }
     if (jsonStringOrNull === null || jsonStringOrNull === undefined) {
-      return fn(...leadingArgs);
+      return fn(...leadingArgs, ...trailingArgs);
     }
     const [ptr, len] = this._writeUtf8(jsonStringOrNull);
     try {
-      return fn(...leadingArgs, ptr, len);
+      return fn(...leadingArgs, ptr, len, ...trailingArgs);
     } finally {
       this.exports.dealloc(ptr, len);
     }
@@ -182,8 +185,8 @@ export class WasmHost {
    * JSON string; decode + dealloc the output buffer and return the parsed JSON
    * (or null when the export returned 0 / empty).
    */
-  callPacked(fnName, jsonStringOrNull = null, leadingArgs = []) {
-    const packed = this.callRaw(fnName, jsonStringOrNull, leadingArgs);
+  callPacked(fnName, jsonStringOrNull = null, leadingArgs = [], trailingArgs = []) {
+    const packed = this.callRaw(fnName, jsonStringOrNull, leadingArgs, trailingArgs);
     const json = this._readPacked(packed);
     return json === null ? null : JSON.parse(json);
   }
@@ -193,8 +196,8 @@ export class WasmHost {
    * Returned as a Number, masked to the low 32 bits so a sign-extended i32
    * decodes identically to the JVM driver's `(int)(ret & 0xFFFF_FFFFL)`.
    */
-  callStatus(fnName, jsonStringOrNull = null, leadingArgs = []) {
-    const raw = this.callRaw(fnName, jsonStringOrNull, leadingArgs);
+  callStatus(fnName, jsonStringOrNull = null, leadingArgs = [], trailingArgs = []) {
+    const raw = this.callRaw(fnName, jsonStringOrNull, leadingArgs, trailingArgs);
     return Number(BigInt.asUintN(64, BigInt(raw)) & PTR_MASK) | 0;
   }
 
@@ -211,8 +214,8 @@ export class WasmHost {
    * @returns {*} parsed JSON object/array/primitive, or a Number for status
    *              returns, or null when the export returned 0/empty packed.
    */
-  call(fnName, jsonStringOrNull = null, leadingArgs = []) {
-    const raw = this.callRaw(fnName, jsonStringOrNull, leadingArgs);
+  call(fnName, jsonStringOrNull = null, leadingArgs = [], trailingArgs = []) {
+    const raw = this.callRaw(fnName, jsonStringOrNull, leadingArgs, trailingArgs);
     const big = BigInt.asUintN(64, BigInt(raw));
     const ptr = Number((big >> 32n) & PTR_MASK);
     const len = Number(big & PTR_MASK);
