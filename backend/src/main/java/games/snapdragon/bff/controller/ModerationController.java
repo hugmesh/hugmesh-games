@@ -2,6 +2,9 @@ package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.model.ModGameScope;
 import games.snapdragon.bff.repository.ModGameScopeRepository;
+import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.security.Roles;
+import games.snapdragon.bff.service.DomainScopeService;
 import games.snapdragon.bff.service.ModerationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,10 +36,22 @@ public class ModerationController {
 
     private final ModerationService moderation;
     private final ModGameScopeRepository scopes;
+    private final DomainScopeService domainScope;
+    private final DomainRegistry domainRegistry;
 
-    public ModerationController(ModerationService moderation, ModGameScopeRepository scopes) {
+    public ModerationController(ModerationService moderation, ModGameScopeRepository scopes,
+                                DomainScopeService domainScope, DomainRegistry domainRegistry) {
         this.moderation = moderation;
         this.scopes     = scopes;
+        this.domainScope    = domainScope;
+        this.domainRegistry = domainRegistry;
+    }
+
+    /** Brand-scope gate keyed on the SESSION's game: a brand-X admin/mod may not act on
+     *  a brand-Y session (SUPERADMIN exempt; inert single-tenant). The session→game_slug
+     *  resolution lives in {@link DomainScopeService#requireSessionDomain}. */
+    private Mono<Void> requireSessionDomain(String sessionId, Jwt jwt) {
+        return domainScope.requireSessionDomain(sessionId, Roles.domainOf(jwt, domainRegistry), Roles.isSuperadmin(jwt));
     }
 
     public record StopSessionRequest(String reason) {}
@@ -67,7 +82,9 @@ public class ModerationController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String id,
             @RequestBody(required = false) StopSessionRequest req) {
-        return moderation.stopSession(jwt.getSubject(), id, req == null ? null : req.reason());
+        return requireSessionDomain(id, jwt)
+                .then(Mono.defer(() ->
+                        moderation.stopSession(jwt.getSubject(), id, req == null ? null : req.reason())));
     }
 
     @Operation(
@@ -82,6 +99,8 @@ public class ModerationController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String id,
             @RequestBody KickPlayerRequest req) {
-        return moderation.kickPlayer(jwt.getSubject(), id, req.targetCasdoorId(), req.reason());
+        return requireSessionDomain(id, jwt)
+                .then(Mono.defer(() ->
+                        moderation.kickPlayer(jwt.getSubject(), id, req.targetCasdoorId(), req.reason())));
     }
 }

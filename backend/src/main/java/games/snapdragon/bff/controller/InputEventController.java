@@ -6,6 +6,7 @@ import games.snapdragon.bff.model.InputEvent;
 import games.snapdragon.bff.repository.InputEventRepository;
 import games.snapdragon.bff.repository.InputEventRepository.InputEventRow;
 import games.snapdragon.bff.repository.InputEventTypeRepository;
+import games.snapdragon.bff.service.GameSessionService;
 import games.snapdragon.bff.service.GameStateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -57,16 +58,19 @@ public class InputEventController {
     private final InputEventRepository events;
     private final InputEventTypeRepository types;
     private final GameStateService state;
+    private final GameSessionService sessions;
     private final ObjectMapper json;
 
     public InputEventController(InputEventRepository events,
                                 InputEventTypeRepository types,
                                 GameStateService state,
+                                GameSessionService sessions,
                                 ObjectMapper json) {
-        this.events = events;
-        this.types  = types;
-        this.state  = state;
-        this.json   = json;
+        this.events   = events;
+        this.types    = types;
+        this.state    = state;
+        this.sessions = sessions;
+        this.json     = json;
     }
 
     @Operation(
@@ -96,8 +100,19 @@ public class InputEventController {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "kind, type, and gameSlug are required"));
         }
+        // Gate 0: session-membership + character ownership. When the event is
+        // session-scoped (the host-authoritative relay path), the JWT subject
+        // MUST be the active session_member who owns characterId — otherwise an
+        // unrelated authenticated user could inject a move into a victim
+        // session's host (the relay fans out to that session only). 403 on miss.
+        // Mirrors ControlController's multiplayer authz exactly. No session id ⇒
+        // legacy single-player ingestion, no ownership concept to check.
+        Mono<Void> authz = (body.sessionId() != null && !body.sessionId().isBlank())
+                ? sessions.authorizeControl(jwt.getSubject(), characterId, body.sessionId()).then()
+                : Mono.empty();
+
         // Gate 1: (kind, type) must be a known reference row.
-        return types.findByKindAndType(body.kind(), body.type())
+        return authz.then(types.findByKindAndType(body.kind(), body.type())
                 .switchIfEmpty(Mono.error(new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "unknown event (kind, type): " + body.kind() + ", " + body.type())))
@@ -118,7 +133,7 @@ public class InputEventController {
                     }
                     return events.insert(ev, payloadJson)
                             .doOnNext(state::emitInput);
-                });
+                }));
         // Gates 2 (features.<kind>) and 3 (game_event_support) added in
         // a follow-up commit alongside the GameRepository.findFeatures
         // helper — keeping THIS commit focused on the schema +

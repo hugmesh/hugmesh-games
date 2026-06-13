@@ -1,0 +1,122 @@
+/* games/sudoku/sudoku.css — grid + HUD styling. Self-contained, no fonts
+   fetched (numerals are canvas fillText with the system UI stack). Mirrors
+   connect-four.css. */
+
+:root {
+  --sd-bg: #14121c;
+  --sd-panel: #1f1b2e;
+  --sd-accent: #b388ff;
+  --sd-accent-strong: #7c4dff;
+  --sd-text: #f2eefb;
+  --sd-muted: #a8acc4;
+  --sd-good: #6ccf7f;
+  --sd-danger: #ff8a8a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--sd-bg);
+  color: var(--sd-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px;
+  min-height: 100%;
+}
+
+#hud {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 600px;
+}
+
+#status {
+  color: var(--sd-muted);
+  font-size: 0.98rem;
+  min-width: 12ch;
+  font-weight: 600;
+}
+
+#status.over {
+  color: var(--sd-good);
+  font-weight: 700;
+}
+
+#status.warn {
+  color: var(--sd-danger);
+  font-weight: 700;
+}
+
+#hint,
+#reset {
+  background: var(--sd-panel);
+  color: var(--sd-text);
+  border: 1px solid var(--sd-accent-strong);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  min-height: 40px;
+}
+
+#reset {
+  margin-left: auto;
+}
+
+#hint:hover:not(:disabled),
+#reset:hover:not(:disabled) {
+  border-color: var(--sd-accent);
+  background: #2a2440;
+}
+
+#hint:focus-visible,
+#reset:focus-visible {
+  outline: 3px solid var(--sd-accent);
+  outline-offset: 2px;
+}
+
+#hint:disabled,
+#reset:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#board {
+  display: block;
+  touch-action: manipulation;
+  border: 2px solid var(--sd-accent-strong);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  max-width: 100%;
+  height: auto;
+  cursor: pointer;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

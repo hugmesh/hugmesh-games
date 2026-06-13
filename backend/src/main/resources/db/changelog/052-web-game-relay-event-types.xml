@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Web-native relay event vocabulary (the OTHER nine games).
+
+      Changeset 050 added the `world/state` host echo + chess's `control/move`
+      opt-in because Gate 1 (InputEventController.findByKindAndType) was 400'ing
+      every host world broadcast. The SAME bug was latent for the rest of the
+      Wave-1/2/3 games: each game's frontend relays its guest move through the
+      shared games/_shared/game-frame.js → client.sendInput() →
+      POST /api/input/{cid} with a game-specific (kind, type) pair:
+
+        connect-four    control/drop,  control/reset
+        dots-and-boxes  control/claim, control/reset
+        battleship      control/fire,  control/ready
+        tron            control/dir
+        asteroids-duel  control/input
+
+      None of those (control, type) pairs were ever seeded into
+      input_event_types (026 seeded only control/move|cast|interact). So Gate 1
+      400'd every guest move for those five games — the host→guest relay (the
+      whole point of host-authoritative multiplayer) silently never fired,
+      while chess / reversi / gomoku / go / bomberman (all of which relay the
+      already-seeded control/move) worked. Surfaced by the multi-user
+      architecture e2e harness (e2e/games-arch): 5/10 relay games FAILed
+      relay-received with HTTP 400.
+
+      This changeset closes the gap exactly as 050 did:
+        * adds the missing (control, type) reference rows; and
+        * opts every web-native game into its (kind, type) triples in
+          game_event_support (the per-game Gate 3, when wired) — including the
+          control/move + world/state games for completeness/symmetry with 050.
+
+      All inserts are ON CONFLICT DO NOTHING + a tableExists precondition, so
+      re-runs on partial state are no-ops (idempotent per the repo's migration
+      protocol). Appends only — never edits a merged changeset.
+    -->
+    <changeSet id="052-1-web-game-control-event-types" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="input_event_types"/>
+        </preConditions>
+        <sql>
+            INSERT INTO input_event_types (kind, type, description, example_payload) VALUES
+                ('control', 'drop',
+                 'Connect Four — drop a disc into a column (host re-applies via c4_apply_drop).',
+                 '{"col":3}'::jsonb),
+                ('control', 'claim',
+                 'Dots and Boxes — claim an edge by index (host re-applies via the boxes engine).',
+                 '{"edge":0}'::jsonb),
+                ('control', 'reset',
+                 'New-game request the host re-applies to its engine (connect-four / dots-and-boxes reset).',
+                 '{"reset":true}'::jsonb),
+                ('control', 'fire',
+                 'Battleship — fire at a board coordinate (host resolves via battleship_resolve).',
+                 '{"coord":"B7"}'::jsonb),
+                ('control', 'ready',
+                 'Battleship — a player has finished placement and is ready (host advances phase).',
+                 '{"ready":true}'::jsonb),
+                ('control', 'dir',
+                 'Tron — queue a heading change for a light-cycle (host applies on the next tick).',
+                 '{"player":1,"dir":"up"}'::jsonb),
+                ('control', 'input',
+                 'Asteroids Duel — per-frame thrust/turn/fire input vector (host applies to its tick loop).',
+                 '{"player":1,"thrust":true,"turn":0,"fire":false}'::jsonb)
+            ON CONFLICT (kind, type) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <changeSet id="052-2-web-game-event-support" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="game_event_support"/>
+        </preConditions>
+        <sql>
+            INSERT INTO game_event_support (game_slug, event_kind, event_type, direction) VALUES
+                -- control/move + world/state games (symmetry with 050's chess rows)
+                ('reversi',        'control', 'move',  'both'),
+                ('gomoku',         'control', 'move',  'both'),
+                ('go',             'control', 'move',  'both'),
+                ('bomberman',      'control', 'move',  'both'),
+                ('bomberman',      'world',   'state', 'both'),
+                -- the five games whose move types 052-1 just added
+                ('connect-four',   'control', 'drop',  'both'),
+                ('connect-four',   'control', 'reset', 'both'),
+                ('dots-and-boxes', 'control', 'claim', 'both'),
+                ('dots-and-boxes', 'control', 'reset', 'both'),
+                ('battleship',     'control', 'fire',  'both'),
+                ('battleship',     'control', 'ready', 'both'),
+                ('battleship',     'world',   'state', 'both'),
+                ('tron',           'control', 'dir',   'both'),
+                ('tron',           'world',   'state', 'both'),
+                ('asteroids-duel', 'control', 'input', 'both'),
+                ('asteroids-duel', 'world',   'state', 'both')
+            ON CONFLICT (game_slug, event_kind, event_type) DO NOTHING;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

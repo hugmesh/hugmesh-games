@@ -4,10 +4,7 @@ import com.datastax.oss.driver.api.core.uuid.Uuids;
 import games.snapdragon.bff.util.Crypto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.cassandra.core.cql.ReactiveCqlTemplate;
-import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -47,9 +44,10 @@ import java.util.UUID;
  * cluster-wide layer at runtime so a deployment that wants in-process-
  * only throttling doesn't have to remove Cassandra wiring.
  */
-@Service
-@ConditionalOnProperty(name = "app.rate-limit.distributed.enabled", havingValue = "true", matchIfMissing = true)
-@ConditionalOnBean(ReactiveCqlTemplate.class)
+// Registered by CassandraBackedServicesAutoConfiguration (NOT component-scanned):
+// @ConditionalOnBean on a scanned @Service evaluates before the Cassandra
+// auto-configuration contributes the template beans, so it was always false
+// and this service was silently absent from real deployments.
 public class DistributedRateLimitService {
 
     private static final Logger log = LoggerFactory.getLogger(DistributedRateLimitService.class);

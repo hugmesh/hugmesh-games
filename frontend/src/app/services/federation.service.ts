@@ -13,8 +13,8 @@ import { environment } from '../../environments/environment';
 export interface FederationRemote {
   slug: string;
   displayName: string;
-  /** `'host' | 'remote-shell' | 'remote-game' | 'fragment'` */
-  kind: 'host' | 'remote-shell' | 'remote-game' | 'fragment' | string;
+  /** `'host' | 'remote-shell' | 'remote-game' | 'wasm-game' | 'fragment'` */
+  kind: 'host' | 'remote-shell' | 'remote-game' | 'wasm-game' | 'fragment' | string;
   remoteEntryUrl: string;
   exposedModule: string | null;
   gameSlug: string | null;
@@ -84,6 +84,27 @@ export class FederationService {
   firstByKind(kind: FederationRemote['kind']): Observable<FederationRemote | undefined> {
     return this.manifest$.pipe(
       map(m => m.remotes.find(r => r.kind === kind)),
+    );
+  }
+
+  /**
+   * All enabled `wasm-game` remotes, keyed by their `gameSlug`. These are
+   * the web-native (plain-iframe) games: their `remoteEntryUrl` points
+   * directly at the wasm-fragment `index.html`, NOT a `remoteEntry.json`,
+   * so they're mounted as parametrised iframes rather than loaded through
+   * native-federation. Drives the host's data-driven launch decision
+   * (`isWebNative` / `webNativeSlug`) — a new web-native game appears
+   * just by seeding its `wasm-game` federation row, no frontend change.
+   */
+  webNativeByGameSlug(): Observable<Map<string, FederationRemote>> {
+    return this.manifest$.pipe(
+      map(m => {
+        const out = new Map<string, FederationRemote>();
+        for (const r of m.remotes) {
+          if (r.kind === 'wasm-game' && r.gameSlug) out.set(r.gameSlug, r);
+        }
+        return out;
+      }),
     );
   }
 }

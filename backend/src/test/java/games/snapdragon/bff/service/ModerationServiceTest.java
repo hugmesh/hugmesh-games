@@ -45,12 +45,21 @@ class ModerationServiceTest {
         members  = mock(SessionMemberRepository.class);
         scopes   = mock(ModGameScopeRepository.class);
         actions  = mock(AdminActionRepository.class);
-        gameSessionService = mock(GameSessionService.class);
+        // Java-25 + ByteBuddy can't mock the concrete GameSessionService; a no-op
+        // subclass is the repo idiom for concrete collaborators (the super ctor only
+        // assigns fields, none of which this stub touches).
+        gameSessionService = new FakeGameSessionService();
         moderation = new ModerationService(sessions, members, scopes, actions, gameSessionService);
 
         lenient().when(actions.save(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-        lenient().when(gameSessionService.close(anyString())).thenReturn(Mono.empty());
-        lenient().when(gameSessionService.leave(anyString(), anyString())).thenReturn(Mono.empty());
+    }
+
+    private static final class FakeGameSessionService extends GameSessionService {
+        FakeGameSessionService() {
+            super(null, null, null, null, java.util.Optional.empty(), java.util.Optional.empty());
+        }
+        @Override public Mono<Void> close(String sessionId) { return Mono.empty(); }
+        @Override public Mono<Void> leave(String sessionId, String casdoorId) { return Mono.empty(); }
     }
 
     @Test

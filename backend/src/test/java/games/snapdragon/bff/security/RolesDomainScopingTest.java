@@ -215,4 +215,38 @@ class RolesDomainScopingTest {
             assertThat(mismatches.get()).isZero();
         }
     }
+
+    // ===================================================================
+    // domainApplies — row-level brand predicate (mirrors gateway domainApplies)
+    // ===================================================================
+    @Nested
+    class DomainApplies {
+
+        @Test
+        void superadminAlwaysApplies() {
+            // even a scoped row vs a mismatched caller -> true when superadmin.
+            assertThat(Roles.domainApplies("brandx", "brandy", true)).isTrue();
+            assertThat(Roles.domainApplies("brandx", null, true)).isTrue();
+        }
+
+        @Test
+        void unscopedRowAppliesToAnyCaller() {
+            for (String unscoped : new String[]{null, "", "   ", "default", "DEFAULT", " Default "}) {
+                assertThat(Roles.domainApplies(unscoped, "brandx", false)).isTrue();
+                assertThat(Roles.domainApplies(unscoped, null, false)).isTrue();
+            }
+        }
+
+        @Test
+        void scopedRowRequiresExactCaseInsensitiveTrimmedMatch() {
+            assertThat(Roles.domainApplies("brandx", "brandx", false)).isTrue();
+            assertThat(Roles.domainApplies("BrandX", " brandx ", false)).isTrue();
+            assertThat(Roles.domainApplies("brandx", "brandy", false)).isFalse();
+        }
+
+        @Test
+        void scopedRowAgainstNullCallerFailsClosed() {
+            assertThat(Roles.domainApplies("brandx", null, false)).isFalse();
+        }
+    }
 }

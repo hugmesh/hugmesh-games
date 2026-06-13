@@ -2,11 +2,8 @@ package games.snapdragon.bff.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.cassandra.core.cql.ReactiveCqlTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import jakarta.annotation.PostConstruct;
@@ -52,9 +49,10 @@ import java.util.concurrent.ConcurrentMap;
  * inject it via {@link org.springframework.beans.factory.ObjectProvider}
  * and skip the check when null.
  */
-@Service
-@ConditionalOnBean(ReactiveCqlTemplate.class)
-@ConditionalOnProperty(name = "app.revocation.enabled", havingValue = "true", matchIfMissing = true)
+// Registered by CassandraBackedServicesAutoConfiguration (NOT component-scanned):
+// @ConditionalOnBean on a scanned @Service evaluates before the Cassandra
+// auto-configuration contributes the template beans, so it was always false
+// and this service was silently absent from real deployments.
 public class RevocationListService {
 
     private static final Logger log = LoggerFactory.getLogger(RevocationListService.class);

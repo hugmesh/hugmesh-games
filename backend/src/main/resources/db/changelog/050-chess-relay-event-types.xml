@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Chess relay event vocabulary.
+
+      The host-authoritative chess relay (games/_shared/sse-host-client.js)
+      sends two (kind, type) pairs through /api/input:
+        * control / move  — the guest's intended UCI move (already seeded in 026).
+        * world   / state — the host's authoritative board echo {fen,san,status,
+                            lastMove}. This pair was MISSING from input_event_types,
+                            so InputEventController Gate 1 (findByKindAndType) 400'd
+                            every host world broadcast — the core host→guest echo
+                            silently never relayed. This changeset adds it.
+
+      It also opts the `chess` game into the relay's (kind, type) triples in
+      game_event_support so the per-game Gate 3 (when wired) accepts chess's
+      control/move + world/state.
+
+      All inserts are ON CONFLICT DO NOTHING so re-runs on partial state are
+      no-ops (idempotent per the repo's migration protocol).
+    -->
+    <changeSet id="050-1-world-state-event-type" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="input_event_types"/>
+        </preConditions>
+        <sql>
+            INSERT INTO input_event_types (kind, type, description, example_payload) VALUES
+                ('world', 'state',
+                 'Host-authoritative world snapshot — the full game state the host browser broadcasts for the guest to re-apply + re-validate (chess: {fen,san,status,lastMove}).',
+                 '{"fen":"rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1","san":"e4","status":"ongoing","lastMove":"e2e4"}'::jsonb)
+            ON CONFLICT (kind, type) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <changeSet id="050-2-chess-game-event-support" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="game_event_support"/>
+        </preConditions>
+        <sql>
+            INSERT INTO game_event_support (game_slug, event_kind, event_type, direction) VALUES
+                ('chess', 'control', 'move',  'both'),
+                ('chess', 'world',   'state', 'both')
+            ON CONFLICT (game_slug, event_kind, event_type) DO NOTHING;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

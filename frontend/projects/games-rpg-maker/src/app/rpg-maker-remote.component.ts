@@ -9,10 +9,15 @@ interface RpgProject     { id: string; slug: string; displayName: string; descri
 interface RpgArea        { id: string; projectId: string; slug: string; name: string; sortOrder: number; gridMode: boolean; }
 interface RpgRoom        { id: string; projectId: string; areaId: string; slug: string; name: string; description?: string; environment?: number; x?: number; y?: number; z?: number; gdScript?: string; pauseOnEnter?: boolean; }
 interface RpgExit        { id: string; projectId: string; fromRoomId: string; toRoomId: string; direction: string; locked: boolean; }
+interface RpgItem        { id: string; projectId: string; slug: string; name: string; description?: string; iconAssetId?: string; gdScript?: string; }
+interface RpgNpc         { id: string; projectId: string; slug: string; name: string; defaultRoomId?: string; dialogueText?: string; portraitAssetId?: string; gdScript?: string; }
+interface RpgAsset       { id: string; projectId: string; slug: string; kind: string; mimeType: string; byteSize: number; storagePath?: string; uploadedBy?: string; uploadedAt?: string; }
 interface RpgBuildJob    { id: string; status: string; progressPct: number; logTail: string; targetSlug: string; errorMessage?: string; }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] as const;
+const ASSET_KINDS = ['background','sprite','tileset','portrait','audio'] as const;
+const IMAGE_MIMES = ['image/png','image/jpeg','image/webp','image/svg+xml'];
 
 /**
  * Mudlet-shaped editor remote for the snapdragon RPG builder.
@@ -233,6 +238,146 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
             </fieldset>
           }
         </section>
+
+        <!-- Items pane -->
+        <section class="pane">
+          <h2>Items</h2>
+          @if (selectedProject) {
+            <ul class="row-list">
+              @for (it of items; track it.id) {
+                <li><strong>{{ it.name }}</strong> <small>({{ it.slug }})</small></li>
+              }
+            </ul>
+            <fieldset>
+              <legend>New item</legend>
+              <label>Slug
+                <input name="newItemSlug" [(ngModel)]="newItem.slug" placeholder="potion" />
+              </label>
+              @if (newItem.slug && !slugOk(newItem.slug)) {
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+              }
+              <label>Name
+                <input name="newItemName" [(ngModel)]="newItem.name" />
+              </label>
+              @if (submitted.item && !newItem.name?.trim()) {
+                <p class="field-error" role="alert">item name is required.</p>
+              }
+              <label>Description (optional)
+                <textarea name="newItemDesc" [(ngModel)]="newItem.description" rows="2"></textarea>
+              </label>
+              <label>Icon asset
+                <select name="newItemIcon" [(ngModel)]="newItem.iconAssetId">
+                  <option value="">— none —</option>
+                  @for (a of assets; track a.id) { <option [value]="a.id">{{ a.slug }} ({{ a.kind }})</option> }
+                </select>
+              </label>
+              <label>GDScript snippet (optional)
+                <textarea name="newItemGd" [(ngModel)]="newItem.gdScript" rows="3"
+                          placeholder="# on use"></textarea>
+              </label>
+              <button type="button" class="primary-btn" (click)="createItem()"
+                      [disabled]="!slugOk(newItem.slug) || !newItem.name?.trim()">Add item</button>
+            </fieldset>
+          }
+        </section>
+
+        <!-- NPCs pane -->
+        <section class="pane">
+          <h2>NPCs</h2>
+          @if (selectedProject) {
+            <ul class="row-list">
+              @for (n of npcs; track n.id) {
+                <li><strong>{{ n.name }}</strong> <small>({{ n.slug }})</small></li>
+              }
+            </ul>
+            <fieldset>
+              <legend>New NPC</legend>
+              <label>Slug
+                <input name="newNpcSlug" [(ngModel)]="newNpc.slug" placeholder="shopkeeper" />
+              </label>
+              @if (newNpc.slug && !slugOk(newNpc.slug)) {
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+              }
+              <label>Name
+                <input name="newNpcName" [(ngModel)]="newNpc.name" />
+              </label>
+              @if (submitted.npc && !newNpc.name?.trim()) {
+                <p class="field-error" role="alert">npc name is required.</p>
+              }
+              <label>Default room
+                <select name="newNpcRoom" [(ngModel)]="newNpc.defaultRoomId">
+                  <option value="">— none —</option>
+                  @for (r of rooms; track r.id) { <option [value]="r.id">{{ r.name }} ({{ r.slug }})</option> }
+                </select>
+              </label>
+              <label>Dialogue (optional)
+                <textarea name="newNpcDialogue" [(ngModel)]="newNpc.dialogueText" rows="2"></textarea>
+              </label>
+              <label>Portrait asset
+                <select name="newNpcPortrait" [(ngModel)]="newNpc.portraitAssetId">
+                  <option value="">— none —</option>
+                  @for (a of assets; track a.id) { <option [value]="a.id">{{ a.slug }} ({{ a.kind }})</option> }
+                </select>
+              </label>
+              <label>GDScript snippet (optional)
+                <textarea name="newNpcGd" [(ngModel)]="newNpc.gdScript" rows="3"
+                          placeholder="# on interact"></textarea>
+              </label>
+              <button type="button" class="primary-btn" (click)="createNpc()"
+                      [disabled]="!slugOk(newNpc.slug) || !newNpc.name?.trim()">Add NPC</button>
+            </fieldset>
+          }
+        </section>
+
+        <!-- Art assets pane -->
+        <section class="pane">
+          <h2>Art assets</h2>
+          @if (selectedProject) {
+            <fieldset>
+              <legend>Upload asset</legend>
+              <label>Slug
+                <input name="newAssetSlug" [(ngModel)]="newAsset.slug" placeholder="cave-bg" />
+              </label>
+              @if (newAsset.slug && !slugOk(newAsset.slug)) {
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+              }
+              <label>Kind
+                <select name="newAssetKind" [(ngModel)]="newAsset.kind">
+                  <option value="">— pick —</option>
+                  @for (k of assetKinds; track k) { <option [value]="k">{{ k }}</option> }
+                </select>
+              </label>
+              @if (submitted.asset && !newAsset.kind?.trim()) {
+                <p class="field-error" role="alert">kind is required.</p>
+              }
+              <label>File
+                <input type="file" name="newAssetFile"
+                       accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                       (change)="assetFile = ($any($event.target).files?.[0]) ?? null" />
+              </label>
+              @if (submitted.asset && !assetFile) {
+                <p class="field-error" role="alert">a file is required.</p>
+              }
+              <p class="hint">images must be png / jpeg / webp / svg, max 4 MB.</p>
+              <button type="button" class="primary-btn" (click)="uploadAsset()"
+                      [disabled]="!slugOk(newAsset.slug) || !newAsset.kind?.trim() || !assetFile">Upload asset</button>
+            </fieldset>
+
+            <h3>Gallery <small>(this session's uploads)</small></h3>
+            <ul class="row-list asset-grid">
+              @for (a of assets; track a.id) {
+                <li class="asset-card">
+                  @if (isImageAsset(a)) {
+                    <img class="asset-thumb" [src]="assetUrls[a.id]" [alt]="a.slug" />
+                  }
+                  <strong>{{ a.slug }}</strong>
+                  <small>{{ a.kind }} &middot; {{ a.mimeType }}</small>
+                  <button type="button" class="link-btn" (click)="copySlug(a.slug)">copy slug</button>
+                </li>
+              }
+            </ul>
+          }
+        </section>
       </div>
     </div>
   `,
@@ -260,12 +405,17 @@ const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] 
     .build-progress { margin-top: 0.6rem; }
     .build-progress progress { width: 100%; height: 0.6rem; }
     .build-progress pre { background: #15294a; color: #d8e3ff; padding: 0.4rem; border-radius: 3px; font-size: 0.7rem; max-height: 8rem; overflow: auto; }
+    .hint { font-size: 0.75rem; color: #20448c; margin: 0.2rem 0 0.4rem; }
+    .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: 0.5rem; }
+    .asset-card { display: flex; flex-direction: column; gap: 0.15rem; background: #fff; border: 1px solid #aabddf; border-radius: 4px; padding: 0.4rem; font-size: 0.8rem; }
+    .asset-thumb { width: 100%; height: 4rem; object-fit: contain; border-radius: 3px; }
   `],
 })
 export class RpgMakerRemoteComponent implements OnInit {
   private http = inject(HttpClient);
   private destroy$ = new Subject<void>();
   readonly directions = DIRECTIONS;
+  readonly assetKinds = ASSET_KINDS;
 
   errorBanner = '';
   successBanner = '';
@@ -276,11 +426,19 @@ export class RpgMakerRemoteComponent implements OnInit {
   rooms: RpgRoom[] = [];
   selectedRoom: RpgRoom | null = null;
   exits: RpgExit[] = [];
+  items: RpgItem[] = [];
+  npcs: RpgNpc[] = [];
+  assets: RpgAsset[] = [];
+  assetUrls: Record<string, string> = {};
+  assetFile: File | null = null;
   newProj: Partial<RpgProject> = {};
   newArea: Partial<RpgArea> = {};
   newRoom: Partial<RpgRoom> = {};
   newExit: Partial<RpgExit> = {};
-  submitted = { project: false, area: false, room: false, exit: false };
+  newItem: Partial<RpgItem> = {};
+  newNpc: Partial<RpgNpc> = {};
+  newAsset: Partial<RpgAsset> = {};
+  submitted = { project: false, area: false, room: false, exit: false, item: false, npc: false, asset: false };
   buildTargetSlug = '';
   buildInFlight = false;
   currentBuild: RpgBuildJob | null = null;
@@ -308,6 +466,7 @@ export class RpgMakerRemoteComponent implements OnInit {
   selectProject(p: RpgProject): void {
     this.selectedProject = p; this.selectedArea = null; this.selectedRoom = null;
     this.buildTargetSlug = p.slug;
+    this.items = []; this.npcs = []; this.assets = []; this.assetUrls = {};
     this.http.get<RpgArea[]>(`/api/rpg/projects/${p.id}/areas`).subscribe({
       next: a => this.areas = a,
       error: e => this.errorBanner = this.fmt(e, 'load areas'),
@@ -319,6 +478,18 @@ export class RpgMakerRemoteComponent implements OnInit {
     this.http.get<RpgExit[]>(`/api/rpg/projects/${p.id}/exits`).subscribe({
       next: x => this.exits = x,
       error: e => this.errorBanner = this.fmt(e, 'load exits'),
+    });
+    this.http.get<RpgItem[]>(`/api/rpg/projects/${p.id}/items`).subscribe({
+      next: it => this.items = it,
+      error: e => this.errorBanner = this.fmt(e, 'load items'),
+    });
+    this.http.get<RpgNpc[]>(`/api/rpg/projects/${p.id}/npcs`).subscribe({
+      next: n => this.npcs = n,
+      error: e => this.errorBanner = this.fmt(e, 'load npcs'),
+    });
+    this.http.get<RpgAsset[]>(`/api/rpg/projects/${p.id}/assets`).subscribe({
+      next: a => { this.assets = a; a.forEach(x => this.loadAssetPreview(x)); },
+      error: e => this.errorBanner = this.fmt(e, 'load assets'),
     });
   }
 
@@ -377,6 +548,68 @@ export class RpgMakerRemoteComponent implements OnInit {
     this.http.post<RpgExit>(`/api/rpg/projects/${this.selectedProject.id}/exits`, this.newExit).subscribe({
       next: x => { this.exits = [...this.exits, x]; this.newExit = {}; this.submitted.exit = false; this.successBanner = 'Exit added.'; },
       error: e => this.errorBanner = this.fmt(e, 'create exit'),
+    });
+  }
+
+  createItem(): void {
+    if (!this.selectedProject) return;
+    this.submitted.item = true;
+    if (!this.slugOk(this.newItem.slug) || !this.newItem.name?.trim()) return;
+    this.http.post<RpgItem>(`/api/rpg/projects/${this.selectedProject.id}/items`, this.newItem).subscribe({
+      next: it => { this.items = [...this.items, it]; this.newItem = {}; this.submitted.item = false; this.successBanner = 'Item added.'; },
+      error: e => this.errorBanner = this.fmt(e, 'create item'),
+    });
+  }
+
+  createNpc(): void {
+    if (!this.selectedProject) return;
+    this.submitted.npc = true;
+    if (!this.slugOk(this.newNpc.slug) || !this.newNpc.name?.trim()) return;
+    this.http.post<RpgNpc>(`/api/rpg/projects/${this.selectedProject.id}/npcs`, this.newNpc).subscribe({
+      next: n => { this.npcs = [...this.npcs, n]; this.newNpc = {}; this.submitted.npc = false; this.successBanner = 'NPC added.'; },
+      error: e => this.errorBanner = this.fmt(e, 'create npc'),
+    });
+  }
+
+  uploadAsset(): void {
+    if (!this.selectedProject || !this.assetFile) return;
+    this.submitted.asset = true;
+    if (!this.slugOk(this.newAsset.slug) || !this.newAsset.kind?.trim()) return;
+    const fd = new FormData();
+    fd.append('slug', this.newAsset.slug!);
+    fd.append('kind', this.newAsset.kind!);
+    fd.append('file', this.assetFile);
+    this.http.post<RpgAsset>(`/api/rpg/projects/${this.selectedProject.id}/assets`, fd).subscribe({
+      next: a => {
+        this.assets = [...this.assets, a];
+        this.loadAssetPreview(a);
+        this.newAsset = {}; this.assetFile = null; this.submitted.asset = false;
+        this.successBanner = 'Asset uploaded.';
+      },
+      error: e => this.errorBanner = this.fmt(e, 'upload asset'),
+    });
+  }
+
+  isImageAsset(a: RpgAsset): boolean {
+    return IMAGE_MIMES.includes(a.mimeType);
+  }
+
+  copySlug(slug: string): void {
+    navigator.clipboard?.writeText(slug);
+    this.successBanner = `Copied slug "${slug}".`;
+  }
+
+  /**
+   * Fetch a single asset's bytes (no list endpoint serves images inline)
+   * and stash an object URL keyed by asset id so the gallery <img> can
+   * render the thumbnail for image-kind assets.
+   */
+  private loadAssetPreview(a: RpgAsset): void {
+    if (!this.selectedProject || !this.isImageAsset(a)) return;
+    this.http.get(`/api/rpg/projects/${this.selectedProject.id}/assets/${a.id}`,
+                  { responseType: 'blob' }).subscribe({
+      next: (blob: Blob) => { this.assetUrls = { ...this.assetUrls, [a.id]: URL.createObjectURL(blob) }; },
+      error: e => this.errorBanner = this.fmt(e, 'load asset'),
     });
   }
 

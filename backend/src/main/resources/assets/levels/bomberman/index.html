@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bomberman — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./bomberman.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="tick" aria-live="polite">Tick 0</span>
+      <span id="status" role="status" aria-live="polite">Fight!</span>
+      <span id="keys" class="keys">P1: arrows + space &nbsp;·&nbsp; P2: WASD + shift</span>
+    </div>
+
+    <canvas id="board" width="520" height="440" role="img"
+            aria-label="Bomberman arena. Move with the arrow keys and drop a bomb with space; player two uses WASD and shift."></canvas>
+
+    <script type="module">
+      // The bomberman frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/bomberman/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/bomberman/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createBombermanGame } from './bomberman.js';
+
+      const GAME = createBombermanGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_bomberman_wasm.wasm' })
+        .then((ctx) => {
+          window.__bombermanReady = true; // smoke-test boot signal
+          window.__bombermanCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load bomberman engine: ' + err.message;
+          console.error('bomberman mount failed', err);
+        });
+    </script>
+  </body>
+</html>

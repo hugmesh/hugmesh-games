@@ -6,6 +6,9 @@ import games.snapdragon.bff.model.GameLaunch;
 import games.snapdragon.bff.repository.GameAccessRepository;
 import games.snapdragon.bff.repository.GameLaunchRepository;
 import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.repository.GameSessionRepository;
+import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.service.DomainScopeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -43,7 +46,11 @@ class GameLaunchControllerTest {
         games    = mock(GameRepository.class);
         access   = mock(GameAccessRepository.class);
         launches = mock(GameLaunchRepository.class);
-        controller = new GameLaunchController(games, access, launches);
+        // Single-tenant: real DomainScopeService over the mock repos + empty registry —
+        // every caller resolves to "default" and the existing fixtures' games are
+        // 'default'/null (unscoped), so the new per-game gate stays inert here.
+        DomainScopeService domainScope = new DomainScopeService(games, mock(GameSessionRepository.class));
+        controller = new GameLaunchController(games, access, launches, domainScope, new DomainRegistry("", ""));
     }
 
     @Test

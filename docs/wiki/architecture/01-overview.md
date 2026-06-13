@@ -16,7 +16,7 @@ Each Godot game lives in its own project under [`games/<slug>/`](../../../games/
 
 | Component | Where | What it does |
 |---|---|---|
-| **Angular host** | [`frontend/`](../../../frontend/) | Federation host plus four sibling remotes (`login`, `admin`, `games-three-wizards`, `games-dodecahedron`) and the asset-tier `wasm-fragment`. |
+| **Angular host** | [`frontend/`](../../../frontend/) | Federation host plus twelve sibling remotes (`login`, `registration`, `producer-registration`, `banned`, `admin`, `mod`, `publisher`, `api-docs`, `games-three-wizards`, `games-dodecahedron`, `games-rpg-maker`, `games-vn-maker`) and the asset-tier `wasm-fragment`. |
 | **Spring Boot BFF** | [`backend/`](../../../backend/) | WebFlux + R2DBC, Liquibase via JDBC, Casdoor JWT verification, GraalVM-ready. |
 | **Per-game Godot projects** | [`games/`](../../../games/) | `three-wizards-in-a-trenchcoat` (cave + field) and `dodecahedron-demo` (chrome-less single-scene tech demo). |
 | **Reusable Rust GDExtension** | [`extensions/snapdragon-bridge/`](../../../extensions/snapdragon-bridge/) | Native `.so` for the editor, `wasm32-unknown-emscripten` for the web build, with a typed signal bus that any new game can consume. |

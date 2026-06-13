@@ -42,11 +42,19 @@ public class VnGodotProjectRenderer {
     private final VnCharacterRepository characters;
     private final VnBackgroundRepository backgrounds;
 
+    /** Directory holding the compiled snapdragon-bridge binaries to bake into the
+     *  rendered project's {@code bin/} (see the RPG renderer for the rationale). Empty
+     *  (dev default) → skipped (non-multiplayer bundle). */
+    private final String bridgeDir;
+
     public VnGodotProjectRenderer(VnActRepository acts, VnSceneRepository scenes, VnLineRepository lines,
                                   VnChoiceRepository choices, VnCharacterRepository characters,
-                                  VnBackgroundRepository backgrounds) {
+                                  VnBackgroundRepository backgrounds,
+                                  @org.springframework.beans.factory.annotation.Value("${app.build.bridge-dir:}")
+                                  String bridgeDir) {
         this.acts = acts; this.scenes = scenes; this.lines = lines;
         this.choices = choices; this.characters = characters; this.backgrounds = backgrounds;
+        this.bridgeDir = bridgeDir;
     }
 
     public record RenderedProject(Path godotSrcRoot, List<VnAct> orderedActs, List<VnScene> allScenes,
@@ -169,6 +177,37 @@ public class VnGodotProjectRenderer {
         copyClasspath("godot-template/scripts/scene_player.gd", dst.resolve("scripts/scene_player.gd"));
         copyClasspath("godot-template/scripts/text_box.gd", dst.resolve("scripts/text_box.gd"));
         copyClasspath("godot-template/snapdragon_bridge.gdextension", dst.resolve("snapdragon_bridge.gdextension"));
+        copyBridgeBinaries(dst.resolve("bin"));
+    }
+
+    /**
+     * Bake the compiled snapdragon-bridge binaries into {@code bin/} so the produced
+     * WASM carries the Rust HostBridge. Missing binaries (dev / unset
+     * {@code app.build.bridge-dir}) → a {@code bin/README.md} placeholder + warning;
+     * the export still produces a (non-multiplayer) bundle. Mirrors the RPG renderer.
+     */
+    private void copyBridgeBinaries(Path binDir) throws IOException {
+        Files.createDirectories(binDir);
+        String[] artifacts = {"snapdragon_bridge.wasm", "libsnapdragon_bridge.so"};
+        boolean any = false;
+        if (bridgeDir != null && !bridgeDir.isBlank()) {
+            Path src = Path.of(bridgeDir);
+            for (String name : artifacts) {
+                Path from = src.resolve(name);
+                if (Files.isRegularFile(from)) {
+                    Files.copy(from, binDir.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+                    any = true;
+                }
+            }
+        }
+        if (!any) {
+            log.warn("[render] no snapdragon-bridge binary copied (app.build.bridge-dir='{}'); "
+                    + "the export will produce a NON-multiplayer bundle", bridgeDir);
+            Files.writeString(binDir.resolve("README.md"),
+                    "# bin/\n\nsnapdragon-bridge binaries were unavailable at render time; "
+                            + "the produced WASM loads without the HostBridge GDExtension.\n",
+                    StandardCharsets.UTF_8);
+        }
     }
 
     private static void copyClasspath(String classpathPath, Path target) throws IOException {

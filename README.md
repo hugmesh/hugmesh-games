@@ -1,6 +1,6 @@
-# Snapdragon Games
+# Snapdragon Game Studio
 
-A browser-native game portal — multiple titles delivered as per-game **Rust + Godot 4** (WebGL/WASM) bundles, served through an **Angular** front-end, with the **Snapdragon Gaming BFF** (Spring Boot) streaming game state and controls over SSE. Authentication is handled by **Casdoor** (OAuth2/OIDC) behind a custom Angular login page — the Casdoor admin UI is never exposed to the network.
+A self-hosted Godot 4 WASM game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy them through an **Angular** shell with live SSE multiplayer sessions, and the **Snapdragon Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
 
 The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cave depths and open fields. The catalog also ships a *Spinning Dodecahedron* tech demo to show off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items).
 
@@ -164,9 +164,9 @@ Adding levels and assets is a documented workflow — see the
 
 ## Architecture
 
-Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send input. All game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with five typed event channels.
+Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send input. All game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with nine typed event channels.
 
-The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host: at runtime it loads four sibling bundles (`login`, `admin`, `games-three-wizards`, `games-dodecahedron`) plus a `wasm-fragment` asset-tier nginx, all served by per-remote services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The runtime data flow below describes the **post-federation** rendering path; legacy `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. See *Module Federation: host + four remotes + a fragment* under [Key architectural decisions](#key-architectural-decisions) for the bundle-view companion to this runtime view.
+The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host: at runtime it loads role-gated sibling bundles (`login`, `admin`, `mod`, `publisher`, `games-three-wizards`, `games-dodecahedron`, `games-rpg-maker`, `games-vn-maker`, `registration`, `producer-registration`, `banned`, `api-docs`) plus a `wasm-fragment` asset-tier nginx, all served by per-remote services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The runtime data flow below describes the **post-federation** rendering path; legacy `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. See *Module Federation: host + remotes + a fragment* under [Key architectural decisions](#key-architectural-decisions) for the bundle-view companion to this runtime view.
 
 All browser traffic enters through the **snapdragon-gateway** (Spring Cloud Gateway). The gateway terminates TLS, enforces the primary rate-limit, holds the revocation list (stamps `X-Revoked` on requests from banned keys), and routes `/api/*` to the BFF and everything else to the Angular host nginx. The BFF runs the same revocation + rate-limit checks as defence-in-depth (`RevocationListService` / `RateLimitFilter`), so service-to-service traffic on the compose network that bypasses the gateway stays gated.
 
@@ -192,15 +192,15 @@ flowchart TB
 
     subgraph api["Spring Boot API :8080 — WebFlux, R2DBC + JDBC-for-Liquibase"]
         Sec["SecurityConfig + RateLimitFilter + RevocationListService<br/>JWT RS256 via Casdoor JWKS · defence-in-depth mirror"]
-        Stream["GameStreamController — GET /api/game/stream (SSE)<br/>Flux.merge(movement$, world$, character$, time$, scene$) + keepalive"]
-        State["GameStateService<br/>Sinks.many().multicast().onBackpressureBuffer(N, autoCancel=false)<br/>movement · world · character · scene sinks"]
+        Stream["GameStreamController — GET /api/game/stream (SSE)<br/>Flux.merge(movement$, world$, character$, time$, scene$, input$, audio$, wasm-console$, session-control$) + keepalive"]
+        State["GameStateService<br/>Sinks.many().multicast().onBackpressureBuffer(N, autoCancel=false)<br/>movement · world · character · scene · input · audio · wasm-console · session-control sinks"]
         Ctrls["Controllers — Session · Control · Character · Asset<br/>GameUpload · GameLaunch · Federation · GameAccess"]
         PG[("PostgreSQL — R2DBC runtime + Hikari for Liquibase<br/>games → chapters → scene_elements<br/>characters · quests · sessions · positions")]
         PgNotify["PgNotificationService<br/>LISTEN game_events → sceneSink"]
     end
 
     subgraph remotes["Federated remotes — per-service nginx"]
-        FedRemotes["login · admin · games-three-wizards · games-dodecahedron<br/>remoteEntry.json + exposed bundles + COOP/COEP/CORP"]
+        FedRemotes["login · registration · producer-registration · banned<br/>admin · mod · publisher · api-docs<br/>games-three-wizards · games-dodecahedron · games-rpg-maker · games-vn-maker<br/>remoteEntry.json + exposed bundles + COOP/COEP/CORP"]
         WasmFrag["wasm-fragment nginx<br/>bakes /assets/levels/(slug)/ — binary asset path<br/>bypasses the BFF entirely"]
     end
 
@@ -215,7 +215,7 @@ flowchart TB
     Controls -->|"POST /api/controls/{id} + X-Casdoor-Id"| Ctrls
     Bridge -->|"GET /api/game/stream"| Stream
     iframe -->|"/_remotes/wasm-fragment/{slug}/*"| WasmFrag
-    Shell -->|"/_remotes/{login,admin,games-*}/*"| FedRemotes
+    Shell -->|"/_remotes/{login,registration,producer-registration,banned,admin,mod,publisher,api-docs,games-*}/*"| FedRemotes
     Sec --> Ctrls
     Ctrls --> State
     State --> Stream
@@ -236,8 +236,8 @@ Every `POST /api/controls/{charId}` is JWT-authenticated; the server rejects it 
 **Spells fire both client-side and server-side.**
 The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WASM so the visual is instant and doesn't depend on the SSE round-trip. The same keypress also POSTs `/api/controls/1` so the server can eventually apply MP cost / XP / cooldown. Angular's hotbar handler additionally fires a CSS overlay as a guaranteed-visible cue — useful for debugging iframe focus issues.
 
-**Five typed SSE channels on one stream.**
-`GameStreamController` merges four `Sinks.Many` from `GameStateService` + one from `GameTimeService` + a keepalive `Flux.interval(Duration.ZERO, 15s)` into a single `Flux<ServerSentEvent>`. The immediate first-tick keepalive forces response headers to flush at connect time, so browser `EventSource.onopen` fires in milliseconds instead of waiting for the first real event. Each payload carries an `event:` field (`movement`, `world`, `character`, `time`, `scene`) so clients register per-type listeners.
+**Nine typed SSE channels on one stream.**
+`GameStreamController` merges eight `Sinks.Many` from `GameStateService` (movement, world, character, scene, input, audio, wasm-console, session-control) + one from `GameTimeService` (time) + a keepalive `Flux.interval(Duration.ZERO, 15s)` into a single `Flux<ServerSentEvent>`. The immediate first-tick keepalive forces response headers to flush at connect time, so browser `EventSource.onopen` fires in milliseconds instead of waiting for the first real event. Each payload carries an `event:` field so clients register per-type listeners.
 
 **SSE sinks must not autoCancel.**
 `Sinks.many().multicast().onBackpressureBuffer(N)` defaults to `autoCancel=true` — when every subscriber disconnects (iframe remount, EventSource reconnect, network blip), the sink terminates permanently and all subsequent `tryEmitNext` calls silently drop. Every sink in this project passes `autoCancel=false` explicitly. Producing a "first keypress works, then everything dies" symptom until this was fixed.
@@ -251,8 +251,11 @@ The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WA
 **R2DBC + JDBC coexistence.**
 Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 3 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
 
-**Module Federation: host + four remotes + a fragment.**
-The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads four sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`:
+**Per-brand domain isolation, mirrored from snapdragon.systems.**
+The BFF derives a tenant the way the snapdragon-gateway does: one Casdoor per brand ⇒ a distinct, cryptographically-validated `iss`, mapped to a brand by `DomainRegistry`, stamped as exactly one `DOMAIN_<x>` authority by `CasdoorAuthorities` (with a reserved-prefix guard so a `permissions:["DOMAIN_other"]` entry can't forge a tenant). `DomainGuardFilter` is the first consumer: when `app.tenancy.domain` names the brand this instance serves, it 403s any authenticated token whose `DOMAIN_<x>` ≠ that brand (SUPERADMIN exempt) — the BFF-side, defence-in-depth mirror of the gateway's domain hard-deny, for traffic that reaches the BFF on the compose network bypassing the edge. Unset (the single-Casdoor default) ⇒ a complete no-op. An optional `app.tenancy.issuers` CSV swaps in a per-brand multi-issuer decoder (`TenancyResourceServerConfig`). See [decision 025](docs/wiki/decisions/025-bff-domain-guard.md).
+
+**Module Federation: host + twelve remotes + a fragment.**
+The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads role-gated sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`:
 
 | Slug | Kind | Exposes | Where in the host |
 |---|---|---|---|
@@ -285,6 +288,10 @@ The host's `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (
 | `character` | `health`, `mana`, `level`, `xp`, `xpToNext` | Stat patch or item use | Latest-wins snapshot |
 | `time` | `dayNumber`, `hour`, `minute` | Every game-minute (~10 s real) | Latest-wins snapshot |
 | `scene` | `sceneId`, `sceneName`, `sceneType`, `eventType` | Scene transition / scene_element NOTIFY | Latest-wins snapshot |
+| `input` | `eventKind`, `eventType`, `payload` | Generalised input emit (gamepad / mouse / keyboard / touch / world / control) | Latest-wins snapshot |
+| `audio` | `eventKind`, `eventType`, `payload` | Audio cue from Godot bundle | Latest-wins snapshot |
+| `wasm-console` | `line`, `level`, `timestamp` | WASM iframe console capture (admin-only + debug flag) | Latest-wins snapshot |
+| `session-control` | `sessionId`, `eventType` | Session pause / resume / close lifecycle | Latest-wins snapshot |
 | `:keepalive` (SSE comment) | — | `t=0` on connect, then every 15 s | Flushes response headers so `onopen` fires immediately |
 
 ### HUD layout
@@ -310,7 +317,7 @@ flowchart TB
         PK["keydown '1'"]
         POnKey["game-controls.onKeyDown"]
         POverlay["_fireSpellOverlay(1)<br/>CSS orb flies up — always visible"]
-        PSend["ControlService.sendControl('CAST_SPELL_1', true)<br/>POST /api/controls/1 + X-Casdoor-Id<br/>50 ms later: sendControl(…, false)"]
+        PSend["ControlService.sendControl('CAST_INSTANT_1', true)<br/>POST /api/controls/1 + X-Casdoor-Id<br/>50 ms later: sendControl(…, false)"]
         PK --> POnKey
         POnKey --> POverlay
         POnKey --> PSend
@@ -319,7 +326,7 @@ flowchart TB
         FK["keydown '1' (KEY_1)"]
         FInput["game_bridge._unhandled_input"]
         FCast["player._cast_spell(1)<br/>projectile from hand"]
-        FSend["send_control('CAST_SPELL_1', true)<br/>POST /api/controls/1 (no casdoor header)<br/>keyup: send_control(…, false)"]
+        FSend["send_control('CAST_INSTANT_1', true)<br/>POST /api/controls/1 (no casdoor header)<br/>keyup: send_control(…, false)"]
         FK --> FInput
         FInput --> FCast
         FInput --> FSend
@@ -341,7 +348,7 @@ Spells cast via two redundant paths — the direct in-WASM call fires the visual
 
 | Field | Type | Values |
 |---|---|---|
-| `action` | `String` | `MOVE_FORWARD`, `MOVE_BACKWARD`, `MOVE_LEFT`, `MOVE_RIGHT`, `JUMP`, `INTERACT`, `CAST_SPELL_1/2/3` |
+| `action` | `String` | `MOVE_FORWARD`, `MOVE_BACKWARD`, `MOVE_LEFT`, `MOVE_RIGHT`, `JUMP`, `INTERACT`, `CAST_INSTANT_1/2/3/4/5` |
 | `pressed` | `boolean` | `true` = key down, `false` = key up |
 | `timestamp` | `long` | Client epoch-ms |
 
@@ -422,7 +429,7 @@ sequenceDiagram
 
 #### `GET /api/game/stream`
 
-Multiplexed SSE stream. Five reactive sources are merged into a single connection; each event carries an `event:` type field so clients can register per-type listeners.
+Multiplexed SSE stream. Nine typed channels plus a keepalive are merged into a single connection; each event carries an `event:` type field so clients can register per-type listeners.
 
 ```mermaid
 flowchart LR
@@ -431,8 +438,12 @@ flowchart LR
     Ch["character$ — stat changes"] --> Merge
     T["time$ — every ~10 s"] --> Merge
     Sc["scene$ — transitions"] --> Merge
-    K["keepalive — 30 s comment"] --> Merge
-    Merge["Flux.merge(movement$, world$, character$, time$, scene$)<br/>.mergeWith(Flux.interval(30s).map(_ → comment))"] --> Out(["ServerSentEvent&lt;Object&gt; — unbounded SSE, one connection"])
+    In["input$ — generalised input events"] --> Merge
+    Au["audio$ — audio cues"] --> Merge
+    Wc["wasm-console$ — iframe console captures"] --> Merge
+    Sc2["session-control$ — pause / resume / close"] --> Merge
+    K["keepalive — 15 s comment, fires immediately at t=0"] --> Merge
+    Merge["Flux.merge(movement$, world$, character$, time$, scene$, input$, audio$, wasm-console$, session-control$, keepalive)"] --> Out(["ServerSentEvent&lt;Object&gt; — unbounded SSE, one connection"])
 ```
 
 #### `GET /api/game/state`
@@ -1596,7 +1607,7 @@ Keyboard input works both from the Angular page and from inside the Godot canvas
 ## Project structure
 
 ```
-portal/                                   # Snapdragon Games portal repo
+portal/                                   # Snapdragon Game Studio repo
 ├── Makefile                              # Master build + seed-db + e2e + e2e-native
 ├── scripts/
 │   ├── patch-godot-html.py              # Patches WASM sizes + scene prefetch

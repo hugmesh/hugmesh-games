@@ -53,7 +53,12 @@ public class SecurityConfig {
 
     private static final String[] PLAYER_PATHS = {
             "/api/characters/**", "/api/skills/**",
-            "/api/quests/**", "/api/items/**", "/api/sessions/**"
+            "/api/quests/**", "/api/items/**", "/api/sessions/**",
+            // Server-authoritative realtime matches (P2). Without this entry
+            // the realtime endpoints fall through to anyExchange().permitAll()
+            // — an unauthenticated caller would reach the snapshot stream and
+            // command log (the domain gate alone is a no-op single-tenant).
+            "/api/realtime/**"
     };
 
     private static final String[] SPEC_PATHS = {

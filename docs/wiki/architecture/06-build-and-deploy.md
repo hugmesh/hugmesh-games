@@ -11,7 +11,7 @@ flowchart LR
     rust[make build-rust<br/>cargo + emscripten] --> godot[make build-godot<br/>per-game export presets]
     godot --> backend[make build-backend<br/>./mvnw package]
     rust --> backend
-    godot --> frontend[make build-frontend<br/>ng build host + 4 remotes]
+    godot --> frontend[make build-frontend<br/>ng build host + 12 remotes]
     backend --> compose[docker compose up -d]
     frontend --> compose
     backend --> native[make build-backend-native<br/>GraalVM ~6 min]
@@ -26,7 +26,7 @@ flowchart LR
 make build-rust      # cargo build --release + (optional) wasm32-unknown-emscripten
 make build-godot     # exports every preset in every game project under games/<dir>/
 make build-backend   # ./mvnw package -DskipTests
-make build-frontend  # ng build for host + four remotes
+make build-frontend  # ng build for host + twelve remotes
 make build           # runs all of the above in dependency order
 ```
 

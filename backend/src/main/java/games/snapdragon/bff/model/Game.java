@@ -21,6 +21,16 @@ public class Game {
     private Instant createdAt;
     /** Filesystem path of the active hot-upload version (migration 021). */
     private String currentVersionDir;
+    /**
+     * Brand/domain that OWNS this game (migration 043). {@code "default"} (the
+     * back-compat value every pre-merger row backfills to) means UNSCOPED / global
+     * — visible and manageable from any brand, per the row-domain predicate
+     * {@link games.snapdragon.bff.security.Roles#domainApplies(String, String, boolean)}.
+     * A real brand value (e.g. {@code "brandx"}) scopes the game to that brand:
+     * stamped at upload time by {@code GameUploadService} from the uploader's
+     * issuer-derived domain, enforced by {@code DomainScopeService}.
+     */
+    private String domain;
 
     public Long getId() { return id; }
     public String getName() { return name; }
@@ -30,6 +40,8 @@ public class Game {
     public int getSortOrder() { return sortOrder; }
     public Instant getCreatedAt() { return createdAt; }
     public String getCurrentVersionDir() { return currentVersionDir; }
+    public String getDomain() { return domain; }
 
     public void setCurrentVersionDir(String currentVersionDir) { this.currentVersionDir = currentVersionDir; }
+    public void setDomain(String domain) { this.domain = domain; }
 }

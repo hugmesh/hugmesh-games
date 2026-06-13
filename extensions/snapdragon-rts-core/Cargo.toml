@@ -1,0 +1,16 @@
+[package]
+name = "snapdragon-rts-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "First-party SERVER-AUTHORITATIVE deterministic RTS simulation core for snapdragon.games (Age-of-Empires / 0 A.D.-shaped, minimal). Pure, dependency-free Rust fixed-timestep tick sim that is the SERVER'S TRUTH: the BFF runs it authoritatively (persisting keyframes + the input/command log to Cassandra) while the Godot WASM client runs the SAME crate only for prediction. Fixed-point (i32/i64) state + a seeded PRNG + a fixed per-tick command-resolution order make replays bit-exact: same seed + same ordered command stream => identical state on server and client alike. step(commands) advances the authoritative state, snapshot() is what the server persists, and replay(seed, &log) reconstructs the exact state from the command log — proving the command-log-as-truth model. See docs/realtime-server-authoritative-design.md."
+
+[lib]
+# rlib for `cargo test` on the server; cdylib for the wasm32 build the client
+# runs for prediction. The SAME crate is the server's authority AND the client's
+# predictor, so determinism is identical on both.
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true

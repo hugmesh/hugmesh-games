@@ -2,7 +2,7 @@
 
 > Mirror of [`chapters/04-data-model.tex`](../../publishing/architecture/chapters/04-data-model.tex).
 
-PostgreSQL holds the canonical relational state. Cassandra is a write-through cross-pod cache for movement events, an audit log for game state transitions, and a session store for short-lived browser tokens. Kafka + ClickHouse are the streaming-audit / telemetry side-channel (decision 021) — gated by `app.kafka.enabled` and off by default in dev. Liquibase drives Postgres schema migration through 41 changelogs at the head of `main` (`backend/src/main/resources/db/changelog/`); Cassandra schemas are bootstrapped by an init container and ClickHouse tables by its built-in Kafka-engine + materialized-view DDL bundled in `docker/clickhouse-init/`.
+PostgreSQL holds the canonical relational state. Cassandra is a write-through cross-pod cache for movement events, an audit log for game state transitions, and a session store for short-lived browser tokens. Kafka + ClickHouse are the streaming-audit / telemetry side-channel (decision 021) — gated by `app.kafka.enabled` and off by default in dev. Liquibase drives Postgres schema migration through 48 changelogs at the head of `main` (`backend/src/main/resources/db/changelog/`); Cassandra schemas are bootstrapped by an init container and ClickHouse tables by its built-in Kafka-engine + materialized-view DDL bundled in `docker/clickhouse-init/`.
 
 > **Naming note** — the current schema uses `chapter` (formerly `level`) and `instant` (formerly `spell`). See [decision 006](../decisions/006-naming-rename.md). Filenames under `backend/src/main/resources/assets/levels/<slug>/` did not move; only the schema and code did.
 
@@ -85,6 +85,13 @@ Migrations 001–017 are pre-federation. The federation work landed in:
 - `039-auth-ux-remotes-federation.xml` — `federation_modules` rows for the new `producer-registration` and `banned` federated remotes. The banned remote pairs with `AppealContactController` (`/api/security/appeal-contact`) for the appeal flow; producer-registration drives the intake table created in 040.
 - `040-producer-contacts.xml` — `producer_contacts` intake table for producer / mod applications submitted via the federated producer-registration remote. One row per submission; admins flip `status` PENDING → APPROVED / REJECTED out of band. Contact email + jurisdiction are submission metadata so an applicant can re-apply with a new email after a rejection without clobbering history. See `ProducerContactController` for the REST surface.
 - `041-accounts-schema-split.xml` — new `accounts` Postgres schema with three role-specific profile tables: `accounts.players` (xp + character roster summary, lazy-populated), `accounts.producers` (contact email + jurisdiction + owned-games count, populated when a `producer_contacts` row is APPROVED), `accounts.mods` (contact email + `oncall_slot`, populated when a `producer_contacts` row with `requested_role='mod'` is APPROVED). Scope tables (`mod_game_scopes` / `publisher_game_scopes`) stay in the public schema for now. See [decision 020 (per-role schema split)](../../decisions/020-per-role-schema-split.md).
+- `042-session-pause-state.xml` — adds `game_sessions.paused_at` (session-wide pause stamp) and `session_members.view_paused_at` (per-player view-pause stamp). The BFF emits a `session-control` SSE event on pause/resume so WASM iframes freeze/resume ticks without polling.
+- `043-games-domain-scoping.xml` — adds `games.domain VARCHAR(64) NOT NULL DEFAULT 'default'` so each game row can be tagged to a brand domain. Row predicate: `Roles.domainApplies(rowDomain, callerDomain, isSuperadmin)`. See [decision 026](../decisions/026-games-catalog-domain-partitioning.md).
+- `044-chess-game.xml` — catalog registration for the multiplayer chess title. Host-authoritative: the WASM engine runs in the browser; the server only relays moves over the existing `input`/`world` SSE session channels.
+- `045-wave1-games.xml` — catalog rows for wave-1 abstract 2-player titles (checkers, reversi, connect-four, dots-and-boxes, …). Same host-authoritative server-streams-only model as 044.
+- `046-wave1-remainder-games.xml` — catalog rows for Battleship and Go. Same model as 044/045.
+- `047-wave2-games.xml` — catalog rows for wave-2 single-player puzzles (Tetris, Minesweeper, Sudoku, Match-Three). Run entirely in the browser (WASM); server not involved.
+- `048-wave3-games.xml` — catalog rows for wave-3 real-time duels (Tron, Bomberman, Asteroids Duel). Host-authoritative deterministic tick sims; the server only streams inputs.
 
 **Never edit a previously-merged changeset.** When something is missed, append a new changeset with `<preConditions onFail="MARK_RAN">` so re-runs are idempotent.
 
@@ -170,8 +177,8 @@ Five Postgres tables make up the multiplayer + RBAC surface:
 
 | Table | Purpose |
 |---|---|
-| `game_sessions` | Durable session ledger — `(id UUID, name, game_slug, creator_casdoor_id, max_players, created_at, closed_at)`. `closed_at IS NULL` = open. |
-| `session_members` | Membership history. `(session_id, casdoor_id, character_id, slot_index, is_creator, joined_at, left_at)`. Two partial unique indexes — one slot per session, one active row per (session, casdoor). |
+| `game_sessions` | Durable session ledger — `(id UUID, name, game_slug, creator_casdoor_id, max_players, created_at, closed_at, paused_at)`. `closed_at IS NULL` = open; `paused_at IS NOT NULL` = session-wide pause. |
+| `session_members` | Membership history. `(session_id, casdoor_id, character_id, slot_index, is_creator, joined_at, left_at, view_paused_at)`. Two partial unique indexes — one slot per session, one active row per (session, casdoor). `view_paused_at` stamps when this player's view was paused (tab-switch). |
 | `mod_game_scopes` | Per-game mod assignments. `(casdoor_id, game_slug, granted_by, granted_at, revoked_at, revoked_by)`. Soft-delete on revoke. |
 | `publisher_game_scopes` | Same shape as `mod_game_scopes` but for publisher capability. |
 | `system_settings` | `(key, value, updated_at, updated_by)` — runtime-toggled flags. Seeded with `wasm_console_debug_enabled='false'`. |

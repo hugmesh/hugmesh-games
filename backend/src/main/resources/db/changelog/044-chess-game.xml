@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Chess P2 — registers the multiplayer chess title in the catalog.
+
+      Chess is HOST-AUTHORITATIVE: the host browser runs the snapdragon-chess
+      WASM engine and the server only STREAMS moves over the existing
+      input/world session channels (reemitToSession) — there is NO server-side
+      chess logic, so no Java/controller changes are needed here. This changeset
+      only adds the catalog rows so a multiplayer session can target the game.
+
+      The playable Godot/WASM bundle + the federation_modules remote row ship in
+      P3 — until then /api/assets/levels/chess/index.html is a placeholder.
+      See docs/multiplayer-chess-design.md.
+
+      Ids/sort_order are computed from MAX(...)+1 so this is collision-safe
+      regardless of how earlier games seeded their explicit ids.
+    -->
+    <changeSet id="044-1-chess-game" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Chess',
+       'Two-player chess. The host runs the full rules engine in their browser; the server only streams moves. Replay famous games or challenge a friend.',
+       'chess',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'chess');
+        </sql>
+    </changeSet>
+
+    <changeSet id="044-2-chess-board-chapter" author="snapdragon">
+        <sql>
+-- The "levels" table was renamed to "chapters" in changeset 028; this seed
+-- (unlike the pre-rename 017 dodecahedron seed) targets the current name.
+INSERT INTO chapters
+    (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT
+    'Chessboard',
+    'Standard 8x8 chess. White and black join one session; the host engine is authoritative and the guest re-validates every move.',
+    'chess',
+    'chess',
+    1,
+    '/api/assets/levels/chess/index.html',
+    '{}',
+    (SELECT id FROM games WHERE slug = 'chess'),
+    NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'chess');
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

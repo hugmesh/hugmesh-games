@@ -53,6 +53,7 @@ public class CharacterController {
     private final CharacterSkillRepository charSkills;
     private final CharacterItemRepository charItems;
     private final ItemRepository itemRepo;
+    private final games.snapdragon.bff.security.DomainRegistry domainRegistry;
 
     public CharacterController(PlayerCharacterRepository characters,
                                GameStateService gameStateService,
@@ -63,7 +64,8 @@ public class CharacterController {
                                PlayerSessionRepository sessionRepo,
                                CharacterSkillRepository charSkills,
                                CharacterItemRepository charItems,
-                               ItemRepository itemRepo) {
+                               ItemRepository itemRepo,
+                               games.snapdragon.bff.security.DomainRegistry domainRegistry) {
         this.characters       = characters;
         this.gameStateService = gameStateService;
         this.gameTimeService  = gameTimeService;
@@ -74,6 +76,7 @@ public class CharacterController {
         this.charSkills       = charSkills;
         this.charItems        = charItems;
         this.itemRepo         = itemRepo;
+        this.domainRegistry   = domainRegistry;
     }
 
     /**
@@ -246,10 +249,12 @@ public class CharacterController {
         // don't match any game_access row for a given game won't see it on
         // the dashboard either. Anonymous (no JWT) falls through to
         // scope='all' games only.
-        java.util.List<String> roles = games.snapdragon.bff.security.Roles.fromJwt(jwt);
+        java.util.List<String> roles = Roles.fromJwt(jwt);
         String userId = jwt == null ? null : jwt.getSubject();
         Mono<List<GameWithChaptersDto>> games = progression
-                .availableGamesWithLevels(id, roles, userId).collectList();
+                .availableGamesWithLevels(id, roles, userId,
+                        Roles.domainOf(jwt, domainRegistry),
+                        Roles.isSuperadmin(jwt)).collectList();
 
         Mono<List<QuestDto>> quests = charQuests.findByCharacterId(id)
                 .flatMap(cq -> questRepo.findById(cq.getQuestId())

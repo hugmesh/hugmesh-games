@@ -399,6 +399,10 @@ public class GameStateService {
     public Flux<SceneEvent>      sceneStream()       { return sceneSink.asFlux(); }
     public Flux<InputEvent>      inputStream()       { return inputSink.asFlux(); }
     public Flux<InputEvent>      audioStream()       { return audioSink.asFlux(); }
+    /** Per-session input stream — only events emitted for {@code sessionId}.
+     *  The host-authoritative chess relay subscribes here so a move in
+     *  session A never reaches session B (mirrors {@link #worldStream(String)}). */
+    public Flux<InputEvent>      inputStream(String sessionId) { return sessionSinksFor(sessionId).input.asFlux(); }
     public Flux<WasmConsoleLine> wasmConsoleStream() { return wasmConsoleSink.asFlux(); }
 
     /** Per-session movement stream — only events from {@code sessionId}. */
@@ -564,13 +568,23 @@ public class GameStateService {
      *  firehose. */
     public void emitInput(InputEvent ev) {
         inputSink.tryEmitNext(ev);
+        // Session-scoped fan-out: when the event carries a sessionId (the
+        // host-authoritative relay path — a guest control/move OR the host's
+        // world/state board echo), deliver it ONLY to that session's input
+        // subscribers. Without this a move emitted in session A reaches every
+        // /api/game/stream subscriber (cross-session leak) — see
+        // SessionIsolationTest's input-channel assertion.
+        String sid = ev.sessionId();
+        if (sid != null && !sid.isBlank()) {
+            sessionSinksFor(sid).input.tryEmitNext(ev);
+        }
         if (InputEventKinds.AUDIO.equals(ev.kind())) {
             audioSink.tryEmitNext(ev);
             eventPublisher.ifPresent(pub -> pub.publish(
-                    "audio", null, null, null, ev));
+                    "audio", null, sid, null, ev));
         }
         eventPublisher.ifPresent(pub -> pub.publish(
-                "input", null, null, null, ev));
+                "input", null, sid, null, ev));
     }
 
     /** Forward one console line from the WASM iframe to the host's

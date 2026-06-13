@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Wave-1 abstract 2-player games — catalog registration.
+
+      Same model as chess (044): each game is host-authoritative, runs its
+      first-party Rust engine as WASM in the browser, and the server only
+      STREAMS moves over the existing input/world session channels. No
+      server-side game logic. Each changeset adds the game row + its board
+      chapter (ids/sort_order via MAX+1, guarded by WHERE NOT EXISTS, into the
+      current `chapters` table). Playable Godot/WASM bundles + federation
+      remotes ship per-game later (chess P3 pattern). Engines:
+      extensions/snapdragon-{connect-four,reversi,gomoku,dots-and-boxes}.
+    -->
+
+    <changeSet id="045-1-connect-four" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Connect Four',
+       'Drop discs to connect four in a row horizontally, vertically, or diagonally. Two players; the host runs the engine, the server streams moves.',
+       'connect-four',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'connect-four');
+
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Connect Four', 'A 7x6 grid. Drop a disc into a column; first to four in a row wins.',
+       'connect-four', 'connect-four', 1, '/api/assets/levels/connect-four/index.html', '{}',
+       (SELECT id FROM games WHERE slug = 'connect-four'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'connect-four');
+        </sql>
+    </changeSet>
+
+    <changeSet id="045-2-reversi" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Reversi',
+       'Othello/Reversi: flank opponent discs to flip them to your color. When neither player can move, the most discs wins.',
+       'reversi',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'reversi');
+
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Reversi', 'An 8x8 board. Bracket opponent discs to flip them; most discs at the end wins.',
+       'reversi', 'reversi', 1, '/api/assets/levels/reversi/index.html', '{}',
+       (SELECT id FROM games WHERE slug = 'reversi'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'reversi');
+        </sql>
+    </changeSet>
+
+    <changeSet id="045-3-gomoku" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Gomoku',
+       'Five in a row on a 15x15 board. Place stones in turn; first to five wins.',
+       'gomoku',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'gomoku');
+
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Gomoku', 'A 15x15 board. Place a stone each turn; five in a row in any direction wins.',
+       'gomoku', 'gomoku', 1, '/api/assets/levels/gomoku/index.html', '{}',
+       (SELECT id FROM games WHERE slug = 'gomoku'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'gomoku');
+        </sql>
+    </changeSet>
+
+    <changeSet id="045-4-dots-and-boxes" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Dots and Boxes',
+       'Claim edges to complete boxes. Completing a box scores it and grants another move; the most boxes wins.',
+       'dots-and-boxes',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'dots-and-boxes');
+
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Dots and Boxes', 'A 3x3-boxes grid. Claim an edge each turn; complete a box to score and move again.',
+       'dots-and-boxes', 'dots-and-boxes', 1, '/api/assets/levels/dots-and-boxes/index.html', '{}',
+       (SELECT id FROM games WHERE slug = 'dots-and-boxes'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'dots-and-boxes');
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

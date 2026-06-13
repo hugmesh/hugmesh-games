@@ -84,3 +84,25 @@ Feature: RPG maker — author and build a multi-chapter RPG
     Then the build progress reaches "DONE"
     And the BFF catalog lists the game "abbott-village"
     And a player can launch chapter "abbott-village-square-row" of game "abbott-village"
+
+  # The art / item / NPC panes are project-scoped (no area selection
+  # needed), so each of the next three scenarios just creates a project
+  # then drives the relevant pane. The asset upload uses an in-memory PNG
+  # so the docker e2e doesn't need a fixture file on disk.
+  Scenario: upload an art asset and see it in the gallery
+    When the publisher opens the RPG maker
+    And the publisher creates a project "spaceland-art" called "Spaceland Art"
+    And the publisher uploads a "background" art asset "south-pole" from a sample PNG
+    Then the asset gallery shows "south-pole"
+
+  Scenario: create an item
+    When the publisher opens the RPG maker
+    And the publisher creates a project "flatland-loot" called "Flatland Loot"
+    And the publisher creates an item "ruler" called "Surveyor's Ruler"
+    Then the items list contains "Surveyor's Ruler"
+
+  Scenario: create an NPC
+    When the publisher opens the RPG maker
+    And the publisher creates a project "flatland-folk" called "Flatland Folk"
+    And the publisher creates an NPC "a-square" called "A Square"
+    Then the NPCs list contains "A Square"

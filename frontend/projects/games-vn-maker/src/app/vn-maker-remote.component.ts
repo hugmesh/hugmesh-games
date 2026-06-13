@@ -4,6 +4,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { Observable, Subject, of, timer } from 'rxjs';
 import { catchError, switchMap, takeUntil } from 'rxjs/operators';
+import { VnPlayerComponent } from './vn-player.component';
 
 interface VnProject    { id: string; slug: string; displayName: string; description?: string; }
 interface VnAct        { id: string; projectId: string; slug: string; name: string; sortOrder: number; }
@@ -28,12 +29,20 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 @Component({
   selector: 'app-vn-maker-remote',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, VnPlayerComponent],
   template: `
     <div class="vn-maker">
       <header>
         <h1>&#9670; Visual Novel Maker</h1>
-        <button class="btn" (click)="refreshProjects()">&#8635; Refresh</button>
+        <div class="header-actions">
+          @if (selectedProject) {
+            <button class="btn primary-btn" type="button" (click)="openPreview()"
+                    title="Play the branching visual novel live in the browser">
+              &#9654; Preview
+            </button>
+          }
+          <button class="btn" (click)="refreshProjects()">&#8635; Refresh</button>
+        </div>
       </header>
 
       @if (errorBanner) { <p class="error-banner" role="alert" aria-live="assertive">{{ errorBanner }}</p> }
@@ -253,11 +262,16 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
           }
         </section>
       </div>
+
+      @if (previewing && selectedProject) {
+        <app-vn-player [project]="selectedProject" (close)="closePreview()"></app-vn-player>
+      }
     </div>
   `,
   styles: [`
     .vn-maker { padding: 1rem; font-family: system-ui, sans-serif; }
     header { display: flex; justify-content: space-between; align-items: center; }
+    .header-actions { display: flex; gap: 0.5rem; }
     h1 { margin: 0; font-size: 1.4rem; }
     .three-pane { display: grid; grid-template-columns: 1fr 1.4fr 1.4fr; gap: 1rem; margin-top: 1rem; }
     .pane { background: #f4eef9; border: 1px solid #b88adb; border-radius: 6px; padding: 0.8rem; }
@@ -304,8 +318,16 @@ export class VnMakerRemoteComponent implements OnInit {
   buildTargetSlug = '';
   buildInFlight = false;
   currentBuild: VnBuildJob | null = null;
+  /** When true the in-studio web VN player overlays the editor for the selected project. */
+  previewing = false;
 
   ngOnInit(): void { this.refreshProjects(); }
+
+  /** Open the live VN preview/player overlay for the selected project. */
+  openPreview(): void { if (this.selectedProject) this.previewing = true; }
+
+  /** Close the preview and return to the editor. */
+  closePreview(): void { this.previewing = false; }
 
   refreshProjects(): void {
     this.errorBanner = ''; this.successBanner = '';
@@ -329,6 +351,7 @@ export class VnMakerRemoteComponent implements OnInit {
 
   selectProject(p: VnProject): void {
     this.selectedProject = p; this.selectedAct = null; this.selectedScene = null;
+    this.previewing = false;
     this.buildTargetSlug = p.slug;
     this.http.get<VnAct[]>(`/api/vn/projects/${p.id}/acts`).subscribe({
       next: r => this.acts = r, error: e => this.errorBanner = this.fmt(e, 'load acts'),

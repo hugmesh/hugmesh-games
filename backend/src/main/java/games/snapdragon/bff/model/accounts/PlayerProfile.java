@@ -1,6 +1,8 @@
 package games.snapdragon.bff.model.accounts;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
+import org.springframework.data.domain.Persistable;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
@@ -21,7 +23,7 @@ import java.time.Instant;
  * schema-split.md.
  */
 @Table("accounts.players")
-public class PlayerProfile {
+public class PlayerProfile implements Persistable<String> {
 
     @Id
     @Column("casdoor_user_id")
@@ -49,4 +51,18 @@ public class PlayerProfile {
     public void setBlockCount(int n) { this.blockCount = n; }
     public void setCreatedAt(Instant t) { this.createdAt = t; }
     public void setUpdatedAt(Instant t) { this.updatedAt = t; }
+
+    // ── Persistable ──────────────────────────────────────────────────
+    // The id is application-assigned (the Casdoor subject), so Spring Data
+    // R2DBC would otherwise treat a populated @Id as an existing row and
+    // issue an UPDATE on save() — affecting 0 rows for a first-time player,
+    // which surfaced as a 500 on GET /api/profile/me/player. Mirrors the
+    // GameSession pattern: default newRecord=false (loaded rows aren't new);
+    // the lazy-create path calls markNew() so save() INSERTs.
+    @Transient
+    private boolean newRecord;
+
+    @Override public String getId() { return casdoorUserId; }
+    @Override public boolean isNew() { return newRecord; }
+    public PlayerProfile markNew() { this.newRecord = true; return this; }
 }

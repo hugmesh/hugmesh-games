@@ -31,7 +31,15 @@ app:
     base-url: ${APP_BFF_BASE_URL:http://api:8080}
   build:
     tick: ${APP_BUILD_TICK:PT5S}
+    # Real Godot Web export (GodotExporter) when true; dev stub bundles when
+    # false (default). See rpg-builder application.yml for the full notes.
     godot-enabled: ${APP_BUILD_GODOT_ENABLED:false}
+    godot-bin: ${APP_BUILD_GODOT_BIN:godot}
+    godot-preset: ${APP_BUILD_GODOT_PRESET:Web}
+    godot-timeout: ${APP_BUILD_GODOT_TIMEOUT:PT10M}
+    # Compiled snapdragon-bridge binaries baked into each rendered project's
+    # bin/ so the WASM carries the multiplayer HostBridge. Empty → skipped.
+    bridge-dir: ${APP_BUILD_BRIDGE_DIR:}
     workdir: ${APP_BUILD_WORKDIR:/var/snapdragon/vn-builds}
     assets-dir: ${APP_BUILD_ASSETS_DIR:/var/snapdragon/vn-assets}
     max-bundle-bytes: ${APP_BUILD_MAX_BUNDLE_BYTES:209715200}

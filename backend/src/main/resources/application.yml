@@ -103,6 +103,22 @@ app:
     enabled: ${APP_REVOCATION_ENABLED:true}
     refresh-interval-ms: ${APP_REVOCATION_REFRESH_MS:5000}
 
+  # Multi-brand tenancy. UNSET on the games realm's single-Casdoor shape today,
+  # so every key below is inert and the BFF behaves exactly as before.
+  tenancy:
+    # The brand this BFF INSTANCE serves. When set (e.g. APP_TENANCY_DOMAIN=brandx)
+    # the DomainGuardFilter 403s any authenticated token whose issuer-derived
+    # DOMAIN_<x> authority does not match — the BFF-side, defence-in-depth mirror of
+    # the snapdragon-gateway domain hard-deny, for requests that reach the BFF on the
+    # compose network bypassing the edge. SUPERADMIN is exempt (cross-domain infra
+    # plane). Empty (default) => single-tenant => the guard is a complete no-op.
+    domain: ${APP_TENANCY_DOMAIN:}
+    # OPTIONAL per-brand multi-issuer (per-brand Casdoor) decoder map, as a CSV of
+    # issuer=domain pairs (e.g. https://casdoor.brandx.example=brandx,...). Empty
+    # (default) keeps the single jwk-set-uri decoder path. Consumed by DomainRegistry
+    # + (conditionally) TenancyResourceServerConfig.
+    issuers: ${APP_TENANCY_ISSUERS:}
+
   # Banned-user appeal channel — recipient address surfaced on the
   # /banned federated remote. AppealContactController resolves the
   # current primary / secondary on-call mod from accounts.mods and
@@ -202,6 +218,22 @@ app:
       player-state-current: ${APP_CLICKHOUSE_TBL_PLAYER_STATE_CURRENT:snapdragon.player_state_current}
 
   pod-id: ${APP_POD_ID:}
+
+  # Server-authoritative real-time matches (P2 — see
+  # docs/realtime-server-authoritative-design.md). The BFF runs the
+  # deterministic sim per match at `tick-hz`; inputs are scheduled
+  # `input-delay-ticks` ahead (the lag buffer); every
+  # `keyframe-interval` ticks the full sim snapshot lands in Cassandra
+  # (realtime_keyframes) next to the command log so any pod can recover
+  # a match. `truth-store.enabled=false` (or no Cassandra) degrades to
+  # in-memory-only matches — no keyframes, no recovery, gameplay keeps
+  # working.
+  realtime:
+    tick-hz:           ${APP_REALTIME_TICK_HZ:30}
+    input-delay-ticks: ${APP_REALTIME_INPUT_DELAY_TICKS:2}
+    keyframe-interval: ${APP_REALTIME_KEYFRAME_INTERVAL:30}
+    truth-store:
+      enabled: ${APP_REALTIME_TRUTH_STORE_ENABLED:true}
 
   # Optional Postgres read replica (decision 022 / F3). When provisioned,
   # catalog reads (/api/games/* and friends) qualified with

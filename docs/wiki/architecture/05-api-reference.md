@@ -10,7 +10,7 @@ The PDF version of this chapter ([`chapters/05-api-reference.tex`](../../publish
 
 ## Reactive pipelines at a glance
 
-**`GameStreamController` — eight SSE channels merged onto one connection.**
+**`GameStreamController` — nine SSE channels merged onto one connection.**
 
 ```mermaid
 flowchart LR
@@ -21,9 +21,10 @@ flowchart LR
     In["input$"] --> Merge
     Au["audio$"] --> Merge
     Wc["wasm-console$"] --> Merge
+    SCt["session-control$"] --> Merge
     Ti["time$ — GameTimeService"] --> Merge
     Ka["keepalive — Flux.interval(15s), fires immediately"] --> Merge
-    Merge["GameStreamController<br/>Flux.merge(...) — 7 GameStateService Sinks.Many + time$ + keepalive"] --> Out(["GET /api/game/stream<br/>Flux&lt;ServerSentEvent&gt; — one connection, per-type event: field"])
+    Merge["GameStreamController<br/>Flux.merge(...) — 8 GameStateService Sinks.Many + time$ + keepalive"] --> Out(["GET /api/game/stream<br/>Flux&lt;ServerSentEvent&gt; — one connection, per-type event: field"])
 ```
 
 **`AuthController` — ROPC token exchange (the browser never sees `client_secret`).**
@@ -33,10 +34,10 @@ sequenceDiagram
     participant FE as login remote
     participant API as AuthController
     participant CAS as Casdoor (internal)
-    FE->>API: POST /api/auth/token {code, redirectUri}
-    API->>CAS: WebClient.post(/api/login/oauth/access_token) + client_secret
+    FE->>API: POST /api/auth/token {username, password}
+    API->>CAS: WebClient.post(/api/login/oauth/access_token) grant_type=password + client_secret
     CAS-->>API: {access_token, …}
-    API-->>FE: {accessToken, expiresAt, casdoorUserId}
+    API-->>FE: {access_token, token_type, expires_in}
 ```
 
 **`GameUploadService` — the transactional install pipeline.**
@@ -61,21 +62,21 @@ Public reverse-proxy of the Casdoor login flow.
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/auth/token` | Exchanges a Casdoor authorization code for an access token. The federated `login` remote calls this directly. |
+| `POST` | `/api/auth/token` | Exchanges username + password for a Casdoor access token via ROPC (`grant_type=password`). The `client_secret` is injected server-side — the browser never sees it. The federated `login` remote calls this directly. |
 | `GET` | `/api/auth/me` | Returns the resolved Casdoor user from the bearer token. |
 
 **Call example.**
 ```bash
 curl -sS -X POST http://localhost:8080/api/auth/token \
   -H 'Content-Type: application/json' \
-  -d '{"code":"abc123","redirectUri":"http://localhost:8080/login"}'
+  -d '{"username":"player","password":"e2e-pass"}'
 ```
 *200 OK*: `{ "accessToken": "eyJ…", "expiresAt": "2026-04-26T12:30:00Z", "casdoorUserId": "alice@threewizards" }`
 *400 Bad Request*: `{ "status":400, "error":"invalid_grant", "message":"Casdoor: authorization code expired or already used" }`
 
 ### `GameStreamController` — `/api/game/stream`
 
-Public SSE merge stream — eight typed channels plus a keepalive. See [02 — Runtime architecture](02-runtime.md#server-sent-events--eight-channels-on-one-stream).
+Public SSE merge stream — nine typed channels plus a keepalive. See [02 — Runtime architecture](02-runtime.md#server-sent-events--nine-channels-on-one-stream).
 
 ```bash
 curl -N http://localhost:8080/api/game/stream
@@ -328,7 +329,7 @@ The controllers above are thin: they decode the request, run a reactor chain thr
 
 ### `GameStateService`
 
-Owns seven `Sinks.Many`: `movement`, `world`, `character`, `scene`, `input`, `audio`, `wasm-console`. Every sink is built with `onBackpressureBuffer(N, /* autoCancel */ false)` so a disconnecting subscriber doesn't terminate the producer side. `@DependsOn("liquibase")` guarantees the `@PostConstruct` init query runs against the migrated schema.
+Owns eight `Sinks.Many`: `movement`, `world`, `character`, `scene`, `input`, `audio`, `wasm-console`, `session-control`. Every sink is built with `onBackpressureBuffer(N, /* autoCancel */ false)` so a disconnecting subscriber doesn't terminate the producer side. `@DependsOn("liquibase")` guarantees the `@PostConstruct` init query runs against the migrated schema.
 
 ### `GameTimeService`
 

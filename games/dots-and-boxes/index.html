@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Dots and Boxes — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./dots-and-boxes.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="turn" aria-live="polite">P1 0 — 0 P2</span>
+      <span id="status" role="status" aria-live="polite">Player 1 to move</span>
+      <button id="reset" type="button">New game</button>
+    </div>
+
+    <canvas id="board" width="480" height="480" role="img"
+            aria-label="Dots and Boxes board. Click between two adjacent dots to draw the line between them. Complete the fourth side of a box to claim it and move again."></canvas>
+
+    <script type="module">
+      // The dots-and-boxes frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/dots-and-boxes/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/dots-and-boxes/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createDotsAndBoxesGame } from './dots-and-boxes.js';
+
+      const GAME = createDotsAndBoxesGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_dots_and_boxes.wasm' })
+        .then((ctx) => {
+          window.__dabReady = true; // smoke-test boot signal
+          window.__dabCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load dots-and-boxes engine: ' + err.message;
+          console.error('dots-and-boxes mount failed', err);
+        });
+    </script>
+  </body>
+</html>

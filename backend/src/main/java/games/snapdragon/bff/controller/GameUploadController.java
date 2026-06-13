@@ -2,7 +2,9 @@ package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.model.GameUpload;
 import games.snapdragon.bff.repository.GameUploadRepository;
+import games.snapdragon.bff.security.DomainRegistry;
 import games.snapdragon.bff.security.Roles;
+import games.snapdragon.bff.service.DomainScopeService;
 import games.snapdragon.bff.service.GameUploadService;
 import games.snapdragon.bff.service.GameUploadService.InstalledUpload;
 import games.snapdragon.bff.service.PublisherService;
@@ -38,13 +40,19 @@ public class GameUploadController {
     private final GameUploadService uploadService;
     private final GameUploadRepository uploads;
     private final PublisherService publisherService;
+    private final DomainScopeService domainScope;
+    private final DomainRegistry domainRegistry;
 
     public GameUploadController(GameUploadService uploadService,
                                 GameUploadRepository uploads,
-                                PublisherService publisherService) {
+                                PublisherService publisherService,
+                                DomainScopeService domainScope,
+                                DomainRegistry domainRegistry) {
         this.uploadService    = uploadService;
         this.uploads          = uploads;
         this.publisherService = publisherService;
+        this.domainScope      = domainScope;
+        this.domainRegistry   = domainRegistry;
     }
 
     @Operation(
@@ -69,14 +77,48 @@ public class GameUploadController {
         // post-stage hook. Admins bypass with `slug -> Mono.empty()`.
         String uploadedBy = jwt != null ? jwt.getSubject() : "system:anonymous-admin";
         boolean isAdmin = jwt != null && Roles.isAdmin(jwt);
-        java.util.function.Function<String, Mono<Void>> requireScope = isAdmin
-                ? slug -> Mono.empty()
-                : slug -> jwt == null
-                        ? Mono.error(new org.springframework.web.server.ResponseStatusException(
-                                HttpStatus.UNAUTHORIZED, "JWT required for publisher uploads"))
-                        : publisherService.requireOwns(jwt.getSubject(), slug);
+        boolean isSuperadmin = jwt != null && Roles.isSuperadmin(jwt);
+
+        // The uploader's TRUSTED brand — issuer-derived, never a user-settable claim.
+        // "default" on the single-Casdoor cluster. null only in multi-brand mode for an
+        // issuer outside the registry (the decoder 401s such tokens upstream; we
+        // fail closed here defensively rather than stamping an untrusted upload global).
+        String domain = Roles.domainOf(jwt, domainRegistry);
+        if (domain == null) {
+            return Mono.error(new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "upload from an untrusted issuer/domain"));
+        }
+
+        java.util.function.Function<String, Mono<Void>> requireScope =
+                requireScope(jwt, domain, isAdmin, isSuperadmin);
         return collectBytes(bundle)
-                .flatMap(bytes -> uploadService.install(bytes, uploadedBy, requireScope));
+                .flatMap(bytes -> uploadService.install(bytes, uploadedBy, domain, requireScope));
+    }
+
+    /**
+     * The post-stage authorization hook threaded into {@code install()} (the slug is
+     * known only after the manifest is parsed). Two gates, in order:
+     * <ol>
+     *   <li><b>OWNERSHIP</b> — admins bypass; publishers must hold a
+     *       {@code publisher_game_scopes} row for the slug.</li>
+     *   <li><b>BRAND</b> — the uploader's {@code domain} must own an already-existing
+     *       game with this slug (a brand-X admin cannot overwrite a brand-Y title);
+     *       SUPERADMIN bypasses. A brand-NEW slug passes (nothing to own yet) and is
+     *       stamped with the uploader's domain by {@code GameUploadService}.</li>
+     * </ol>
+     * Package-private so the composition is unit-testable without driving a full upload.
+     */
+    java.util.function.Function<String, Mono<Void>> requireScope(Jwt jwt, String domain,
+                                                                 boolean isAdmin, boolean isSuperadmin) {
+        return slug -> {
+            Mono<Void> ownership = isAdmin
+                    ? Mono.empty()
+                    : jwt == null
+                            ? Mono.error(new org.springframework.web.server.ResponseStatusException(
+                                    HttpStatus.UNAUTHORIZED, "JWT required for publisher uploads"))
+                            : publisherService.requireOwns(jwt.getSubject(), slug);
+            return ownership.then(domainScope.requireGameDomain(slug, domain, isSuperadmin));
+        };
     }
 
     @Operation(summary = "Upload history for one slug (newest first).")

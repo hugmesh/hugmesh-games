@@ -2,6 +2,8 @@ package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.GameUpload;
 import games.snapdragon.bff.repository.GameUploadRepository;
+import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.upload.RegisterSqlPolicy;
 import games.snapdragon.bff.upload.UploadStorage;
 import io.r2dbc.spi.ConnectionFactory;
 import org.slf4j.Logger;
@@ -102,10 +104,23 @@ public class GameUploadService {
 
     /**
      * Install a single bundle zip. The caller hands over the bytes and
-     * the {@code uploadedBy} = JWT subject.
+     * the {@code uploadedBy} = JWT subject. Domain defaults to
+     * {@code "default"} (global / single-tenant) — the multi-brand path
+     * uses the {@code domain}-carrying overload below.
      */
     public Mono<InstalledUpload> install(byte[] zipBytes, String uploadedBy) {
-        return install(zipBytes, uploadedBy, slug -> Mono.empty());
+        return install(zipBytes, uploadedBy, DomainRegistry.DEFAULT_DOMAIN, slug -> Mono.empty());
+    }
+
+    /**
+     * Back-compat overload (no explicit domain) — stamps the installed game with the
+     * {@code "default"} (global) brand. Existing callers that don't yet thread a
+     * brand keep working unchanged.
+     */
+    public Mono<InstalledUpload> install(byte[] zipBytes,
+                                         String uploadedBy,
+                                         Function<String, Mono<Void>> requireScope) {
+        return install(zipBytes, uploadedBy, DomainRegistry.DEFAULT_DOMAIN, requireScope);
     }
 
     /**
@@ -122,9 +137,18 @@ public class GameUploadService {
      * write happens. A failed scope check rolls back the staged dir
      * and surfaces the hook's error to the caller as-is — the
      * publisher path produces a 403.
+     *
+     * <p>{@code domain} is the trusted brand stamped onto the installed
+     * {@code games} row (migration 043) — the uploader's issuer-derived
+     * domain ({@code Roles.domainOf(jwt, registry)}), NOT anything from the
+     * uploaded {@code register.sql}. {@code "default"} (global) on the
+     * single-tenant cluster. The stamp is a server-controlled {@code UPDATE}
+     * inside the same transaction so a brand-X upload can never claim a
+     * brand-Y scope by hand-crafting its register.sql.
      */
     public Mono<InstalledUpload> install(byte[] zipBytes,
                                          String uploadedBy,
+                                         String domain,
                                          Function<String, Mono<Void>> requireScope) {
         if (zipBytes == null || zipBytes.length == 0) {
             return Mono.error(new ResponseStatusException(BAD_REQUEST, "empty upload"));
@@ -133,6 +157,10 @@ public class GameUploadService {
             return Mono.error(new ResponseStatusException(BAD_REQUEST,
                     "bundle exceeds " + MAX_BUNDLE_BYTES + " bytes"));
         }
+
+        String stampDomain = (domain == null || domain.isBlank())
+                ? DomainRegistry.DEFAULT_DOMAIN
+                : domain.trim();
 
         return Mono.fromCallable(() -> stageAndValidate(zipBytes))
                 .flatMap(staged -> requireScope.apply(staged.slug())
@@ -143,7 +171,7 @@ public class GameUploadService {
                             cleanup(staged.stagingDir());
                             return Mono.error(err);
                         })
-                        .then(writeAndRegister(staged, uploadedBy)));
+                        .then(writeAndRegister(staged, uploadedBy, stampDomain)));
     }
 
     // ── staging + validation (blocking; runs on Mono.fromCallable) ──────────
@@ -265,7 +293,7 @@ public class GameUploadService {
 
     // ── install (atomic move + transactional DB updates) ─────────────────────
 
-    private Mono<InstalledUpload> writeAndRegister(StagedBundle staged, String uploadedBy) {
+    private Mono<InstalledUpload> writeAndRegister(StagedBundle staged, String uploadedBy, String domain) {
         String locator;
         try {
             // Storage strategy claims ownership of stagingDir from here.
@@ -291,19 +319,48 @@ public class GameUploadService {
 
         Mono<GameUpload> txn = uploads.save(row)
                 .flatMap(saved -> {
-                    Mono<Void> sqlStep = staged.registerSql() == null
-                            ? Mono.empty()
-                            : runRegisterSql(staged.registerSql());
-                    Mono<Long> markCurrent = db.sql("UPDATE games SET current_version_dir = :dir WHERE slug = :slug")
-                            .bind("dir", locator)
+                    // FIRST-WRITER-WINS brand stamp: capture whether the games row
+                    // already exists BEFORE register.sql creates/upserts it. A brand is
+                    // assigned only when the game is first CREATED; an ordinary re-upload
+                    // PRESERVES the existing domain. This stops a brand-X uploader from
+                    // "capturing" a 'default'/global title (or clobbering a foreign
+                    // brand's stamp) by re-uploading it — moving a game's domain is
+                    // reserved for a future superadmin operation, not a side effect of
+                    // upload. Runs first, inside the same transaction (consistent read).
+                    Mono<Boolean> gameExisted = db.sql("SELECT 1 FROM games WHERE slug = :slug")
                             .bind("slug", staged.slug())
                             .fetch()
-                            .rowsUpdated();
-                    Mono<Integer> markPriors = uploads.markPriorsSuperseded(staged.slug(), saved.getId());
-                    return sqlStep
-                            .then(markCurrent)
-                            .then(markPriors)
-                            .thenReturn(saved);
+                            .first()
+                            .hasElement();
+                    return gameExisted.flatMap(existed -> {
+                        Mono<Void> sqlStep = staged.registerSql() == null
+                                ? Mono.empty()
+                                : runRegisterSql(staged.registerSql());
+                        Mono<Long> markCurrent = db.sql("UPDATE games SET current_version_dir = :dir WHERE slug = :slug")
+                                .bind("dir", locator)
+                                .bind("slug", staged.slug())
+                                .fetch()
+                                .rowsUpdated();
+                        // Stamp the TRUSTED brand onto the games row — server-controlled,
+                        // keyed by slug, AFTER sqlStep so the row exists. Skipped on a
+                        // re-upload (existed) so the domain is never moved by an upload;
+                        // a hand-crafted register.sql can't set a foreign domain either,
+                        // since this overwrites whatever it wrote for a new game. 'default'
+                        // on the single-tenant cluster (no-op vs the column default).
+                        Mono<Long> stampDomain = existed
+                                ? Mono.just(0L)
+                                : db.sql("UPDATE games SET domain = :domain WHERE slug = :slug")
+                                        .bind("domain", domain)
+                                        .bind("slug", staged.slug())
+                                        .fetch()
+                                        .rowsUpdated();
+                        Mono<Integer> markPriors = uploads.markPriorsSuperseded(staged.slug(), saved.getId());
+                        return sqlStep
+                                .then(markCurrent)
+                                .then(stampDomain)
+                                .then(markPriors)
+                                .thenReturn(saved);
+                    });
                 });
 
         return tx.transactional(txn)
@@ -318,24 +375,13 @@ public class GameUploadService {
      * upserts so naïve splitting on `;` outside of strings is safe.
      */
     private Mono<Void> runRegisterSql(String sql) {
-        List<String> stmts = new ArrayList<>();
-        StringBuilder cur = new StringBuilder();
-        boolean inString = false;
-        for (int i = 0; i < sql.length(); i++) {
-            char c = sql.charAt(i);
-            if (c == '\'' && (i == 0 || sql.charAt(i - 1) != '\\')) inString = !inString;
-            if (c == ';' && !inString) {
-                String s = cur.toString().trim();
-                if (!s.isEmpty() && !s.startsWith("--")) stmts.add(s);
-                cur.setLength(0);
-            } else {
-                cur.append(c);
-            }
-        }
-        String tail = cur.toString().trim();
-        if (!tail.isEmpty() && !tail.startsWith("--")) stmts.add(tail);
-
-        return Flux.fromIterable(stmts)
+        // Vet the bundle-supplied SQL against the catalog-write allowlist
+        // (RegisterSqlPolicy) BEFORE executing any of it — register.sql is
+        // attacker-controlled bundle content, so a single statement that isn't
+        // an INSERT into a catalog table / a games feature-flag UPDATE fails
+        // the whole upload with 400 and rolls the install transaction back.
+        return Mono.fromCallable(() -> RegisterSqlPolicy.vet(sql))
+                .flatMapMany(Flux::fromIterable)
                 .concatMap(s -> {
                     log.info("[upload] register.sql exec: {}", s.length() > 80 ? s.substring(0, 80) + "…" : s);
                     return db.sql(s).fetch().rowsUpdated().then();

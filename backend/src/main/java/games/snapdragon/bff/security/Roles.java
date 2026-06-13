@@ -225,4 +225,46 @@ public final class Roles {
         }
         return out;
     }
+
+    /**
+     * Row-level brand-scope predicate — does a caller in {@code callerDomain} get to
+     * act on a row OWNED by {@code rowDomain}? COPIED (logic) from snapdragon-gateway
+     * {@code GatewayRouteAccessService.domainApplies}, with the gateway's SUPERADMIN
+     * short-circuit folded in so every call site enforces the contract identically.
+     *
+     * <p>The contract, in order:
+     * <ol>
+     *   <li><b>SUPERADMIN sees all.</b> {@code isSuperadmin == true} ⇒ {@code true}
+     *       unconditionally — the infra control plane reaches every brand's data. The
+     *       gateway keeps this as a separate short-circuit BEFORE the row match; we
+     *       fold it in so a service caller can't forget it.</li>
+     *   <li><b>UNSCOPED row ⇒ global.</b> A {@code rowDomain} that is {@code null},
+     *       blank, or {@code "default"} (case-insensitive, trimmed) applies to ANY
+     *       caller. This is the back-compat path: every pre-merger {@code games} row
+     *       backfills to {@code "default"}, so single-tenant clusters are unaffected.</li>
+     *   <li><b>SCOPED row ⇒ exact brand match.</b> Otherwise the caller's domain must
+     *       equal the row's (case-insensitive, both trimmed). A {@code null}
+     *       {@code callerDomain} against a scoped row FAILS CLOSED (deny) — matching
+     *       the gateway, where a scoped rule never matches a null target. {@code null}
+     *       is the deny signal {@link #domainOf(Authentication)} already emits for a
+     *       token with zero or &gt;1 {@code DOMAIN_} authorities (the injection
+     *       signature), so an unprovable tenant cannot act on a scoped row.</li>
+     * </ol>
+     *
+     * <p>Note the deliberate case-INSENSITIVITY here (vs the case-SENSITIVE
+     * principal-vs-instance match in {@code DomainGuardFilter.domainMatches}): a ROW
+     * domain may be hand-seeded / uploaded, so it is normalised, whereas the filter's
+     * inputs are both registry-canonical.
+     */
+    public static boolean domainApplies(String rowDomain, String callerDomain, boolean isSuperadmin) {
+        if (isSuperadmin) {
+            return true;                                                  // cross-domain infra plane
+        }
+        if (rowDomain == null || rowDomain.isBlank()
+                || DomainRegistry.DEFAULT_DOMAIN.equalsIgnoreCase(rowDomain.trim())) {
+            return true;                                                  // UNSCOPED row -> any brand
+        }
+        return callerDomain != null
+                && rowDomain.trim().equalsIgnoreCase(callerDomain.trim()); // SCOPED -> exact, null fails closed
+    }
 }

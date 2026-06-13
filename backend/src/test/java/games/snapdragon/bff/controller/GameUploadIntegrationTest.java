@@ -121,6 +121,9 @@ class GameUploadIntegrationTest {
                     assertThat(g.getCurrentVersionDir())
                             .as("games.current_version_dir set after upload")
                             .isNotNull();
+                    assertThat(g.getDomain())
+                            .as("games.domain stamped 'default' on the no-domain install path")
+                            .isEqualTo("default");
                 })
                 .verifyComplete();
 
@@ -146,6 +149,57 @@ class GameUploadIntegrationTest {
                         .flatMapMany(g -> accessRepo.findByGameId(g.getId()))
                         .filter(a -> "all".equals(a.getScope())))
                 .assertNext(a -> assertThat(a.getScopeValue()).isNull())
+                .verifyComplete();
+    }
+
+    /**
+     * The multi-brand stamp: an upload carrying an explicit brand domain lands that
+     * brand on the {@code games.domain} column — INDEPENDENT of the uploaded
+     * register.sql (the fixture never sets domain). Proves the server, not the
+     * uploader, owns the tenant assignment so a hand-crafted register.sql can't claim
+     * a foreign brand.
+     */
+    @Test
+    void uploadStampsExplicitBrandDomainIndependentOfRegisterSql() throws IOException {
+        byte[] zip = buildFixtureZip("brandx-fixture",
+                "Brand X Fixture",
+                "Integration test bundle owned by brandx.");
+
+        StepVerifier.create(uploadService.install(zip, "brandx-admin", "brandx", slug -> reactor.core.publisher.Mono.empty()))
+                .assertNext(installed -> assertThat(installed.slug()).isEqualTo("brandx-fixture"))
+                .verifyComplete();
+
+        StepVerifier.create(gameRepo.findBySlug("brandx-fixture"))
+                .assertNext(g -> assertThat(g.getDomain())
+                        .as("games.domain stamped with the uploader's brand, not register.sql")
+                        .isEqualTo("brandx"))
+                .verifyComplete();
+    }
+
+    /**
+     * FIRST-WRITER-WINS: a re-upload never MOVES an existing game's brand. Install a
+     * game as 'default' (global), then re-upload the same slug carrying an explicit
+     * 'brandx' domain — the row must STAY 'default'. This is the defence against a
+     * brand-X uploader "capturing" a global title by re-uploading it; the brand is
+     * fixed at creation and only a (future) superadmin operation may move it.
+     */
+    @Test
+    void reuploadDoesNotMoveAnExistingGamesDomain() throws IOException {
+        byte[] first = buildFixtureZip("firstwriter",
+                "First Writer", "Installed as a global ('default') game.");
+        StepVerifier.create(uploadService.install(first, "admin"))   // 2-arg => domain 'default'
+                .expectNextCount(1).verifyComplete();
+
+        byte[] second = buildFixtureZip("firstwriter",
+                "First Writer v2", "Re-uploaded carrying an explicit brandx domain.");
+        StepVerifier.create(uploadService.install(second, "brandx-admin", "brandx",
+                        slug -> reactor.core.publisher.Mono.empty()))
+                .expectNextCount(1).verifyComplete();
+
+        StepVerifier.create(gameRepo.findBySlug("firstwriter"))
+                .assertNext(g -> assertThat(g.getDomain())
+                        .as("re-upload preserves the original 'default' brand (first-writer-wins)")
+                        .isEqualTo("default"))
                 .verifyComplete();
     }
 

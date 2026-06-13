@@ -1,0 +1,15 @@
+[package]
+name = "snapdragon-fps-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "First-party SERVER-AUTHORITATIVE deterministic FPS sim core for snapdragon.games (Quake/OpenArena-shaped hitscan arena). Pure, deterministic, dependency-free fixed-point tick simulation. This crate is the SERVER'S TRUTH: the BFF runs it authoritatively (persisting keyframes + the input/command log to Cassandra) and the Godot WASM client runs the SAME crate only for prediction. Same seed + same ordered per-tick input stream reproduces bit-exact identical state on server and client alike. i32 fixed-point state, a seeded xorshift64* PRNG for spawns, and a fixed per-tick input resolution order. Exposes step(inputs) advancing the authoritative state, snapshot() the server persists, and replay(seed, log) reconstructing state from the command log. See docs/realtime-server-authoritative-design.md."
+
+[lib]
+# rlib for `cargo test`; cdylib for the wasm/ffi build that ships to the browser
+# (client-side prediction) and links into the BFF's authoritative simulation.
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true

@@ -4,6 +4,9 @@ import games.snapdragon.bff.model.ModGameScope;
 import games.snapdragon.bff.model.PublisherGameScope;
 import games.snapdragon.bff.repository.ModGameScopeRepository;
 import games.snapdragon.bff.repository.PublisherGameScopeRepository;
+import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.security.Roles;
+import games.snapdragon.bff.service.DomainScopeService;
 import games.snapdragon.bff.service.PublisherService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -34,13 +37,25 @@ public class PublisherController {
     private final PublisherService              publisher;
     private final PublisherGameScopeRepository  publisherScopes;
     private final ModGameScopeRepository        modScopes;
+    private final DomainScopeService            domainScope;
+    private final DomainRegistry                domainRegistry;
 
     public PublisherController(PublisherService publisher,
                                PublisherGameScopeRepository publisherScopes,
-                               ModGameScopeRepository modScopes) {
+                               ModGameScopeRepository modScopes,
+                               DomainScopeService domainScope,
+                               DomainRegistry domainRegistry) {
         this.publisher       = publisher;
         this.publisherScopes = publisherScopes;
         this.modScopes       = modScopes;
+        this.domainScope     = domainScope;
+        this.domainRegistry  = domainRegistry;
+    }
+
+    /** Brand-scope gate: a brand-X caller (admin or publisher) may not act on a
+     *  brand-Y game (SUPERADMIN exempt; inert single-tenant). Mirrors GameAccessController. */
+    private Mono<Void> requireGameDomain(String gameSlug, Jwt jwt) {
+        return domainScope.requireGameDomain(gameSlug, Roles.domainOf(jwt, domainRegistry), Roles.isSuperadmin(jwt));
     }
 
     public record GrantModRequest(String targetCasdoorId, String gameSlug) {}
@@ -63,8 +78,11 @@ public class PublisherController {
     public Flux<ModGameScope> modsForGame(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable String gameSlug) {
-        return publisher.requireOwns(jwt.getSubject(), gameSlug)
-                .thenMany(modScopes.findActiveByGame(gameSlug));
+        return requireGameDomain(gameSlug, jwt)
+                // Flux.defer so the ownership check + query are only ASSEMBLED once the
+                // brand gate passes — a denied request short-circuits with no side work.
+                .thenMany(Flux.defer(() -> publisher.requireOwns(jwt.getSubject(), gameSlug)
+                        .thenMany(modScopes.findActiveByGame(gameSlug))));
     }
 
     @Operation(
@@ -79,7 +97,8 @@ public class PublisherController {
     public Mono<ModGameScope> grantMod(
             @AuthenticationPrincipal Jwt jwt,
             @RequestBody GrantModRequest req) {
-        return publisher.grantMod(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug());
+        return requireGameDomain(req.gameSlug(), jwt)
+                .then(Mono.defer(() -> publisher.grantMod(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug())));
     }
 
     @Operation(summary = "Revoke a user's mod role for a game I own")
@@ -87,6 +106,7 @@ public class PublisherController {
     public Mono<Void> revokeMod(
             @AuthenticationPrincipal Jwt jwt,
             @RequestBody RevokeModRequest req) {
-        return publisher.revokeMod(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug());
+        return requireGameDomain(req.gameSlug(), jwt)
+                .then(Mono.defer(() -> publisher.revokeMod(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug())));
     }
 }

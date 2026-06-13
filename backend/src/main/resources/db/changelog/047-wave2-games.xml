@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Wave-2 single-player puzzles — catalog registration. These run ENTIRELY
+      in the browser (WASM); the server is not involved (no session, no relay).
+      The catalog rows simply make them appear/launchable. Engines:
+      extensions/snapdragon-{tetris,minesweeper,sudoku,match-three}. Playable
+      Godot/WASM bundles ship per-game later (P3).
+    -->
+
+    <changeSet id="047-1-tetris" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Tetris', 'Stack falling tetrominoes and clear lines. Single-player; runs entirely in your browser.',
+       'tetris', (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'tetris');
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Tetris', 'A 10x20 well. Rotate and drop pieces; clear lines to score.', 'tetris', 'tetris', 1,
+       '/api/assets/levels/tetris/index.html', '{}', (SELECT id FROM games WHERE slug = 'tetris'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'tetris');
+        </sql>
+    </changeSet>
+
+    <changeSet id="047-2-minesweeper" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Minesweeper', 'Clear the minefield without detonating a mine. Single-player.',
+       'minesweeper', (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'minesweeper');
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Minesweeper', 'Reveal cells, flag mines, clear the board. The first click is always safe.', 'minesweeper', 'minesweeper', 1,
+       '/api/assets/levels/minesweeper/index.html', '{}', (SELECT id FROM games WHERE slug = 'minesweeper'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'minesweeper');
+        </sql>
+    </changeSet>
+
+    <changeSet id="047-3-sudoku" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Sudoku', 'Fill the 9x9 grid so every row, column, and box holds 1-9. Single-player.',
+       'sudoku', (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'sudoku');
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Sudoku', 'A generated 9x9 puzzle. Place digits without repeating in any row, column, or box.', 'sudoku', 'sudoku', 1,
+       '/api/assets/levels/sudoku/index.html', '{}', (SELECT id FROM games WHERE slug = 'sudoku'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'sudoku');
+        </sql>
+    </changeSet>
+
+    <changeSet id="047-4-match-three" author="snapdragon">
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Match Three', 'Swap gems to match three or more and trigger cascades. Single-player.',
+       'match-three', (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'match-three');
+INSERT INTO chapters (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT 'Match Three', 'Swap adjacent gems to line up three or more; chains cascade for bonus points.', 'match-three', 'match-three', 1,
+       '/api/assets/levels/match-three/index.html', '{}', (SELECT id FROM games WHERE slug = 'match-three'), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'match-three');
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

@@ -7,6 +7,10 @@ import { HttpClient } from '@angular/common/http';
 import { GameLibraryService } from '../services/game-library.service';
 import { CharacterService } from '../services/character.service';
 import { RemoteLoaderService } from '../services/remote-loader.service';
+import { FederationService, FederationRemote } from '../services/federation.service';
+import {
+  isWebNativeChapter, webNativeSlug as resolveWebNativeSlug, webNativeBaseUrl as resolveWebNativeBaseUrl,
+} from './web-native-launch';
 import { SessionService } from '../services/session.service';
 import {
   MultiplayerSessionService, GameSession, SessionVisibility,
@@ -74,6 +78,7 @@ export class HomeComponent implements OnInit {
   private readonly library = inject(GameLibraryService);
   private readonly characterSvc = inject(CharacterService);
   private readonly remoteLoader = inject(RemoteLoaderService);
+  private readonly federation = inject(FederationService);
   private readonly session = inject(SessionService);
   private readonly multiplayer = inject(MultiplayerSessionService);
   private readonly http = inject(HttpClient);
@@ -90,6 +95,17 @@ export class HomeComponent implements OnInit {
   isFullscreen = false;
   activeRemoteSlug: string | null = null;
   activeLaunchUid: string | null = null;
+
+  /** Web-native games (kind='wasm-game'), keyed by their game slug, read
+   *  from the federation manifest at init. Empty until the manifest
+   *  resolves; the launch decision (`isWebNative`) is driven entirely off
+   *  this map so a new web-native game needs only its `wasm-game` row. */
+  private webNativeByGameSlug = new Map<string, FederationRemote>();
+
+  /** Set when a web-native chapter is launched — the wasm-fragment base
+   *  URL the host's <app-game-canvas> mounts as a parametrised iframe.
+   *  Null for legacy / federated launches. */
+  activeWebNativeBaseUrl: string | null = null;
 
   // Multiplayer session picker state, populated when the chapter modal
   // opens. The picker offers two paths: pick an existing open session
@@ -131,6 +147,23 @@ export class HomeComponent implements OnInit {
     return !!gameSlug && FEDERATED_GAME_SLUGS.has(gameSlug);
   }
 
+  /**
+   * True when the chapter launches as a web-native iframe bundle, i.e.
+   * its game has an enabled `wasm-game` federation row. Mirrors
+   * `isFederated` but is fully DATA-DRIVEN off the manifest map — no
+   * frontend list to maintain. Federated (three-wizards/dodecahedron)
+   * games take priority: those rows are `remote-game`, not `wasm-game`,
+   * so they never match here, leaving the federated path untouched.
+   */
+  isWebNative(chapter: AvailableGame | null): boolean {
+    return isWebNativeChapter(chapter, this.webNativeByGameSlug);
+  }
+
+  /** The games.slug a web-native chapter belongs to (for `/launch`). */
+  webNativeSlug(chapter: AvailableGame | null): string | null {
+    return resolveWebNativeSlug(chapter, this.webNativeByGameSlug);
+  }
+
   ngOnInit(): void {
     // ?characterId= URL override — lets multi-user tests put each
     // player on a different character without UI plumbing for a
@@ -143,6 +176,14 @@ export class HomeComponent implements OnInit {
         this.characterId = fromUrl;
       }
     }
+
+    // Resolve the web-native launch table from the DB-backed federation
+    // manifest. The launch decision below is data-driven off this map —
+    // no hardcoded slug list, so future web-native games launch with only
+    // a `wasm-game` federation row (migration 051 pattern), no code change.
+    this.federation.webNativeByGameSlug().pipe(
+      catchError(() => of(new Map<string, FederationRemote>())),
+    ).subscribe(map => { this.webNativeByGameSlug = map; });
 
     this.games$ = this.library.listAvailable(this.characterId).pipe(
       map(games => [...games].sort((a, b) => a.sortOrder - b.sortOrder)),
@@ -323,6 +364,7 @@ export class HomeComponent implements OnInit {
     this.modalGame = null;
     this.activeLevel = chapter;
     this.activeLaunchUid = null;
+    this.activeWebNativeBaseUrl = null;
     if (this.isFederated(chapter)) {
       const gameSlug = SCENE_TYPE_TO_GAME_SLUG[chapter.sceneType];
       this.activeRemoteSlug = gameSlug;
@@ -330,30 +372,50 @@ export class HomeComponent implements OnInit {
         next: r => console.log(`[home] federated remote loaded: ${r.slug}`),
         error: e => console.warn('[home] federated remote load failed; falling back to iframe', e),
       });
-      this.http.post<LaunchResponse>(`/api/games/${gameSlug}/launch`, {})
-        .subscribe({
-          next: r => {
-            this.activeLaunchUid = r.uid;
-            console.log(`[home] launch minted uid=${r.uid.substring(0, 8)}… expires=${r.expiresAt}`);
-            // Broadcast a takeover-claim to sibling tabs of the same
-            // player. If another tab is already running this game, it
-            // pauses its iframe + POSTs /players/me/pause so the BFF
-            // fires PLAYER_PAUSED for all subscribers. The current tab
-            // is the new "active" one for this player.
-            this.sessionControl.claimTakeover({
-              gameSlug,
-              launchUid: r.uid,
-              sessionId: this.activeSessionId,
-            });
-          },
-          error: e => console.warn('[home] /launch failed; continuing without uid', e),
-        });
+      this.mintLaunch(gameSlug);
+    } else if (this.isWebNative(chapter)) {
+      // Web-native games are plain iframe bundles (no remoteEntry.json) —
+      // mount the wasm-fragment URL via <app-game-canvas>, threading the
+      // session params, instead of native-federation's loadGameRemote OR
+      // the legacy assetUrl path. The /launch POST still fires first as a
+      // defence-in-depth gate (mints + audits the launch_uid).
+      const gameSlug = this.webNativeSlug(chapter)!;
+      this.activeRemoteSlug = null;
+      this.activeWebNativeBaseUrl = resolveWebNativeBaseUrl(chapter, this.webNativeByGameSlug);
+      this.mintLaunch(gameSlug);
     } else {
       this.activeRemoteSlug = null;
     }
     setTimeout(() => {
       this.canvasSection?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
+  }
+
+  /**
+   * Mint the launch_uid for `gameSlug` (defence-in-depth gate, shared by
+   * the federated and web-native launch paths) and broadcast a
+   * takeover-claim to sibling tabs of the same player so only one tab
+   * holds the game at a time.
+   */
+  private mintLaunch(gameSlug: string): void {
+    this.http.post<LaunchResponse>(`/api/games/${gameSlug}/launch`, {})
+      .subscribe({
+        next: r => {
+          this.activeLaunchUid = r.uid;
+          console.log(`[home] launch minted uid=${r.uid.substring(0, 8)}… expires=${r.expiresAt}`);
+          // Broadcast a takeover-claim to sibling tabs of the same
+          // player. If another tab is already running this game, it
+          // pauses its iframe + POSTs /players/me/pause so the BFF
+          // fires PLAYER_PAUSED for all subscribers. The current tab
+          // is the new "active" one for this player.
+          this.sessionControl.claimTakeover({
+            gameSlug,
+            launchUid: r.uid,
+            sessionId: this.activeSessionId,
+          });
+        },
+        error: e => console.warn('[home] /launch failed; continuing without uid', e),
+      });
   }
 
   closeLevel(): void {
@@ -367,6 +429,7 @@ export class HomeComponent implements OnInit {
     this.activeLevel = null;
     this.activeRemoteSlug = null;
     this.activeLaunchUid = null;
+    this.activeWebNativeBaseUrl = null;
     this.isFullscreen = false;
   }
 

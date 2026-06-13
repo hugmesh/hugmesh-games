@@ -1,5 +1,6 @@
 package games.snapdragon.bff.config;
 
+import games.snapdragon.bff.util.ConnectionUrls;
 import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryOptions;
 import org.slf4j.Logger;
@@ -99,7 +100,9 @@ public class R2dbcReadReplicaConfig {
             log.info("[r2dbc-replica] not configured — qualifier(\"replica\") aliases the primary");
             return primary;
         }
-        log.info("[r2dbc-replica] connecting → {}", replicaUrl);
+        // Mask credentials embedded in the URL (user:pass@ or ?password=) so
+        // the route-access/replica DB password can't land in pod logs (CWE-532).
+        log.info("[r2dbc-replica] connecting → {}", ConnectionUrls.mask(replicaUrl));
         ConnectionFactoryOptions.Builder opts = ConnectionFactoryOptions.parse(replicaUrl).mutate();
         if (replicaUser != null && !replicaUser.isBlank()) {
             opts.option(ConnectionFactoryOptions.USER,     replicaUser);

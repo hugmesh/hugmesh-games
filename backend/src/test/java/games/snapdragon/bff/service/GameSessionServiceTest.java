@@ -47,6 +47,9 @@ class GameSessionServiceTest {
         // The unit tests in this class don't exercise pause paths, so
         // a no-op mock suffices — the new methods are pinned in the
         // BDD coverage (e2e/features/admin/oversight-and-pause.feature).
+        // NOTE: pre-existing Java-25 limitation — ByteBuddy can't mock the
+        // concrete GameStateService, so this whole class currently errors
+        // under JDK 25 (unrelated to per-game domain scoping).
         GameStateService gameState = mock(GameStateService.class);
         service       = new GameSessionService(sessions, members, relationships,
                 gameState, java.util.Optional.empty(), java.util.Optional.empty());

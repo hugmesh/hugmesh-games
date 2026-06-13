@@ -81,7 +81,7 @@ public class ProfileController {
                     fresh.setBlockCount(0);
                     fresh.setCreatedAt(Instant.now());
                     fresh.setUpdatedAt(Instant.now());
-                    return players.save(fresh);
+                    return players.save(fresh.markNew());
                 }));
     }
 

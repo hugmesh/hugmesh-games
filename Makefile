@@ -11,7 +11,7 @@
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
-        gen-certs e2e e2e-bdd e2e-native e2e-down e2e-logs gen-api \
+        gen-certs e2e e2e-bdd e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
         test test-rust test-backend test-frontend \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
@@ -182,6 +182,37 @@ build-godot: build-rust
 	  done; \
 	done
 	@echo "✓ All bundles exported under $(GODOT_EXPORT_ROOT)/"
+
+# ── Real maker builds (RPG/VN → playable Godot WASM) ─────────────────────────
+# The makers run a headless Web export when app.build.godot-enabled=true. The
+# docker-compose.godot.yml overlay bind-mounts a host Godot + Web export
+# templates + the snapdragon-bridge wasm. See tools/godot-export/README.md.
+
+.PHONY: godot-export-tools build-with-godot
+GODOT_TOOLS_DIR := tools/godot-export
+GODOT_MAKER_VERSION ?= 4.6-stable
+
+godot-export-tools:
+	@echo "→ Fetching Godot $(GODOT_MAKER_VERSION) headless + Web export templates into $(GODOT_TOOLS_DIR)/"
+	@mkdir -p $(GODOT_TOOLS_DIR)/godot $(GODOT_TOOLS_DIR)/templates
+	@base="https://github.com/godotengine/godot/releases/download/$(GODOT_MAKER_VERSION)"; \
+	  bin="Godot_v$(GODOT_MAKER_VERSION)_linux.x86_64"; \
+	  tpz="Godot_v$(GODOT_MAKER_VERSION)_export_templates.tpz"; \
+	  echo "  • $$bin"; \
+	  curl -fsSL "$$base/$$bin.zip" -o /tmp/godot.zip && unzip -oq /tmp/godot.zip -d $(GODOT_TOOLS_DIR)/godot && \
+	    mv $(GODOT_TOOLS_DIR)/godot/$$bin $(GODOT_TOOLS_DIR)/godot/godot && chmod +x $(GODOT_TOOLS_DIR)/godot/godot; \
+	  echo "  • $$tpz"; \
+	  curl -fsSL "$$base/$$tpz" -o /tmp/templates.tpz && \
+	    mkdir -p $(GODOT_TOOLS_DIR)/templates/$(subst -,.,$(GODOT_MAKER_VERSION)) && \
+	    unzip -oq /tmp/templates.tpz -d /tmp/godot-tpl && \
+	    cp -r /tmp/godot-tpl/templates/* $(GODOT_TOOLS_DIR)/templates/$(subst -,.,$(GODOT_MAKER_VERSION))/; \
+	  echo "✓ Godot tools ready under $(GODOT_TOOLS_DIR)/ — run 'make build-with-godot'"
+
+build-with-godot:
+	@echo "→ Bringing the makers up with REAL Godot exports (docker-compose.godot.yml)"
+	@test -x $(GODOT_TOOLS_DIR)/godot/godot || { echo "ERROR: $(GODOT_TOOLS_DIR)/godot/godot missing — run 'make godot-export-tools' first"; exit 1; }
+	docker compose -f docker-compose.yml -f docker-compose.godot.yml up -d --build rpg-builder vn-builder
+	@echo "✓ rpg-builder + vn-builder running with app.build.godot-enabled=true"
 
 # ── Post-export index.html patches ───────────────────────────────────────────
 # Godot regenerates index.html on every export. This target re-applies custom
@@ -462,6 +493,33 @@ e2e-down:
 
 e2e-logs:
 	docker compose $(E2E_FILES) logs -f --tail 50
+
+# ── Multi-user games ARCHITECTURE e2e (API/SSE layer, no browser) ─────────────
+# Proves the 14 web-native games REALLY work in the deployed architecture WITH
+# USERS: the host-authoritative SSE relay, sessions, multiplayer delivery, and
+# cross-session isolation — exactly what the server does in host-authoritative
+# games. Self-contained Node 20 harness (no external deps) under
+# e2e/games-arch/, run from a node:20 container on the sdgames_default network
+# because the api has no host port. See e2e/games-arch/README.md.
+#
+# `games-arch-e2e` assumes the stack is already up (compose project sdgames).
+# `games-arch-e2e-up` brings the full stack up first (incl wasm-fragment), runs
+# the harness, then tears it down — the one-shot CI/recheck entry point.
+GAMES_ARCH_PROJECT ?= sdgames
+
+games-arch-e2e:
+	PROJECT=$(GAMES_ARCH_PROJECT) bash e2e/games-arch/run-in-docker.sh
+
+games-arch-e2e-up:
+	@echo "→ Bringing up the full sdgames stack (incl wasm-fragment)…"
+	docker compose -p $(GAMES_ARCH_PROJECT) up -d --build
+	@set +e; \
+	PROJECT=$(GAMES_ARCH_PROJECT) bash e2e/games-arch/run-in-docker.sh; \
+	status=$$?; \
+	echo "→ Tearing down…"; \
+	docker compose -p $(GAMES_ARCH_PROJECT) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	if [ $$status -eq 0 ]; then echo "✓ GAMES-ARCH E2E PASSED"; \
+	else echo "✗ GAMES-ARCH E2E FAILED (status $$status)"; exit $$status; fi
 
 # ── BDD (Gherkin) e2e ────────────────────────────────────────────────────────
 # Runs the playwright-bdd project — .feature files under e2e/features/

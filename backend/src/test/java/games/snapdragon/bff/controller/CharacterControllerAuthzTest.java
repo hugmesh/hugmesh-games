@@ -12,6 +12,7 @@ import games.snapdragon.bff.repository.ItemRepository;
 import games.snapdragon.bff.repository.PlayerCharacterRepository;
 import games.snapdragon.bff.repository.PlayerSessionRepository;
 import games.snapdragon.bff.repository.QuestRepository;
+import games.snapdragon.bff.security.DomainRegistry;
 import games.snapdragon.bff.service.GameStateService;
 import games.snapdragon.bff.service.GameTimeService;
 import games.snapdragon.bff.service.ProgressionService;
@@ -88,8 +89,13 @@ class CharacterControllerAuthzTest {
         charSkills       = mock(CharacterSkillRepository.class);
         charItems        = mock(CharacterItemRepository.class);
         itemRepo         = mock(ItemRepository.class);
+        // Single-tenant default registry: the IDOR ownership gate (ownedCharacter)
+        // does not consult tenancy, so an empty-config DomainRegistry ("default"
+        // domain) satisfies the branch's added collaborator without altering the
+        // authorization behaviour these tests assert.
         controller = new CharacterController(characters, gameStateService, gameTimeService,
-                progression, charQuests, questRepo, sessionRepo, charSkills, charItems, itemRepo);
+                progression, charQuests, questRepo, sessionRepo, charSkills, charItems, itemRepo,
+                new DomainRegistry("", ""));
     }
 
     // ── get ──────────────────────────────────────────────────────────────────
@@ -368,8 +374,11 @@ class CharacterControllerAuthzTest {
     /**
      * No-op {@link ProgressionService} subclass — the super constructor only
      * stores its repositories (null here, never dereferenced without
-     * {@code init}); the dashboard only calls the 3-arg
-     * {@code availableGamesWithLevels}, which we return empty from.
+     * {@code init}). The brand-aware dashboard now calls the 5-arg
+     * {@code availableGamesWithLevels} (characterId, roles, userId, domain,
+     * isSuperadmin); we override that overload directly and return empty so the
+     * IDOR-gate assertions never reach the real GameAccessRepository-backed
+     * catalog query. The 3-arg legacy overload is also stubbed for completeness.
      */
     private static final class StubProgressionService extends ProgressionService {
         StubProgressionService() {
@@ -379,6 +388,13 @@ class CharacterControllerAuthzTest {
         @Override
         public Flux<games.snapdragon.bff.model.GameWithChaptersDto> availableGamesWithLevels(
                 Long characterId, List<String> roleNames, String userId) {
+            return Flux.empty();
+        }
+
+        @Override
+        public Flux<games.snapdragon.bff.model.GameWithChaptersDto> availableGamesWithLevels(
+                Long characterId, List<String> roleNames, String userId,
+                String callerDomain, boolean isSuperadmin) {
             return Flux.empty();
         }
     }

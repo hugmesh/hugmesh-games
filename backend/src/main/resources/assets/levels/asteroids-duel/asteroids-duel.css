@@ -1,0 +1,92 @@
+/* games/asteroids-duel/asteroids-duel.css — vector asteroids field + HUD styling.
+   Self-contained, no fonts fetched; the ships/asteroids/bullets are canvas-drawn
+   vector graphics (no image assets). */
+
+:root {
+  --sd-bg: #0a0a14;
+  --sd-panel: #1f1b2e;
+  --sd-accent: #b388ff;
+  --sd-accent-strong: #7c4dff;
+  --sd-text: #f2eefb;
+  --sd-muted: #a8acc4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--sd-bg);
+  color: var(--sd-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 10px;
+  min-height: 100%;
+}
+
+#hud {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 1024px;
+}
+
+#score {
+  font-weight: 700;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+#status {
+  color: var(--sd-muted);
+  font-size: 0.95rem;
+  min-width: 12ch;
+}
+
+#status.over {
+  color: var(--sd-accent);
+  font-weight: 700;
+}
+
+#controls {
+  margin-left: auto;
+  color: var(--sd-muted);
+  font-size: 0.85rem;
+}
+
+#field {
+  display: block;
+  touch-action: manipulation;
+  border: 2px solid var(--sd-accent-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+  max-width: 100%;
+  height: auto;
+  background: var(--sd-bg);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

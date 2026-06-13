@@ -13,7 +13,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
+import games.snapdragon.bff.security.DomainRegistry;
 import games.snapdragon.bff.security.Roles;
+import games.snapdragon.bff.service.DomainScopeService;
 import games.snapdragon.bff.util.Crypto;
 import java.time.Duration;
 import java.time.Instant;
@@ -54,13 +56,25 @@ public class GameLaunchController {
     private final GameRepository games;
     private final GameAccessRepository access;
     private final GameLaunchRepository launches;
+    private final DomainScopeService domainScope;
+    private final DomainRegistry domainRegistry;
 
     public GameLaunchController(GameRepository games,
                                 GameAccessRepository access,
-                                GameLaunchRepository launches) {
+                                GameLaunchRepository launches,
+                                DomainScopeService domainScope,
+                                DomainRegistry domainRegistry) {
         this.games = games;
         this.access = access;
         this.launches = launches;
+        this.domainScope    = domainScope;
+        this.domainRegistry = domainRegistry;
+    }
+
+    /** Brand-scope gate: a brand-X caller may not launch/revoke a brand-Y game
+     *  (SUPERADMIN exempt; inert single-tenant). Mirrors GameAccessController. */
+    private Mono<Void> requireGameDomain(String slug, Jwt jwt) {
+        return domainScope.requireGameDomain(slug, Roles.domainOf(jwt, domainRegistry), Roles.isSuperadmin(jwt));
     }
 
     public record LaunchResponse(String uid, Instant expiresAt, String gameSlug) {}
@@ -88,7 +102,9 @@ public class GameLaunchController {
         String userId = jwt.getSubject();
         String[] roles = Roles.fromJwt(jwt).toArray(String[]::new);
 
-        return games.findBySlug(slug)
+        // Brand gate first: a cross-brand caller is refused before any per-user
+        // game_access visibility logic runs (mirrors GameAccessController).
+        return requireGameDomain(slug, jwt).then(games.findBySlug(slug)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "unknown game slug: " + slug)))
                 .flatMap(g -> isVisible(g.getId(), roles, userId)
@@ -110,7 +126,7 @@ public class GameLaunchController {
                                             saved.getUid(),
                                             saved.getExpiresAt(),
                                             saved.getGameSlug()));
-                        }));
+                        })));
     }
 
     @Operation(summary = "Terminate an active launch (logout, navigate-away).")
@@ -143,8 +159,20 @@ public class GameLaunchController {
         description = "Active = terminated_at IS NULL. The dashboard's 'kick' button calls revoke below.")
     @GetMapping("/launches")
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
-    reactor.core.publisher.Flux<games.snapdragon.bff.model.GameLaunch> activeLaunches() {
-        return launches.findByTerminatedAtIsNullOrderByStartedAtDesc();
+    reactor.core.publisher.Flux<games.snapdragon.bff.model.GameLaunch> activeLaunches(
+            @AuthenticationPrincipal Jwt jwt) {
+        // Brand-scope the dashboard: a brand-X admin sees only their brand's (+ global)
+        // launches; SUPERADMIN sees all; single-tenant unchanged. Each launch's brand is
+        // its game's domain (resolved by slug). Decision 026.
+        reactor.core.publisher.Flux<games.snapdragon.bff.model.GameLaunch> active =
+                launches.findByTerminatedAtIsNullOrderByStartedAtDesc();
+        if (Roles.isSuperadmin(jwt)) {
+            return active;                        // cross-domain bypass — no per-launch lookup
+        }
+        String callerDomain = Roles.domainOf(jwt, domainRegistry);
+        return active.filterWhen(launch -> games.findBySlug(launch.getGameSlug())
+                .map(g -> Roles.domainApplies(g.getDomain(), callerDomain, false))
+                .defaultIfEmpty(true));           // unknown slug → no domain to filter, keep
     }
 
     @Operation(
@@ -158,16 +186,19 @@ public class GameLaunchController {
     @DeleteMapping("/admin/launches/{uid}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
-    Mono<Void> adminRevoke(@PathVariable String uid) {
+    Mono<Void> adminRevoke(@PathVariable String uid,
+                           @AuthenticationPrincipal Jwt jwt) {
         return launches.findByUid(uid)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
-                .flatMap(row -> {
+                // Brand gate on the launch's own game (resolved off the loaded row, no
+                // extra lookup): a brand-X admin may not revoke a brand-Y game's launch.
+                .flatMap(row -> requireGameDomain(row.getGameSlug(), jwt).then(Mono.defer(() -> {
                     if (row.getTerminatedAt() != null) {
                         return Mono.empty();
                     }
                     row.setTerminatedAt(Instant.now());
                     return launches.save(row).then();
-                });
+                })));
     }
 
     private static String mintUid() {

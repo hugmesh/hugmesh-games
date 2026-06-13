@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,16 +38,19 @@ public class GodotCompileWorker {
     private final VnBuildJobRepository jobs;
     private final VnProjectRepository projects;
     private final VnGodotProjectRenderer renderer;
+    private final GodotExporter exporter;
     private final BffUploadClient bff;
     private final Path workdir;
     private final boolean godotEnabled;
     private final AtomicBoolean inFlight = new AtomicBoolean(false);
 
     public GodotCompileWorker(VnBuildJobRepository jobs, VnProjectRepository projects,
-                              VnGodotProjectRenderer renderer, BffUploadClient bff,
+                              VnGodotProjectRenderer renderer, GodotExporter exporter,
+                              BffUploadClient bff,
                               @Value("${app.build.workdir}") String workdirCfg,
                               @Value("${app.build.godot-enabled}") boolean godotEnabled) {
-        this.jobs = jobs; this.projects = projects; this.renderer = renderer; this.bff = bff;
+        this.jobs = jobs; this.projects = projects; this.renderer = renderer;
+        this.exporter = exporter; this.bff = bff;
         this.workdir = Path.of(workdirCfg); this.godotEnabled = godotEnabled;
     }
 
@@ -91,14 +95,27 @@ public class GodotCompileWorker {
             actDirs = List.of(godotSrc.resolve("acts/main"));
             Path bundleAct = stage.resolve("bundle/main");
             Files.createDirectories(bundleAct);
-            writeStubBundle(bundleAct, project, "main");
+            if (godotEnabled) {
+                exporter.exportWeb(godotSrc, bundleAct.resolve("index.html"));
+            } else {
+                writeStubBundle(bundleAct, project, "main");
+            }
         } else {
+            // Whole-project export runs ONCE, then is copied into each act's bundle dir
+            // (the act a chapter boots is selected at runtime). Disabled mode writes a
+            // per-act stub so zip → manifest → upload → register still runs end-to-end.
+            Path firstExported = null;
             for (Path ad : actDirs) {
                 String actSlug = ad.getFileName().toString();
                 Path bundleAct = stage.resolve("bundle/" + actSlug);
                 Files.createDirectories(bundleAct);
                 if (godotEnabled) {
-                    runGodotExport(godotSrc, actSlug, bundleAct);
+                    if (firstExported == null) {
+                        exporter.exportWeb(godotSrc, bundleAct.resolve("index.html"));
+                        firstExported = bundleAct;
+                    } else {
+                        copyBundle(firstExported, bundleAct);
+                    }
                 } else {
                     // Inline scenes_data.json into the stub HTML so the
                     // produced bundle still teaches the host shell what
@@ -173,9 +190,14 @@ public class GodotCompileWorker {
         }
     }
 
-    private void runGodotExport(Path godotSrc, String actSlug, Path bundleAct) throws IOException {
-        log.warn("[worker] godotEnabled=true but Godot CLI invocation is not yet implemented; falling through to stub for {}", actSlug);
-        writeStubBundle(bundleAct, null, actSlug);
+    /** Copy a produced bundle ({@code index.html/js/wasm/pck}) from one act dir to
+     *  another — multi-act games reuse the single whole-project export across chapters. */
+    private static void copyBundle(Path src, Path dst) throws IOException {
+        try (var files = Files.list(src)) {
+            for (Path f : files.filter(Files::isRegularFile).toList()) {
+                Files.copy(f, dst.resolve(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
     }
 
     private void writeStubBundle(Path bundleAct, VnProject project, String actSlug) throws IOException {

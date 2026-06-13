@@ -1,0 +1,14 @@
+[package]
+name = "snapdragon-minesweeper"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "First-party single-player Minesweeper engine for snapdragon.games. Pure, deterministic (seeded PRNG), dependency-free. Compiles native (cargo test) and to wasm32 for the in-browser game — these are SINGLE-PLAYER puzzles that run entirely in the browser; the server runs NO game logic and is not involved at all."
+
+[lib]
+# rlib for `cargo test`; cdylib for the wasm/ffi build that ships to the browser.
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true

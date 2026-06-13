@@ -1,6 +1,7 @@
 package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.CharacterDto;
+import games.snapdragon.bff.model.InputEvent;
 import games.snapdragon.bff.model.PlayerMovement;
 import games.snapdragon.bff.model.PlayerViewEvent;
 import games.snapdragon.bff.model.SessionControlEvent;
@@ -28,6 +29,11 @@ final class SessionSinks {
     final Sinks.Many<CharacterDto>        character;
     final Sinks.Many<PlayerViewEvent>     view;
     final Sinks.Many<SessionControlEvent> sessionControl;
+    /** Per-session generalised input relay (the host-authoritative chess
+     *  relay rides this: a guest's {@code control/move} and the host's
+     *  {@code world/state} echo are fanned out only to this session's
+     *  subscribers — never the global input firehose). */
+    final Sinks.Many<InputEvent>          input;
 
     SessionSinks() {
         this.movement       = Sinks.many().multicast().onBackpressureBuffer(64,  false);
@@ -35,5 +41,6 @@ final class SessionSinks {
         this.character      = Sinks.many().multicast().onBackpressureBuffer(16,  false);
         this.view           = Sinks.many().multicast().onBackpressureBuffer(128, false);
         this.sessionControl = Sinks.many().multicast().onBackpressureBuffer(16,  false);
+        this.input          = Sinks.many().multicast().onBackpressureBuffer(128, false);
     }
 }
