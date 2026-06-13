@@ -3,6 +3,7 @@ package games.snapdragon.bff.service;
 import games.snapdragon.bff.model.GameUpload;
 import games.snapdragon.bff.repository.GameUploadRepository;
 import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.upload.RegisterSqlPolicy;
 import games.snapdragon.bff.upload.UploadStorage;
 import io.r2dbc.spi.ConnectionFactory;
 import org.slf4j.Logger;
@@ -374,24 +375,13 @@ public class GameUploadService {
      * upserts so naïve splitting on `;` outside of strings is safe.
      */
     private Mono<Void> runRegisterSql(String sql) {
-        List<String> stmts = new ArrayList<>();
-        StringBuilder cur = new StringBuilder();
-        boolean inString = false;
-        for (int i = 0; i < sql.length(); i++) {
-            char c = sql.charAt(i);
-            if (c == '\'' && (i == 0 || sql.charAt(i - 1) != '\\')) inString = !inString;
-            if (c == ';' && !inString) {
-                String s = cur.toString().trim();
-                if (!s.isEmpty() && !s.startsWith("--")) stmts.add(s);
-                cur.setLength(0);
-            } else {
-                cur.append(c);
-            }
-        }
-        String tail = cur.toString().trim();
-        if (!tail.isEmpty() && !tail.startsWith("--")) stmts.add(tail);
-
-        return Flux.fromIterable(stmts)
+        // Vet the bundle-supplied SQL against the catalog-write allowlist
+        // (RegisterSqlPolicy) BEFORE executing any of it — register.sql is
+        // attacker-controlled bundle content, so a single statement that isn't
+        // an INSERT into a catalog table / a games feature-flag UPDATE fails
+        // the whole upload with 400 and rolls the install transaction back.
+        return Mono.fromCallable(() -> RegisterSqlPolicy.vet(sql))
+                .flatMapMany(Flux::fromIterable)
                 .concatMap(s -> {
                     log.info("[upload] register.sql exec: {}", s.length() > 80 ? s.substring(0, 80) + "…" : s);
                     return db.sql(s).fetch().rowsUpdated().then();
