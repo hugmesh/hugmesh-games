@@ -53,4 +53,5 @@
     <include file="db/changelog/046-wave1-remainder-games.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/047-wave2-games.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/048-wave3-games.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/049-realtime-matches.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

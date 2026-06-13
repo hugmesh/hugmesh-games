@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Server-authoritative real-time matches (P2 — BFF integration, see
+      docs/realtime-server-authoritative-design.md). Cassandra holds the LIVE
+      truth (realtime_keyframes + realtime_command_log in docker/cassandra-
+      init.cql); this Postgres table is the DURABLE match record: metadata,
+      start/end, final result. One match per session — session_id is the PK
+      (app-assigned, so the entity implements Persistable).
+    -->
+
+    <changeSet id="049-1-realtime-matches" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="realtime_matches"/></not>
+        </preConditions>
+        <createTable tableName="realtime_matches">
+            <column name="session_id" type="varchar(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="game_slug" type="varchar(128)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="kind" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seed" type="bigint">
+                <constraints nullable="false"/>
+            </column>
+            <column name="tick_hz" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="started_at" type="timestamptz">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ended_at" type="timestamptz"/>
+            <column name="result_json" type="text"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="049-2-realtime-matches-game-slug-idx" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <not><indexExists indexName="idx_realtime_matches_game_slug"/></not>
+        </preConditions>
+        <createIndex tableName="realtime_matches" indexName="idx_realtime_matches_game_slug">
+            <column name="game_slug"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

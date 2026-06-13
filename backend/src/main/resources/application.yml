@@ -183,6 +183,22 @@ app:
 
   pod-id: ${APP_POD_ID:}
 
+  # Server-authoritative real-time matches (P2 — see
+  # docs/realtime-server-authoritative-design.md). The BFF runs the
+  # deterministic sim per match at `tick-hz`; inputs are scheduled
+  # `input-delay-ticks` ahead (the lag buffer); every
+  # `keyframe-interval` ticks the full sim snapshot lands in Cassandra
+  # (realtime_keyframes) next to the command log so any pod can recover
+  # a match. `truth-store.enabled=false` (or no Cassandra) degrades to
+  # in-memory-only matches — no keyframes, no recovery, gameplay keeps
+  # working.
+  realtime:
+    tick-hz:           ${APP_REALTIME_TICK_HZ:30}
+    input-delay-ticks: ${APP_REALTIME_INPUT_DELAY_TICKS:2}
+    keyframe-interval: ${APP_REALTIME_KEYFRAME_INTERVAL:30}
+    truth-store:
+      enabled: ${APP_REALTIME_TRUTH_STORE_ENABLED:true}
+
   # Optional Postgres read replica (decision 022 / F3). When provisioned,
   # catalog reads (/api/games/* and friends) qualified with
   # @Qualifier("replica") route here instead of hitting the primary.

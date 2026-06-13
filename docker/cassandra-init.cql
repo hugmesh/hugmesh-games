@@ -160,3 +160,33 @@ CREATE TABLE IF NOT EXISTS rate_limit_events (
     PRIMARY KEY ((bucket_key), event_id)
 ) WITH CLUSTERING ORDER BY (event_id DESC)
    AND default_time_to_live = 90;
+
+-- Server-authoritative real-time truth (P2, decision-017 extension — see
+-- docs/realtime-server-authoritative-design.md). Per-match authoritative
+-- KEYFRAMES: the full sim snapshot at every keyframe interval, clustered
+-- newest-first so the recovery read (latest keyframe) is the cheap LIMIT 1.
+-- Postgres (realtime_matches) keeps the durable match record + final
+-- result; these rows only need to outlive a pod failure, so a 24 h TTL
+-- bounds growth without risking an in-flight match.
+CREATE TABLE IF NOT EXISTS realtime_keyframes (
+    session_id     text,
+    tick           bigint,
+    state_json     text,
+    PRIMARY KEY ((session_id), tick)
+) WITH CLUSTERING ORDER BY (tick DESC)
+   AND default_time_to_live = 86400;
+
+-- The ordered per-match input/command log — the authoritative truth AND a
+-- perfect deterministic replay (same seed + same (for_tick, seq)-ordered
+-- log reproduces the match bit-exactly). Recovery restores the latest
+-- keyframe and re-queues every command with for_tick > keyframe tick;
+-- natural ASC clustering on (for_tick, seq) IS the replay order. Same
+-- 24 h TTL rationale as realtime_keyframes.
+CREATE TABLE IF NOT EXISTS realtime_command_log (
+    session_id     text,
+    for_tick       bigint,
+    seq            int,
+    player_id      text,
+    payload_json   text,
+    PRIMARY KEY ((session_id), for_tick, seq)
+) WITH default_time_to_live = 86400;
