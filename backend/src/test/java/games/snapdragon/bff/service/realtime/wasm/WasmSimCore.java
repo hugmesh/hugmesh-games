@@ -122,9 +122,6 @@ public final class WasmSimCore implements SimCore {
     }
 
     private static Instance newInstance(WasmModule module) {
-        // The module owns its memory + data segments and has no start section
-        // and zero imports, so default initialize (data segments applied) +
-        // withStart(false) gives a clean, import-free instance.
         return Instance.builder(module)
                 .withStart(false)
                 .build();
@@ -134,17 +131,13 @@ public final class WasmSimCore implements SimCore {
 
     @Override
     public long tick() {
-        // The core reports its tick inside the snapshot ("tick":N). The shim has
-        // no separate tick export, so read it from the canonical snapshot — the
-        // single source of truth the determinism contract is keyed on.
+        // No separate tick export in the shim; the snapshot is the single source of truth.
         return readSnapshotTick(snapshotJson());
     }
 
     @Override
     public void step(List<SimCommand> orderedCommands) {
-        // The tick service hands commands already sorted (forTick, seq); we must
-        // NOT re-order. Each payloadJson is one {"id":..,...} command object; the
-        // wasm fps_step consumes a JSON ARRAY of them.
+        // Commands arrive pre-sorted (forTick, seq); do NOT re-order them.
         String commandsJson = commandsArrayJson(orderedCommands);
         callVoidWithJson(fpsStep, commandsJson);
     }

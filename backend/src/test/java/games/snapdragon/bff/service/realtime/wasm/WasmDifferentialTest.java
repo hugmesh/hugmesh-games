@@ -71,8 +71,6 @@ class WasmDifferentialTest {
         Golden g = loadGolden();
         WasmSimCore sim = (WasmSimCore) WasmSimCoreFactory.fromClasspath().create(g.seed, g.config);
 
-        // tick 0 — the post-fps_new state, before any command, must already match
-        // the config the native harness was seeded with.
         assertEquals(0L, sim.tick(), "fresh WASM match must be at tick 0");
         assertFalse(sim.isTerminal(), "fresh WASM match must not be terminal");
 
@@ -84,8 +82,6 @@ class WasmDifferentialTest {
             assertEquals(step.tick, sim.tick(),
                     "WASM tick counter after applying tick " + step.tick + " commands");
 
-            // THE assertion: exact-string equality of the WASM snapshot vs the native
-            // golden snapshot. Same seed + same ordered command log ⇒ identical JSON.
             String wasmSnapshot = sim.snapshotJson();
             assertEquals(step.expectedSnapshot, wasmSnapshot,
                     "WASM snapshot must be BYTE-IDENTICAL to the native golden at tick " + step.tick);

@@ -42,9 +42,6 @@ class WasmSimCoreDifferentialTest {
 
         SimCore sim = factory.create(g.seed, g.config);
 
-        // Pre-step snapshot proves the module instantiated, ran fps_new, and the
-        // packed-pointer marshalling round-trips a real JSON string out of linear
-        // memory — the whole runtime path, end to end.
         String snap0 = sim.snapshotJson();
         assertThat(snap0).as("initial snapshot JSON from the wasm module")
                 .isNotBlank()
@@ -53,7 +50,6 @@ class WasmSimCoreDifferentialTest {
         assertThat(sim.tick()).isZero();
         assertThat(sim.isTerminal()).isFalse();
 
-        // One tick exercises the command-array marshalling + fps_step path.
         sim.step(g.steps.get(0).commands);
         assertThat(sim.tick()).isEqualTo(1);
         assertThat(sim.snapshotJson()).contains("\"tick\":1");
@@ -86,8 +82,6 @@ class WasmSimCoreDifferentialTest {
         SimCore a = factory.create(g.seed, g.config);
         SimCore b = factory.create(g.seed, g.config);
 
-        // Advance only A; B's single-global-instance state must be untouched —
-        // proving each match gets its own linear memory + GAME global.
         a.step(g.steps.get(0).commands);
 
         assertThat(a.tick()).isEqualTo(1);
