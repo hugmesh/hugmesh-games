@@ -69,4 +69,52 @@ ON CONFLICT (slug) DO NOTHING;
         </sql>
     </changeSet>
 
+    <!--
+      Default-open access for the 14 web-native games.
+
+      Visibility + launch authorisation are BOTH gated on game_access:
+        * ProgressionService.availableGamesWithLevels() intersects the catalog
+          with GameAccessRepository.findVisibleGameIdsForPrincipal(...), so a game
+          with NO game_access row is HIDDEN from every non-admin home grid; and
+        * GameLaunchController.launch() re-checks the same query, so even a
+          direct POST /api/games/{slug}/launch 403s ('game not available to this
+          principal') for any principal the query doesn't return.
+
+      The 019-2 backfill seeded scope='all' only for games existing AS OF
+      migration 019. These 14 games are seeded later (044-048) and 043 only added
+      the games.domain column — so NOTHING ever gives them a game_access row. The
+      net effect is that the entire web-game launch feature this changelog enables
+      is dead for the seeded player roles: invisible in the grid and un-launchable.
+
+      Close it here (the migration whose purpose is to make these games
+      launchable) by seeding an all-users-accessible row per game, mirroring
+      019-2's NOT EXISTS idempotency. Scoped to exactly the 14 slugs so it can't
+      retro-open any other later-seeded game. Admins can later narrow a game to a
+      role/user via the admin console exactly as for any 019-seeded game.
+
+      Idempotent: NOT EXISTS guards the scope='all' row, and the slug filter is a
+      no-op if a slug isn't present yet. Re-runs on partial state insert only the
+      missing rows.
+    -->
+    <changeSet id="051-2-web-game-default-access" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="game_access"/>
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO game_access (game_id, scope, scope_value, granted_by, granted_at)
+SELECT g.id, 'all', NULL, 'system:migration-051', NOW()
+  FROM games g
+ WHERE g.slug IN (
+        'chess', 'connect-four', 'reversi', 'gomoku', 'dots-and-boxes', 'go',
+        'battleship', 'tetris', 'minesweeper', 'sudoku', 'match-three', 'tron',
+        'bomberman', 'asteroids-duel'
+ )
+   AND NOT EXISTS (
+        SELECT 1 FROM game_access ga
+         WHERE ga.game_id = g.id AND ga.scope = 'all' AND ga.scope_value IS NULL
+ );
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>
