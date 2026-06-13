@@ -166,6 +166,36 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- Chicory — pure-Java (zero-native-dependency) WebAssembly runtime.
+         Runs the SAME wasm32 sim-core bytes the browser executes, in-JVM,
+         behind the SimCore / SimCoreFactory boundary (P4 spike, decision
+         docs/realtime-sim-wiring-p4.md option A). `runtime` is the
+         interpreter + Instance/Memory marshalling API; `wasm` is the
+         binary parser (Parser.parse(byte[]) -> WasmModule).
+
+         Test-scoped for the spike: the only .wasm we have lives under
+         src/test/resources/wasm/. Promoting WasmSimCore(Factory) to main/
+         is: (1) move these two deps to default (compile) scope, (2) move
+         the two classes from src/test/.../realtime/wasm/ to the matching
+         src/main path, (3) annotate WasmSimCoreFactory @Component so Spring
+         registers it in AuthoritativeTickService's factory map, and (4)
+         load the .wasm from the same upload store wasm-fragment serves
+         instead of the test classpath. No code change to the marshalling
+         path is needed — only the module-bytes source. Latest stable at
+         time of writing is 1.7.5 (Maven Central, 2026-03). -->
+    <dependency>
+      <groupId>com.dylibso.chicory</groupId>
+      <artifactId>runtime</artifactId>
+      <version>1.7.5</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.dylibso.chicory</groupId>
+      <artifactId>wasm</artifactId>
+      <version>1.7.5</version>
+      <scope>test</scope>
+    </dependency>
+
     <!-- spring-kafka-test — provides @EmbeddedKafka for the
          TwoPodKafkaCrossPodIT integration test (decision-021
          follow-up). Spins up an in-process Kafka broker so the
