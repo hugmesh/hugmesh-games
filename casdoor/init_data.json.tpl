@@ -6,7 +6,7 @@
       "displayName": "Snapdragon Games",
       "websiteUrl": "http://localhost:4200",
       "favicon": "",
-      "passwordType": "plain",
+      "passwordType": "pbkdf2-salt",
       "phonePrefix": "1",
       "defaultAvatar": "",
       "tags": [],

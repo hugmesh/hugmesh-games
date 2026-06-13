@@ -172,14 +172,54 @@ class GameAccessControllerTest {
         when(accessRepo.save(any(GameAccess.class)))
                 .thenReturn(Mono.error(new DuplicateKeyException(
                         "duplicate key value violates unique constraint \"uq_game_access_triple\"")));
-        // The controller's idempotency path then queries findByGameId
-        // (with the controller's existing -1L sentinel — the lookup
-        // intentionally falls through to defaultIfEmpty so a duplicate
-        // grant returns a sentinel GameAccess instead of erroring).
-        when(accessRepo.findByGameId(-1L)).thenReturn(Flux.empty());
+        // The idempotency path now looks up the EXISTING row by the real game id
+        // (7L, not the old -1L sentinel) and returns the row that already matches
+        // the same (game_id, scope, scope_value) triple — so the admin UI gets the
+        // genuine permissions record back, not a blank placeholder.
+        GameAccess existing = new GameAccess();
+        existing.setGameId(7L);
+        existing.setScope("all");
+        existing.setScopeValue(null);
+        existing.setGrantedBy("earlier-admin");
+        when(accessRepo.findByGameId(7L)).thenReturn(Flux.just(existing));
 
         StepVerifier.create(ctl.grant("cave", new AccessGrantRequest("all", null), null))
-                .assertNext(result -> assertThat(result).isNotNull())
+                .assertNext(result -> {
+                    // The real row, not an all-null sentinel.
+                    assertThat(result).isSameAs(existing);
+                    assertThat(result.getGameId()).isEqualTo(7L);
+                    assertThat(result.getScope()).isEqualTo("all");
+                    assertThat(result.getGrantedBy()).isEqualTo("earlier-admin");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void grantReturnsMatchingTripleNotJustAnyRowForGame() {
+        // Two policies exist for the same game (a 'role' grant and a 'user'
+        // grant). A duplicate 'role'/'play-cave' POST must return the matching
+        // 'role' row, never the unrelated 'user' row that happens to share the
+        // game id — proving the idempotency lookup filters on the full triple.
+        when(gameRepo.findBySlug("cave")).thenReturn(Mono.just(game(7L, "cave")));
+        when(accessRepo.save(any(GameAccess.class)))
+                .thenReturn(Mono.error(new DuplicateKeyException(
+                        "duplicate key value violates unique constraint \"uq_game_access_triple\"")));
+        GameAccess userRow = new GameAccess();
+        userRow.setGameId(7L);
+        userRow.setScope("user");
+        userRow.setScopeValue("someone");
+        GameAccess roleRow = new GameAccess();
+        roleRow.setGameId(7L);
+        roleRow.setScope("role");
+        roleRow.setScopeValue("play-cave");
+        when(accessRepo.findByGameId(7L)).thenReturn(Flux.just(userRow, roleRow));
+
+        StepVerifier.create(ctl.grant("cave", new AccessGrantRequest("role", "play-cave"), null))
+                .assertNext(result -> {
+                    assertThat(result).isSameAs(roleRow);
+                    assertThat(result.getScope()).isEqualTo("role");
+                    assertThat(result.getScopeValue()).isEqualTo("play-cave");
+                })
                 .verifyComplete();
     }
 

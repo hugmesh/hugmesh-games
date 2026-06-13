@@ -48,6 +48,11 @@ services:
     image: snapdragon-games/bff:${SNAPDRAGON_TAG:?SNAPDRAGON_TAG must be set on staging}
     environment:
       SPRING_PROFILES_ACTIVE: staging
+      # Fail fast at boot if any prod-sensitive credential (Casdoor
+      # client-secret, DB password) is unset (NIST IA-5 / OWASP ASVS
+      # 6.2.2). Staging mirrors prod posture; creds arrive via the same
+      # k8s + ESO + Vault path.
+      APP_SECURITY_REQUIRE_MANAGED_SECRETS: "true"
       SPRING_WEB_CORS_ALLOWED_ORIGINS: "https://staging.snapdragon.games,https://*.staging.snapdragon.games"
       APP_PUBLIC_HOST: staging.snapdragon.games
       APP_PUBLIC_SCHEME: https

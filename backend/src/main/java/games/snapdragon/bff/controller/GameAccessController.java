@@ -104,25 +104,37 @@ public class GameAccessController {
 
         String adminId = jwt != null ? jwt.getSubject() : "system:unknown";
 
+        String scopeValue = "all".equals(req.scope()) ? null : req.value();
+
+        // Brand-scope gate (branch tenancy control) AND main's #70 scopeValue normalization
+        // are both preserved: an admin may only grant on a game in their own domain, and the
+        // 'all' scope persists a null scope_value.
         return requireGameDomain(slug, jwt).then(gameRepo.findBySlug(slug)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown game slug: " + slug)))
                 .flatMap(g -> {
                     GameAccess row = new GameAccess();
                     row.setGameId(g.getId());
                     row.setScope(req.scope());
-                    row.setScopeValue("all".equals(req.scope()) ? null : req.value());
+                    row.setScopeValue(scopeValue);
                     row.setGrantedBy(adminId);
-                    return accessRepo.save(row);
-                })
-                .onErrorResume(ex -> {
-                    // Unique constraint violation = grant already exists; treat as a no-op
-                    // so the admin UI's "save" button is idempotent.
-                    if (ex.getMessage() != null && ex.getMessage().contains("uq_game_access_triple")) {
-                        return accessRepo.findByGameId(req.value() == null ? -1L : -1L)
-                                .next()
-                                .defaultIfEmpty(new GameAccess());
-                    }
-                    return Mono.error(ex);
+                    return accessRepo.save(row)
+                            // Unique constraint violation = grant already exists; treat as a
+                            // no-op so the admin UI's "save" button is idempotent. Return the
+                            // EXISTING row (matched on the same game_id + scope + scope_value
+                            // triple the unique index guards) so clients get the real
+                            // permissions record and audit trails stay coherent — not a blank
+                            // placeholder. The earlier `g` is in scope here, so the lookup uses
+                            // the real game id, never a -1 sentinel.
+                            .onErrorResume(ex -> {
+                                if (ex.getMessage() != null && ex.getMessage().contains("uq_game_access_triple")) {
+                                    return accessRepo.findByGameId(g.getId())
+                                            .filter(existing -> req.scope().equals(existing.getScope())
+                                                    && java.util.Objects.equals(scopeValue, existing.getScopeValue()))
+                                            .next()
+                                            .switchIfEmpty(Mono.error(ex));
+                                }
+                                return Mono.error(ex);
+                            });
                 }));
     }
 

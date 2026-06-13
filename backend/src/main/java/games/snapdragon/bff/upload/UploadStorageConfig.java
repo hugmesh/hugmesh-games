@@ -55,6 +55,19 @@ public class UploadStorageConfig {
             @Value("${app.uploads.s3.bucket:snapdragon-uploads}") String bucket,
             @Value("${app.uploads.s3.path-style:true}") boolean pathStyleAccess,
             CircuitBreakerRegistry circuitBreakerRegistry) {
+        // Fail fast on missing S3 credentials (NIST IA-5; OWASP ASVS 6.2.2).
+        // Without this, blank access/secret keys let the AWS SDK silently
+        // fall through to its default credential provider chain (env vars,
+        // ~/.aws, EC2/IRSA instance metadata) and authenticate as some
+        // unrelated identity against the wrong bucket — a quiet data-leak /
+        // wrong-store failure mode. Refuse to construct the client instead.
+        if (isBlank(accessKey) || isBlank(secretKey)) {
+            throw new IllegalStateException(
+                    "app.uploads.storage=s3 but S3 credentials are blank. "
+                    + "Set both APP_UPLOADS_S3_ACCESS_KEY and APP_UPLOADS_S3_SECRET_KEY "
+                    + "(refusing to start so the AWS SDK can't silently use the wrong "
+                    + "default credential chain).");
+        }
         log.info("[upload-storage] s3 mode → endpoint={} bucket={} region={} pathStyle={}",
                 endpoint, bucket, region, pathStyleAccess);
         var builder = S3Client.builder()
@@ -98,5 +111,9 @@ public class UploadStorageConfig {
         return new CircuitBreakerUploadStorage(
                 raw,
                 circuitBreakerRegistry.circuitBreaker("s3"));
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 }

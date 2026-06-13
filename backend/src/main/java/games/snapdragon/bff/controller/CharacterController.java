@@ -14,6 +14,7 @@ import games.snapdragon.bff.repository.ItemRepository;
 import games.snapdragon.bff.repository.PlayerCharacterRepository;
 import games.snapdragon.bff.repository.PlayerSessionRepository;
 import games.snapdragon.bff.repository.QuestRepository;
+import games.snapdragon.bff.model.PlayerCharacter;
 import games.snapdragon.bff.security.Roles;
 import games.snapdragon.bff.service.GameStateService;
 import games.snapdragon.bff.service.GameTimeService;
@@ -21,10 +22,15 @@ import games.snapdragon.bff.service.ProgressionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.util.Objects;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -34,6 +40,7 @@ import java.util.Map;
 @Tag(name = "Characters", description = "Player character CRUD. Requires authentication. Stat patches broadcast a character SSE event to all subscribers.")
 @RestController
 @RequestMapping("/api/characters")
+@PreAuthorize("isAuthenticated()")
 public class CharacterController {
 
     private final PlayerCharacterRepository characters;
@@ -72,19 +79,57 @@ public class CharacterController {
         this.domainRegistry   = domainRegistry;
     }
 
+    /**
+     * Object-level authorization gate (ASVS 4.1.3 / OWASP A01). Loads the
+     * character by id and proves the caller is allowed to touch it before any
+     * read or mutation runs: the JWT subject must equal the character's owning
+     * {@code casdoorId}, OR the caller holds the {@code admin} role. Anything
+     * else fails closed with 403 (404 first if the character doesn't exist, so
+     * ownership can't be probed as an enumeration oracle). Every per-id
+     * endpoint funnels through here so a single seam decides ownership; the
+     * class-level {@code @PreAuthorize("isAuthenticated()")} guarantees a
+     * non-null principal already reached this point.
+     */
+    private Mono<PlayerCharacter> ownedCharacter(Long id, Jwt jwt) {
+        return characters.findById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(c -> {
+                    String caller = jwt == null ? null : jwt.getSubject();
+                    boolean owns = caller != null && Objects.equals(caller, c.getCasdoorId());
+                    if (!owns && !Roles.isAdmin(jwt)) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                "character does not belong to the caller"));
+                    }
+                    return Mono.just(c);
+                });
+    }
+
     @Operation(
-        summary = "List all characters",
+        summary = "List the caller's characters",
         description = """
+            Returns only the authenticated caller's own characters (matched on
+            `casdoor_id == jwt.sub`). Admins (`ROLE_ADMIN`) get the full roster
+            for moderation. A plain player can never enumerate other players'
+            characters here.
+
             ```
-            ──request──► characterRepo.findAll()
+            ──request──► admin?  characterRepo.findAll()
+                          :       characterRepo.findByCasdoorId(jwt.sub)
                           ──map(toDto)──►
              ──────────────●──●──●──●──|
                            CharacterDto…
             ```
             """)
     @GetMapping
-    public Flux<CharacterDto> list() {
-        return characters.findAll().map(CharacterDto::from);
+    public Flux<CharacterDto> list(@AuthenticationPrincipal Jwt jwt) {
+        if (Roles.isAdmin(jwt)) {
+            return characters.findAll().map(CharacterDto::from);
+        }
+        String caller = jwt == null ? null : jwt.getSubject();
+        if (caller == null) {
+            return Flux.empty();
+        }
+        return characters.findByCasdoorId(caller).flux().map(CharacterDto::from);
     }
 
     @Operation(
@@ -101,10 +146,9 @@ public class CharacterController {
             ```
             """)
     @GetMapping("/{id}")
-    public Mono<CharacterDto> get(@PathVariable Long id) {
-        return characters.findById(id)
-                .map(CharacterDto::from)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+    public Mono<CharacterDto> get(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
+        return ownedCharacter(id, jwt)
+                .map(CharacterDto::from);
     }
 
     @Operation(
@@ -129,9 +173,10 @@ public class CharacterController {
             ```
             """)
     @PutMapping("/{id}")
-    public Mono<CharacterDto> update(@PathVariable Long id, @RequestBody Map<String, Object> patch) {
-        return characters.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+    public Mono<CharacterDto> update(@PathVariable Long id,
+                                     @RequestBody Map<String, Object> patch,
+                                     @AuthenticationPrincipal Jwt jwt) {
+        return ownedCharacter(id, jwt)
                 .flatMap(c -> {
                     if (patch.containsKey("currentHp"))
                         c.setCurrentHp(((Number) patch.get("currentHp")).intValue());
@@ -187,8 +232,15 @@ public class CharacterController {
     @GetMapping("/{id}/dashboard")
     public Mono<DashboardDto> dashboard(
             @PathVariable Long id,
-            @org.springframework.security.core.annotation.AuthenticationPrincipal
-            org.springframework.security.oauth2.jwt.Jwt jwt) {
+            @AuthenticationPrincipal Jwt jwt) {
+        // Object-level authz first: 404 if absent, 403 unless the caller owns
+        // the character (or is admin). Only then assemble the snapshot — the
+        // gate runs before any quest/session/co-player data is touched so a
+        // direct id-path traversal can't deanonymize other players.
+        return ownedCharacter(id, jwt).flatMap(owned -> dashboardFor(id, jwt));
+    }
+
+    private Mono<DashboardDto> dashboardFor(Long id, Jwt jwt) {
         Mono<CharacterDto> character = characters.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
                 .map(CharacterDto::from);
@@ -254,9 +306,12 @@ public class CharacterController {
             ```
             """)
     @PutMapping("/{id}/quests/{questId}/complete")
-    public Mono<CharacterQuest> completeQuest(@PathVariable Long id, @PathVariable Long questId) {
-        return charQuests.findByCharacterIdAndQuestId(id, questId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+    public Mono<CharacterQuest> completeQuest(@PathVariable Long id,
+                                              @PathVariable Long questId,
+                                              @AuthenticationPrincipal Jwt jwt) {
+        return ownedCharacter(id, jwt)
+                .flatMap(owned -> charQuests.findByCharacterIdAndQuestId(id, questId)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND))))
                 .flatMap(cq -> {
                     cq.setStatus("completed");
                     cq.setCompletedAt(Instant.now());
@@ -301,8 +356,10 @@ public class CharacterController {
             ```
             """)
     @PostMapping("/{id}/use-first-item")
-    public Mono<CharacterDto> useFirstItem(@PathVariable Long id) {
-        return charItems.findByCharacterId(id)
+    public Mono<CharacterDto> useFirstItem(@PathVariable Long id,
+                                           @AuthenticationPrincipal Jwt jwt) {
+        return ownedCharacter(id, jwt)
+                .flatMap(owned -> charItems.findByCharacterId(id)
                 .filter(ci -> ci.getQuantity() > 0)
                 .sort(java.util.Comparator.comparing(CharacterItem -> CharacterItem.getId() == null ? Long.MAX_VALUE : CharacterItem.getId()))
                 .next()
@@ -324,7 +381,7 @@ public class CharacterController {
                                     .then(characters.save(c))
                                     .doOnNext(saved -> gameStateService.notifyCharacterStatChange(CharacterDto.from(saved)))
                                     .map(CharacterDto::from);
-                        })));
+                        }))));
     }
 
     /** Tiny JSON int extractor — only handles `"key":<number>` patterns. */
