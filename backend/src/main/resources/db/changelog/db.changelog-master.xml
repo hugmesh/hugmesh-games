@@ -56,4 +56,5 @@
     <include file="db/changelog/049-realtime-matches.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/050-chess-relay-event-types.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/051-web-game-federation.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/052-web-game-relay-event-types.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

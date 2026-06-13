@@ -61,7 +61,15 @@ export default defineConfig({
   },
   projects: [
     {
-      // Existing handwritten Playwright specs — unchanged contract.
+      // Handwritten Playwright specs — discovered from ./tests. Includes
+      // the web-native game suites:
+      //   web-games-launch.spec.ts      — each of the 14 web-native slugs
+      //     launches from the grid, fetches its engine .wasm 200, and
+      //     renders a <canvas> after the per-game WASM-boot signal.
+      //   web-games-multiplayer.spec.ts — chess + tron: two browser
+      //     contexts in one session; P1 acts in its iframe and P2's iframe
+      //     receives the relayed host `world` SD_SSE_EVENT + keeps rendering.
+      // Both auto-discover via testDir; no per-spec wiring needed.
       name: 'chromium',
       testDir: './tests',
       use: { ...devices['Desktop Chrome'] },

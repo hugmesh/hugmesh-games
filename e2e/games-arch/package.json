@@ -1,0 +1,13 @@
+{
+  "name": "snapdragon-games-arch-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-contained multi-user architecture e2e harness for the 14 web-native games. No external deps — Node 20+ global fetch + a manual SSE line-reader. Proves the host-authoritative SSE relay, sessions, multiplayer delivery, and cross-session isolation REALLY work in the deployed sdgames stack, plus manifest/visibility/bundle-serve facts.",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
