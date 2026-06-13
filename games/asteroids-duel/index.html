@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Asteroids Duel — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./asteroids-duel.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="score" aria-live="polite">Score 0</span>
+      <span id="status" role="status" aria-live="polite">Survive the field</span>
+      <span id="controls">Arrows steer/thrust · Space fires</span>
+    </div>
+
+    <canvas id="field" width="1024" height="768" role="img"
+            aria-label="Asteroids field. Use the arrow keys to steer and thrust your ship and Space to fire at the drifting asteroids."></canvas>
+
+    <script type="module">
+      // The asteroids-duel frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/asteroids-duel/index.html                  (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/asteroids-duel/index.html      (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createAsteroidsGame } from './asteroids-duel.js';
+
+      const GAME = createAsteroidsGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_asteroids_duel_wasm.wasm' })
+        .then((ctx) => {
+          window.__asteroidsReady = true; // smoke-test boot signal
+          window.__asteroidsCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load asteroids engine: ' + err.message;
+          console.error('asteroids-duel mount failed', err);
+        });
+    </script>
+  </body>
+</html>

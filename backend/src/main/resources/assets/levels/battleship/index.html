@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Battleship — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./battleship.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="status" role="status" aria-live="polite">Place your carrier (0/5)</span>
+      <span id="sunk" aria-live="polite">Enemy sunk: 0/5 · Your sunk: 0/5</span>
+      <button id="rotate" type="button">Rotate (horizontal)</button>
+      <button id="ready" type="button" disabled>Ready</button>
+    </div>
+
+    <div id="boards">
+      <figure class="board-wrap">
+        <figcaption>Your fleet</figcaption>
+        <canvas id="own" width="320" height="320" role="img"
+                aria-label="Your fleet. Click a cell to place the current ship; press Rotate or R to change orientation. Incoming enemy shots are marked here."></canvas>
+      </figure>
+      <figure class="board-wrap">
+        <figcaption>Enemy waters</figcaption>
+        <canvas id="enemy" width="320" height="320" role="img"
+                aria-label="Enemy waters (fog of war). In the firing phase, click a cell to fire. Only your shots and their results are shown."></canvas>
+      </figure>
+    </div>
+
+    <script type="module">
+      // The battleship frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/battleship/index.html                  (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/battleship/index.html      (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createBattleshipGame } from './battleship.js';
+
+      const GAME = createBattleshipGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_battleship_wasm.wasm' })
+        .then((ctx) => {
+          window.__battleshipReady = true; // smoke-test boot signal
+          window.__battleshipCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load battleship engine: ' + err.message;
+          console.error('battleship mount failed', err);
+        });
+    </script>
+  </body>
+</html>

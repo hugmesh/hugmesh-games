@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Tron">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#241f38"/>
+      <stop offset="1" stop-color="#0b0a14"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="url(#bg)"/>
+  <!-- arena floor hint -->
+  <rect x="6" y="6" width="52" height="52" rx="4" fill="#0b0a14" stroke="#241f38" stroke-width="2"/>
+  <!-- cyan light-cycle One: an L-shaped trail with a bright head -->
+  <path d="M12 44 H32 V20" fill="none" stroke="#19c3ff" stroke-width="4" stroke-linecap="square"/>
+  <rect x="29" y="17" width="6" height="6" fill="#aef2ff"/>
+  <!-- orange light-cycle Two: a mirror L-shaped trail with a bright head -->
+  <path d="M52 20 H32 V44" fill="none" stroke="#ff8c1a" stroke-width="4" stroke-linecap="square"/>
+  <rect x="29" y="41" width="6" height="6" fill="#ffd9a8"/>
+</svg>

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Tetris — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./tetris.css" />
+  </head>
+  <body>
+    <main id="game" role="region" aria-label="Tetris">
+      <canvas id="well" width="240" height="480" role="img"
+              aria-label="Tetris well. Move with the arrow keys, rotate with up, soft-drop with down, hard-drop with space, hold with shift."></canvas>
+
+      <aside id="panel" aria-label="Game info">
+        <section class="preview">
+          <h2>Next</h2>
+          <canvas id="next" width="64" height="64" role="img" aria-label="Next piece"></canvas>
+        </section>
+        <section class="preview">
+          <h2>Hold</h2>
+          <canvas id="hold" width="64" height="64" role="img" aria-label="Held piece"></canvas>
+        </section>
+        <dl id="hud">
+          <dt>Score</dt><dd id="score" aria-live="polite">0</dd>
+          <dt>Lines</dt><dd id="lines" aria-live="polite">0</dd>
+          <dt>Level</dt><dd id="level" aria-live="polite">0</dd>
+        </dl>
+        <p id="status" role="status" aria-live="polite">Playing</p>
+        <button id="restart" type="button">Restart</button>
+        <p class="hint">← → move · ↑ rotate · ↓ soft drop · space hard drop · shift hold · R restart</p>
+      </aside>
+    </main>
+
+    <script type="module">
+      // The tetris frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/tetris/index.html                (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/tetris/index.html    (BFF-served; _shared copied in)
+      //
+      // SINGLE-PLAYER PUZZLE — LOCAL ONLY. No session_id, no relay; the engine is
+      // seeded from a URL `?seed=` param (else a deterministic default).
+      import { mountGame } from './_shared/game-frame.js';
+      import { createTetrisGame } from './tetris.js';
+
+      const GAME = createTetrisGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_tetris_wasm.wasm' })
+        .then((ctx) => {
+          window.__tetrisReady = true; // smoke-test boot signal
+          window.__tetrisCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load tetris engine: ' + err.message;
+          console.error('tetris mount failed', err);
+        });
+    </script>
+  </body>
+</html>

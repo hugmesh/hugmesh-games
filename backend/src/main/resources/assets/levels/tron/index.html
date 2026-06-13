@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Tron — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./tron.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="players" aria-hidden="true">
+        <span class="dot one"></span>Cyan — Arrows
+        <span class="dot two"></span>Orange — WASD
+      </span>
+      <span id="tick" aria-live="polite">Tick 0</span>
+      <span id="status" role="status" aria-live="polite">Racing</span>
+      <button id="restart" type="button" disabled>Restart</button>
+    </div>
+
+    <canvas id="arena" width="480" height="480" role="img"
+            aria-label="Tron light-cycle arena. Arrow keys steer the cyan cycle, WASD steers the orange cycle. First to crash loses."></canvas>
+
+    <script type="module">
+      // The tron frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/tron/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/tron/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createTronGame } from './tron.js';
+
+      const GAME = createTronGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_tron_wasm.wasm' })
+        .then((ctx) => {
+          window.__tronReady = true; // smoke-test boot signal
+          window.__tronCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load tron engine: ' + err.message;
+          console.error('tron mount failed', err);
+        });
+    </script>
+  </body>
+</html>
