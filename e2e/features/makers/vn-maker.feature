@@ -89,3 +89,31 @@ Feature: VN maker — author scenes, dialogue and choices, then build
     Then the build progress reaches "DONE"
     And the BFF catalog lists the game "abbott-novel"
     And a player can launch chapter "abbott-novel-introduction" of game "abbott-novel"
+
+  # In-studio web VN player. Same intent as the build-then-run loop but
+  # for the live preview overlay (VnPlayerComponent): the publisher plays
+  # the branching novel right in the maker — no build, no upload — so a
+  # player-facing branching/render regression fails the BDD suite. The
+  # target scene "the-clearing" is authored first so the branch dropdown
+  # can point at it before the choice is added on the entry scene.
+  Scenario: preview — play the VN in the studio and branch on a choice
+    When the publisher opens the VN maker
+    And the publisher creates a project "flatland-preview" called "Flatland Preview"
+    And the publisher creates an act "the-meeting" called "The Meeting"
+    And the publisher selects the act "the-meeting"
+    And the publisher creates a scene "the-clearing" called "The Clearing"
+    And the publisher selects the scene "the-clearing"
+    And the publisher creates a line "The clearing opens up before A Square."
+    And the publisher selects the act "the-meeting"
+    And the publisher creates a scene "the-path" called "The Path" as the entry point
+    And the publisher selects the scene "the-path"
+    And the publisher creates a line "A Square sets out along the path."
+    And the publisher creates a line "The path forks at a quiet grove."
+    And the publisher creates a choice "Step into the clearing" targeting scene "The Clearing"
+    And the publisher opens the VN preview
+    Then the VN player shows the line "A Square sets out along the path."
+    When the publisher advances the VN player
+    Then the VN player shows the line "The path forks at a quiet grove."
+    And the VN player offers the choice "Step into the clearing"
+    When the publisher picks the VN choice "Step into the clearing"
+    Then the VN player shows the line "The clearing opens up before A Square."

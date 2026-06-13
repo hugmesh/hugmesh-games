@@ -194,6 +194,16 @@ When('the publisher creates a scene {string} called {string} as the entry point'
   await page.getByRole('button', { name: 'Add scene' }).click();
 });
 
+When('the publisher creates a scene {string} called {string}',
+     async ({}, slug: string, name: string) => {
+  // Plain scene (not the act entry point) — leave the entry checkbox
+  // untouched so a later scene can claim entry-point status.
+  const page = pageRegistry.get('publisher')!;
+  await page.locator('input[name="newSceneSlug"]').fill(slug);
+  await page.locator('input[name="newSceneName"]').fill(name);
+  await page.getByRole('button', { name: 'Add scene' }).click();
+});
+
 When('the publisher selects the scene {string}', async ({}, slug: string) => {
   const page = pageRegistry.get('publisher')!;
   await page.locator('.link-btn', { hasText: `(${slug}` }).first().click();
@@ -203,6 +213,17 @@ When('the publisher creates a line {string}', async ({}, text: string) => {
   const page = pageRegistry.get('publisher')!;
   await page.locator('textarea[name="newLineText"]').fill(text);
   await page.getByRole('button', { name: 'Add line' }).click();
+});
+
+When('the publisher creates a choice {string} targeting scene {string}',
+     async ({}, label: string, targetSceneName: string) => {
+  // The choice attaches to the scene's last line; the target <select>
+  // is keyed on scene id but labelled with the scene name, so pick the
+  // option by its visible label.
+  const page = pageRegistry.get('publisher')!;
+  await page.locator('input[name="newChoiceLabel"]').fill(label);
+  await page.locator('select[name="newChoiceTarget"]').selectOption({ label: targetSceneName });
+  await page.getByRole('button', { name: 'Add choice' }).click();
 });
 
 When('the publisher creates an item {string} called {string}', async ({}, slug: string, name: string) => {
@@ -314,6 +335,47 @@ Then('the projects list contains {string}', async ({ page }, displayName: string
   // surfaces it in the GET /api/{rpg|vn}/projects response.
   await expect(page.locator('.row-list', { hasText: displayName }).first())
       .toBeVisible({ timeout: 10_000 });
+});
+
+// ── In-studio VN player (VnPlayerComponent) ──────────────────────────
+// The maker overlays `app-vn-player` for the selected project when the
+// publisher hits the header "▶ Preview" button. The player drives the
+// pure vn-player-engine: a full-bleed stage with a `.vn-dialogue` box
+// holding `.vn-speaker` + `.vn-text`, a `.vn-next` Next affordance when
+// the line is linear, and per-line `.vn-choice` buttons inside a
+// `.vn-choices` group when the current line branches.
+
+When('the publisher opens the VN preview', async () => {
+  const page = pageRegistry.get('publisher')!;
+  // The Preview button only renders once a project is selected.
+  await page.getByRole('button', { name: /Preview/ }).click();
+  await expect(page.locator('.vn-player-overlay')).toBeVisible({ timeout: 10_000 });
+});
+
+Then('the VN player shows the line {string}', async ({}, text: string) => {
+  const page = pageRegistry.get('publisher')!;
+  // The line text lands lazily after the per-scene lines GET resolves
+  // (and after the ~120 ms fade on an advance/branch), so give it room.
+  await expect(page.locator('.vn-player-overlay .vn-text', { hasText: text }))
+      .toBeVisible({ timeout: 10_000 });
+});
+
+When('the publisher advances the VN player', async () => {
+  const page = pageRegistry.get('publisher')!;
+  // The Next affordance only renders on a line with no choices.
+  await page.locator('.vn-player-overlay .vn-next').click();
+});
+
+Then('the VN player offers the choice {string}', async ({}, label: string) => {
+  const page = pageRegistry.get('publisher')!;
+  // Choices surface once the current line's choices GET resolves.
+  await expect(page.locator('.vn-player-overlay .vn-choices .vn-choice', { hasText: label }))
+      .toBeVisible({ timeout: 10_000 });
+});
+
+When('the publisher picks the VN choice {string}', async ({}, label: string) => {
+  const page = pageRegistry.get('publisher')!;
+  await page.locator('.vn-player-overlay .vn-choices .vn-choice', { hasText: label }).click();
 });
 
 Then('the BFF chapter {string} of {string} returns 200 with the bundle index.html',
