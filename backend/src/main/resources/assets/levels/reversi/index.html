@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Reversi — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./reversi.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="turn" aria-live="polite">Turn: Black</span>
+      <span id="score" aria-live="polite">Black 2 – 2 White</span>
+      <span id="status" role="status" aria-live="polite">Black to move</span>
+      <button id="pass" type="button" disabled>Pass</button>
+    </div>
+
+    <canvas id="board" width="480" height="480" role="img"
+            aria-label="Reversi board. Click a highlighted square to place a disc."></canvas>
+
+    <script type="module">
+      // The reversi frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/reversi/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/reversi/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createReversiGame } from './reversi.js';
+
+      const GAME = createReversiGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_reversi_wasm.wasm' })
+        .then((ctx) => {
+          window.__reversiReady = true; // smoke-test boot signal
+          window.__reversiCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load reversi engine: ' + err.message;
+          console.error('reversi mount failed', err);
+        });
+    </script>
+  </body>
+</html>

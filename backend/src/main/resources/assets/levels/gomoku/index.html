@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Gomoku — Snapdragon</title>
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./gomoku.css" />
+  </head>
+  <body>
+    <div id="hud" role="region" aria-label="Game status">
+      <span id="turn" aria-live="polite">Turn: Black</span>
+      <span id="status" role="status" aria-live="polite">Black to move</span>
+    </div>
+
+    <canvas id="board" width="540" height="540" role="img"
+            aria-label="Gomoku board, 15 by 15. Click an empty intersection to place your stone. First to five in a row wins."></canvas>
+
+    <script type="module">
+      // The gomoku frontend = the shared shell + this game's GAME object.
+      // Paths are RELATIVE so the same bundle serves correctly both from
+      //   games/gomoku/index.html               (repo dev / file://)
+      // and from the deployed self-contained bundle
+      //   /api/assets/levels/gomoku/index.html   (BFF-served; _shared copied in)
+      import { mountGame } from './_shared/game-frame.js';
+      import { createGomokuGame } from './gomoku.js';
+
+      const GAME = createGomokuGame();
+
+      mountGame(GAME, { wasmUrl: './wasm/snapdragon_gomoku.wasm' })
+        .then((ctx) => {
+          window.__gomokuReady = true; // smoke-test boot signal
+          window.__gomokuCtx = ctx; // expose for the headless smoke test
+        })
+        .catch((err) => {
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Failed to load gomoku engine: ' + err.message;
+          console.error('gomoku mount failed', err);
+        });
+    </script>
+  </body>
+</html>

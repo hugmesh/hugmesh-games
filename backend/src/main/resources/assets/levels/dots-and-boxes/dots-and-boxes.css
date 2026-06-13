@@ -1,0 +1,108 @@
+/* games/dots-and-boxes/dots-and-boxes.css — board + HUD styling. Self-contained,
+   no fonts fetched (the small owner glyphs are plain ASCII digits). Mirrors the
+   chess bundle's shell so the two games look at home next to each other. */
+
+:root {
+  --sd-bg: #14121c;
+  --sd-panel: #1f1b2e;
+  --sd-accent: #b388ff;
+  --sd-accent-strong: #7c4dff;
+  --sd-text: #f2eefb;
+  --sd-muted: #a8acc4;
+  --sd-danger: #ff5c5c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--sd-bg);
+  color: var(--sd-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px;
+  min-height: 100%;
+}
+
+#hud {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 640px;
+}
+
+#turn {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+#status {
+  color: var(--sd-muted);
+  font-size: 0.95rem;
+  min-width: 12ch;
+}
+
+#status.over {
+  color: var(--sd-accent);
+  font-weight: 700;
+}
+
+#reset {
+  margin-left: auto;
+  background: var(--sd-panel);
+  color: var(--sd-text);
+  border: 1px solid var(--sd-accent-strong);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  min-height: 40px;
+}
+
+#reset:hover:not(:disabled) {
+  border-color: var(--sd-accent);
+  background: #2a2440;
+}
+
+#reset:focus-visible {
+  outline: 3px solid var(--sd-accent);
+  outline-offset: 2px;
+}
+
+#board {
+  display: block;
+  touch-action: manipulation;
+  border: 2px solid var(--sd-accent-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  max-width: 100%;
+  height: auto;
+  cursor: crosshair;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
