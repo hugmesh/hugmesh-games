@@ -1,10 +1,10 @@
-# Snapdragon Games — contributor notes
+# Snapdragon Game Studio — contributor notes
 
 A pragmatic onboarding doc for anyone (human or AI) jumping into this repo. Keep it tight; for prose-y reference material see the [in-repo wiki](docs/wiki/) (architecture chapters, audience guides, how-to recipes, decisions), [`README.md`](README.md), the architecture PDF (`docs/publishing/architecture/`), or the user guides under `docs/publishing/userguides/`.
 
 ## What this repo is
 
-A federated browser portal that hosts multiple Godot 4 games behind one Angular shell. Three tiers:
+A self-hosted Godot 4 WASM game studio and portal — authors build RPG and visual-novel titles in the browser, players enjoy them in live multiplayer sessions. Three tiers:
 
 | Tier | Tech | Where |
 | --- | --- | --- |

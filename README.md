@@ -1,6 +1,6 @@
-# Snapdragon Games
+# Snapdragon Game Studio
 
-A browser-native game portal — multiple titles delivered as per-game **Rust + Godot 4** (WebGL/WASM) bundles, served through an **Angular** front-end, with the **Snapdragon Gaming BFF** (Spring Boot) streaming game state and controls over SSE. Authentication is handled by **Casdoor** (OAuth2/OIDC) behind a custom Angular login page — the Casdoor admin UI is never exposed to the network.
+A self-hosted Godot 4 WASM game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy them through an **Angular** shell with live SSE multiplayer sessions, and the **Snapdragon Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
 
 The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cave depths and open fields. The catalog also ships a *Spinning Dodecahedron* tech demo to show off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items).
 
@@ -1553,7 +1553,7 @@ Keyboard input works both from the Angular page and from inside the Godot canvas
 ## Project structure
 
 ```
-portal/                                   # Snapdragon Games portal repo
+portal/                                   # Snapdragon Game Studio repo
 ├── Makefile                              # Master build + seed-db + e2e + e2e-native
 ├── scripts/
 │   ├── patch-godot-html.py              # Patches WASM sizes + scene prefetch
