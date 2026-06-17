@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Advance games_id_seq past the wave-seed explicit ids (fresh-migrate
+      games_pkey collision fix).
+
+      ROOT CAUSE
+      ==========
+      games.id is a BIGSERIAL (001-initial-schema), so it owns the
+      games_id_seq sequence and a sequence-default for the column. The
+      catalog seeds in 017 (id=2) and 044/045/046/047/048/053 all insert
+      games rows with an EXPLICIT id computed as
+      (SELECT COALESCE(MAX(id),0)+1 FROM games) — they bypass nextval(), so
+      they NEVER advance games_id_seq. The only changeset that ever touched
+      the sequence is 012-8, which did a one-off
+      `setval('games_id_seq', GREATEST(MAX(id), 1))` back when the table held
+      a single seed row (id=1).
+
+      Net effect on a FRESH `liquibase update`: every seed after 012 raises
+      MAX(games.id) (to ~17 after 053) but leaves games_id_seq sitting at its
+      012-era value. The FIRST sequence-driven insert — e.g. a game upload via
+      GameUploadService.install(), or any R2DBC insert that omits id — then
+      draws an id that is already taken and fails on games_pkey.
+
+      (Security PR #77 hit exactly this in GameUploadIntegrationTest and worked
+      around it with a per-test @BeforeEach setval(), recommending this
+      migration as the real fix so the workaround can be dropped.)
+
+      FIX
+      ===
+      Re-run setval ONCE more, now AFTER all current seeds, so the next
+      nextval() yields MAX(id)+1. We resolve the sequence with
+      pg_get_serial_sequence('games','id') rather than hardcoding
+      'games_id_seq', so this stays correct regardless of whether the column
+      is backed by SERIAL/BIGSERIAL, an explicit sequence default, or an
+      IDENTITY. The third arg `true` marks the value as already-consumed, so
+      the very next nextval() returns MAX(id)+1 (not MAX(id)).
+
+      Only the `games` table needs this: an audit of every explicit-id seed
+      (grep "INSERT INTO <table> (id,") shows id is supplied explicitly ONLY
+      for `games` (012, 017, 044-048, 053). Every other seed table is loaded
+      either via Liquibase <insert> tags (no id column => sequence assigns) or
+      via INSERT lists that omit id, so their sequences are never out-stripped.
+
+      IDEMPOTENT / SAFE TO RE-RUN: setval to MAX(id) is harmless if the
+      sequence is already correct, and this is a normal once-only changeset
+      (stable id), so on an already-migrated DB it simply doesn't run again.
+
+      POSTGRES-ONLY: pg_get_serial_sequence + setval are Postgres functions.
+      The whole changelog is already Postgres-targeted (BIGSERIAL,
+      jsonb, ON CONFLICT, r2dbc-postgresql + Testcontainers postgres; there is
+      no H2 path), but we still mark dbms="postgresql" defensively so this
+      changeset is skipped rather than erroring should a non-PG dialect ever be
+      introduced — matching how a PG-specific changeset SHOULD be guarded.
+    -->
+    <changeSet id="054-1-advance-games-id-seq" author="snapdragon" dbms="postgresql">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+SELECT setval(
+    pg_get_serial_sequence('games', 'id'),
+    COALESCE((SELECT MAX(id) FROM games), 1),
+    true
+);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
