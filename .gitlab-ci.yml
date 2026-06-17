@@ -18,7 +18,22 @@
 # CI is GitLab-only (no .github/workflows). No secrets in this file — every
 # credential (Casdoor admin / the throwaway TEST-realm password / NVD key) is a
 # masked CI variable read at runtime.
-stages: [build, sca, dast, load]
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Centralized OWASP pen-test stage (ONE source of truth, org-wide).
+# Pulls the generator's reusable hidden jobs (.pentest-sca / .pentest-dast-baseline
+# / .pentest-dast-full) so this repo's `pentest` stage stays in lockstep with the
+# org standard. This is ADDITIVE: the games-specific inline sca/dast/load jobs
+# above keep running --pipeline games (Rust crate analysis + the games personas /
+# per-brand catalog + DOMAIN_ guard), which the generic centralized template does
+# not cover. The pentest:* jobs below run the centralized harness alongside.
+# ─────────────────────────────────────────────────────────────────────────────
+include:
+  - project: 'Snapdragon-Systems/snapdragon-generator'
+    ref: main
+    file: '/tests/pentest/ci/pentest-stage.gitlab-ci.yml'
+
+stages: [build, sca, dast, load, pentest]
 
 build:image:
   stage: build
@@ -174,3 +189,27 @@ load:k6:
     paths:
       - out/pentest/
     expire_in: 30 days
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pentest — the CENTRALIZED OWASP stage from the generator's reusable template
+# (included above). These thin jobs `extends:` the hidden `.pentest-*` jobs so the
+# org-standard SCA + baseline DAST run here too, keeping one source of truth.
+#
+# allow_failure: true — non-blocking (this repo's hard gate is the games-specific
+# sca:dependency-check --failOnCVSS 7 above); these mirror the org posture without
+# breaking the build while the centralized harness/feed warms up. Rules mirror the
+# repo's existing security jobs: default branch + merge requests.
+# ─────────────────────────────────────────────────────────────────────────────
+pentest:sca:
+  extends: .pentest-sca
+  allow_failure: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+pentest:dast:
+  extends: .pentest-dast-baseline
+  allow_failure: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

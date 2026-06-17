@@ -16,7 +16,8 @@ SHELL := /bin/bash
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
         docs-userguides docs-openapi-spec docs-openapi-latex \
-        lan-info lan-up lan-up-tls lan-down
+        lan-info lan-up lan-up-tls lan-down \
+        pentest pentest-sca pentest-dast
 
 # ── LAN-access helpers (read lan.properties at repo root) ────────────────
 # lan.properties is a docker-compose env-file (literal FRONTEND_BIND= /
@@ -735,3 +736,70 @@ clean:
 	cd $(BACKEND_DIR) && ./mvnw clean 2>/dev/null || true
 	rm -rf $(FRONTEND_DIR)/dist
 	@echo "✓ Clean done"
+
+# ── OWASP pen-test (local self-scan; mirrors the CI `pentest` stage) ────────────
+# `make pentest` runs the repo-local SCA self-scan that mirrors the centralized CI
+# SCA job, then (only when DAST_TARGET_URL is set) delegates the full DAST harness
+# (ZAP baseline + custom boundary probes + nuclei) to the vendored harness. It is
+# self-contained and never hard-fails when tooling/target is absent — it explains
+# what to install/set and exits 0, so a fresh clone can run it without a CVE feed,
+# Docker, or a running target. The HARD CVSS gate lives in CI (sca:dependency-check
+# --failOnCVSS 7 + the centralized pentest:sca); this target is fast local feedback.
+#
+#   DAST_TARGET_URL   when set, run the DAST harness against this URL.
+#   PENTEST_CVSS      SCA fail threshold for the Java check (default 9 = local).
+PENTEST_CVSS ?= 9
+DEPCHECK_IMAGE ?= owasp/dependency-check:latest
+
+pentest: pentest-sca pentest-dast
+	@echo "✓ pentest: local SCA + DAST self-scan complete"
+
+# SCA — Java (Maven dependency-check) + Angular (npm audit). Mirrors CI SCA.
+pentest-sca:
+	@echo "→ [SCA] Java backend — OWASP dependency-check (failOnCVSS=$(PENTEST_CVSS))…"
+	@if [ -x $(BACKEND_DIR)/mvnw ]; then \
+	  cd $(BACKEND_DIR) && ./mvnw -q org.owasp:dependency-check-maven:check \
+	    -DfailBuildOnCVSS=$(PENTEST_CVSS) -DskipProvidedScope=false \
+	  || { echo "  (dependency-check-maven reported findings or could not sync the NVD feed)"; }; \
+	elif command -v docker >/dev/null 2>&1; then \
+	  echo "  no mvnw — falling back to the $(DEPCHECK_IMAGE) docker image (as CI does)…"; \
+	  docker run --rm -v "$(CURDIR)/$(BACKEND_DIR):/src" -v "$(CURDIR)/out/pentest/sca:/report" \
+	    $(DEPCHECK_IMAGE) --scan /src --out /report --failOnCVSS $(PENTEST_CVSS) --enableExperimental \
+	    --format HTML --format JSON \
+	  || echo "  (docker dependency-check reported findings or no feed)"; \
+	else \
+	  echo "  SKIP: neither $(BACKEND_DIR)/mvnw nor docker available for the Java SCA."; \
+	fi
+	@echo "→ [SCA] Angular frontend — npm audit (--audit-level=high)…"
+	@if command -v npm >/dev/null 2>&1 && [ -f $(FRONTEND_DIR)/package.json ]; then \
+	  cd $(FRONTEND_DIR) && npm audit --audit-level=high || \
+	    echo "  (npm audit reported advisories — review above; CI dependency-check is the gate)"; \
+	else \
+	  echo "  SKIP: npm or $(FRONTEND_DIR)/package.json not available."; \
+	fi
+	@echo "  NOTE: the authoritative cross-stack SCA (Java+npm+Rust, --failOnCVSS 7)"
+	@echo "        runs in CI via tests/pentest/dependency-check/run-sca.sh + the"
+	@echo "        centralized .pentest-sca (generator pentest-stage)."
+
+# DAST — delegate the full harness (ZAP baseline + probes + nuclei) to the vendored
+# tests/pentest/run-pentest.sh, but only when DAST_TARGET_URL is set. Otherwise echo
+# the invocation so it stays discoverable; never hard-fail.
+pentest-dast:
+	@if [ -n "$$DAST_TARGET_URL" ]; then \
+	  echo "→ [DAST] harness against $$DAST_TARGET_URL …"; \
+	  if [ -x tests/pentest/run-pentest.sh ]; then \
+	    PENTEST_TARGET_URL="$$DAST_TARGET_URL" \
+	      bash tests/pentest/run-pentest.sh --env url --scan baseline --pipeline games \
+	    || echo "  (DAST harness reported findings — see out/pentest/)"; \
+	  else \
+	    echo "  ERROR: tests/pentest/run-pentest.sh not found in this checkout."; \
+	  fi; \
+	else \
+	  echo "→ [DAST] skipped — set DAST_TARGET_URL to run the full harness, e.g.:"; \
+	  echo "      DAST_TARGET_URL=https://localhost:8080 make pentest-dast"; \
+	  echo "    which delegates to the vendored harness:"; \
+	  echo "      bash tests/pentest/run-pentest.sh --env url --scan baseline --pipeline games"; \
+	  echo "    (the same harness the CI dast:baseline + centralized .pentest-dast-baseline run;"; \
+	  echo "     if the harness is not vendored, clone snapdragon-generator and run"; \
+	  echo "     tests/pentest/run-pentest.sh from there)."; \
+	fi
