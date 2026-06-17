@@ -27,17 +27,30 @@ flowchart LR
     Merge["GameStreamController<br/>Flux.merge(...) — 8 GameStateService Sinks.Many + time$ + keepalive"] --> Out(["GET /api/game/stream<br/>Flux&lt;ServerSentEvent&gt; — one connection, per-type event: field"])
 ```
 
-**`AuthController` — ROPC token exchange (the browser never sees `client_secret`).**
+**`CasdoorAuthController` — ROPC token exchange (the browser never sees `client_secret`).**
 
 ```mermaid
 sequenceDiagram
     participant FE as login remote
-    participant API as AuthController
+    participant API as CasdoorAuthController
     participant CAS as Casdoor (internal)
     FE->>API: POST /api/auth/token {username, password}
     API->>CAS: WebClient.post(/api/login/oauth/access_token) grant_type=password + client_secret
     CAS-->>API: {access_token, …}
     API-->>FE: {access_token, token_type, expires_in}
+```
+
+**`RealtimeController` / `AdminRealtimeController` — 🚧 server-authoritative match surface (engine wired, catalog launch deferred).**
+
+The FPS/RTS sim cores and their Cassandra-truth tick loop are wired and verified in-JVM (Chicory), but **no FPS/RTS title is registered as a launchable catalog game yet** — see [`docs/realtime-server-authoritative-design.md`](../../realtime-server-authoritative-design.md).
+
+```mermaid
+flowchart LR
+    Start(["POST /api/realtime/{sessionId}/start"]) --> Tick["server-authoritative tick loop<br/>realtime_matches (Postgres) + realtime_keyframes/command_log (Cassandra)"]
+    Input(["POST /api/realtime/{sessionId}/input"]) --> Tick
+    Tick --> Stream(["GET /api/realtime/stream — Flux&lt;ServerSentEvent&gt; snapshots"])
+    Tick --> Log(["GET /api/realtime/{sessionId}/log"])
+    Recover(["POST /api/admin/realtime/{sessionId}/recover<br/>(ROLE_ADMIN)"]) --> Tick
 ```
 
 **`GameUploadService` — the transactional install pipeline.**
@@ -56,9 +69,9 @@ flowchart LR
 
 ## Public surface (no JWT required)
 
-### `AuthController` — `/api/auth`
+### `CasdoorAuthController` — `/api/auth`
 
-Public reverse-proxy of the Casdoor login flow.
+Public reverse-proxy of the Casdoor login flow. (The Java class is `CasdoorAuthController`.)
 
 | Method | Path | Notes |
 |---|---|---|
@@ -175,6 +188,33 @@ Named multiplayer sessions. Distinct from the legacy single-session path above.
 | `DELETE` | `/api/sessions/{id}` | Force-close. Creator-only. |
 
 See [decision 010 — per-session SSE sinks](../decisions/010-per-session-sse-sinks.md) for the isolation contract.
+
+### `RealtimeController` — `/api/realtime`  *(🚧 server-authoritative match surface)*
+
+The REST surface for the server-authoritative FPS/RTS sim engines. The engines and the Cassandra-truth tick loop are wired and verified in-JVM via Chicory, but **no FPS/RTS title is yet registered as a launchable catalog game** — this is engine/match plumbing, not a playable entry. See [`docs/realtime-server-authoritative-design.md`](../../realtime-server-authoritative-design.md) and [`docs/realtime-sim-wiring-p4.md`](../../realtime-sim-wiring-p4.md).
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/api/realtime/{sessionId}/start` | Start a server-authoritative match; the server runs the tick loop and persists truth to `realtime_matches` (Postgres) + `realtime_keyframes`/`realtime_command_log` (Cassandra). |
+| `POST` | `/api/realtime/{sessionId}/input` | Submit a player input to the authoritative tick. |
+| `GET` | `/api/realtime/stream` | SSE stream of authoritative snapshots (`Flux<ServerSentEvent>`). |
+| `GET` | `/api/realtime/{sessionId}/log` | Replay/inspect the command log for a match. |
+
+### `AdminRealtimeController` — `/api/admin/realtime`  *(`ROLE_ADMIN`, 🚧)*
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/api/admin/realtime/{sessionId}/recover` | Recover/rehydrate an authoritative match from Cassandra truth. Admin-only (`@PreAuthorize("hasRole('ADMIN')")`). |
+
+### `SessionLogController` — `/api/session-logs`
+
+Per-user session-history reads, with role-scoped variants.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/session-logs/me` | The caller's own session log. |
+| `GET` | `/api/session-logs/admin/{casdoorId}` | Any user's session log. Admin-only (`ROLE_ADMIN`). |
+| `GET` | `/api/session-logs/scoped/{casdoorId}` | A user's session log scoped to the caller's game grants. `ROLE_MOD` / `ROLE_PUBLISHER` / `ROLE_ADMIN`. |
 
 ### `ProfileController` — `/api/profile/me/{player,producer,mod}`
 

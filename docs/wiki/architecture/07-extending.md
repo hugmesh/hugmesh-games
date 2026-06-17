@@ -13,9 +13,9 @@ Quick index of common extension tasks. Each one has a step-by-step recipe under 
 | Add a new SSE channel | [howto/add-sse-channel.md](../howto/add-sse-channel.md) |
 | Add a database column | [howto/add-db-column.md](../howto/add-db-column.md) |
 
-## Adding a new game — two paths
+## Adding a new game — three paths
 
-There are two paths.
+Paths A and B add a **Godot** game; Path C adds a **web-native (Rust→wasm)** game — now the dominant pattern (14 of the 16 catalog titles).
 
 ### Path A — upload at runtime
 
@@ -37,6 +37,21 @@ For a game you want to ship in the repository:
 3. Add a Liquibase changeset that inserts the `games` + `federation_modules` + `game_access` rows. See [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) for the canonical pattern.
 4. Optionally add a `games-<slug>` service to [`docker-compose.yml`](../../../docker-compose.yml) if the game ships its own Module Federation remote (separate Angular project under `frontend/projects/games-<slug>/`).
 5. Run `make build` and `docker compose up -d`.
+
+### Path C — add a web-native (Rust→wasm) game
+
+The web-native family (chess + 13 more) uses a different recipe — **no Godot, no per-game Angular remote**. The engine is pure Rust compiled to `wasm32-unknown-unknown` and the frontend is a vanilla-JS canvas implementing the [`games/_shared/`](../../../games/_shared/README.md) `GAME` interface (`{init, render, onLocalInput, onRemoteEvent}`), run **host-authoritative** (host browser runs the engine, the BFF only relays `control`/`world` over the per-session SSE channels, the guest re-applies + re-validates). Four steps, mirroring the chess / Wave-1 PRs:
+
+1. **The engine + the bundle.** Add the pure-Rust engine under `extensions/snapdragon-<game>/` and a thin C-ABI/JSON-shim crate `extensions/snapdragon-<game>-wasm/` (zero host imports — loads via `WebAssembly.instantiateStreaming` in the browser, via Chicory in-JVM, and under Node; mirror `snapdragon-chess-wasm`). Add the `games/<slug>/` canvas project, then copy a self-contained bundle into `backend/src/main/resources/assets/levels/<slug>/` (index.html + `<slug>.js` + css + icon + a **copy** of `games/_shared/*.js` under `_shared/` + the `.wasm` under `wasm/`). Keep the deployed copy byte-identical to source.
+2. **Catalog rows.** Add a Liquibase changeset inserting the `games` + `chapters` rows (mirror `044-chess-game.xml` / the Wave-1 changesets).
+3. **Federation row.** Add a `federation_modules` row with **`kind='wasm-game'`** (`remote_entry_url=/_remotes/wasm-fragment/<slug>/index.html`, `exposed_module=NULL`, `game_slug=<slug>`). This is what flips the host off the legacy `<app-game-canvas>` — `home.component` reads it off `GET /api/federation/manifest` (`isWebNative` / `FederationService.webNativeByGameSlug`). No frontend change. `main.ts` deliberately excludes `wasm-game` from `initFederation`. Mirror [`051-web-game-federation.xml`](../../../backend/src/main/resources/db/changelog/051-web-game-federation.xml).
+4. **Relay event types.** Add `input_event_types` + `game_event_support` rows for the control/world relay channels the game uses (mirror `050` / `052`).
+
+> **⚠ wasm-fragment bakes at image build.** The `wasm-fragment` nginx `COPY`s `assets/levels` at *image build* time, so its image **must be rebuilt** when any bundle changes (`docker compose build wasm-fragment`). The launch path is `/_remotes/wasm-fragment/<slug>/` (generic host-nginx proxy, present in both `nginx.conf` and `nginx-tls.conf`), with `/api/assets/levels/<slug>/` as the BFF fallback.
+
+Verify each engine with a Node WASM functional test (`games/_shared/test/<slug>-wasm.test.mjs`) plus a DOM-light frontend smoke under `games/<slug>/test/`. The end-to-end launch is exercised by [`e2e/games-arch`](../../../e2e/games-arch/README.md). The full pattern lives in the "Web-native games" section of [CLAUDE.md](../../../CLAUDE.md).
+
+> **🔭 Roadmap — future ports.** [`docs/game-ports-backlog.md`](../../game-ports-backlog.md) is the source of future game ports (kdegames / FPS / RTS) — each row is a future epic, not yet built. The server-authoritative FPS/RTS sim engines exist (🚧 [`docs/realtime-server-authoritative-design.md`](../../realtime-server-authoritative-design.md)) but no realtime title is catalog-launchable yet.
 
 ## Adding a new federated route
 

@@ -8,17 +8,17 @@ Where this wiki disagrees with the source tree, the source tree wins. Each page 
 
 ## Architecture reference
 
-Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, each with the diagram inlined as Mermaid.
+Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, key diagrams inlined as Mermaid. The catalog ships **16 games in two delivery models** — Godot 4 WASM (2 titles) and web-native Rust→wasm32 (14 titles, host-authoritative over the SSE relay); the chapters below cover both.
 
 | # | Page | What's in it |
 |---|---|---|
-| 01 | [Overview](architecture/01-overview.md) | What Snapdragon Games is in three sentences and one container list. |
-| 02 | [Runtime architecture](architecture/02-runtime.md) | Browser → host nginx → BFF; the SSE merge; the `autoCancel=false` rule. |
-| 03 | [Module Federation](architecture/03-federation.md) | The two ordering rules, the manifest endpoint, per-game routing. |
-| 04 | [Data model](architecture/04-data-model.md) | Postgres schema clusters, Cassandra cache, Liquibase order. |
-| 05 | [API + service reference](architecture/05-api-reference.md) | Every controller + service with marbles, examples, error paths. |
+| 01 | [Overview](architecture/01-overview.md) | What Snapdragon Games is in three sentences, the container list, and the two game families (Godot WASM vs web-native Rust→wasm32). |
+| 02 | [Runtime architecture](architecture/02-runtime.md) | Browser → host nginx → BFF; the Godot and web-native (`wasm-game`) launch flows; the SSE merge; the `autoCancel=false` rule. |
+| 03 | [Module Federation](architecture/03-federation.md) | The two ordering rules, the manifest endpoint, per-game routing, the `wasm-game` kind for web-native games. |
+| 04 | [Data model](architecture/04-data-model.md) | Postgres schema clusters (53 changelogs), Cassandra cache, Liquibase order incl. the web-native catalog + realtime-match tables. |
+| 05 | [API + service reference](architecture/05-api-reference.md) | All 38 controllers + services with marbles, examples, error paths (incl. the 🚧 realtime PvP surface). |
 | 06 | [Build and deploy](architecture/06-build-and-deploy.md) | The `make` chain, GraalVM native-image, doc publishing. |
-| 07 | [Extending the portal](architecture/07-extending.md) | Add a game / route / role / SSE channel / DB column. |
+| 07 | [Extending the portal](architecture/07-extending.md) | Add a game (Godot or web-native) / route / role / SSE channel / DB column. |
 
 ## Audience guides
 
@@ -72,6 +72,18 @@ Why the system has the shape it has. Each entry is one decision, the constraint 
 - [014 — All Godot networking flows through the bridge](decisions/014-bridge-routed-networking.md)
 - [015 — Friends, blocks, session visibility, and per-user session log](decisions/015-friends-blocks-and-session-visibility.md)
 - [016 — Rust GDExtension owns the bridge; Angular wrapper relays SSE + HTTP](decisions/016-rust-extension-and-fragment-relay.md)
+- [017 — Cross-pod rate limit](decisions/017-cross-pod-rate-limit.md)
+- [018 — RPG + VN makers](decisions/018-rpg-and-vn-makers.md)
+- [019 — Production rate limits](decisions/019-production-rate-limits.md)
+- [020 — Object-storage backed uploads](decisions/020-object-storage-uploads.md)
+- [021 — Kafka → ClickHouse streaming pipeline](decisions/021-kafka-clickhouse-streaming-pipeline.md)
+- [022 — Postgres read replica](decisions/022-postgres-read-replica.md)
+- [023 — Content-Security-Policy (strict CSP is 🔭 a documented follow-up)](decisions/023-content-security-policy.md)
+- [024 — WCAG palette audit](decisions/024-wcag-palette-audit.md)
+- [025 — BFF-side `DOMAIN_` guard (multi-brand; full single-BFF operation 🚧 deferred)](decisions/025-bff-domain-guard.md)
+- [026 — Games-catalog domain partitioning (public-read brand filtering 🚧 deferred)](decisions/026-games-catalog-domain-partitioning.md)
+
+> **Engine-level / roadmap design records** (not yet catalog-launchable): [`docs/realtime-server-authoritative-design.md`](../realtime-server-authoritative-design.md) + [`docs/realtime-sim-wiring-p4.md`](../realtime-sim-wiring-p4.md) (🚧 server-authoritative FPS/RTS engines) and [`docs/game-ports-backlog.md`](../game-ports-backlog.md) (🔭 future game ports).
 
 ## Where the canonical sources live
 

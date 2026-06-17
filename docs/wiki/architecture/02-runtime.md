@@ -4,8 +4,8 @@
 
 The runtime data flow has three tiers:
 
-1. **The player's browser** — federated Angular host, the active remote module, the WASM iframe.
-2. **Per-remote nginx fleet** — host nginx, twelve role-gated remotes, the asset-tier `wasm-fragment`.
+1. **The player's browser** — federated Angular host, the active remote module, the WASM iframe (Godot or web-native).
+2. **Per-remote nginx fleet** — host nginx, twelve role-gated remotes, the asset-tier `wasm-fragment` (which serves both Godot bundles and the 14 web-native bundles).
 3. **BFF + persistence** — Spring Boot WebFlux on top of Postgres and Cassandra, behind Casdoor.
 
 ## Three-tier topology
@@ -29,7 +29,7 @@ flowchart TB
         GD[games-dodecahedron]
         RPG[games-rpg-maker]
         VN[games-vn-maker]
-        WF[wasm-fragment<br/>Godot bundles]
+        WF["wasm-fragment<br/>serves Godot bundles AND<br/>14 web-native (kind=wasm-game) bundles"]
     end
     subgraph T3["Tier 3 — BFF + persistence"]
         BFF[Spring Boot BFF<br/>WebFlux + R2DBC + JDBC]
@@ -85,7 +85,36 @@ sequenceDiagram
     BFF-->>Godot: event:movement, event:character, event:time, …
 ```
 
-`SCENE_TYPE_TO_GAME_SLUG` forks the renderer; federated games mint a `launch_uid` for operational visibility; `TW_CHAPTER_TRANSITION` `postMessage` is caught at the host level so it works regardless of which renderer is mounted.
+`SCENE_TYPE_TO_GAME_SLUG` forks the renderer; federated games mint a `launch_uid` for operational visibility; `TW_CHAPTER_TRANSITION` `postMessage` is caught at the host level so it works regardless of which renderer is mounted. The sequence above is the **Godot** (server-authoritative) launch path.
+
+### Browser-side flow — web-native (host-authoritative)
+
+The 14 web-native titles take a different path: the host reads `isWebNative` off the manifest (`kind='wasm-game'`), mounts the `games/<slug>` bundle from `wasm-fragment`, and the **host browser runs the Rust engine**. The BFF only relays control/world events over the per-session SSE stream; the guest re-applies and re-validates.
+
+```mermaid
+sequenceDiagram
+    participant U as User (host)
+    participant Host as Angular host
+    participant BFF as Spring BFF
+    participant WF as wasm-fragment
+    participant Engine as Rust→wasm32 engine (host browser)
+    participant Guest as Guest browser
+    U->>Host: click web-native game card
+    Host->>BFF: GET /api/federation/manifest
+    BFF-->>Host: row kind='wasm-game' → isWebNative=true
+    Host->>WF: iframe src=/_remotes/wasm-fragment/{slug}/index.html?session_id=…&slot_index=…
+    WF-->>Engine: serve games/{slug} bundle (COOP/COEP/CORP)
+    Engine->>Engine: WasmHost.instantiateStreaming (empty imports)
+    Engine->>BFF: SessionClient opens per-session SSE (GET /api/game/stream?sessionId=…)
+    loop each local move
+        Engine->>Engine: apply → render
+        Engine->>BFF: relay control/world (reemitToSession)
+    end
+    BFF-->>Guest: control/world over the same per-session SSE
+    Guest->>Guest: re-apply + re-validate
+```
+
+Reference: [`games/_shared/README.md`](../../../games/_shared/README.md) (the `WasmHost` / `SessionClient` / `mountGame` shell) and [decision 016](../decisions/016-rust-extension-and-fragment-relay.md).
 
 ### Why `globalThis` and not a service
 
@@ -111,7 +140,8 @@ The host nginx serves the host bundle plus a set of `location /_remotes/<slug>/`
 | `games-dodecahedron` | `remote-game` | `./GameRoot` — same pattern, single chrome-less scene. |
 | `games-rpg-maker` | `remote-shell` | `./RpgMakerRemote` — Mudlet-shaped RPG editor; drives `rpg-builder/` side service at `/api/rpg/*`. Mounted at `/rpg-maker`. |
 | `games-vn-maker` | `remote-shell` | `./VnMakerRemote` — visual-novel editor; drives `vn-builder/` side service at `/api/vn/*`. Mounted at `/vn-maker`. |
-| `wasm-fragment` | `fragment` | Asset-tier nginx; bakes `backend/src/main/resources/assets/levels/` and serves at `/_remotes/wasm-fragment/<slug>/index.html`. |
+| `wasm-fragment` | `fragment` | Asset-tier nginx; bakes `backend/src/main/resources/assets/levels/` and serves at `/_remotes/wasm-fragment/<slug>/index.html`. Serves **both** the Godot bundles **and** the 14 web-native bundles — no per-game container for the latter. |
+| `<game-slug>` (×14) | `wasm-game` | The 14 web-native titles. `remote_entry_url` points **directly** at `/_remotes/wasm-fragment/<slug>/index.html` (not a `remoteEntry.json`), `exposed_module=NULL`, `game_slug` carries the catalog slug. The host reads `isWebNative` off the manifest and mounts the bundle as a parametrised iframe — no per-game Angular remote. `main.ts` excludes `wasm-game` from `initFederation`. Seeded by [`051-web-game-federation.xml`](../../../backend/src/main/resources/db/changelog/051-web-game-federation.xml); see [decision 016](../decisions/016-rust-extension-and-fragment-relay.md). |
 
 ## The BFF
 
@@ -148,18 +178,20 @@ The isolation contract is locked in by [`SessionIsolationTest`](../../../backend
 
 ```mermaid
 flowchart LR
-    A[Player A — session α] -->|POST /api/controls/{cidA}<br/>X-Session-Id: α| BFF
-    B[Player B — session β] -->|POST /api/controls/{cidB}<br/>X-Session-Id: β| BFF
-    BFF --> Global[Global sink<br/>admin firehose]
-    BFF --> SinkA[SessionSinks α]
-    BFF --> SinkB[SessionSinks β]
-    Global --> AdminAll[GET /api/admin/stream]
-    SinkA --> SubA[GET /api/game/stream?sessionId=α]
-    SinkB --> SubB[GET /api/game/stream?sessionId=β]
+    A["Player A — session α<br/>(Godot control OR web-native relay)"] -->|"POST /api/controls/{cidA}<br/>X-Session-Id: α"| BFF
+    B["Player B — session β"] -->|"POST /api/controls/{cidB}<br/>X-Session-Id: β"| BFF
+    BFF["BFF — GameStateService<br/>web-native games relay via reemitToSession"] --> Global["Global sink<br/>admin firehose"]
+    BFF --> SinkA["SessionSinks α"]
+    BFF --> SinkB["SessionSinks β"]
+    Global --> AdminAll["GET /api/admin/stream"]
+    SinkA --> SubA["GET /api/game/stream?sessionId=α"]
+    SinkB --> SubB["GET /api/game/stream?sessionId=β"]
     classDef noleak fill:#ffe5e5,stroke:#a14a4a;
-    SinkA -.|never reaches B| SubB:::noleak
-    SinkB -.|never reaches A| SubA:::noleak
+    SinkA -. "never reaches B" .-> SubB:::noleak
+    SinkB -. "never reaches A" .-> SubA:::noleak
 ```
+
+The same per-session sinks carry the **web-native game relay**: when a host browser re-emits a control/world event via `GameStateService.reemitToSession`, it fans out only to that session's sink — so the isolation guarantee above covers web-native multiplayer too.
 
 A new **`view`** channel carries per-player camera/orientation samples (~10 Hz) that the Rust GDExtension's `view_egress` signal feeds. Admins watch via `/api/admin/sessions/{id}/stream`. See [decision 010](../decisions/010-per-session-sse-sinks.md) and [decision 013](../decisions/013-player-view-channel.md).
 
