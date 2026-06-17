@@ -7,8 +7,13 @@
     "bdd": "bddgen && playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "1.49.0",
+    "@playwright/test": "1.55.1",
     "@types/node": "^20.0.0",
     "playwright-bdd": "^8.5.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1",
+    "playwright": "1.55.1",
+    "playwright-core": "1.55.1"
   }
 }
