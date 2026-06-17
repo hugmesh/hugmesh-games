@@ -1,0 +1,199 @@
+package games.snapdragon.bff.controller;
+
+import games.snapdragon.bff.config.BanGateFilter;
+import games.snapdragon.bff.config.DomainGuardFilter;
+import games.snapdragon.bff.config.RateLimitFilter;
+import games.snapdragon.bff.config.SecurityConfig;
+import games.snapdragon.bff.config.SecurityHeadersFilter;
+import games.snapdragon.bff.controller.support.SecuritySliceSupport;
+import games.snapdragon.bff.model.ModGameScope;
+import games.snapdragon.bff.model.PublisherGameScope;
+import games.snapdragon.bff.repository.ModGameScopeRepository;
+import games.snapdragon.bff.repository.PublisherGameScopeRepository;
+import games.snapdragon.bff.service.PublisherService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.context.annotation.ComponentScan.Filter;
+import org.springframework.context.annotation.FilterType;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import java.util.Map;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
+
+/**
+ * HTTP/filter-layer privilege-escalation DENY matrix for
+ * {@link RoleAdminController} (mission target #3: a USER/MOD cannot grant
+ * themselves admin/role).
+ *
+ * <p>The whole controller is {@code @PreAuthorize("hasRole('ADMIN')")} at the
+ * class level AND sits under the {@code /api/admin/**} →
+ * {@code hasRole('ADMIN')} security matcher. These tests prove BOTH gates at
+ * the WebTestClient boundary:
+ * <ul>
+ *   <li>anonymous → 401 on every grant/revoke/list path;</li>
+ *   <li>a plain USER → 403 and NO {@code *_game_scopes} row is ever written
+ *       (a USER cannot self-grant publisher/mod scope);</li>
+ *   <li>a MOD → 403 (holding a mod scope does NOT confer the admin authority to
+ *       mint more scopes — the canonical privilege-escalation attempt);</li>
+ *   <li>a PUBLISHER → 403 on the admin grant path;</li>
+ *   <li>an ADMIN → 200 and the grant lands (the legitimate path still works).</li>
+ * </ul>
+ */
+@WebFluxTest(controllers = RoleAdminController.class,
+        excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = {
+                BanGateFilter.class, DomainGuardFilter.class,
+                RateLimitFilter.class, SecurityHeadersFilter.class}))
+@Import({SecurityConfig.class, SecuritySliceSupport.TenantBeans.class})
+class RoleAdminControllerHttpAuthzTest {
+
+    @Autowired WebTestClient web;
+
+    @MockitoBean PublisherService publisher;
+    @MockitoBean PublisherGameScopeRepository publisherScopes;
+    @MockitoBean ModGameScopeRepository modScopes;
+
+    private static final String GRANT_PUBLISHER = "/api/admin/role-grants/grant-publisher";
+    private static final String GRANT_MOD       = "/api/admin/role-grants/grant-mod";
+    private static final String REVOKE_MOD      = "/api/admin/role-grants/revoke-mod";
+    private static final String LIST_MODS       = "/api/admin/role-grants/mods";
+
+    private static Map<String, String> grantBody(String target, String slug) {
+        return Map.of("targetCasdoorId", target, "gameSlug", slug);
+    }
+
+    // ── anonymous → 401, no side effects ──────────────────────────────────────
+
+    @Test
+    void grantPublisher_anonymous_is401() {
+        web.mutateWith(csrf())
+                .post().uri(GRANT_PUBLISHER).bodyValue(grantBody("self", "rival-game"))
+                .exchange()
+                .expectStatus().isUnauthorized();
+        verify(publisher, never()).adminGrantPublisher(any(), any(), any());
+    }
+
+    @Test
+    void listMods_anonymous_is401() {
+        web.get().uri(LIST_MODS).exchange().expectStatus().isUnauthorized();
+        verify(modScopes, never()).findAll();
+    }
+
+    // ── plain USER → 403, never self-grants ───────────────────────────────────
+
+    @Test
+    void grantPublisher_user_is403_andNeverGrants() {
+        web.mutateWith(SecuritySliceSupport.user("eve"))
+                .mutateWith(csrf())
+                .post().uri(GRANT_PUBLISHER).bodyValue(grantBody("eve", "rival-game"))
+                .exchange()
+                .expectStatus().isForbidden();
+        // The self-escalation attempt must NEVER reach the scope write.
+        verify(publisher, never()).adminGrantPublisher(any(), any(), any());
+    }
+
+    @Test
+    void grantMod_user_is403_andNeverWritesScopeRow() {
+        web.mutateWith(SecuritySliceSupport.user("eve"))
+                .mutateWith(csrf())
+                .post().uri(GRANT_MOD).bodyValue(grantBody("eve", "any-game"))
+                .exchange()
+                .expectStatus().isForbidden();
+        verify(modScopes, never()).save(any());
+        verify(modScopes, never()).findActive(anyString(), anyString());
+    }
+
+    // ── MOD → 403 (the canonical escalation: a mod minting more scopes) ───────
+
+    @Test
+    void grantMod_mod_is403_modCannotMintScopes() {
+        web.mutateWith(SecuritySliceSupport.mod("m"))
+                .mutateWith(csrf())
+                .post().uri(GRANT_MOD).bodyValue(grantBody("m", "any-game"))
+                .exchange()
+                .expectStatus().isForbidden();
+        verify(modScopes, never()).save(any());
+    }
+
+    @Test
+    void revokeMod_mod_is403() {
+        web.mutateWith(SecuritySliceSupport.mod("m"))
+                .mutateWith(csrf())
+                .post().uri(REVOKE_MOD).bodyValue(grantBody("rival", "g"))
+                .exchange()
+                .expectStatus().isForbidden();
+        verify(modScopes, never()).save(any());
+    }
+
+    // ── PUBLISHER → 403 on the ADMIN grant path ───────────────────────────────
+
+    @Test
+    void grantPublisher_publisher_is403() {
+        web.mutateWith(SecuritySliceSupport.publisher("p"))
+                .mutateWith(csrf())
+                .post().uri(GRANT_PUBLISHER).bodyValue(grantBody("p", "another-game"))
+                .exchange()
+                .expectStatus().isForbidden();
+        verify(publisher, never()).adminGrantPublisher(any(), any(), any());
+    }
+
+    @Test
+    void listMods_user_is403() {
+        web.mutateWith(SecuritySliceSupport.user("eve"))
+                .get().uri(LIST_MODS)
+                .exchange()
+                .expectStatus().isForbidden();
+        verify(modScopes, never()).findAll();
+    }
+
+    // ── ADMIN → 200, legitimate grant lands ───────────────────────────────────
+
+    @Test
+    void grantPublisher_admin_is200_andGrants() {
+        when(publisher.adminGrantPublisher(eq("root"), eq("alice"), eq("game-x")))
+                .thenReturn(Mono.just(new PublisherGameScope()));
+
+        web.mutateWith(SecuritySliceSupport.admin("root"))
+                .mutateWith(csrf())
+                .post().uri(GRANT_PUBLISHER).bodyValue(grantBody("alice", "game-x"))
+                .exchange()
+                .expectStatus().isOk();
+        verify(publisher).adminGrantPublisher(eq("root"), eq("alice"), eq("game-x"));
+    }
+
+    @Test
+    void grantMod_admin_is200_andWritesScope() {
+        when(modScopes.findActive(eq("alice"), eq("game-x"))).thenReturn(Mono.empty());
+        when(modScopes.save(any(ModGameScope.class)))
+                .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+
+        web.mutateWith(SecuritySliceSupport.admin("root"))
+                .mutateWith(csrf())
+                .post().uri(GRANT_MOD).bodyValue(grantBody("alice", "game-x"))
+                .exchange()
+                .expectStatus().isOk();
+        verify(modScopes).save(any(ModGameScope.class));
+    }
+
+    @Test
+    void listMods_admin_is200() {
+        lenient().when(modScopes.findAll()).thenReturn(Flux.empty());
+
+        web.mutateWith(SecuritySliceSupport.admin("root"))
+                .get().uri(LIST_MODS)
+                .exchange()
+                .expectStatus().isOk();
+    }
+}
