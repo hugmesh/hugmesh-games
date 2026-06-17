@@ -44,7 +44,8 @@ class GodotExporterTest {
     }
 
     /** A GodotExporter whose "Godot run" is faked: optionally writes a non-empty bundle
-     *  at the requested output path, and returns a process with the given exit code. */
+     *  (index.html + a non-empty sibling index.wasm — what a REAL Web export emits) at
+     *  the requested output path, and returns a process with the given exit code. */
     private static GodotExporter fakeExporter(int exit, boolean writesBundle, boolean finishes) {
         return new GodotExporter("godot", Duration.ofMinutes(5), "Web") {
             @Override
@@ -53,8 +54,25 @@ class GodotExporterTest {
                     Path out = Path.of(cmd.get(cmd.size() - 1));
                     Files.createDirectories(out.getParent());
                     Files.writeString(out, "<html>a real-ish bundle</html>");
+                    // Real Web exports always emit a multi-MB index.wasm alongside.
+                    Files.write(out.resolveSibling("index.wasm"), new byte[]{0, 'a', 's', 'm', 1, 2, 3, 4});
                 }
                 return new FakeProcess(exit, "Godot export log…", finishes);
+            }
+        };
+    }
+
+    /** Faked run that writes index.html but a ZERO-BYTE index.wasm — the signature of a
+     *  stub (or a broken export that only emitted the HTML). */
+    private static GodotExporter stubWasmExporter() {
+        return new GodotExporter("godot", Duration.ofMinutes(5), "Web") {
+            @Override
+            protected Process runProcess(List<String> cmd) throws IOException {
+                Path out = Path.of(cmd.get(cmd.size() - 1));
+                Files.createDirectories(out.getParent());
+                Files.writeString(out, "<html>stub — replace once app.build.godot-enabled=true</html>");
+                Files.write(out.resolveSibling("index.wasm"), new byte[]{});   // zero bytes
+                return new FakeProcess(0, "Godot export log…", true);
             }
         };
     }
@@ -65,6 +83,19 @@ class GodotExporterTest {
         fakeExporter(0, true, true).exportWeb(dir.resolve("godot-src"), out);
         assertThat(Files.exists(out)).isTrue();
         assertThat(Files.size(out)).isGreaterThan(0);
+        // The load-bearing artifact — a real export's index.wasm is non-empty.
+        assertThat(Files.size(out.resolveSibling("index.wasm"))).isGreaterThan(0);
+    }
+
+    @Test
+    void exitZeroButEmptyWasmFailsAsStub(@TempDir Path dir) {
+        // exit 0 + non-empty index.html but a ZERO-BYTE index.wasm is the stub
+        // signature: a real Web export always emits a multi-MB wasm. The exporter
+        // must reject it so prod can't silently ship a placeholder when enabled.
+        assertThatThrownBy(() ->
+                stubWasmExporter().exportWeb(dir.resolve("godot-src"), dir.resolve("out/index.html")))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("STUB");
     }
 
     @Test

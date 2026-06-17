@@ -82,7 +82,7 @@ func _render_current_line() -> void:
         return
     var line: Dictionary = lines[current_line_index]
     var character_id: String = line.get("character_id", "")
-    var speaker := characters.get(character_id, {}).get("display_name", "")
+    var speaker: String = characters.get(character_id, {}).get("display_name", "")
     var text: String = line.get("text", "")
     if text_box.has_method("show_line"):
         text_box.show_line(speaker, text, line.get("choices", []))

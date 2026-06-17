@@ -150,6 +150,15 @@ public class GodotCompileWorker {
             }
         }
 
+        // Stub-ship guard (defense in depth): when real export is ON, no staged
+        // area may carry an empty/absent index.wasm. GodotExporter already rejects
+        // a stub-shaped export, but this re-checks the WHOLE staged tree just before
+        // upload so a placeholder can never reach the BFF when godot-enabled=true —
+        // the build fails loudly instead of silently shipping a non-playable bundle.
+        if (godotEnabled) {
+            assertNoStubBundles(stage.resolve("bundle"));
+        }
+
         // manifest.json (BFF requires schema_version=2 + game.slug)
         String manifest = """
                 {
@@ -233,6 +242,27 @@ public class GodotCompileWorker {
         try (var files = Files.list(src)) {
             for (Path f : files.filter(Files::isRegularFile).toList()) {
                 Files.copy(f, dst.resolve(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+    }
+
+    /**
+     * Fail the build if any staged area bundle carries an empty/absent
+     * {@code index.wasm} while real export is enabled — a stub must never be
+     * uploaded as if it were a real export. Each {@code bundle/<area>/} produced
+     * by a real Godot Web export has a multi-MB {@code index.wasm}; a zero-byte
+     * one is the dev-stub signature.
+     */
+    private static void assertNoStubBundles(Path bundleRoot) throws IOException {
+        if (!Files.isDirectory(bundleRoot)) return;
+        try (var areas = Files.list(bundleRoot)) {
+            for (Path area : areas.filter(Files::isDirectory).toList()) {
+                Path wasm = area.resolve("index.wasm");
+                if (!Files.exists(wasm) || Files.size(wasm) == 0) {
+                    throw new IOException("refusing to ship a STUB bundle: "
+                            + area.getFileName() + "/index.wasm is empty/absent while "
+                            + "app.build.godot-enabled=true (real Godot export must produce real WASM)");
+                }
             }
         }
     }

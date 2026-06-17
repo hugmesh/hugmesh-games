@@ -17,6 +17,19 @@ tools/godot-export/
 
 `<version>` must match the editor that produced the templates, e.g. `4.6.stable`.
 
+> **Version-string skew (binary vs templates).** Godot resolves templates under
+> `…/export_templates/<binary-version>.stable/`. If your binary is e.g. `4.6.3`
+> but only `4.6.1` templates are installed, the export fails with
+> *"No export template found … 4.6.3.stable/web_*.zip"*. Either fetch the matching
+> templates (`make godot-export-tools` pins a version) or symlink the installed
+> ones into a matching dir:
+> ```bash
+> TPL=~/.local/share/godot/export_templates
+> mkdir -p "$TPL/4.6.3.stable"
+> ln -sf "$TPL"/4.6.1.stable/web_*.zip "$TPL/4.6.3.stable/"
+> printf '4.6.3.stable\n' > "$TPL/4.6.3.stable/version.txt"
+> ```
+
 ## Populate it
 
 ```bash
@@ -44,6 +57,23 @@ make build-with-godot          # brings rpg-builder + vn-builder up with the ove
 - **Bridge binary.** Only `snapdragon_bridge.wasm` (the `web.wasm32` library) is required
   for the Web export; it's bind-mounted from `backend/src/main/resources/assets/levels/cave/`.
   Rebuild it with `make build-rust` if you change the Rust GDExtension.
-- **Verify the bytes.** A successful real build produces a non-empty `index.wasm` /
-  `index.pck`; the dev stub path produces zero-byte files. The maker e2e
-  (`make e2e-bdd` with the overlay) asserts the bundle bytes are non-empty.
+- **No silent stubs in prod (enforced).** When `app.build.godot-enabled=true` a real
+  Web export ALWAYS emits a multi-MB `index.wasm`. The export path now fails loudly on a
+  stub-shaped output rather than shipping a placeholder, in two layers:
+    1. `GodotExporter.exportWeb` rejects an exit-0 export whose sibling `index.wasm` is
+       empty/absent (in addition to the existing `index.html` check); and
+    2. `GodotCompileWorker` re-checks the WHOLE staged `bundle/` tree just before upload
+       (`assertNoStubBundles`) so no `bundle/<area|act>/index.wasm` can be empty.
+  Both throw → the build is marked FAILED. Unit-tested in `GodotExporterTest`
+  (`exitZeroButEmptyWasmFailsAsStub`) and `GodotCompileWorkerTest`
+  (`enabledExportRefusesToShipStubWasm`) for both makers. The dev default
+  (`godot-enabled=false`) still emits the zero-byte stub so the rest of the pipeline runs
+  without the toolchain — the gate is unchanged; only ON is now guaranteed real.
+
+- **Verified end-to-end (2026-06).** A rendered Flatland fixture project (RPG + VN) was
+  exported on a host with Godot 4.6.3 + Web templates via the exact `GodotExporter`
+  command — `godot --headless --path <godot-src> --export-release "Web" <out>/index.html` —
+  producing deliverable WASM:
+  `index.wasm` 1,509,558 B, `index.side.wasm` 41,113,842 B, `index.pck` ~18–20 KB,
+  `snapdragon_bridge.wasm` 2,678,048 B (all `\0asm` magic-bytes verified). The maker e2e
+  (`make e2e-bdd` with the overlay) additionally asserts the bundle bytes are non-empty.
