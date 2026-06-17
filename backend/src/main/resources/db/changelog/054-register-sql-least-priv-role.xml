@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    SECURITY (OWASP A03/A04) — least-privilege role for executing an uploaded
+    bundle's register.sql.
+
+    register.sql is attacker-controlled bundle content. RegisterSqlPolicy is the
+    application-layer allowlist (default-deny), and the hardened lexer closes the
+    standard_conforming_strings desync that let a smuggled `;`-separated
+    statement ride through. This migration adds the DURABLE, defence-in-depth
+    leg the RegisterSqlPolicy Javadoc has always named but which was never
+    configured: a dedicated NOSUPERUSER role with NO DDL and access to ONLY the
+    six catalog tables a bundle may self-register.
+
+    GameUploadService runs the vetted statements under this role via a
+    transaction-scoped `SET LOCAL ROLE` (reverts on commit/rollback, keeps the
+    install atomic on ONE connection). For `SET ROLE` to work the application
+    login role must be GRANTed membership in this role — done below for the
+    configured DB user (default `threewizards`, overridable so prod's real login
+    role is enrolled). No new login credential is created, so nothing secret is
+    introduced or committed; the role is a pure privilege boundary.
+
+    Idempotent: role creation + grants are guarded so a Liquibase rerun is safe.
+  -->
+
+  <changeSet id="054-1-create-register-sql-role" author="claude" runInTransaction="false">
+    <preConditions onFail="MARK_RAN">
+      <not>
+        <sqlCheck expectedResult="1">
+          SELECT COUNT(*) FROM pg_roles WHERE rolname = 'snapdragon_register_sql'
+        </sqlCheck>
+      </not>
+    </preConditions>
+    <sql splitStatements="false"><![CDATA[
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'snapdragon_register_sql') THEN
+          -- NOLOGIN: never a connection identity, only a SET ROLE target.
+          -- NOSUPERUSER / NOCREATEDB / NOCREATEROLE / NOINHERIT: no escalation,
+          -- and crucially no COPY ... TO PROGRAM (superuser-only) host RCE.
+          CREATE ROLE snapdragon_register_sql
+            NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+        END IF;
+      END $$;
+    ]]></sql>
+  </changeSet>
+
+  <changeSet id="054-2-grant-catalog-tables" author="claude" runInTransaction="false">
+    <sql splitStatements="false"><![CDATA[
+      DO $$
+      DECLARE
+        t   text;
+        seq text;
+        catalog_tables text[] := ARRAY[
+          'games','levels','chapters',
+          'federation_modules','game_access','game_event_support'
+        ];
+        col text;
+      BEGIN
+        -- Strip any privileges a prior run / default may have granted broadly,
+        -- then grant ONLY what register.sql needs on ONLY the six catalog
+        -- tables: SELECT (for INSERT ... SELECT FROM games) + INSERT + UPDATE
+        -- (ON CONFLICT DO UPDATE upserts). No DELETE, no TRUNCATE, no
+        -- references, and nothing at all on any other table.
+        FOREACH t IN ARRAY catalog_tables LOOP
+          IF EXISTS (
+            SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relname = t AND c.relkind = 'r'
+          ) THEN
+            EXECUTE format('GRANT SELECT, INSERT, UPDATE ON public.%I TO snapdragon_register_sql', t);
+            -- Owned (serial/identity) sequences need USAGE+SELECT for nextval.
+            FOR seq IN
+              SELECT s.relname
+              FROM pg_depend d
+              JOIN pg_class s ON s.oid = d.objid AND s.relkind = 'S'
+              JOIN pg_class r ON r.oid = d.refobjid
+              JOIN pg_namespace n ON n.oid = r.relnamespace
+              WHERE n.nspname = 'public' AND r.relname = t
+            LOOP
+              EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO snapdragon_register_sql', seq);
+            END LOOP;
+          END IF;
+        END LOOP;
+      END $$;
+    ]]></sql>
+  </changeSet>
+
+  <changeSet id="054-3-enroll-app-login-role" author="claude" runInTransaction="false">
+    <!--
+      Enrol the application's login role as a MEMBER of snapdragon_register_sql
+      so the BFF connection can `SET LOCAL ROLE snapdragon_register_sql` for the
+      register.sql step. NOINHERIT on the target means membership grants the
+      ABILITY to SET ROLE, not the privileges by default — the login role keeps
+      its own (broader) rights until it explicitly switches.
+
+      Default: enrol CURRENT_USER — the role Liquibase connects as, which IS the
+      BFF's R2DBC login role in every environment we run (dev compose +
+      Testcontainers + prod all point Liquibase and R2DBC at the same DB_USER).
+      Override with `-Dapp.register-sql.login-role=<role>` only when Liquibase
+      runs as a privileged migration role distinct from the BFF login role; that
+      role is then enrolled INSTEAD of CURRENT_USER. No login credential is
+      created here — this is a pure membership grant.
+    -->
+    <sql splitStatements="false"><![CDATA[
+      DO $$
+      DECLARE
+        override_role text := nullif('${app.register-sql.login-role}', '');
+        login_role    text := coalesce(override_role, current_user);
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = login_role) THEN
+          EXECUTE format('GRANT snapdragon_register_sql TO %I', login_role);
+        END IF;
+      END $$;
+    ]]></sql>
+  </changeSet>
+
+</databaseChangeLog>

@@ -82,7 +82,20 @@ public class GameUploadService {
     private final DatabaseClient db;
     private final TransactionalOperator tx;
 
+    /**
+     * Least-privilege Postgres role the attacker-controlled register.sql is run
+     * under (NOSUPERUSER, no DDL, INSERT/UPDATE/SELECT on only the six catalog
+     * tables — created by migration 054). Applied via a transaction-scoped
+     * {@code SET LOCAL ROLE} so the install stays atomic on one connection and
+     * the role reverts on commit/rollback. Blank disables the switch (the
+     * application-layer allowlist + hardened lexer still apply); validated only
+     * as a SQL identifier to keep it out of the injection surface.
+     */
+    private final String registerSqlRole;
+    private static final Pattern ROLE_RE = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]{0,62}$");
+
     public GameUploadService(@Value("${app.uploads.games-dir:/var/snapdragon/games}") String gamesDirCfg,
+                             @Value("${app.uploads.register-sql.role:snapdragon_register_sql}") String registerSqlRole,
                              UploadStorage storage,
                              GameUploadRepository uploads,
                              ConnectionFactory connectionFactory,
@@ -97,7 +110,14 @@ public class GameUploadService {
         this.uploads = uploads;
         this.db = DatabaseClient.create(connectionFactory);
         this.tx = tx;
-        log.info("[upload] storage={} stagingRoot={}", storage.label(), stagingRoot);
+        String role = registerSqlRole == null ? "" : registerSqlRole.trim();
+        if (!role.isEmpty() && !ROLE_RE.matcher(role).matches()) {
+            throw new IllegalArgumentException(
+                    "app.uploads.register-sql.role must be a plain SQL identifier: " + role);
+        }
+        this.registerSqlRole = role;
+        log.info("[upload] storage={} stagingRoot={} registerSqlRole={}",
+                storage.label(), stagingRoot, role.isEmpty() ? "(disabled)" : role);
     }
 
     public record InstalledUpload(String slug, String contentHash, String versionDir, Instant uploadedAt) {}
@@ -369,24 +389,96 @@ public class GameUploadService {
     }
 
     /**
-     * Splits a multi-statement register.sql into individual statements
-     * and runs them in order. Postgres + R2DBC don't pipe a `;`-separated
-     * blob cleanly, but the Godot plugin emits well-formed single-shot
-     * upserts so naïve splitting on `;` outside of strings is safe.
+     * Splits a multi-statement register.sql into individual statements and runs
+     * them in order, under the least-privilege role, inside the caller's
+     * transaction.
+     *
+     * <p><b>Defence in depth (OWASP A03/A04).</b> register.sql is
+     * attacker-controlled bundle content; three independent layers contain it:
+     * <ol>
+     *   <li>{@link RegisterSqlPolicy#vet} — the default-deny application
+     *       allowlist (only INSERTs into the six catalog tables / a games
+     *       feature-flag UPDATE), now backed by a standard-conforming-strings
+     *       lexer that rejects backslash/E''/$tag$/block-comment desyncs;</li>
+     *   <li>per-statement execution — each VETTED statement is sent on its own
+     *       to {@code db.sql(...)}, and a belt-and-suspenders guard rejects any
+     *       vetted statement that still contains a top-level {@code ;}, so a
+     *       multi-statement blob can never reach Postgres' simple-query protocol
+     *       (which would otherwise run every {@code ;}-separated statement);</li>
+     *   <li>least-privilege role — {@code SET LOCAL ROLE} switches the session to
+     *       a NOSUPERUSER, no-DDL role scoped to only the six catalog tables for
+     *       the duration of register.sql, then {@code RESET ROLE} restores the
+     *       app role. {@code LOCAL} ties the switch to THIS transaction, so the
+     *       install stays atomic and the role reverts on commit/rollback even on
+     *       error. Skipped (with the other two layers still active) when
+     *       {@code app.uploads.register-sql.role} is blank.</li>
+     * </ol>
+     * A statement that violates the allowlist fails the whole upload with 400
+     * and rolls the install transaction back.
      */
     private Mono<Void> runRegisterSql(String sql) {
-        // Vet the bundle-supplied SQL against the catalog-write allowlist
-        // (RegisterSqlPolicy) BEFORE executing any of it — register.sql is
-        // attacker-controlled bundle content, so a single statement that isn't
-        // an INSERT into a catalog table / a games feature-flag UPDATE fails
-        // the whole upload with 400 and rolls the install transaction back.
         return Mono.fromCallable(() -> RegisterSqlPolicy.vet(sql))
                 .flatMapMany(Flux::fromIterable)
                 .concatMap(s -> {
+                    // Belt-and-suspenders: a vetted statement must be a SINGLE
+                    // statement. If splitting ever desynced again, this stops a
+                    // multi-statement string from reaching the simple-query
+                    // protocol. (vet() already rejects the known desyncs.)
+                    if (containsTopLevelSeparator(s)) {
+                        return Mono.error(new ResponseStatusException(BAD_REQUEST,
+                                "register.sql statement contains an embedded ';' separator"));
+                    }
                     log.info("[upload] register.sql exec: {}", s.length() > 80 ? s.substring(0, 80) + "…" : s);
                     return db.sql(s).fetch().rowsUpdated().then();
                 })
-                .then();
+                .then()
+                .as(this::underLeastPrivRole);
+    }
+
+    /**
+     * Wraps the register.sql execution in a transaction-scoped role switch to
+     * the least-privilege {@code registerSqlRole}. {@code SET LOCAL ROLE} +
+     * {@code RESET ROLE} both run on the same pooled connection inside the
+     * active transaction. No-op when the role is disabled (blank).
+     */
+    private Mono<Void> underLeastPrivRole(Mono<Void> body) {
+        if (registerSqlRole.isEmpty()) {
+            return body;
+        }
+        // registerSqlRole is validated as a SQL identifier in the constructor,
+        // so this interpolation is safe (no bind params for SET ROLE in PG).
+        Mono<Void> setRole = db.sql("SET LOCAL ROLE \"" + registerSqlRole + "\"")
+                .fetch().rowsUpdated().then();
+        Mono<Void> resetRole = db.sql("RESET ROLE").fetch().rowsUpdated().then();
+        return setRole
+                .then(body)
+                // RESET on success AND on error; SET LOCAL would also revert at
+                // tx end, but resetting eagerly keeps the rest of the tx (the
+                // domain stamp / markCurrent) running as the app role.
+                .onErrorResume(err -> resetRole.then(Mono.error(err)))
+                .then(resetRole);
+    }
+
+    /** True if {@code s} has a {@code ;} outside a (standard-conforming) string literal. */
+    private static boolean containsTopLevelSeparator(String s) {
+        boolean inString = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (inString) {
+                if (c == '\'') {
+                    if (i + 1 < s.length() && s.charAt(i + 1) == '\'') {
+                        i++;
+                    } else {
+                        inString = false;
+                    }
+                }
+            } else if (c == '\'') {
+                inString = true;
+            } else if (c == ';') {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────
