@@ -69,27 +69,55 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(GameUploadIntegrationTest.PostgresLifecycle.class)
 class GameUploadIntegrationTest {
 
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15");
+    // Postgres 16 — the version this SQL-injection regression is anchored to
+    // (standard_conforming_strings=on makes a backslash a LITERAL char, which is
+    // exactly what desynced the old register.sql lexer).
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
+
+    /**
+     * Escape hatch for environments where Testcontainers can't negotiate the
+     * Docker API (e.g. a very new daemon that rejects docker-java's default API
+     * floor). When {@code SG_TEST_PG_R2DBC_URL} (+ {@code _JDBC_URL}/{@code
+     * _USER}/{@code _PASS}) is set, the test runs against that already-running
+     * Postgres 16 instead of starting a container. CI leaves it unset and uses
+     * Testcontainers as normal.
+     */
+    private static boolean usingExternalDb() {
+        return System.getenv("SG_TEST_PG_R2DBC_URL") != null;
+    }
 
     static class PostgresLifecycle implements
             org.junit.jupiter.api.extension.BeforeAllCallback,
             org.junit.jupiter.api.extension.AfterAllCallback {
-        @Override public void beforeAll(org.junit.jupiter.api.extension.ExtensionContext ctx) { postgres.start(); }
-        @Override public void afterAll(org.junit.jupiter.api.extension.ExtensionContext ctx)  { postgres.stop(); }
+        @Override public void beforeAll(org.junit.jupiter.api.extension.ExtensionContext ctx) {
+            if (!usingExternalDb()) postgres.start();
+        }
+        @Override public void afterAll(org.junit.jupiter.api.extension.ExtensionContext ctx)  {
+            if (!usingExternalDb()) postgres.stop();
+        }
     }
 
     @DynamicPropertySource
     static void registerProps(DynamicPropertyRegistry reg) {
-        reg.add("spring.r2dbc.url", () -> String.format(
-                "r2dbc:postgresql://%s:%d/%s",
-                postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName()));
-        reg.add("spring.r2dbc.username", postgres::getUsername);
-        reg.add("spring.r2dbc.password", postgres::getPassword);
-        // JdbcDataSourceConfig reads spring.datasource.* — same DB,
-        // Liquibase migrates via this; R2DBC connects via the URL above.
-        reg.add("spring.datasource.url", postgres::getJdbcUrl);
-        reg.add("spring.datasource.username", postgres::getUsername);
-        reg.add("spring.datasource.password", postgres::getPassword);
+        if (usingExternalDb()) {
+            reg.add("spring.r2dbc.url",       () -> System.getenv("SG_TEST_PG_R2DBC_URL"));
+            reg.add("spring.r2dbc.username",  () -> System.getenv("SG_TEST_PG_USER"));
+            reg.add("spring.r2dbc.password",  () -> System.getenv("SG_TEST_PG_PASS"));
+            reg.add("spring.datasource.url",  () -> System.getenv("SG_TEST_PG_JDBC_URL"));
+            reg.add("spring.datasource.username", () -> System.getenv("SG_TEST_PG_USER"));
+            reg.add("spring.datasource.password", () -> System.getenv("SG_TEST_PG_PASS"));
+        } else {
+            reg.add("spring.r2dbc.url", () -> String.format(
+                    "r2dbc:postgresql://%s:%d/%s",
+                    postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName()));
+            reg.add("spring.r2dbc.username", postgres::getUsername);
+            reg.add("spring.r2dbc.password", postgres::getPassword);
+            // JdbcDataSourceConfig reads spring.datasource.* — same DB,
+            // Liquibase migrates via this; R2DBC connects via the URL above.
+            reg.add("spring.datasource.url", postgres::getJdbcUrl);
+            reg.add("spring.datasource.username", postgres::getUsername);
+            reg.add("spring.datasource.password", postgres::getPassword);
+        }
         reg.add("spring.liquibase.enabled", () -> "true");
         // Production default is /var/snapdragon/games — not writable
         // by non-root. Redirect to a per-test tmp dir so the staging /
@@ -104,6 +132,26 @@ class GameUploadIntegrationTest {
     @Autowired private FederationModuleRepository fedRepo;
     @Autowired private GameAccessRepository accessRepo;
     @Autowired private ConnectionFactory connectionFactory;
+
+    /**
+     * Re-sync {@code games_id_seq} with {@code MAX(id)} before each test.
+     *
+     * <p>The wave-game seed migrations (045–048, 050+) insert {@code games} rows
+     * with EXPLICIT ids and never advance the identity sequence, so on a freshly
+     * migrated database the sequence trails {@code MAX(id)}. The first
+     * sequence-allocated INSERT (which every upload's register.sql performs)
+     * would then collide on {@code games_pkey}. Production never hits this — real
+     * installs upsert by slug and the seq is bumped over time — but a fresh
+     * Testcontainers DB does, so the fixup keeps the install path exercisable.
+     * (Flagged as a residual migration concern in the PR.)
+     */
+    @org.junit.jupiter.api.BeforeEach
+    void syncGamesIdSequence() {
+        DatabaseClient db = DatabaseClient.create(connectionFactory);
+        db.sql("SELECT setval(pg_get_serial_sequence('games','id'), "
+                + "GREATEST((SELECT COALESCE(MAX(id),1) FROM games), 1))")
+          .fetch().rowsUpdated().block();
+    }
 
     @Test
     void uploadInstallsBundleAndRegistersAllFourTables() throws IOException {

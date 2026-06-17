@@ -74,11 +74,92 @@ public final class RegisterSqlPolicy {
      * validated.
      */
     public static List<String> vet(String sql) {
+        // Reject the lexer constructs this policy does not (and need not) model
+        // BEFORE splitting. The legitimate export plugin only ever emits plain
+        // single-quoted literals + '--' line comments; anything fancier is both
+        // out-of-policy and a desync risk for the lightweight lexer below, so we
+        // fail closed instead of trying to lex it precisely. (OWASP A03 — the
+        // original lexer mis-handled all of these.)
+        rejectUnsupportedLexerConstructs(sql);
         List<String> stmts = split(sql);
         for (String s : stmts) {
             validate(s);
         }
         return stmts;
+    }
+
+    /**
+     * Fail-closed pre-scan for SQL string/comment forms the lightweight lexer
+     * does not model and the generator never emits:
+     * <ul>
+     *   <li>C-style escape strings {@code E'…'} / {@code e'…'} (backslash IS an
+     *       escape there, the inverse of standard-conforming strings);</li>
+     *   <li>dollar-quoting {@code $tag$ … $tag$} (a {@code ;} or {@code '} in the
+     *       body is data, not a separator/quote);</li>
+     *   <li>C-style block comments {@code /* … *}{@code /} (can hide a quote or a
+     *       {@code ;}).</li>
+     * </ul>
+     * Scans OUTSIDE plain single-quoted literals (which the same
+     * standard-conforming, doubled-quote-aware rules the splitter uses define)
+     * so the literal value {@code 'E''s game'} or {@code 'a $ b'} stays legal.
+     */
+    private static void rejectUnsupportedLexerConstructs(String sql) {
+        boolean inString = false;
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            if (inString) {
+                if (c == '\'') {
+                    // Doubled '' is an escaped quote (stay in string); a lone '
+                    // closes. Backslash is NOT special (standard_conforming_strings).
+                    if (i + 1 < sql.length() && sql.charAt(i + 1) == '\'') {
+                        i++;
+                    } else {
+                        inString = false;
+                    }
+                }
+                continue;
+            }
+            // Outside a string literal:
+            if (c == '\'') {
+                // An E/e immediately preceding the opening quote => escape string.
+                if (i > 0) {
+                    char p = sql.charAt(i - 1);
+                    if ((p == 'E' || p == 'e')
+                            && (i == 1 || !isIdentChar(sql.charAt(i - 2)))) {
+                        throw reject(sql, "C-style escape string E'...' is not allowed");
+                    }
+                }
+                inString = true;
+            } else if (c == '$') {
+                if (isDollarQuoteStart(sql, i)) {
+                    throw reject(sql, "dollar-quoting $tag$...$tag$ is not allowed");
+                }
+            } else if (c == '/' && i + 1 < sql.length() && sql.charAt(i + 1) == '*') {
+                throw reject(sql, "C-style block comment /* */ is not allowed");
+            }
+        }
+    }
+
+    private static boolean isIdentChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_';
+    }
+
+    /**
+     * True if a dollar-quote tag opens at {@code idx} ({@code c=='$'}): a
+     * {@code $}, an optional tag of identifier chars, then a closing {@code $}
+     * — e.g. {@code $$} or {@code $tag$}. A bare {@code $1} positional param or
+     * a {@code $} in arithmetic is NOT a dollar-quote and is left alone.
+     */
+    private static boolean isDollarQuoteStart(String sql, int idx) {
+        int j = idx + 1;
+        // tag is letters/digits/underscore but must not START with a digit
+        if (j < sql.length() && Character.isDigit(sql.charAt(j))) {
+            return false;
+        }
+        while (j < sql.length() && isIdentChar(sql.charAt(j))) {
+            j++;
+        }
+        return j < sql.length() && sql.charAt(j) == '$';
     }
 
     /** Validates a single already-split, comment-stripped statement. */
@@ -132,10 +213,25 @@ public final class RegisterSqlPolicy {
         boolean inString = false;
         for (int i = 0; i < sql.length(); i++) {
             char c = sql.charAt(i);
-            if (c == '\'' && (i == 0 || sql.charAt(i - 1) != '\\')) {
-                inString = !inString;
+            if (inString) {
+                cur.append(c);
+                // Standard-conforming strings: backslash is DATA, never an
+                // escape. A single quote closes the literal UNLESS it is doubled
+                // ('') — the SQL-standard escaped quote — in which case both
+                // chars stay inside the string.
+                if (c == '\'') {
+                    if (i + 1 < sql.length() && sql.charAt(i + 1) == '\'') {
+                        cur.append(sql.charAt(++i));
+                    } else {
+                        inString = false;
+                    }
+                }
+                continue;
             }
-            if (c == ';' && !inString) {
+            if (c == '\'') {
+                inString = true;
+                cur.append(c);
+            } else if (c == ';') {
                 addIfStatement(stmts, cur.toString());
                 cur.setLength(0);
             } else {
@@ -195,11 +291,19 @@ public final class RegisterSqlPolicy {
         StringBuilder ident = new StringBuilder();
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (c == '\'' && (i == 0 || s.charAt(i - 1) != '\\')) {
-                inString = !inString;
+            if (inString) {
+                // Standard-conforming: backslash is data; '' is an escaped quote.
+                if (c == '\'') {
+                    if (i + 1 < s.length() && s.charAt(i + 1) == '\'') {
+                        i++;
+                    } else {
+                        inString = false;
+                    }
+                }
                 continue;
             }
-            if (inString) {
+            if (c == '\'') {
+                inString = true;
                 continue;
             }
             if (Character.isLetterOrDigit(c) || c == '_') {
@@ -230,11 +334,18 @@ public final class RegisterSqlPolicy {
         String lastIdent = "";
         for (int i = set + 3; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (c == '\'' && s.charAt(i - 1) != '\\') {
-                inString = !inString;
+            if (inString) {
+                if (c == '\'') {
+                    if (i + 1 < s.length() && s.charAt(i + 1) == '\'') {
+                        i++;
+                    } else {
+                        inString = false;
+                    }
+                }
                 continue;
             }
-            if (inString) {
+            if (c == '\'') {
+                inString = true;
                 continue;
             }
             if (Character.isLetterOrDigit(c) || c == '_') {
@@ -262,11 +373,18 @@ public final class RegisterSqlPolicy {
         int identStart = -1;
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (c == '\'' && (i == 0 || s.charAt(i - 1) != '\\')) {
-                inString = !inString;
+            if (inString) {
+                if (c == '\'') {
+                    if (i + 1 < s.length() && s.charAt(i + 1) == '\'') {
+                        i++;
+                    } else {
+                        inString = false;
+                    }
+                }
                 continue;
             }
-            if (inString) {
+            if (c == '\'') {
+                inString = true;
                 continue;
             }
             if (Character.isLetterOrDigit(c) || c == '_') {
