@@ -58,7 +58,17 @@ public class SecurityConfig {
             // the realtime endpoints fall through to anyExchange().permitAll()
             // — an unauthenticated caller would reach the snapshot stream and
             // command log (the domain gate alone is a no-op single-tenant).
-            "/api/realtime/**"
+            "/api/realtime/**",
+            // Friend graph + blocklist (UserRelationshipController, base
+            // /api/relationships, with /friends/** + /blocks/** nested under
+            // it). Without this entry the endpoints fell through to
+            // anyExchange().permitAll() — an unauthenticated caller reached the
+            // controller, whose me(jwt) keyed the read/write to the literal
+            // "anonymous" subject instead of returning 401. Owner==subject is
+            // enforced inside the controller (the acting user is always
+            // jwt.getSubject(); only the `other` target is body-supplied), so
+            // requiring authentication here is the missing control.
+            "/api/relationships/**"
     };
 
     private static final String[] SPEC_PATHS = {
