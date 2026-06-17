@@ -90,7 +90,20 @@ public class GodotExporter {
             throw new IOException("godot export produced no bundle at " + outputIndexHtml
                     + " (Web export templates installed?): " + tail(output));
         }
-        log.info("[export] wrote {} ({} bytes)", outputIndexHtml, Files.size(outputIndexHtml));
+        // The WASM is the load-bearing artifact: a real Godot Web export ALWAYS
+        // emits a multi-MB index.wasm alongside index.html. A zero-byte (or
+        // absent) index.wasm is the signature of a dev STUB (or a broken export
+        // that only wrote the HTML). Reject it here so a stub can never be
+        // mistaken for a real export when app.build.godot-enabled=true — i.e.
+        // prod cannot silently ship a placeholder. (Mirrors the index.html check.)
+        Path wasm = outputIndexHtml.resolveSibling("index.wasm");
+        if (!Files.exists(wasm) || Files.size(wasm) == 0) {
+            throw new IOException("godot export produced an empty/absent index.wasm at " + wasm
+                    + " — this is a STUB, not a real Web export (Web export templates installed?): "
+                    + tail(output));
+        }
+        log.info("[export] wrote {} (html {} bytes, wasm {} bytes)",
+                outputIndexHtml, Files.size(outputIndexHtml), Files.size(wasm));
     }
 
     /** Isolated, overridable for tests — the only place a real OS process is spawned. */

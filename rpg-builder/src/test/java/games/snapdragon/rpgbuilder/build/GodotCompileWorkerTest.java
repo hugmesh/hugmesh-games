@@ -77,6 +77,18 @@ class GodotCompileWorkerTest {
         }
     }
 
+    /** Faked exporter that "succeeds" but leaves an EMPTY index.wasm — i.e. a stub
+     *  sneaking past as a real export. The worker's stub-ship guard must catch it. */
+    private static final class StubLeakingExporter extends GodotExporter {
+        StubLeakingExporter() { super("godot", Duration.ofMinutes(1), "Web"); }
+        @Override
+        public void exportWeb(Path godotSrc, Path outputIndexHtml) throws IOException {
+            Files.createDirectories(outputIndexHtml.getParent());
+            Files.writeString(outputIndexHtml, "<html>stub</html>");
+            Files.write(outputIndexHtml.resolveSibling("index.wasm"), new byte[]{});   // zero bytes
+        }
+    }
+
     private static final class CapturingBff extends BffUploadClient {
         final AtomicReference<byte[]> zip = new AtomicReference<>();
         final AtomicReference<String> bearer = new AtomicReference<>();
@@ -166,6 +178,25 @@ class GodotCompileWorkerTest {
         assertThat(new String(entries.get("bundle/lineland/index.html"), StandardCharsets.UTF_8))
                 .contains("real export");
         assertThat(entries.get("bundle/lineland/index.wasm")).isNotEmpty();   // real (non-stub) bytes
+    }
+
+    @Test
+    void enabledExportRefusesToShipStubWasm(@TempDir Path workdir) {
+        // Real export ON, but the exporter "succeeds" with a zero-byte index.wasm
+        // (a stub leaking through). The worker's stub-ship guard must FAIL the job
+        // rather than upload a non-playable placeholder to the BFF.
+        RpgProject p = project();
+        when(projects.findById(any(UUID.class))).thenReturn(Mono.just(p));
+        CapturingBff bff = new CapturingBff();
+        GodotCompileWorker w = worker(workdir, new StubLeakingExporter(), bff, true);
+
+        StepVerifier.create(w.execute(job(p.getId())))
+                .assertNext(j -> {
+                    assertThat(j.getStatus()).isEqualTo(BuildStatus.FAILED);
+                    assertThat(j.getErrorMessage()).containsIgnoringCase("stub");
+                })
+                .verifyComplete();
+        assertThat(bff.zip.get()).as("a stub must never reach the BFF").isNull();
     }
 
     @Test

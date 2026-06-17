@@ -63,7 +63,10 @@ public class GodotCompileWorker {
                 .subscribe(ok -> {}, err -> log.warn("[worker] tick aborted", err));
     }
 
-    private Mono<VnBuildJob> execute(VnBuildJob job) {
+    /** Package-private so the full pipeline (render → export → package → upload → status)
+     *  is unit-testable end to end with test-double collaborators. Mirrors the rpg-builder
+     *  worker. */
+    Mono<VnBuildJob> execute(VnBuildJob job) {
         log.info("[worker] executing VN build {} for project {}", job.getId(), job.getProjectId());
         return projects.findById(job.getProjectId())
                 .switchIfEmpty(Mono.error(new IllegalStateException("project gone")))
@@ -125,6 +128,14 @@ public class GodotCompileWorker {
                     writeStubBundle(bundleAct, project, actSlug, inlinedJson);
                 }
             }
+        }
+
+        // Stub-ship guard (defense in depth): when real export is ON, no staged
+        // act may carry an empty/absent index.wasm. GodotExporter already rejects
+        // a stub-shaped export, but this re-checks the WHOLE staged tree just before
+        // upload so a placeholder can never reach the BFF when godot-enabled=true.
+        if (godotEnabled) {
+            assertNoStubBundles(stage.resolve("bundle"));
         }
 
         String manifest = """
@@ -196,6 +207,26 @@ public class GodotCompileWorker {
         try (var files = Files.list(src)) {
             for (Path f : files.filter(Files::isRegularFile).toList()) {
                 Files.copy(f, dst.resolve(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+    }
+
+    /**
+     * Fail the build if any staged act bundle carries an empty/absent
+     * {@code index.wasm} while real export is enabled — a stub must never be
+     * uploaded as if it were a real export. A real Godot Web export's
+     * {@code index.wasm} is multi-MB; a zero-byte one is the dev-stub signature.
+     */
+    private static void assertNoStubBundles(Path bundleRoot) throws IOException {
+        if (!Files.isDirectory(bundleRoot)) return;
+        try (var acts = Files.list(bundleRoot)) {
+            for (Path act : acts.filter(Files::isDirectory).toList()) {
+                Path wasm = act.resolve("index.wasm");
+                if (!Files.exists(wasm) || Files.size(wasm) == 0) {
+                    throw new IOException("refusing to ship a STUB bundle: "
+                            + act.getFileName() + "/index.wasm is empty/absent while "
+                            + "app.build.godot-enabled=true (real Godot export must produce real WASM)");
+                }
             }
         }
     }
