@@ -48,14 +48,14 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
  *       add/remove a block on B's behalf.</li>
  * </ul>
  *
- * <p><b>FINDING (documented, not fixed — see PR body):</b> {@code
- * /api/relationships/**} is NOT in {@code SecurityConfig.PLAYER_PATHS}, so it
- * falls through to {@code anyExchange().permitAll()} — the friend-graph +
- * blocklist endpoints are reachable UNAUTHENTICATED, and the controller's
- * {@code me(jwt)} substitutes the literal string {@code "anonymous"} for a null
- * principal rather than rejecting (no 401). The {@link #blocks_anonymous_reachesControllerAsAnonymous}
- * test PINS this real (insecure) behavior so the eventual fix flips it
- * deliberately; it is NOT an assertion that the behavior is correct.
+ * <p><b>FIXED (was a documented finding):</b> {@code /api/relationships/**} is
+ * now in {@code SecurityConfig.PLAYER_PATHS.authenticated()} (it previously fell
+ * through to {@code anyExchange().permitAll()}, letting the friend-graph +
+ * blocklist endpoints be reached UNAUTHENTICATED and transact as the literal
+ * {@code "anonymous"} subject). An unauthenticated request is now 401 and never
+ * reaches the controller — see
+ * {@link #blocks_anonymous_is401_neverReachesController} /
+ * {@link #friends_anonymous_is401_neverReachesController}.
  */
 @WebFluxTest(controllers = UserRelationshipController.class,
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = {
@@ -77,36 +77,36 @@ class UserRelationshipControllerHttpAuthzTest {
         return r;
     }
 
-    // ── FINDING: anonymous reaches the controller as the literal "anonymous" ──
+    // ── FIXED: anonymous is now rejected at the filter chain (401) ────────────
     //
-    // This PINS the current (insecure) reachability so the eventual security
-    // fix — adding /api/relationships/** to PLAYER_PATHS.authenticated() OR
-    // making me(null) reject — flips this test deliberately. The endpoint is
-    // NOT 401 today; it transacts as a phantom "anonymous" user.
+    // (was blocks_anonymous_reachesControllerAsAnonymous /
+    // friends_anonymous_reachesControllerAsAnonymous, which PINNED the insecure
+    // permitAll fall-through.) /api/relationships/** is now in
+    // SecurityConfig.PLAYER_PATHS.authenticated(), so an unauthenticated request
+    // is 401 and NEVER reaches the controller — the phantom "anonymous" read is
+    // gone.
 
     @Test
-    void blocks_anonymous_reachesControllerAsAnonymous() {
+    void blocks_anonymous_is401_neverReachesController() {
         lenient().when(directory.displayNameFor(any())).thenReturn("name");
-        when(service.blockList(eq("anonymous"))).thenReturn(Flux.empty());
 
         web.get().uri("/api/relationships/blocks")
                 .exchange()
-                .expectStatus().isOk();
+                .expectStatus().isUnauthorized();
 
-        // The bug surface: an unauthenticated request keyed the blocklist read
-        // to the literal "anonymous" string instead of being rejected (401).
-        verify(service).blockList(eq("anonymous"));
+        // The fix: an unauthenticated request is rejected at the filter chain;
+        // the service is never consulted for the phantom "anonymous" subject.
+        verify(service, never()).blockList(any());
     }
 
     @Test
-    void friends_anonymous_reachesControllerAsAnonymous() {
+    void friends_anonymous_is401_neverReachesController() {
         lenient().when(directory.displayNameFor(any())).thenReturn("name");
-        when(service.friendList(eq("anonymous"))).thenReturn(Flux.empty());
 
         web.get().uri("/api/relationships/friends")
                 .exchange()
-                .expectStatus().isOk();
-        verify(service).friendList(eq("anonymous"));
+                .expectStatus().isUnauthorized();
+        verify(service, never()).friendList(any());
     }
 
     // ── block-list isolation: GET /blocks keyed to the JWT subject ────────────
