@@ -120,6 +120,7 @@ public class CharacterController {
                            CharacterDto…
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping
     public Flux<CharacterDto> list(@AuthenticationPrincipal Jwt jwt) {
         if (Roles.isAdmin(jwt)) {
@@ -145,6 +146,7 @@ public class CharacterController {
               ──────●─|                 ──✗
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/{id}")
     public Mono<CharacterDto> get(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
         return ownedCharacter(id, jwt)
@@ -172,6 +174,7 @@ public class CharacterController {
                                                           CharacterDto (updated)
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{id}")
     public Mono<CharacterDto> update(@PathVariable Long id,
                                      @RequestBody Map<String, Object> patch,
@@ -229,6 +232,7 @@ public class CharacterController {
              ──────────────────────●─|
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/{id}/dashboard")
     public Mono<DashboardDto> dashboard(
             @PathVariable Long id,
@@ -305,6 +309,7 @@ public class CharacterController {
               ──────●─|  CharacterQuest (updated)
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{id}/quests/{questId}/complete")
     public Mono<CharacterQuest> completeQuest(@PathVariable Long id,
                                               @PathVariable Long questId,
@@ -355,6 +360,7 @@ public class CharacterController {
              ──────────────────────────────────────●─|  CharacterDto
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/{id}/use-first-item")
     public Mono<CharacterDto> useFirstItem(@PathVariable Long id,
                                            @AuthenticationPrincipal Jwt jwt) {
@@ -382,6 +388,15 @@ public class CharacterController {
                                     .doOnNext(saved -> gameStateService.notifyCharacterStatChange(CharacterDto.from(saved)))
                                     .map(CharacterDto::from);
                         }))));
+    }
+
+    private Mono<games.snapdragon.bff.model.PlayerCharacter> assertOwner(
+            games.snapdragon.bff.model.PlayerCharacter c, Jwt jwt) {
+        String owner = c.getCasdoorId();
+        if (jwt == null || owner == null || !owner.equals(jwt.getSubject())) {
+            return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN));
+        }
+        return Mono.just(c);
     }
 
     /** Tiny JSON int extractor — only handles `"key":<number>` patterns. */
