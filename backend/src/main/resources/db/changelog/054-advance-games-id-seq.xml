@@ -10,7 +10,7 @@
       games_pkey collision fix).
 
       ROOT CAUSE
-      ----------
+      ==========
       games.id is a BIGSERIAL (001-initial-schema), so it owns the
       games_id_seq sequence and a sequence-default for the column. The
       catalog seeds in 017 (id=2) and 044/045/046/047/048/053 all insert
@@ -32,7 +32,7 @@
       migration as the real fix so the workaround can be dropped.)
 
       FIX
-      ---
+      ===
       Re-run setval ONCE more, now AFTER all current seeds, so the next
       nextval() yields MAX(id)+1. We resolve the sequence with
       pg_get_serial_sequence('games','id') rather than hardcoding
