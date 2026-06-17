@@ -1,6 +1,7 @@
 package games.snapdragon.bff.controller;
 
 import games.snapdragon.bff.model.GameSessionDto;
+import games.snapdragon.bff.security.Roles;
 import games.snapdragon.bff.service.GameSessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -181,8 +182,13 @@ public class MultiplayerSessionController {
         return service.get(id)
                 .flatMap(s -> {
                     boolean isCreator = jwt.getSubject().equals(s.creatorCasdoorId());
-                    boolean isAdmin   = jwt.getClaimAsBoolean("isAdmin") != null
-                                     && Boolean.TRUE.equals(jwt.getClaimAsBoolean("isAdmin"));
+                    // Canonical roles-array admin check (ROLE_ADMIN / roles
+                    // claim), the SAME predicate the rest of the BFF uses
+                    // (hasRole('ADMIN') + CharacterController's Roles.isAdmin).
+                    // The legacy `isAdmin` boolean claim is NOT a bypass here —
+                    // it is only honoured by the SecurityConfig authorities
+                    // converter's back-compat fallback, never by Roles.isAdmin.
+                    boolean isAdmin   = Roles.isAdmin(jwt);
                     if (!isCreator && !isAdmin) {
                         return Mono.error(new ResponseStatusException(
                                 HttpStatus.FORBIDDEN, "only the creator or an admin may pause this session"));
@@ -204,8 +210,9 @@ public class MultiplayerSessionController {
         return service.get(id)
                 .flatMap(s -> {
                     boolean isCreator = jwt.getSubject().equals(s.creatorCasdoorId());
-                    boolean isAdmin   = jwt.getClaimAsBoolean("isAdmin") != null
-                                     && Boolean.TRUE.equals(jwt.getClaimAsBoolean("isAdmin"));
+                    // Canonical roles-array admin check — same as pause(); the
+                    // legacy `isAdmin` boolean claim is not honoured here.
+                    boolean isAdmin   = Roles.isAdmin(jwt);
                     if (!isCreator && !isAdmin) {
                         return Mono.error(new ResponseStatusException(
                                 HttpStatus.FORBIDDEN, "only the creator or an admin may resume this session"));

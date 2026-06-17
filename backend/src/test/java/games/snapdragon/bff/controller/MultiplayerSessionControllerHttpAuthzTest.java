@@ -44,12 +44,15 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
  *       non-admin is 403 and the session is never paused.</li>
  * </ul>
  *
- * <p><b>FINDING (documented, not fixed — see PR body):</b> the pause/resume
- * admin bypass is gated on the LEGACY {@code isAdmin} boolean claim
- * ({@code jwt.getClaimAsBoolean("isAdmin")}), NOT the {@code roles} array the
- * rest of the BFF uses. A modern admin token carrying {@code roles:["admin"]}
- * but no {@code isAdmin:true} is treated as a non-admin here and gets 403 on a
- * session it does not own — see {@link #pause_modernRoleAdmin_isNotTreatedAsAdmin}.
+ * <p><b>FIXED (was a documented finding):</b> the pause/resume admin bypass
+ * previously read the LEGACY {@code isAdmin} boolean claim
+ * ({@code jwt.getClaimAsBoolean("isAdmin")}) instead of the {@code roles} array
+ * the rest of the BFF uses. It now uses the canonical
+ * {@code Roles.isAdmin(jwt)} (roles-claim / {@code ROLE_ADMIN}) check, so a
+ * modern admin token ({@code roles:["admin"]}) IS admin
+ * ({@link #pause_modernRoleAdmin_isTreatedAsAdmin}) and the legacy boolean
+ * claim ALONE is NOT a bypass
+ * ({@link #pause_legacyIsAdminClaimAlone_isNotTreatedAsAdmin}).
  */
 @WebFluxTest(controllers = MultiplayerSessionController.class,
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = {
@@ -109,7 +112,7 @@ class MultiplayerSessionControllerHttpAuthzTest {
         verify(service).close(eq(SID));
     }
 
-    // ── pause : creator OR (legacy-isAdmin) admin ─────────────────────────────
+    // ── pause : creator OR (roles-claim) admin ────────────────────────────────
 
     @Test
     void pause_anonymous_is401() {
@@ -146,36 +149,40 @@ class MultiplayerSessionControllerHttpAuthzTest {
     }
 
     @Test
-    void pause_legacyIsAdminClaim_canPauseAnyOnesSession() {
-        // The controller's admin bypass reads the legacy isAdmin boolean claim.
+    void pause_legacyIsAdminClaimAlone_isNotTreatedAsAdmin() {
+        // FIXED (was pause_legacyIsAdminClaim_canPauseAnyOnesSession): the
+        // pause gate no longer trusts the LEGACY isAdmin boolean claim. A token
+        // carrying ONLY isAdmin:true (no roles array, no ROLE_ADMIN authority)
+        // is a plain player to this controller — so it is 403 on a session it
+        // does not own and never pauses. The legacy boolean is NOT a bypass.
         stubGet("alice");
-        when(service.pauseSession(eq(SID), eq("modder"), any()))
-                .thenReturn(Mono.just(sessionOwnedBy("alice")));
-
         web.mutateWith(mockJwt()
-                        .jwt(j -> j.subject("modder").claim("isAdmin", true)
-                                .claim("roles", List.of("admin")))
-                        .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"),
-                                new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")))
-                .mutateWith(csrf())
-                .post().uri("/api/sessions/" + SID + "/pause")
-                .exchange()
-                .expectStatus().isOk();
-        verify(service).pauseSession(eq(SID), eq("modder"), any());
-    }
-
-    @Test
-    void pause_modernRoleAdmin_isNotTreatedAsAdmin() {
-        // FINDING: a modern admin token (roles:["admin"], NO isAdmin boolean) is
-        // NOT recognized as admin by this controller's pause gate, so it is 403
-        // on a session it does not own. Pins the inconsistency.
-        stubGet("alice");
-        web.mutateWith(SecuritySliceSupport.admin("root"))   // roles-based admin, no isAdmin claim
+                        .jwt(j -> j.subject("modder").claim("isAdmin", true))
+                        .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER")))
                 .mutateWith(csrf())
                 .post().uri("/api/sessions/" + SID + "/pause")
                 .exchange()
                 .expectStatus().isForbidden();
         verify(service, never()).pauseSession(any(), any(), any());
+    }
+
+    @Test
+    void pause_modernRoleAdmin_isTreatedAsAdmin() {
+        // FIXED (was pause_modernRoleAdmin_isNotTreatedAsAdmin): a modern admin
+        // token (roles:["admin"] -> ROLE_ADMIN authority, NO isAdmin boolean) IS
+        // recognized as admin by the pause gate via the canonical Roles.isAdmin
+        // check the rest of the BFF uses — so it can pause a session it does not
+        // own (admin moderation bypass).
+        stubGet("alice");
+        when(service.pauseSession(eq(SID), eq("root"), any()))
+                .thenReturn(Mono.just(sessionOwnedBy("alice")));
+
+        web.mutateWith(SecuritySliceSupport.admin("root"))   // roles-based admin, no isAdmin claim
+                .mutateWith(csrf())
+                .post().uri("/api/sessions/" + SID + "/pause")
+                .exchange()
+                .expectStatus().isOk();
+        verify(service).pauseSession(eq(SID), eq("root"), any());
     }
 
     @Test
