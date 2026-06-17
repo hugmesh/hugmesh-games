@@ -1,8 +1,13 @@
 # Snapdragon Game Studio
 
-A self-hosted Godot 4 WASM game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy them through an **Angular** shell with live SSE multiplayer sessions, and the **Snapdragon Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
+A self-hosted multi-game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy a 16-title catalog through an **Angular** shell with live SSE multiplayer sessions, and the **Snapdragon Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
 
-The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cave depths and open fields. The catalog also ships a *Spinning Dodecahedron* tech demo to show off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items).
+The catalog ships titles in **two technical families** (see [Two game technologies](#two-game-technologies)):
+
+- **Godot 4 WASM titles** — the flagship *Three Wizards In A Trenchcoat* (a JRPG romp across cave depths and open fields) plus a *Spinning Dodecahedron* tech demo showing off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items).
+- **Web-native Rust→wasm32 titles** — 14 board / puzzle / duel games (chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three) whose pure-Rust engines compile to `wasm32-unknown-unknown` and drive a canvas frontend through the host-authoritative SSE relay (see [`games/_shared/`](games/_shared/README.md)).
+
+> **State convention.** ✅ shipped = merged to `main`; 🚧 in-flight = code on an open branch/PR, not yet merged; 🔭 planned = design-complete, no code. The [Roadmap](#roadmap) gathers the 🚧 / 🔭 items.
 
 > Branch policy: please work on your own branches and open PRs rather than committing directly to `main`.
 
@@ -23,6 +28,21 @@ The flagship title is *Three Wizards In A Trenchcoat* — a JRPG romp across cav
 | **Roadmap** | [Done / in progress / planned](#roadmap) |
 
 The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with [Intro for coders](docs/wiki/guides/intro-for-coders.md) for an orientation, [Architecture overview](docs/wiki/architecture/01-overview.md) for the typeset reference, or jump straight to a [how-to](docs/wiki/howto/) for a specific task.
+
+---
+
+## Two game technologies
+
+The 16-title catalog (✅ shipped on `main`) splits into two delivery models. They share the same SSE session transport, role gating, and launch-UID minting, but differ in how the game runs in the browser:
+
+| Family | Titles | Engine | Delivery | Authority |
+|---|---|---|---|---|
+| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo* | Godot 4.6 project under [`games/<slug>/`](games/) exported to a self-contained WASM bundle | per-game `remote-game` Angular Web Component (or the legacy iframe path) loading the bundle from `wasm-fragment` | server (BFF) holds canonical game state |
+| **Web-native Rust→wasm32** | chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three | pure-Rust engine under [`extensions/snapdragon-<game>/`](extensions/) + a `-wasm` shim crate compiled to `wasm32-unknown-unknown` (zero host imports), driving a vanilla-JS canvas frontend under [`games/<slug>/`](games/) | **no per-game Angular remote** — a `federation_modules` row of `kind='wasm-game'` points the host straight at the `wasm-fragment` bundle (changelog [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml)) | **host-authoritative** — the host browser runs the engine, the BFF only relays `control`/`world` over the per-session SSE stream, the guest re-applies and re-validates |
+
+The web-native engines run identically in three places — the browser (`WebAssembly.instantiateStreaming`), the JVM test harness (Chicory), and a Node functional test — so the same `.wasm` is verified end-to-end. See [`games/_shared/README.md`](games/_shared/README.md) for the shared shell contract, [`docs/multiplayer-chess-design.md`](docs/multiplayer-chess-design.md) for the host-authoritative relay model, and the "Web-native games" section of [CLAUDE.md](CLAUDE.md) for the add-a-game recipe.
+
+> Server-authoritative realtime FPS/RTS sim cores ([`extensions/snapdragon-fps-core`](extensions/), [`extensions/snapdragon-rts-core`](extensions/)) and their Cassandra-truth tick loop are 🚧 in-flight at the *engine* level — verified in-JVM via Chicory — but **no FPS/RTS title is registered in the catalog yet**. See [Roadmap](#roadmap).
 
 ---
 
@@ -69,12 +89,23 @@ Status as of the current `main` plus the in-flight `feat/domain-foundation` work
 - **Per-brand games-catalog domain partitioning.** In progress. `games.domain` column (migration 043, defaults `'default'` = unscoped), `Roles.domainApplies` predicate, `DomainScopeService.requireGameDomain`, server-controlled first-writer-wins upload stamping (untrusted-`register.sql`-proof), and the `GameAccessController` list/grant/revoke enforcement surface. [Decision 026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
 - **Domain-scope fan-out across the management controllers.** In progress (uncommitted working-tree changes on `feat/domain-foundation`). The deferred follow-on from decision 026: `requireGameDomain` plumbed into `GameLaunchController` (`launch` + `adminRevoke`), `ModerationController` (`stop` / `kick`), and `PublisherController` (`grantMod` / `revokeMod`), plus `DomainScopeService.requireSessionDomain` resolving `sessionId → game_slug → domain` for the session-targeting moderation actions. Accompanied by new `*DomainScopeTest` suites for each controller.
 
+### In progress — server-authoritative realtime engines (catalog launch deferred)
+
+- **FPS / RTS sim cores + Cassandra-truth tick loop.** 🚧 In-flight (engine level). The `snapdragon-fps-core` / `snapdragon-rts-core` Rust sim cores, the server-authoritative tick loop, the `realtime_matches` Postgres table (changelog [`049-realtime-matches.xml`](backend/src/main/resources/db/changelog/049-realtime-matches.xml)) and its Cassandra live-truth companions (`realtime_keyframes` + `realtime_command_log`), and the `RealtimeController` / `AdminRealtimeController` REST surface all exist on `main` and are verified in-JVM via Chicory. **But no FPS/RTS title is yet registered in the catalog or federation as a launchable game** — these are engines and a match surface, not a playable catalog entry. Design records: [`docs/realtime-server-authoritative-design.md`](docs/realtime-server-authoritative-design.md), [`docs/realtime-sim-wiring-p4.md`](docs/realtime-sim-wiring-p4.md).
+- **More game ports.** 🔭 Planned. [`docs/game-ports-backlog.md`](docs/game-ports-backlog.md) is an explicit planning backlog (kdegames / FPS / RTS ports) — each row is a future epic, not yet built.
+
 ### Planned — platform integration (gated on broader Snapdragon-Systems rollout)
 
 - **Games app-store.** Planned. Per-domain catalog of dockerized FOSS game servers: a new `games-services` role lets domain admins add/run servers from a Postgres-backed catalog, superadmin gates instance creation, and mods may create/run instances. Gated on `games-up`.
 - **`games` subdomain + two-Casdoor architecture.** Planned. The games realm runs its own Casdoor distinct from the platform Casdoor (the two-Casdoor split the `DOMAIN_` foundation above is built for); the portal defaults to a `games.<domain>` subdomain until a dedicated TLD is obtained.
 - **Optional-service add/remove + graceful degradation.** Planned. The games subdomain is an add/remove-by-command optional service on any deployment; federation and UI surfaces degrade gracefully (greyed-out) when the games realm is omitted.
 - **Multi-brand e2e.** Planned. A second Casdoor issuer in the integration-test harness so the domain guard + catalog partitioning are exercised end-to-end (today the `make e2e` stack runs a single Casdoor; the filter logic is pinned by unit suites).
+
+### Planned — hardening follow-ups
+
+- **Strict CSP.** 🔭 Planned. The first-cut Content-Security-Policy ships in both nginx confs ([decision 023](docs/wiki/decisions/023-content-security-policy.md)); the path to *strict* CSP — dropping the remaining `unsafe-*` tokens once the es-module-shims / Angular runtime needs are removed — is a documented future step, not done.
+- **Retire `CassandraSyncService`.** 🔭 Planned. The Kafka → ClickHouse streaming pipeline foundation, producers, and cross-pod consumer are ✅ on `main` ([decision 021](docs/wiki/decisions/021-kafka-clickhouse-streaming-pipeline.md)), but `CassandraSyncService` stays in place until the streaming pipeline has demonstrated production stability — the retirement is a planned follow-up.
+- **Move bearer tokens off `sessionStorage`.** 🔭 Planned. The frontend currently stores the Casdoor token in `sessionStorage` (`tw_auth`); migrating off web storage is a platform-wide security backlog item that this repo inherits if/when the games frontend is in scope.
 
 ---
 
@@ -127,23 +158,29 @@ JWT role extraction goes through one seam — [`Roles`](backend/src/main/java/ga
 
 ## Content hierarchy — games → chapters → scenes
 
-The project is organised in three tiers:
+The **Godot 4 WASM** family is organised in three tiers (below). Web-native Rust→wasm32 titles map instead to a single self-contained canvas bundle and do **not** use the `scene_elements` tier — see [Two game technologies](#two-game-technologies).
 
 ```mermaid
 flowchart TB
-    Game["<b>Game</b> — a title in the catalog<br/>e.g. Three Wizards In A Trenchcoat, Dodecahedron Demo"]
-    Chapter["<b>Chapter</b> — one WASM bundle<br/>e.g. The Enchanted Cave, Spinning Dodecahedron"]
+    Game["<b>Game</b> — a title in the catalog<br/>Godot 4 WASM: Three Wizards In A Trenchcoat, Dodecahedron Demo<br/>… plus 14 web-native titles: chess, go, tetris, tron, …"]
+    Chapter["<b>Chapter</b> — one Godot WASM bundle<br/>e.g. The Enchanted Cave, Spinning Dodecahedron"]
     Scene["<b>Scene elements</b><br/>fairies · lights · geometry · NPCs"]
     Assets["<b>Chapter assets</b><br/>custom textures · plugins · sounds"]
-    Game -->|"one or more"| Chapter
+    WebNative["<b>Web-native bundle</b> — single canvas bundle<br/>games/&lt;slug&gt;/ + Rust→wasm32 engine<br/>no scene_elements tier"]
+    Game -->|"Godot family: one or more"| Chapter
     Chapter --> Scene
     Chapter --> Assets
+    Game -.->|"web-native family"| WebNative
 ```
 
 - A **Game** is one row in the `games` table — it appears as a card on the Snapdragon
-  Games portal home page. Today the catalog ships *Three Wizards In A Trenchcoat* (a
-  JRPG with quests, HUD, and movement controls) and the *Dodecahedron Demo* (a
-  chrome-less single-scene tech demo with no HUD, no quests, no items).
+  Games portal home page. The catalog ships 16 titles in two families (see
+  [Two game technologies](#two-game-technologies)): the Godot 4 WASM titles
+  *Three Wizards In A Trenchcoat* (a JRPG with quests, HUD, and movement controls)
+  and the *Dodecahedron Demo* (a chrome-less single-scene tech demo with no HUD, no
+  quests, no items); plus 14 web-native Rust→wasm32 board / puzzle / duel titles.
+  Web-native games are delivered as a single canvas bundle and do not use the
+  Chapter → Scene-element tier described below.
 - Each **Chapter** inside a game is its own compiled Godot WASM bundle, served from
   `/api/assets/levels/{slug}/` (filesystem path kept for back-compat). Chapter transitions
   unload the current WASM and mount the next one in the Angular iframe (see "Chapter transitions" below).
@@ -164,7 +201,7 @@ Adding levels and assets is a documented workflow — see the
 
 ## Architecture
 
-Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send input. All game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with nine typed event channels.
+Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send input. For the Godot family, all game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with nine typed event channels. For the 14 web-native titles the same per-session SSE channels (`control` / `world`) are reused as a **host-authoritative relay**: the host browser's Rust engine is authoritative and re-emits to the session via `GameStateService.reemitToSession`, and the guest re-applies + re-validates each event (see [`e2e/games-arch/README.md`](e2e/games-arch/README.md)).
 
 The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host: at runtime it loads role-gated sibling bundles (`login`, `admin`, `mod`, `publisher`, `games-three-wizards`, `games-dodecahedron`, `games-rpg-maker`, `games-vn-maker`, `registration`, `producer-registration`, `banned`, `api-docs`) plus a `wasm-fragment` asset-tier nginx, all served by per-remote services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The runtime data flow below describes the **post-federation** rendering path; legacy `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. See *Module Federation: host + remotes + a fragment* under [Key architectural decisions](#key-architectural-decisions) for the bundle-view companion to this runtime view.
 
@@ -182,10 +219,14 @@ flowchart TB
     subgraph host["Angular host shell :8080 — nginx (same-origin SPA + /_remotes/*)"]
         Shell["Host shell<br/>HTTP interceptor adds Bearer JWT · AuthGuard<br/>/login · /admin · HomeComponent → selectLevel()"]
         Remote["Federated game remote<br/>app-(slug)-remote Web Component<br/>three-wizards · dodecahedron · legacy game-canvas"]
-        subgraph iframe["iframe — Godot WASM bundle (per chapter)"]
+        subgraph iframe["iframe — Godot 4 WASM bundle (per chapter, server-authoritative)"]
             Bridge["game_bridge.gd<br/>EventSource /api/game/stream → movement queue (FIFO, cap 32)<br/>_unhandled_input(KEY_1..5) → _cast_spell(N)"]
             SceneLoader["scene_loader.gd<br/>spawns lights / fairies / geometry · rotates the sun"]
             PlayerCtl["player_controller.gd (CharacterBody3D)<br/>SSE dir → velocity · spells · use-first-item"]
+        end
+        subgraph webnative["iframe — web-native bundle (host-authoritative, 14 titles)"]
+            WasmEngine["games/&lt;slug&gt; canvas + Rust→wasm32 engine<br/>WasmHost.instantiateStreaming (empty imports)<br/>local input → apply → render → relay"]
+            SessionCli["SessionClient (games/_shared)<br/>per-session SSE relay<br/>remote events re-applied + re-validated by the guest"]
         end
         Controls["GameControls (Angular)<br/>WASD / Space / 1-5 / E + on-screen buttons<br/>HUD hotbar + item quick-slot"]
     end
@@ -201,7 +242,7 @@ flowchart TB
 
     subgraph remotes["Federated remotes — per-service nginx"]
         FedRemotes["login · registration · producer-registration · banned<br/>admin · mod · publisher · api-docs<br/>games-three-wizards · games-dodecahedron · games-rpg-maker · games-vn-maker<br/>remoteEntry.json + exposed bundles + COOP/COEP/CORP"]
-        WasmFrag["wasm-fragment nginx<br/>bakes /assets/levels/(slug)/ — binary asset path<br/>bypasses the BFF entirely"]
+        WasmFrag["wasm-fragment nginx<br/>bakes /assets/levels/(slug)/ — binary asset path<br/>serves BOTH Godot bundles AND the 14 web-native bundles<br/>bypasses the BFF entirely"]
     end
 
     Casdoor["Casdoor :8000 — internal only (no host port binding)<br/>POST /api/login/oauth/access_token (ROPC, proxied)<br/>GET /.well-known/jwks (RS256 public keys)"]
@@ -211,10 +252,13 @@ flowchart TB
     GW -->|"everything else → host nginx"| Shell
     IDGW -.-> Casdoor
     Shell --> Remote --> iframe
+    Shell -->|"kind='wasm-game' (manifest isWebNative)"| webnative
     Shell --> Controls
     Controls -->|"POST /api/controls/{id} + X-Casdoor-Id"| Ctrls
     Bridge -->|"GET /api/game/stream"| Stream
+    SessionCli -->|"per-session SSE relay (reemitToSession)"| Stream
     iframe -->|"/_remotes/wasm-fragment/{slug}/*"| WasmFrag
+    webnative -->|"/_remotes/wasm-fragment/{slug}/*"| WasmFrag
     Shell -->|"/_remotes/{login,registration,producer-registration,banned,admin,mod,publisher,api-docs,games-*}/*"| FedRemotes
     Sec --> Ctrls
     Ctrls --> State
@@ -224,6 +268,8 @@ flowchart TB
     PgNotify --> State
     Sec -->|"ROPC proxy + JWKS verify"| Casdoor
 ```
+
+> **Two launch paths.** The Godot family loads through a per-game `remote-game` Web Component into the iframe (server-authoritative); the 14 web-native titles load through a `kind='wasm-game'` manifest row that points the host straight at the `wasm-fragment` bundle (no per-game Angular remote) and run **host-authoritative** — the host browser runs the Rust engine and relays `control`/`world` over the **same per-session SSE channels** via `GameStateService.reemitToSession`, with the guest re-validating. `main.ts` deliberately excludes `wasm-game` rows from `initFederation`. See [`games/_shared/README.md`](games/_shared/README.md) and [decision 016](docs/wiki/decisions/016-rust-extension-and-fragment-relay.md).
 
 ### Key architectural decisions
 
@@ -254,8 +300,8 @@ Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `Data
 **Per-brand domain isolation, mirrored from snapdragon.systems.**
 The BFF derives a tenant the way the snapdragon-gateway does: one Casdoor per brand ⇒ a distinct, cryptographically-validated `iss`, mapped to a brand by `DomainRegistry`, stamped as exactly one `DOMAIN_<x>` authority by `CasdoorAuthorities` (with a reserved-prefix guard so a `permissions:["DOMAIN_other"]` entry can't forge a tenant). `DomainGuardFilter` is the first consumer: when `app.tenancy.domain` names the brand this instance serves, it 403s any authenticated token whose `DOMAIN_<x>` ≠ that brand (SUPERADMIN exempt) — the BFF-side, defence-in-depth mirror of the gateway's domain hard-deny, for traffic that reaches the BFF on the compose network bypassing the edge. Unset (the single-Casdoor default) ⇒ a complete no-op. An optional `app.tenancy.issuers` CSV swaps in a per-brand multi-issuer decoder (`TenancyResourceServerConfig`). See [decision 025](docs/wiki/decisions/025-bff-domain-guard.md).
 
-**Module Federation: host + twelve remotes + a fragment.**
-The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads role-gated sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`:
+**Module Federation: host + twelve remotes + a fragment + 14 `wasm-game` rows.**
+The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads role-gated sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The 14 web-native titles add no per-remote container — they ride the shared `wasm-fragment` via `wasm-game` manifest rows (last row below):
 
 | Slug | Kind | Exposes | Where in the host |
 |---|---|---|---|
@@ -270,8 +316,11 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 | `games-rpg-maker` | `remote-shell` | `./RpgMakerRemote` | RPG maker UI; drives the `rpg-builder/` side service (decision 018) |
 | `games-vn-maker` | `remote-shell` | `./VnMakerRemote` | VN maker UI; drives the `vn-builder/` side service (decision 018) |
 | `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
+| `<game-slug>` (×14) | `wasm-game` | — (`exposed_module=NULL`) | Web-native titles. `remote_entry_url` points **directly** at `/_remotes/wasm-fragment/<slug>/index.html` (not a `remoteEntry.json`), `game_slug` carries the catalog slug. The host mounts it as a parametrised iframe; `home.component` reads `isWebNative` off the manifest. `main.ts` excludes `wasm-game` from `initFederation`. Seeded by [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml). |
 
-`HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` (cave/field → `three-wizards`, dodecahedron → `dodecahedron`); chapters with sceneTypes outside that map fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_CHAPTER_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.
+A fourth federation `kind`, **`wasm-game`**, was added for the 14 web-native titles: it carries no Angular module (`exposed_module=NULL`) and its `remote_entry_url` resolves straight to the `wasm-fragment` bundle, so a new web-native game federates by adding one DB row with no frontend change. Because `main.ts` only wires `kind ∈ {remote-game, remote-shell}` into `initFederation`, these rows are consumed only by the host's manifest reader and cannot perturb the federation runtime. See the "Web-native games" section of [CLAUDE.md](CLAUDE.md).
+
+`HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` for the Godot family (cave/field → `three-wizards`, dodecahedron → `dodecahedron`) and on the manifest's `isWebNative` flag for the web-native family; chapters with sceneTypes outside that map and no `wasm-game` row fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_CHAPTER_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.
 
 The host's `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (split into `bootstrap.ts` because `@angular/*` imports can't resolve before the import map exists). Federated route components reach the federation runtime via `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`, which `main.ts` stashes after `initFederation` resolves — keeps the federation package out of karma's static graph and out of route-handler bundles. The federation manifest is fetched from `GET /api/federation/manifest` (DB-backed, see migration `018-federation-modules.xml`) so a new remote can come online without redeploying the host.
 
@@ -386,6 +435,8 @@ The previous WASM is fully unloaded — persist any in-memory state via the API
 
 ## API reference
 
+> The canonical, every-controller list lives in [architecture · 05 — API + service reference](docs/wiki/architecture/05-api-reference.md) (38 controllers) and the live OpenAPI explorer at `/v3/api-docs`. The selection below is a representative set of reactive-pipeline walk-throughs, not the full surface. Notably, the **server-authoritative realtime PvP** controllers (`RealtimeController` at `/api/realtime`, `AdminRealtimeController` at `/api/admin/realtime`) back the 🚧 in-flight FPS/RTS match engines — see [Roadmap](#roadmap) — and are documented in the wiki, not here.
+
 The reactive endpoints below are drawn as **pipeline flowcharts** — a request flows
 left-to-right through the Reactor operators to a terminal emission:
 
@@ -405,7 +456,9 @@ flowchart LR
 
 ---
 
-### `AuthController` — `/api/auth`  *(public)*
+### `CasdoorAuthController` — `/api/auth`  *(public)*
+
+> The Java class is `CasdoorAuthController` (mapped at `/api/auth`).
 
 #### `POST /api/auth/token`
 

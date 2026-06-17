@@ -2,7 +2,7 @@
 
 > Mirror of [`chapters/04-data-model.tex`](../../publishing/architecture/chapters/04-data-model.tex).
 
-PostgreSQL holds the canonical relational state. Cassandra is a write-through cross-pod cache for movement events, an audit log for game state transitions, and a session store for short-lived browser tokens. Kafka + ClickHouse are the streaming-audit / telemetry side-channel (decision 021) — gated by `app.kafka.enabled` and off by default in dev. Liquibase drives Postgres schema migration through 48 changelogs at the head of `main` (`backend/src/main/resources/db/changelog/`); Cassandra schemas are bootstrapped by an init container and ClickHouse tables by its built-in Kafka-engine + materialized-view DDL bundled in `docker/clickhouse-init/`.
+PostgreSQL holds the canonical relational state. Cassandra is a write-through cross-pod cache for movement events, an audit log for game state transitions, and a session store for short-lived browser tokens. Kafka + ClickHouse are the streaming-audit / telemetry side-channel (decision 021) — gated by `app.kafka.enabled` and off by default in dev. Liquibase drives Postgres schema migration through 53 changelogs at the head of `main` (`backend/src/main/resources/db/changelog/`); Cassandra schemas are bootstrapped by an init container and ClickHouse tables by its built-in Kafka-engine + materialized-view DDL bundled in `docker/clickhouse-init/`.
 
 > **Naming note** — the current schema uses `chapter` (formerly `level`) and `instant` (formerly `spell`). See [decision 006](../decisions/006-naming-rename.md). Filenames under `backend/src/main/resources/assets/levels/<slug>/` did not move; only the schema and code did.
 
@@ -42,7 +42,7 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `federation_modules` | Source of truth for the federation manifest. Rows include `kind` (`remote-shell` / `remote-game` / `fragment`), `remote_entry_url`, and `exposed_module`. Read by `FederationController`. |
+| `federation_modules` | Source of truth for the federation manifest. Rows include `kind` (`remote-shell` / `remote-game` / `fragment` / `wasm-game`), `remote_entry_url`, `exposed_module`, and `game_slug`. The `wasm-game` kind (changelog 051) is the 14 web-native titles: `exposed_module=NULL`, `remote_entry_url` points directly at the `wasm-fragment` bundle, and `main.ts` excludes it from `initFederation` — it is read only by the host's manifest reader (`isWebNative`). Read by `FederationController`. |
 | `game_access` | Per-game visibility policy. `(scope, scope_value)` can be `(all, NULL)` / `(role, ROLE_PLAY_X)` / `(user, <casdoor-id>)`; the unique constraint `uq_game_access_triple` keeps inserts idempotent. See [decision 009](../decisions/009-game-access-scopes.md). |
 | `game_launches` | 256-bit URL-safe `launch_uid` per session, with a `version_dir` snapshot from `games.current_version_dir` at mint time so an in-flight launch keeps reading from its install even after a hot upload supersedes it. TTL 15 minutes; the `GameLaunchSweeper` closes stale rows. See [decision 005](../decisions/005-launch-uid-versioning.md). |
 | `game_uploads` | One row per upload zip, with the `manifest_json` text (jsonb → text per migration 024-1) and a `superseded_at` timestamp on rollback. Bound by `app.uploads.versions-to-keep` via `GameUploadPruner`. |
@@ -92,6 +92,13 @@ Migrations 001–017 are pre-federation. The federation work landed in:
 - `046-wave1-remainder-games.xml` — catalog rows for Battleship and Go. Same model as 044/045.
 - `047-wave2-games.xml` — catalog rows for wave-2 single-player puzzles (Tetris, Minesweeper, Sudoku, Match-Three). Run entirely in the browser (WASM); server not involved.
 - `048-wave3-games.xml` — catalog rows for wave-3 real-time duels (Tron, Bomberman, Asteroids Duel). Host-authoritative deterministic tick sims; the server only streams inputs.
+- `049-realtime-matches.xml` — `realtime_matches` Postgres table for the 🚧 in-flight **server-authoritative** FPS/RTS engines. Postgres holds durable match metadata; Cassandra holds the *live* truth (`realtime_keyframes` + `realtime_command_log`, bootstrapped from [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql)). **No FPS/RTS title is registered as a launchable catalog game** — this is engine/sim-core wiring, not a playable entry. See [`docs/realtime-server-authoritative-design.md`](../../realtime-server-authoritative-design.md).
+- `050-chess-relay-event-types.xml` — `input_event_types` + `game_event_support` rows for the chess move-relay channel.
+- `051-web-game-federation.xml` — one `federation_modules` row per web-native game with the new `kind='wasm-game'` (plus the matching `game_access` + `games` rows where needed). Idempotent (`ON CONFLICT (slug) DO NOTHING`). This is what flips the host off the legacy `<app-game-canvas>` for the 14 web-native titles — no frontend change needed for future web-native games.
+- `052-web-game-relay-event-types.xml` — `input_event_types` + `game_event_support` rows for the generic web-native control/world relay channels.
+- `053-chess-godot-federation.xml` — registers the optional `chess-godot` Godot front-end variant (`games`/`chapters`/`federation_modules`/`game_access` rows) alongside the web-native chess title.
+
+The catalog now spans **16 games** (2 Godot + 14 web-native). The `realtime_matches` work (049) adds engines and a match surface, not a 17th launchable title.
 
 **Never edit a previously-merged changeset.** When something is missed, append a new changeset with `<preConditions onFail="MARK_RAN">` so re-runs are idempotent.
 
