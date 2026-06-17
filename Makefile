@@ -58,11 +58,17 @@ GODOT_EXPORT_ROOT   = $(BACKEND_DIR)/src/main/resources/assets/levels
 # `make build-godot` iterates this list, runs each preset, and writes the
 # resulting bundle to backend/.../assets/levels/<lower-preset>/. Adding a
 # new game = drop a new project under games/<slug>/ + append a row here.
-GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo
+GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo chess-godot
 PRESETS_three-wizards-in-a-trenchcoat = Cave Field
 PRESETS_dodecahedron-demo             = Dodecahedron
+# chess-godot: the FIRST reference game ported to the Godot pivot — a real Godot
+# project that REUSES the deterministic snapdragon-chess Rust core via the
+# ChessEngine GDExtension node (no GDScript rules). Preset name lower-cases to
+# the slug 'chess-godot'. Ships ALONGSIDE the existing web-native 'chess' bundle
+# (kept as fallback). See games/_godot-template/README.md for the port recipe.
+PRESETS_chess-godot                   = Chess-Godot
 # Flat slug list used by `make seed-roles` and other per-game iteration.
-GAME_SLUGS          = three-wizards dodecahedron
+GAME_SLUGS          = three-wizards dodecahedron chess-godot
 
 BACKEND_JAR         = $(BACKEND_DIR)/target/snapdragon-gaming-bff-0.1.0-SNAPSHOT.jar
 FRONTEND_DIST       = $(FRONTEND_DIR)/dist/snapdragon-games-frontend
@@ -163,6 +169,7 @@ build-godot: build-rust
 	  case "$$game" in \
 	    three-wizards-in-a-trenchcoat) presets="Cave Field";; \
 	    dodecahedron-demo)             presets="Dodecahedron";; \
+	    chess-godot)                   presets="Chess-Godot";; \
 	    *)                             presets="";; \
 	  esac; \
 	  for preset in $$presets; do \
@@ -225,6 +232,7 @@ patch-godot:
 	  case "$$game" in \
 	    three-wizards-in-a-trenchcoat) presets="Cave Field";; \
 	    dodecahedron-demo)             presets="Dodecahedron";; \
+	    chess-godot)                   presets="Chess-Godot";; \
 	    *)                             presets="";; \
 	  esac; \
 	  for preset in $$presets; do \

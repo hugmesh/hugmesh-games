@@ -34,6 +34,13 @@ api-custom = ["godot/api-custom"]
 
 [dependencies]
 godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
+# Deterministic game cores reused FROM Godot via the bridge. Each core is a
+# pure, dependency-free Rust crate (rlib) that compiles for BOTH the native
+# .so (editor F5 / cargo test) and the wasm32-unknown-emscripten bridge build
+# that ships in the Web export — so the SAME validated logic runs everywhere.
+# A core is reused by exposing a GDExtension node here (see src/chess_engine.rs)
+# that the game's GDScript calls; game rules are NEVER reimplemented in GDScript.
+snapdragon-chess = { path = "../snapdragon-chess" }
 
 [profile.release]
 opt-level = 3
