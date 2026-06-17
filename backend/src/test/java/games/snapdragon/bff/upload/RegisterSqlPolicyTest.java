@@ -170,6 +170,119 @@ class RegisterSqlPolicyTest {
         assertThat(stmts).hasSize(1);
     }
 
+    // ── lexer-desync SQL-injection regressions (A03) ─────────────────────────
+    //
+    // The hand-rolled lexer used to treat a BACKSLASH as a quote-escape
+    // (`c=='\'' && charAt(i-1)!='\\'`). Under Postgres 16's default
+    // `standard_conforming_strings=on` a backslash is a LITERAL character, so a
+    // value ending in `\'` actually CLOSES the string. The old lexer thought it
+    // was still inside the literal, never saw the `;`, and returned the whole
+    // blob as ONE statement that `validate()` then ALLOWed (prefix matches
+    // `INSERT INTO games`) — smuggling a trailing `DROP TABLE games`/etc. that
+    // `db.sql(blob).fetch()` runs over Postgres' multi-statement simple-query
+    // protocol as the privileged role. These specs pin that the policy now
+    // SPLITS and REJECTS such blobs. They FAIL on the pre-fix lexer (vet()
+    // returns a 1-element list and throws nothing) and pass once the lexer
+    // models standard-conforming strings + doubled quotes + E'' + $tag$ +
+    // /* */.
+
+    /**
+     * The headline payload from the audit. `'a\'` is a COMPLETE 3-char string
+     * literal under standard-conforming strings (backslash is data), so the
+     * statement really ends at the first `;` and `DROP TABLE games` is a second,
+     * disallowed statement. The old lexer mis-read `\'` as an escaped quote,
+     * stayed "in string" through the `;`, and let the whole blob through.
+     */
+    @Test
+    void rejectsBackslashQuoteLexerDesyncSmuggle() {
+        assertThatThrownBy(() -> RegisterSqlPolicy.vet(
+                "INSERT INTO games (name,slug) VALUES ('a\\', 'x'); DROP TABLE games; --"))
+                .as("backslash is literal under standard_conforming_strings — must split + reject")
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("register.sql rejected");
+    }
+
+    /**
+     * A C-style escape string {@code E'...'} honours backslash escapes, so
+     * {@code E'a\'...'} keeps the string open across the inner quote — the exact
+     * opposite of a standard-conforming literal. Under the old lexer this blob
+     * returns ONE allowed {@code INSERT INTO games …} statement (the smuggled
+     * {@code DROP} hides inside the mis-lexed string), so {@code vet()} threw
+     * nothing → the test FAILS pre-fix. The policy must REJECT {@code E'...'}
+     * outright: the legitimate generator never emits it, and modelling C-escape
+     * rules precisely is the footgun we're removing.
+     */
+    @Test
+    void rejectsEscapeStringPayload() {
+        assertThatThrownBy(() -> RegisterSqlPolicy.vet(
+                "INSERT INTO games (name,slug) VALUES (E'a\\'; DROP TABLE games; --', 'x')"))
+                .as("E'...' C-style escape strings must be rejected, not naively lexed")
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("register.sql rejected");
+    }
+
+    /**
+     * Dollar-quoting ({@code $tag$ ... $tag$}) is a string delimiter the lexer
+     * never modelled. A lone single quote INSIDE a dollar-quoted body
+     * ({@code $q$ ' $q$}) is DATA, but the old single-quote lexer reads it as
+     * "string opened", swallows the following statement separator, and returns
+     * ONE allowed {@code INSERT INTO games …} carrying the smuggled
+     * {@code DROP TABLE games} — so {@code vet()} threw nothing → the test FAILS
+     * pre-fix. The legitimate generator never uses dollar-quoting, so any bundle
+     * that does must be rejected.
+     */
+    @Test
+    void rejectsDollarQuotedPayload() {
+        assertThatThrownBy(() -> RegisterSqlPolicy.vet(
+                "INSERT INTO games (name,slug) VALUES ($q$ ' $q$, 'x'); DROP TABLE games; --"))
+                .as("$tag$ dollar-quoting must be rejected, not lexed as bare identifiers")
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("register.sql rejected");
+    }
+
+    /**
+     * A C-style {@code /* *}{@code /} block comment can hide a {@code ;} or a
+     * quote from a line-comment-only stripper, desyncing the split. The
+     * generator emits only {@code --} banners, so a bundle with a block comment
+     * is out-of-policy and must be rejected (or have the comment neutralised so
+     * the smuggled tail is still seen + rejected).
+     */
+    @Test
+    void rejectsBlockCommentDesyncPayload() {
+        assertThatThrownBy(() -> RegisterSqlPolicy.vet(
+                "INSERT INTO games (name,slug) VALUES ('a' /* ' */, 'x'); DROP TABLE games; --"))
+                .as("/* */ block comments must not desync the lexer")
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("register.sql rejected");
+    }
+
+    /**
+     * The SQL-standard way to put a single quote in a literal is to DOUBLE it
+     * ({@code ''}). A legitimate INSERT whose value contains an apostrophe must
+     * STILL pass — the hardened lexer must consume {@code ''} as an in-string
+     * escaped quote, not as a string close + reopen that desyncs the `;` split.
+     * This guards against an over-correction that breaks the real upload path.
+     */
+    @Test
+    void allowsDoubledSingleQuoteInValue() {
+        List<String> stmts = RegisterSqlPolicy.vet(
+                "INSERT INTO games (name, slug) VALUES ('Tom''s Quest', 'toms-quest');\n");
+        assertThat(stmts).hasSize(1);
+        assertThat(stmts.get(0)).startsWith("INSERT INTO games");
+    }
+
+    /**
+     * A {@code ;} that sits inside a doubled-quote literal must NOT split the
+     * statement — proves the {@code ''} handling keeps the lexer in-string
+     * across the quote pair rather than treating the pair as close+reopen.
+     */
+    @Test
+    void doubledQuoteWithSemicolonStaysOneStatement() {
+        List<String> stmts = RegisterSqlPolicy.vet(
+                "INSERT INTO games (name, slug) VALUES ('a '' ; b', 'my-game');\n");
+        assertThat(stmts).hasSize(1);
+    }
+
     private static void assertReject(String stmt) {
         assertThatThrownBy(() -> RegisterSqlPolicy.validate(stmt))
                 .as("must reject: %s", stmt)

@@ -42,6 +42,8 @@ class GameUploadServiceTest {
         when(cf.getMetadata()).thenReturn(md);
         return new GameUploadService(
                 tempDir.toString(),
+                "",   // register-sql least-priv role disabled — these specs exercise
+                      // only the staging/validation path (no DB role switch).
                 new games.snapdragon.bff.upload.FilesystemUploadStorage(tempDir),
                 mock(GameUploadRepository.class),
                 cf,

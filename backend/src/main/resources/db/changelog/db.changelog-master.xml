@@ -5,6 +5,16 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
 
+    <!--
+      Optional override for the login role enrolled as a member of the
+      least-privilege register.sql role (migration 054). Empty (default) enrols
+      CURRENT_USER — the role Liquibase connects as, which is the BFF's R2DBC
+      login role in every environment. Set -Dapp.register-sql.login-role=<role>
+      only when Liquibase migrates as a privileged role distinct from the BFF
+      login role.
+    -->
+    <property name="app.register-sql.login-role" value="" global="true"/>
+
     <include file="db/changelog/001-initial-schema.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/002-seed-data.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/003-scene-elements.xml" relativeToChangelogFile="false"/>
@@ -58,5 +68,11 @@
     <include file="db/changelog/051-web-game-federation.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/052-web-game-relay-event-types.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/053-chess-godot-federation.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/054-register-sql-least-priv-role.xml" relativeToChangelogFile="false"/>
+    <!--
+      games_id_seq advance must run AFTER all seed changesets that insert games
+      rows with explicit ids (012, 017, 044-048, 053). Registered last so the
+      setval() reflects the final MAX(games.id).
+    -->
     <include file="db/changelog/054-advance-games-id-seq.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

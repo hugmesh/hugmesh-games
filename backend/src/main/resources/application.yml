@@ -154,6 +154,16 @@ app:
     storage: ${APP_UPLOADS_STORAGE:filesystem}
     games-dir: ${APP_UPLOADS_GAMES_DIR:/var/snapdragon/games}
     versions-to-keep: ${APP_UPLOADS_VERSIONS_TO_KEEP:3}
+    # SECURITY (OWASP A03/A04) — least-privilege Postgres role the
+    # attacker-controlled bundle register.sql is executed under. Migration 054
+    # creates this NOSUPERUSER, no-DDL role scoped to ONLY the six catalog
+    # tables and enrols the app login role as a member; GameUploadService does a
+    # transaction-scoped `SET LOCAL ROLE` for the register.sql step so the
+    # install stays atomic and the role reverts on commit/rollback. No new
+    # credential is involved (the role is NOLOGIN). Set to empty to disable the
+    # role switch (the RegisterSqlPolicy allowlist + hardened lexer still apply).
+    register-sql:
+      role: ${APP_UPLOADS_REGISTER_SQL_ROLE:snapdragon_register_sql}
     s3:
       endpoint:   ${APP_UPLOADS_S3_ENDPOINT:}
       region:     ${APP_UPLOADS_S3_REGION:us-east-1}
