@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Chess (Godot) — the FIRST reference game of the Godot pivot.
+
+      games/chess-godot/ is a real Godot 4 project that REUSES the deterministic
+      `snapdragon-chess` Rust core via the ChessEngine GDExtension node in
+      snapdragon_bridge (NO GDScript rules). `make build-godot` exports it to a
+      real Web WASM bundle served by the wasm-fragment nginx at
+      /_remotes/wasm-fragment/chess-godot/index.html — exactly the launch shape
+      the 14 web-native games use (kind='wasm-game'), so the host launches it as
+      a parametrised iframe with no frontend change.
+
+      CUTOVER POLICY (deliberate, reversible):
+        * The existing web-native 'chess' game + its 051 federation row are KEPT
+          UNTOUCHED as the fallback. The original tile still serves
+          /_remotes/wasm-fragment/chess/index.html.
+        * This changeset adds 'chess-godot' ALONGSIDE as a distinct, clearly
+          labelled catalog entry ("Chess (Godot)") + its own wasm-game row, so
+          the two run side by side and the Godot path can be proven in prod
+          without risking the working web bundle.
+        * To complete the cutover once proven: repoint the original 'chess'
+          chapter.asset_url + the games-chess federation remote_entry_url at the
+          chess-godot bundle (or simply disable the games-chess-godot row to roll
+          back). Both directions are one UPDATE.
+
+      Mirrors 051's idempotency (ON CONFLICT / NOT EXISTS + tableExists
+      preconditions) so re-runs on partial state are no-ops.
+    -->
+
+    <!-- 1. Catalog game row ("Chess (Godot)"). Collision-safe ids like 044-1. -->
+    <changeSet id="053-1-chess-godot-game" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Chess (Godot)',
+       'Two-player chess rendered in Godot. Reuses the SAME deterministic Rust rules engine as the web-native chess (via the ChessEngine GDExtension bridge) — host-authoritative, the guest re-validates every move. The reference for the Godot game architecture.',
+       'chess-godot',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'chess-godot');
+        </sql>
+    </changeSet>
+
+    <!-- 2. The board chapter. scene_type 'chess' reuses the existing chess
+         multiplayer wiring; asset_url points at the Godot bundle. -->
+    <changeSet id="053-2-chess-godot-chapter" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="chapters"/>
+        </preConditions>
+        <sql>
+INSERT INTO chapters
+    (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT
+    'Chessboard (Godot)',
+    'Standard 8x8 chess in a Godot WASM bundle. White and black join one session; the host ChessEngine (Rust core) is authoritative and the guest re-validates every move.',
+    'chess-godot',
+    'chess',
+    1,
+    '/_remotes/wasm-fragment/chess-godot/index.html',
+    '{}',
+    (SELECT id FROM games WHERE slug = 'chess-godot'),
+    NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'chess-godot');
+        </sql>
+    </changeSet>
+
+    <!-- 3. Federation row (kind='wasm-game'), mirroring the 051 web-native rows.
+         The host's home.component.ts isWebNative/webNativeSlug reads this off
+         GET /api/federation/manifest and launches it as a parametrised iframe. -->
+    <changeSet id="053-3-chess-godot-federation-row" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="federation_modules"/>
+        </preConditions>
+        <sql>
+INSERT INTO federation_modules
+    (slug, display_name, kind, remote_entry_url, exposed_module, game_slug, version, enabled, metadata)
+VALUES
+    ('games-chess-godot', 'Chess (Godot)', 'wasm-game',
+     '/_remotes/wasm-fragment/chess-godot/index.html', NULL, 'chess-godot', '0.1.0', true,
+     '{"sse":true,"hostAuthoritative":true,"engine":"godot","core":"snapdragon-chess"}'::jsonb)
+ON CONFLICT (slug) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <!-- 4. Default all-users access, mirroring 051-2 so the tile is visible +
+         launchable for seeded player roles (no game_access row => hidden). -->
+    <changeSet id="053-4-chess-godot-default-access" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="game_access"/>
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO game_access (game_id, scope, scope_value, granted_by, granted_at)
+SELECT g.id, 'all', NULL, 'system:migration-053', NOW()
+  FROM games g
+ WHERE g.slug = 'chess-godot'
+   AND NOT EXISTS (
+        SELECT 1 FROM game_access ga
+         WHERE ga.game_id = g.id AND ga.scope = 'all' AND ga.scope_value IS NULL
+ );
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
