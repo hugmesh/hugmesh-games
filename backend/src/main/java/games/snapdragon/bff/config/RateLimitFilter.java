@@ -56,9 +56,22 @@ import java.util.concurrent.atomic.AtomicInteger;
  * sliding tail: every request whose timestamp is older than NOW-WINDOW
  * is dropped from the count via lazy GC on each insert.
  */
+// Order MUST be GREATER than Spring Security's WebFilterChainProxy
+// (registered at -100) so this filter runs AFTER authentication and observes
+// the populated SecurityContext / exchange principal. At the previous
+// HIGHEST_PRECEDENCE + 30 (≈ Integer.MIN_VALUE) it ran BEFORE the security
+// chain, so exchange.getPrincipal() was empty and the revocation check
+// silently failed OPEN (a revoked token sailed through). -100 + 30 = -70
+// keeps it AFTER security while preserving the original relative ordering
+// among the three app filters (RateLimit -70 < DomainGuard -60 < BanGate -50).
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 30)
+@Order(RateLimitFilter.SECURITY_CHAIN_ORDER + 30)
 public class RateLimitFilter implements WebFilter {
+
+    /** Spring Security's {@code WebFilterChainProxy} bean order. Anchoring the
+     *  three SecurityContext-reading app filters just AFTER it (rather than at
+     *  {@link Ordered#HIGHEST_PRECEDENCE}) is the whole fix. */
+    static final int SECURITY_CHAIN_ORDER = -100;
 
     private static final Logger log = LoggerFactory.getLogger(RateLimitFilter.class);
 

@@ -3,7 +3,6 @@ package games.snapdragon.bff.config;
 import games.snapdragon.bff.security.DomainRegistry;
 import games.snapdragon.bff.security.Roles;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -63,16 +62,23 @@ import reactor.core.publisher.Mono;
  *       signature).</li>
  * </ul>
  *
- * <p>Order mirrors {@link BanGateFilter} ({@code HIGHEST_PRECEDENCE + 50}): this runs
- * at {@code +40}, just BEFORE the ban gate, so a foreign-brand token is rejected as a
- * tenant violation before any per-user ban lookup (a cheaper, more fundamental deny
- * that never touches the {@code AdminActionService} cache). Both read the JWT from the
- * reactive {@link ReactiveSecurityContextHolder} populated by Spring Security's
- * authentication filter.
+ * <p>Order: this filter, the {@link BanGateFilter} and the {@code RateLimitFilter} all
+ * read the JWT from the reactive {@link ReactiveSecurityContextHolder}, so they MUST run
+ * AFTER Spring Security's {@code WebFilterChainProxy} (registered at {@code -100}) —
+ * otherwise the security context is empty and every check fails OPEN. We anchor all three
+ * just after it, preserving their original relative order: RateLimit ({@code -70}) →
+ * DomainGuard ({@code -60}, this filter) → BanGate ({@code -50}). DomainGuard runs just
+ * BEFORE the ban gate so a foreign-brand token is rejected as a tenant violation before
+ * any per-user ban lookup (a cheaper, more fundamental deny that never touches the
+ * {@code AdminActionService} cache).
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 40)
+@Order(DomainGuardFilter.SECURITY_CHAIN_ORDER + 40)
 public class DomainGuardFilter implements WebFilter {
+
+    /** Spring Security's {@code WebFilterChainProxy} bean order; this filter sits just
+     *  after it so it observes the populated SecurityContext. */
+    static final int SECURITY_CHAIN_ORDER = -100;
 
     /** The brand this BFF instance serves. Empty => single-tenant => the guard is a
      *  no-op. Sanitized to the same {@code [a-z0-9-]} shape the converter / registry

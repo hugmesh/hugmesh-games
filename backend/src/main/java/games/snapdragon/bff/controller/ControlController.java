@@ -103,8 +103,18 @@ public class ControlController {
                     .flatMap(member -> dispatch(event, characterId, sid));
         }
 
-        // Legacy single-session mode.
-        if (casdoorId != null && !sessionService.isController(casdoorId)) {
+        // Legacy single-session mode. FAIL CLOSED on a missing subject: a null
+        // casdoorId means there is no authenticated principal AND no legacy
+        // X-Casdoor-Id, so we must 401 rather than fall through to dispatch().
+        // (The old guard `casdoorId != null && !isController(casdoorId)` had the
+        // inversion backwards — a null subject SKIPPED the controller check and
+        // mutated shared game state unauthenticated. SecurityConfig now also
+        // requires authentication on /api/controls/**, so this is the
+        // defence-in-depth controller-layer half of the same fix.)
+        if (casdoorId == null) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "authentication required for controls"));
+        }
+        if (!sessionService.isController(casdoorId)) {
             return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Not the current controller"));
         }
         return dispatch(event, characterId, null);

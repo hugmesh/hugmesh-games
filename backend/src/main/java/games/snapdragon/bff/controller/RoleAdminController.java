@@ -4,6 +4,9 @@ import games.snapdragon.bff.model.ModGameScope;
 import games.snapdragon.bff.model.PublisherGameScope;
 import games.snapdragon.bff.repository.ModGameScopeRepository;
 import games.snapdragon.bff.repository.PublisherGameScopeRepository;
+import games.snapdragon.bff.security.DomainRegistry;
+import games.snapdragon.bff.security.Roles;
+import games.snapdragon.bff.service.DomainScopeService;
 import games.snapdragon.bff.service.PublisherService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,13 +38,26 @@ public class RoleAdminController {
     private final PublisherService publisher;
     private final PublisherGameScopeRepository publisherScopes;
     private final ModGameScopeRepository       modScopes;
+    private final DomainScopeService           domainScope;
+    private final DomainRegistry               domainRegistry;
 
     public RoleAdminController(PublisherService publisher,
                                PublisherGameScopeRepository publisherScopes,
-                               ModGameScopeRepository modScopes) {
+                               ModGameScopeRepository modScopes,
+                               DomainScopeService domainScope,
+                               DomainRegistry domainRegistry) {
         this.publisher       = publisher;
         this.publisherScopes = publisherScopes;
         this.modScopes       = modScopes;
+        this.domainScope     = domainScope;
+        this.domainRegistry  = domainRegistry;
+    }
+
+    /** Brand-scope gate: a brand-X admin may not grant/revoke scope on a brand-Y
+     *  game in multi-brand shared-BFF mode (SUPERADMIN exempt; inert single-tenant).
+     *  Mirrors {@code PublisherController.requireGameDomain}. */
+    private Mono<Void> requireGameDomain(String gameSlug, Jwt jwt) {
+        return domainScope.requireGameDomain(gameSlug, Roles.domainOf(jwt, domainRegistry), Roles.isSuperadmin(jwt));
     }
 
     public record GrantRequest(String targetCasdoorId, String gameSlug) {}
@@ -72,7 +88,9 @@ public class RoleAdminController {
     public Mono<PublisherGameScope> grantPublisher(
             @AuthenticationPrincipal Jwt jwt,
             @RequestBody GrantRequest req) {
-        return publisher.adminGrantPublisher(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug());
+        return requireGameDomain(req.gameSlug(), jwt)
+                .then(Mono.defer(() ->
+                        publisher.adminGrantPublisher(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug())));
     }
 
     @Operation(summary = "Revoke a publisher scope (soft-delete)")
@@ -80,7 +98,9 @@ public class RoleAdminController {
     public Mono<Void> revokePublisher(
             @AuthenticationPrincipal Jwt jwt,
             @RequestBody GrantRequest req) {
-        return publisher.adminRevokePublisher(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug());
+        return requireGameDomain(req.gameSlug(), jwt)
+                .then(Mono.defer(() ->
+                        publisher.adminRevokePublisher(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug())));
     }
 
     @Operation(
@@ -94,16 +114,19 @@ public class RoleAdminController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestBody GrantRequest req) {
         // Admins reuse the publisher.grantMod path but bypass the
-        // requireOwns scope check since they have global authority.
-        return modScopes.findActive(req.targetCasdoorId(), req.gameSlug())
-                .switchIfEmpty(Mono.defer(() -> {
-                    ModGameScope row = new ModGameScope();
-                    row.setCasdoorId(req.targetCasdoorId());
-                    row.setGameSlug(req.gameSlug());
-                    row.setGrantedByCasdoorId(jwt.getSubject());
-                    row.setGrantedAt(java.time.Instant.now());
-                    return modScopes.save(row);
-                }));
+        // requireOwns scope check since they have global authority — yet a
+        // brand-X admin must NOT grant scope on a brand-Y game (multi-brand
+        // shared-BFF). Gate on the caller's brand owning the game first.
+        return requireGameDomain(req.gameSlug(), jwt)
+                .then(Mono.defer(() -> modScopes.findActive(req.targetCasdoorId(), req.gameSlug())
+                        .switchIfEmpty(Mono.defer(() -> {
+                            ModGameScope row = new ModGameScope();
+                            row.setCasdoorId(req.targetCasdoorId());
+                            row.setGameSlug(req.gameSlug());
+                            row.setGrantedByCasdoorId(jwt.getSubject());
+                            row.setGrantedAt(java.time.Instant.now());
+                            return modScopes.save(row);
+                        }))));
     }
 
     @Operation(summary = "Revoke a mod scope (soft-delete)")
@@ -111,13 +134,14 @@ public class RoleAdminController {
     public Mono<Void> revokeMod(
             @AuthenticationPrincipal Jwt jwt,
             @RequestBody GrantRequest req) {
-        return modScopes.findActive(req.targetCasdoorId(), req.gameSlug())
-                .switchIfEmpty(Mono.error(new org.springframework.web.server.ResponseStatusException(
-                        org.springframework.http.HttpStatus.NOT_FOUND, "no active mod scope to revoke")))
-                .flatMap(row -> {
-                    row.setRevokedAt(java.time.Instant.now());
-                    row.setRevokedByCasdoorId(jwt.getSubject());
-                    return modScopes.save(row).then();
-                });
+        return requireGameDomain(req.gameSlug(), jwt)
+                .then(Mono.defer(() -> modScopes.findActive(req.targetCasdoorId(), req.gameSlug())
+                        .switchIfEmpty(Mono.error(new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.NOT_FOUND, "no active mod scope to revoke")))
+                        .flatMap(row -> {
+                            row.setRevokedAt(java.time.Instant.now());
+                            row.setRevokedByCasdoorId(jwt.getSubject());
+                            return modScopes.save(row).then();
+                        })));
     }
 }

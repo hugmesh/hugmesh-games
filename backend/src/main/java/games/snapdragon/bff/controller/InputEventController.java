@@ -143,14 +143,42 @@ public class InputEventController {
     @Operation(summary = "Recent events for a character (newest first).")
     @GetMapping("/character/{characterId}")
     public Flux<InputEventRow> recentForCharacter(@PathVariable Long characterId,
-                                                  @RequestParam(defaultValue = "100") int limit) {
-        return events.findRecentByCharacterId(characterId, Math.min(Math.max(limit, 1), 1000));
+                                                  @RequestParam(defaultValue = "100") int limit,
+                                                  @AuthenticationPrincipal Jwt jwt) {
+        // 401 on no auth, then prove the caller currently OWNS characterId.
+        // Without this gate an unauthenticated / unrelated caller could read
+        // ANY character's recent input history — an IDOR that de-anonymises the
+        // owning Casdoor subject and leaks event payloads. authorizeControl
+        // (sessionId=null ⇒ findActiveOwnerOfCharacter) is the same ownership
+        // check submit() runs; it 403s a caller who does not own the character.
+        if (jwt == null) {
+            return Flux.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        }
+        // Flux.defer so the history query is only ASSEMBLED once the ownership gate
+        // passes — a denied request short-circuits without touching the repository.
+        return sessions.authorizeControl(jwt.getSubject(), characterId, null)
+                .thenMany(Flux.defer(() ->
+                        events.findRecentByCharacterId(characterId, Math.min(Math.max(limit, 1), 1000))));
     }
 
     @Operation(summary = "Recent events for a session (newest first).")
     @GetMapping("/session/{sessionId}")
     public Flux<InputEventRow> recentForSession(@PathVariable String sessionId,
-                                                @RequestParam(defaultValue = "100") int limit) {
-        return events.findRecentBySessionId(sessionId, Math.min(Math.max(limit, 1), 1000));
+                                                @RequestParam(defaultValue = "100") int limit,
+                                                @AuthenticationPrincipal Jwt jwt) {
+        // 401 on no auth, then prove the caller is an ACTIVE member of the
+        // session before exposing its event history. Without this gate any
+        // caller who learned a sessionId could read every member's input
+        // payloads (cross-session IDOR). activeMembership is empty for a
+        // non-member ⇒ 403. Mirrors submit()'s session-scoped authz.
+        if (jwt == null) {
+            return Flux.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        }
+        // Flux.defer so the history query is only ASSEMBLED once membership is proven.
+        return sessions.activeMembership(sessionId, jwt.getSubject())
+                .switchIfEmpty(Mono.error(new ResponseStatusException(
+                        HttpStatus.FORBIDDEN, "not an active member of this session")))
+                .thenMany(Flux.defer(() ->
+                        events.findRecentBySessionId(sessionId, Math.min(Math.max(limit, 1), 1000))));
     }
 }

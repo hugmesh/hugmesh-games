@@ -8,12 +8,18 @@ import games.snapdragon.bff.config.SecurityHeadersFilter;
 import games.snapdragon.bff.controller.support.SecuritySliceSupport;
 import games.snapdragon.bff.model.ModGameScope;
 import games.snapdragon.bff.model.PublisherGameScope;
+import games.snapdragon.bff.repository.GameRepository;
+import games.snapdragon.bff.repository.GameSessionRepository;
 import games.snapdragon.bff.repository.ModGameScopeRepository;
 import games.snapdragon.bff.repository.PublisherGameScopeRepository;
+import games.snapdragon.bff.service.DomainScopeService;
 import games.snapdragon.bff.service.PublisherService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan.Filter;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
@@ -56,7 +62,8 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = {
                 BanGateFilter.class, DomainGuardFilter.class,
                 RateLimitFilter.class, SecurityHeadersFilter.class}))
-@Import({SecurityConfig.class, SecuritySliceSupport.TenantBeans.class})
+@Import({SecurityConfig.class, SecuritySliceSupport.TenantBeans.class,
+        RoleAdminControllerHttpAuthzTest.Beans.class})
 class RoleAdminControllerHttpAuthzTest {
 
     @Autowired WebTestClient web;
@@ -64,6 +71,27 @@ class RoleAdminControllerHttpAuthzTest {
     @MockitoBean PublisherService publisher;
     @MockitoBean PublisherGameScopeRepository publisherScopes;
     @MockitoBean ModGameScopeRepository modScopes;
+    @MockitoBean GameRepository gameRepo;
+    @MockitoBean GameSessionRepository sessionRepo;
+
+    /** RoleAdminController now injects a DomainScopeService (BUG-D brand gate);
+     *  @WebFluxTest does not contribute services, so build one over the mocked
+     *  repos. The gate is inert on the default issuer (unknown slug ⇒ empty ⇒
+     *  allow), so these single-tenant authz tests are unaffected. */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Beans {
+        @Bean DomainScopeService domainScopeService(GameRepository g, GameSessionRepository s) {
+            return new DomainScopeService(g, s);
+        }
+    }
+
+    /** Default: an unknown game slug ⇒ DomainScopeService completes empty ⇒ the
+     *  brand gate passes (single-tenant inert). Individual cross-brand DENY tests
+     *  override with a real branded game row. */
+    @BeforeEach
+    void defaultGateInert() {
+        lenient().when(gameRepo.findBySlug(anyString())).thenReturn(Mono.empty());
+    }
 
     private static final String GRANT_PUBLISHER = "/api/admin/role-grants/grant-publisher";
     private static final String GRANT_MOD       = "/api/admin/role-grants/grant-mod";

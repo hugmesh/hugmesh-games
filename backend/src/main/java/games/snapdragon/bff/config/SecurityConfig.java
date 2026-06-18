@@ -59,6 +59,24 @@ public class SecurityConfig {
             // — an unauthenticated caller would reach the snapshot stream and
             // command log (the domain gate alone is a no-op single-tenant).
             "/api/realtime/**",
+            // JRPG control input (ControlController). Without this entry the
+            // endpoint fell through to anyExchange().permitAll() — an
+            // UNAUTHENTICATED caller reached dispatch(), mutating shared game
+            // state and fanning the move out over the per-session SSE sinks /
+            // Kafka. The controller's multiplayer branch already 401s a null
+            // subject, but the legacy single-session branch short-circuited the
+            // controller-role check on a null subject (no auth ⇒ no check),
+            // so requiring authentication HERE is the load-bearing control.
+            "/api/controls/**",
+            // Generalised input + audio event ingestion (InputEventController).
+            // Without this entry the controller fell through to
+            // anyExchange().permitAll() — an unauthenticated caller could read
+            // ANY character's / session's recent input history (an IDOR that
+            // de-anonymises Casdoor subjects and leaks event payloads) and the
+            // submit() 401-on-null only guarded the write path. Requiring
+            // authentication here closes the read IDOR; the controller then
+            // gates each read by session-membership / character ownership.
+            "/api/input/**",
             // Friend graph + blocklist (UserRelationshipController, base
             // /api/relationships, with /friends/** + /blocks/** nested under
             // it). Without this entry the endpoints fell through to
