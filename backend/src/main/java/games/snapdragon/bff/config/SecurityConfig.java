@@ -94,6 +94,33 @@ public class SecurityConfig {
     };
 
     /**
+     * Paths that are intentionally public — no authentication required.
+     * The catch-all is now .authenticated() so every path NOT in this list
+     * (and not already handled by a more-specific rule above it) requires a JWT.
+     * Add here only when a path MUST work for unauthenticated browsers:
+     * - /api/game/**         SSE game stream (unscoped/spectator) + game state
+     * - /api/games/**        game catalog — browse before logging in
+     * - /api/assets/**       Godot WASM bundles delivered to the iframe
+     * - /api/federation/**   Angular shell federation manifest (needed pre-login)
+     * - /api/chapters/**     chapter metadata + scene data for game loading
+     * - /api/levels/**       legacy /api/chapters alias kept for old WASM bundles
+     * - /api/time/**         game clock (spectators see the in-game time)
+     * - /api/telemetry/**    KPI ingest from iframes — explicitly allows anonymous
+     * - /api/security/**     CSP violation reports + appeal-contact for banned users
+     */
+    private static final String[] PUBLIC_PATHS = {
+            "/api/game/**",
+            "/api/games/**",
+            "/api/assets/**",
+            "/api/federation/**",
+            "/api/chapters/**",
+            "/api/levels/**",
+            "/api/time/**",
+            "/api/telemetry/**",
+            "/api/security/**",
+    };
+
+    /**
      * Dev profile: OpenAPI spec is public so ng-openapi-gen can fetch it
      * without authentication. Run with SPRING_PROFILES_ACTIVE=dev locally.
      */
@@ -131,7 +158,8 @@ public class SecurityConfig {
                     ex.pathMatchers("/api/admin/**").hasRole("ADMIN");
                     ex.pathMatchers(PLAYER_PATHS).authenticated();
                     ex.pathMatchers(SPEC_PATHS).permitAll();
-                    ex.anyExchange().permitAll();
+                    ex.pathMatchers(PUBLIC_PATHS).permitAll();
+                    ex.anyExchange().authenticated();
                 })
                 .oauth2ResourceServer(this::configureResourceServer)
                 .csrf(csrf -> csrf.disable())
@@ -159,7 +187,8 @@ public class SecurityConfig {
                     ex.pathMatchers("/api/admin/**").hasRole("ADMIN");
                     ex.pathMatchers(SPEC_PATHS).hasRole("ADMIN");
                     ex.pathMatchers(PLAYER_PATHS).authenticated();
-                    ex.anyExchange().permitAll();
+                    ex.pathMatchers(PUBLIC_PATHS).permitAll();
+                    ex.anyExchange().authenticated();
                 })
                 .oauth2ResourceServer(this::configureResourceServer)
                 .csrf(csrf -> csrf.disable())
