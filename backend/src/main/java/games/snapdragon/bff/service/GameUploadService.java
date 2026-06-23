@@ -455,7 +455,7 @@ public class GameUploadService {
                 // RESET on success AND on error; SET LOCAL would also revert at
                 // tx end, but resetting eagerly keeps the rest of the tx (the
                 // domain stamp / markCurrent) running as the app role.
-                .onErrorResume(err -> resetRole.then(Mono.error(err)))
+                .onErrorResume(err -> resetRole.onErrorComplete().then(Mono.error(err)))
                 .then(resetRole);
     }
 

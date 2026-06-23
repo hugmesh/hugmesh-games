@@ -412,8 +412,15 @@ class GameUploadIntegrationTest {
             }
             """.formatted(slug, displayName, description);
 
-        // register.sql runs inside the install transaction; statements
-        // are split on semicolons (respecting single-quoted strings).
+        // register.sql runs inside the install transaction; statements are split on
+        // semicolons (respecting single-quoted strings). slug / displayName / description
+        // are interpolated into single-quoted SQL string literals, so any apostrophe in
+        // them (e.g. a description like "...('default')...") must be SQL-escaped by doubling
+        // the quote — otherwise the literal closes early and the statement is malformed
+        // (a syntax error, NOT anything the production publisher-authored register.sql hits).
+        String slugSql = slug.replace("'", "''");
+        String nameSql = displayName.replace("'", "''");
+        String descSql = description.replace("'", "''");
         String registerSql = """
             INSERT INTO games (slug, name, description, sort_order, created_at)
                 VALUES ('%s', '%s', '%s', 99, NOW())
@@ -432,7 +439,7 @@ class GameUploadIntegrationTest {
                 SELECT id, 'all', NULL, 'system:upload'
                   FROM games WHERE slug = '%s'
                 ON CONFLICT DO NOTHING;
-            """.formatted(slug, displayName, description, slug, displayName, slug, slug, slug);
+            """.formatted(slugSql, nameSql, descSql, slugSql, nameSql, slugSql, slugSql, slugSql);
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(baos)) {
