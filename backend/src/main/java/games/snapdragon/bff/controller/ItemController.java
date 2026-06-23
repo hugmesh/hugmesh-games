@@ -4,9 +4,13 @@ import games.snapdragon.bff.model.ItemDto;
 import games.snapdragon.bff.repository.CharacterEquipmentRepository;
 import games.snapdragon.bff.repository.CharacterItemRepository;
 import games.snapdragon.bff.repository.ItemRepository;
+import games.snapdragon.bff.repository.PlayerCharacterRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
@@ -22,13 +26,16 @@ public class ItemController {
     private final ItemRepository itemRepo;
     private final CharacterItemRepository charItemRepo;
     private final CharacterEquipmentRepository equipRepo;
+    private final PlayerCharacterRepository playerCharRepo;
 
     public ItemController(ItemRepository itemRepo,
                           CharacterItemRepository charItemRepo,
-                          CharacterEquipmentRepository equipRepo) {
-        this.itemRepo      = itemRepo;
-        this.charItemRepo  = charItemRepo;
-        this.equipRepo     = equipRepo;
+                          CharacterEquipmentRepository equipRepo,
+                          PlayerCharacterRepository playerCharRepo) {
+        this.itemRepo        = itemRepo;
+        this.charItemRepo    = charItemRepo;
+        this.equipRepo       = equipRepo;
+        this.playerCharRepo  = playerCharRepo;
     }
 
     @Operation(
@@ -97,15 +104,26 @@ public class ItemController {
               ──────●─|  (empty body)
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/character/{characterId}/equipment/{slot}")
     public Mono<Void> equip(
             @PathVariable Long characterId,
             @PathVariable String slot,
-            @RequestParam Long itemId) {
-        return equipRepo.findByCharacterIdAndSlot(characterId, slot)
+            @RequestParam Long itemId,
+            @AuthenticationPrincipal Jwt jwt) {
+        String subject = jwt.getSubject();
+        return playerCharRepo.findById(characterId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
-                .doOnNext(e -> e.setItemId(itemId))
-                .flatMap(equipRepo::save)
+                .flatMap(c -> {
+                    if (c.getCasdoorId() == null || !c.getCasdoorId().equals(subject)) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN));
+                    }
+                    return Mono.just(c);
+                })
+                .flatMap(c -> equipRepo.findByCharacterIdAndSlot(characterId, slot)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                        .doOnNext(e -> e.setItemId(itemId))
+                        .flatMap(equipRepo::save))
                 .then();
     }
 }

@@ -115,4 +115,42 @@ class UserDirectoryServiceTest {
         // Dashes in wrong positions.
         assertThat(UserDirectoryService.looksLikeUuid("21c5134-7c1c7-421b0-a104-25a52c06b4d0")).isFalse();
     }
+
+    // --- isValidUsername (OWASP: query-param injection guard) ---
+
+    @Test
+    void isValidUsernameAcceptsNormalUsernames() {
+        assertThat(UserDirectoryService.isValidUsername("alice")).isTrue();
+        assertThat(UserDirectoryService.isValidUsername("player1")).isTrue();
+        assertThat(UserDirectoryService.isValidUsername("mod-three-wizards")).isTrue();
+        assertThat(UserDirectoryService.isValidUsername("publisher_flatland")).isTrue();
+        assertThat(UserDirectoryService.isValidUsername("A.B.C")).isTrue();
+    }
+
+    @Test
+    void isValidUsernameRejectsInjectionPayloads() {
+        // CROSS-USER DENY: crafted names that attempt query-string injection MUST be rejected
+        // so they never reach Casdoor or the UriBuilder.
+        assertThat(UserDirectoryService.isValidUsername("alice&owner=attacker")).isFalse();
+        assertThat(UserDirectoryService.isValidUsername("alice?foo=bar")).isFalse();
+        assertThat(UserDirectoryService.isValidUsername("alice=x")).isFalse();
+        assertThat(UserDirectoryService.isValidUsername("alice bob")).isFalse();
+        assertThat(UserDirectoryService.isValidUsername("alice\0pwn")).isFalse();
+        assertThat(UserDirectoryService.isValidUsername("")).isFalse();
+        assertThat(UserDirectoryService.isValidUsername("   ")).isFalse();
+        assertThat(UserDirectoryService.isValidUsername(null)).isFalse();
+        // Over-length name (> 64 chars).
+        assertThat(UserDirectoryService.isValidUsername("a".repeat(65))).isFalse();
+    }
+
+    @Test
+    void resolveByName_invalidUsername_emitsEmpty() {
+        // An injection-shaped name must short-circuit before any network call.
+        // The WebClient points at an unused URL — if the guard fires the observable
+        // completes immediately; if it doesn't, the test hangs on the HTTP attempt.
+        StepVerifier.create(service.resolveByName("bad&owner=attacker"))
+                .verifyComplete();
+        StepVerifier.create(service.resolveByName("bad?q=1"))
+                .verifyComplete();
+    }
 }

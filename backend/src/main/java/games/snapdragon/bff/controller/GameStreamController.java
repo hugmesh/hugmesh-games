@@ -1,16 +1,22 @@
 package games.snapdragon.bff.controller;
 
+import games.snapdragon.bff.repository.SessionMemberRepository;
+import games.snapdragon.bff.security.Roles;
 import games.snapdragon.bff.service.GameStateService;
 import games.snapdragon.bff.service.GameTimeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
@@ -23,10 +29,14 @@ public class GameStreamController {
 
     private final GameStateService gameStateService;
     private final GameTimeService gameTimeService;
+    private final SessionMemberRepository sessionMemberRepo;
 
-    public GameStreamController(GameStateService gameStateService, GameTimeService gameTimeService) {
-        this.gameStateService = gameStateService;
-        this.gameTimeService  = gameTimeService;
+    public GameStreamController(GameStateService gameStateService,
+                                GameTimeService gameTimeService,
+                                SessionMemberRepository sessionMemberRepo) {
+        this.gameStateService  = gameStateService;
+        this.gameTimeService   = gameTimeService;
+        this.sessionMemberRepo = sessionMemberRepo;
     }
 
     @Operation(
@@ -67,7 +77,8 @@ public class GameStreamController {
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<Object>> stream(
             @Parameter(description = "Optional multiplayer session id. When supplied, movement / world / character / input events are filtered to this session only — subscribers of session A never see session B's emissions. Time / scene / audio / wasm-console channels remain global because they're not session-scoped.")
-            @RequestParam(value = "sessionId", required = false) String sessionId) {
+            @RequestParam(value = "sessionId", required = false) String sessionId,
+            @AuthenticationPrincipal Jwt jwt) {
         AtomicLong sseId = new AtomicLong(0);
 
         // Per-session sinks isolate sessions from one another. Time, scene,
@@ -132,8 +143,26 @@ public class GameStreamController {
         Flux<ServerSentEvent<Object>> keepalive = Flux.interval(Duration.ZERO, Duration.ofSeconds(15))
                 .map(i -> ServerSentEvent.<Object>builder().comment("keepalive").build());
 
-        return Flux.merge(movement, world, stats, time, scene,
+        Flux<ServerSentEvent<Object>> merged = Flux.merge(movement, world, stats, time, scene,
                           input, audio, wasmConsole, sessionControl, keepalive);
+
+        // BOLA fix: session-scoped streams require the caller to be an active
+        // member of the session (or admin/superadmin who may observe any session).
+        // The unscoped global stream remains open for unauthenticated spectators.
+        if (sessionId == null || sessionId.isBlank()) {
+            return merged;
+        }
+        if (jwt == null) {
+            return Flux.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        }
+        if (Roles.isAdmin(jwt) || Roles.isSuperadmin(jwt)) {
+            return merged;
+        }
+        return sessionMemberRepo.findActive(sessionId, jwt.getSubject())
+                .flux()
+                .switchIfEmpty(Flux.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "not a member of session " + sessionId)))
+                .thenMany(merged);
     }
 
     @Operation(

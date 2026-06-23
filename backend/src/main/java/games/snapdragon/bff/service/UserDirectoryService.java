@@ -101,6 +101,9 @@ public class UserDirectoryService {
      * Bearer auth.
      */
     public Mono<String> resolveByName(String name) {
+        if (!isValidUsername(name)) {
+            return Mono.empty();
+        }
         String hit = nameToId.get(name);
         if (hit != null) {
             return Mono.just(hit);
@@ -119,7 +122,10 @@ public class UserDirectoryService {
                         return Mono.empty();
                     }
                     return casdoor.get()
-                            .uri("/api/get-user?owner=" + organization + "&name=" + name)
+                            .uri(u -> u.path("/api/get-user")
+                                    .queryParam("owner", organization)
+                                    .queryParam("name", name)
+                                    .build())
                             .header("Authorization", "Bearer " + token)
                             .retrieve()
                             .bodyToMono(Map.class)
@@ -176,6 +182,21 @@ public class UserDirectoryService {
 
     private static boolean isHex(char c) {
         return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    }
+
+    /**
+     * Casdoor usernames allow alphanumerics, hyphens, underscores, and dots (per its
+     * own registration validation). Reject anything outside that set before the Casdoor
+     * round-trip so a crafted name cannot inject query-string parameters even after the
+     * UriBuilder encodes it — the encoding is the primary defence; this is defence-in-depth.
+     */
+    static boolean isValidUsername(String name) {
+        if (name == null || name.isBlank() || name.length() > 64) return false;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (!Character.isLetterOrDigit(c) && c != '-' && c != '_' && c != '.') return false;
+        }
+        return true;
     }
 
     @SuppressWarnings("unchecked")
