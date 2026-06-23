@@ -1,10 +1,10 @@
 # Snapdragon Game Studio
 
-A self-hosted multi-game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy a 16-title catalog through an **Angular** shell with live SSE multiplayer sessions, and the **Snapdragon Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
+A self-hosted multi-game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy a 17-title catalog through an **Angular** shell with live SSE multiplayer sessions, and the **Snapdragon Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
 
 The catalog ships titles in **two technical families** (see [Two game technologies](#two-game-technologies)):
 
-- **Godot 4 WASM titles** — the flagship *Three Wizards In A Trenchcoat* (a JRPG romp across cave depths and open fields) plus a *Spinning Dodecahedron* tech demo showing off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items).
+- **Godot 4 WASM titles** — the flagship *Three Wizards In A Trenchcoat* (a JRPG romp across cave depths and open fields), a *Spinning Dodecahedron* tech demo showing off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items), and *Chess (Godot)* — a Godot reference game that reuses the same deterministic Rust chess rules engine as the web-native chess via the bridge (changelog [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)).
 - **Web-native Rust→wasm32 titles** — 14 board / puzzle / duel games (chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three) whose pure-Rust engines compile to `wasm32-unknown-unknown` and drive a canvas frontend through the host-authoritative SSE relay (see [`games/_shared/`](games/_shared/README.md)).
 
 > **State convention.** ✅ shipped = merged to `main`; 🚧 in-flight = code on an open branch/PR, not yet merged; 🔭 planned = design-complete, no code. The [Roadmap](#roadmap) gathers the 🚧 / 🔭 items.
@@ -33,11 +33,11 @@ The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with 
 
 ## Two game technologies
 
-The 16-title catalog (✅ shipped on `main`) splits into two delivery models. They share the same SSE session transport, role gating, and launch-UID minting, but differ in how the game runs in the browser:
+The 17-title catalog (✅ shipped on `main`) splits into two delivery models. They share the same SSE session transport, role gating, and launch-UID minting, but differ in how the game runs in the browser:
 
 | Family | Titles | Engine | Delivery | Authority |
 |---|---|---|---|---|
-| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo* | Godot 4.6 project under [`games/<slug>/`](games/) exported to a self-contained WASM bundle | per-game `remote-game` Angular Web Component (or the legacy iframe path) loading the bundle from `wasm-fragment` | server (BFF) holds canonical game state |
+| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)* | Godot 4.6 project under [`games/<slug>/`](games/) exported to a self-contained WASM bundle | per-game `remote-game` Angular Web Component (or the legacy iframe path) loading the bundle from `wasm-fragment`; *Chess (Godot)* federates via a `wasm-game` row straight at the `wasm-fragment` bundle (changelog [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)) | server (BFF) holds canonical game state (*Chess (Godot)* is host-authoritative, reusing the chess Rust core via the bridge — the guest re-validates) |
 | **Web-native Rust→wasm32** | chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three | pure-Rust engine under [`extensions/snapdragon-<game>/`](extensions/) + a `-wasm` shim crate compiled to `wasm32-unknown-unknown` (zero host imports), driving a vanilla-JS canvas frontend under [`games/<slug>/`](games/) | **no per-game Angular remote** — a `federation_modules` row of `kind='wasm-game'` points the host straight at the `wasm-fragment` bundle (changelog [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml)) | **host-authoritative** — the host browser runs the engine, the BFF only relays `control`/`world` over the per-session SSE stream, the guest re-applies and re-validates |
 
 The web-native engines run identically in three places — the browser (`WebAssembly.instantiateStreaming`), the JVM test harness (Chicory), and a Node functional test — so the same `.wasm` is verified end-to-end. See [`games/_shared/README.md`](games/_shared/README.md) for the shared shell contract, [`docs/multiplayer-chess-design.md`](docs/multiplayer-chess-design.md) for the host-authoritative relay model, and the "Web-native games" section of [CLAUDE.md](CLAUDE.md) for the add-a-game recipe.
@@ -72,7 +72,7 @@ Five components build from the monorepo, chained by the root [`Makefile`](Makefi
 
 ## Roadmap
 
-Status as of the current `main` plus the in-flight `feat/domain-foundation` work. Phase-2 detail lives in [`docs/PLAN-module-federation-and-native.md`](docs/PLAN-module-federation-and-native.md); per-brand tenancy detail in decisions [025](docs/wiki/decisions/025-bff-domain-guard.md) and [026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
+Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-federation-and-native.md`](docs/PLAN-module-federation-and-native.md); per-brand tenancy detail in decisions [025](docs/wiki/decisions/025-bff-domain-guard.md) and [026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
 
 ### Done — merged on `main`
 
@@ -81,13 +81,10 @@ Status as of the current `main` plus the in-flight `feat/domain-foundation` work
 - **Hot upload + cryptographic launch UIDs.** Done. `POST /api/admin/games/upload` install pipeline (validate → SHA-256 → atomic move → one R2DBC tx → version pinning + pruner); `POST /api/games/{slug}/launch` mints launch UIDs with admin revoke + sweeper. PLAN sections C & H.
 - **JWT roles + per-game access policy + mod/publisher RBAC.** Done. `game_access` scopes, `RoleProxyController`, per-game `mod_game_scopes` / `publisher_game_scopes`. Decisions [009](docs/wiki/decisions/009-game-access-scopes.md), [011](docs/wiki/decisions/011-mod-publisher-rbac.md).
 - **The makers (RPG + VN editors).** Done. `/rpg-maker` and `/vn-maker` federated remotes backed by the `rpg-builder/` + `vn-builder/` Spring services compile authored projects to upload-ready Godot bundles. [Decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
-- **Per-brand domain foundation (the `DOMAIN_` authority).** Done (merged via PR #65). The games BFF now derives a tenant the way snapdragon-gateway does — `DomainRegistry` (issuer → brand), `CasdoorAuthorities` stamping exactly one issuer-derived `DOMAIN_<x>` per token with a reserved-prefix anti-forgery guard, and `Roles.isSuperadmin` / fail-closed `Roles.domainOf`. *Note:* PR #65 stamps the authority and adds the converter hardening; it deliberately stops at the seam — **enforcement** (the BFF-side guard and catalog partitioning below) is the in-progress work, not yet on `main`.
-
-### In progress — `feat/domain-foundation` (unmerged), enforcing the `DOMAIN_` authority
-
-- **BFF-side `DOMAIN_` guard.** In progress. `DomainGuardFilter` — a reactive `WebFilter` re-running the gateway's per-instance domain hard-deny as defence-in-depth for callers that reach the BFF without traversing the gateway. Gated on `app.tenancy.domain`; a complete no-op when unset (single-tenant today). [Decision 025](docs/wiki/decisions/025-bff-domain-guard.md), 16-spec `DomainGuardFilterTest`.
-- **Per-brand games-catalog domain partitioning.** In progress. `games.domain` column (migration 043, defaults `'default'` = unscoped), `Roles.domainApplies` predicate, `DomainScopeService.requireGameDomain`, server-controlled first-writer-wins upload stamping (untrusted-`register.sql`-proof), and the `GameAccessController` list/grant/revoke enforcement surface. [Decision 026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
-- **Domain-scope fan-out across the management controllers.** In progress (uncommitted working-tree changes on `feat/domain-foundation`). The deferred follow-on from decision 026: `requireGameDomain` plumbed into `GameLaunchController` (`launch` + `adminRevoke`), `ModerationController` (`stop` / `kick`), and `PublisherController` (`grantMod` / `revokeMod`), plus `DomainScopeService.requireSessionDomain` resolving `sessionId → game_slug → domain` for the session-targeting moderation actions. Accompanied by new `*DomainScopeTest` suites for each controller.
+- **Per-brand domain foundation (the `DOMAIN_` authority).** Done (merged via PR #65). The games BFF now derives a tenant the way snapdragon-gateway does — `DomainRegistry` (issuer → brand), `CasdoorAuthorities` stamping exactly one issuer-derived `DOMAIN_<x>` per token with a reserved-prefix anti-forgery guard, and `Roles.isSuperadmin` / fail-closed `Roles.domainOf`. *Note:* PR #65 stamped the authority and added the converter hardening; the **enforcement** layer that consumes it (the BFF-side guard and catalog partitioning below) has since merged to `main` as well.
+- **BFF-side `DOMAIN_` guard.** Done. `DomainGuardFilter` — a reactive `WebFilter` re-running the gateway's per-instance domain hard-deny as defence-in-depth for callers that reach the BFF without traversing the gateway. Gated on `app.tenancy.domain`; a complete no-op when unset (single-tenant today). [Decision 025](docs/wiki/decisions/025-bff-domain-guard.md), 16-spec `DomainGuardFilterTest`.
+- **Per-brand games-catalog domain partitioning.** Done. `games.domain` column (migration 043, defaults `'default'` = unscoped), `Roles.domainApplies` predicate, `DomainScopeService.requireGameDomain`, server-controlled first-writer-wins upload stamping (untrusted-`register.sql`-proof), and the `GameAccessController` list/grant/revoke enforcement surface. [Decision 026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
+- **Domain-scope fan-out across the management controllers.** Done. The follow-on from decision 026: `requireGameDomain` plumbed into `GameLaunchController` (`launch` + `adminRevoke`), `ModerationController` (`stop` / `kick`), and `PublisherController` (`grantMod` / `revokeMod`), plus `DomainScopeService.requireSessionDomain` resolving `sessionId → game_slug → domain` for the session-targeting moderation actions. Each controller has a `*DomainScopeTest` suite, with cross-domain DENY HTTP coverage added by PRs #79 / #82.
 
 ### In progress — server-authoritative realtime engines (catalog launch deferred)
 
@@ -162,7 +159,7 @@ The **Godot 4 WASM** family is organised in three tiers (below). Web-native Rust
 
 ```mermaid
 flowchart TB
-    Game["<b>Game</b> — a title in the catalog<br/>Godot 4 WASM: Three Wizards In A Trenchcoat, Dodecahedron Demo<br/>… plus 14 web-native titles: chess, go, tetris, tron, …"]
+    Game["<b>Game</b> — a title in the catalog<br/>Godot 4 WASM: Three Wizards In A Trenchcoat, Dodecahedron Demo, Chess (Godot)<br/>… plus 14 web-native titles: chess, go, tetris, tron, …"]
     Chapter["<b>Chapter</b> — one Godot WASM bundle<br/>e.g. The Enchanted Cave, Spinning Dodecahedron"]
     Scene["<b>Scene elements</b><br/>fairies · lights · geometry · NPCs"]
     Assets["<b>Chapter assets</b><br/>custom textures · plugins · sounds"]
@@ -174,13 +171,14 @@ flowchart TB
 ```
 
 - A **Game** is one row in the `games` table — it appears as a card on the Snapdragon
-  Games portal home page. The catalog ships 16 titles in two families (see
+  Games portal home page. The catalog ships 17 titles in two families (see
   [Two game technologies](#two-game-technologies)): the Godot 4 WASM titles
-  *Three Wizards In A Trenchcoat* (a JRPG with quests, HUD, and movement controls)
-  and the *Dodecahedron Demo* (a chrome-less single-scene tech demo with no HUD, no
-  quests, no items); plus 14 web-native Rust→wasm32 board / puzzle / duel titles.
-  Web-native games are delivered as a single canvas bundle and do not use the
-  Chapter → Scene-element tier described below.
+  *Three Wizards In A Trenchcoat* (a JRPG with quests, HUD, and movement controls),
+  the *Dodecahedron Demo* (a chrome-less single-scene tech demo with no HUD, no
+  quests, no items), and *Chess (Godot)* (a Godot reference game reusing the chess
+  Rust core via the bridge); plus 14 web-native Rust→wasm32 board / puzzle / duel
+  titles. Web-native games are delivered as a single canvas bundle and do not use
+  the Chapter → Scene-element tier described below.
 - Each **Chapter** inside a game is its own compiled Godot WASM bundle, served from
   `/api/assets/levels/{slug}/` (filesystem path kept for back-compat). Chapter transitions
   unload the current WASM and mount the next one in the Angular iframe (see "Chapter transitions" below).
