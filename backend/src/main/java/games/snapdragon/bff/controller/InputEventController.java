@@ -122,17 +122,16 @@ public class InputEventController {
                             body.sessionId(), jwt.getSubject(),
                             body.kind(), body.type(),
                             body.payload(), null);
-                    String payloadJson;
-                    try {
-                        payloadJson = json.writeValueAsString(
-                                ev.payload() == null ? java.util.Map.of() : ev.payload());
-                    } catch (JsonProcessingException e) {
-                        return Mono.error(new ResponseStatusException(
-                                HttpStatus.BAD_REQUEST,
-                                "payload is not JSON-serialisable: " + e.getMessage()));
-                    }
-                    return events.insert(ev, payloadJson)
-                            .doOnNext(state::emitInput);
+                    // fromCallable wraps JsonProcessingException as onError automatically;
+                    // onErrorMap then translates it to the 400 response the caller expects,
+                    // keeping the error as a publisher signal rather than an in-lambda throw.
+                    return Mono.fromCallable(() -> json.writeValueAsString(
+                                    ev.payload() == null ? java.util.Map.of() : ev.payload()))
+                            .onErrorMap(JsonProcessingException.class, e -> new ResponseStatusException(
+                                    HttpStatus.BAD_REQUEST,
+                                    "payload is not JSON-serialisable: " + e.getMessage()))
+                            .flatMap(payloadJson -> events.insert(ev, payloadJson)
+                                    .doOnNext(state::emitInput));
                 }));
         // Gates 2 (features.<kind>) and 3 (game_event_support) added in
         // a follow-up commit alongside the GameRepository.findFeatures

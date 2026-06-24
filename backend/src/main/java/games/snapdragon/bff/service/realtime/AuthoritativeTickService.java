@@ -451,6 +451,12 @@ public class AuthoritativeTickService {
      *  tick-hz disables it (manual ticking — tests). */
     private void startLoop(String sessionId, MatchState ms) {
         if (tickHz <= 0) return;
+        // TODO reactive: review this catch for onErrorResume — the Throwable guard
+        // (not just RuntimeException) is intentional: an Error from SimCore.step
+        // must trigger abortMatch or the interval keeps ticking into a dead match.
+        // A full reactive rewrite would convert runTick to Mono<Void> and use
+        // .onErrorResume(Throwable.class, ex -> { abortMatch(...); return Mono.empty(); })
+        // on the flatMap inside the interval chain instead of subscribe.
         ms.loop = Flux.interval(Duration.ofMillis(Math.max(1, 1000 / tickHz)))
                 .subscribe(i -> {
                     // Throwable, not RuntimeException: an Error out of

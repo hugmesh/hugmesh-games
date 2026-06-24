@@ -127,24 +127,29 @@ public class PlayerStateRecoveryService {
         if (response == null || response.isBlank()) return Mono.empty();
         String firstLine = response.split("\\R", 2)[0].trim();
         if (firstLine.isEmpty()) return Mono.empty();
-        try {
-            JsonNode outer = mapper.readTree(firstLine);
-            String payloadJson = outer.path("payload_json").asText("");
-            if (payloadJson.isEmpty()) return Mono.empty();
-            JsonNode payload = mapper.readTree(payloadJson);
-            // The movement payload was emitted via Map.of(..., "x", after.x(), ...) in
-            // GameStateService.applyControl; these field names match.
-            if (!payload.hasNonNull("x") || !payload.hasNonNull("y") || !payload.hasNonNull("z")) {
-                return Mono.empty();
-            }
-            return Mono.just(new RecoveredState(
-                    payload.path("x").asDouble(),
-                    payload.path("y").asDouble(),
-                    payload.path("z").asDouble(),
-                    payload.path("rotationY").asDouble(0.0)));
-        } catch (Exception ex) {
-            log.debug("[state-recovery] parse failed: {}", ex.getMessage());
-            return Mono.empty();
-        }
+        // fromCallable wraps checked Jackson exceptions as onError signals so the
+        // reactive chain handles them without a try/catch inside the lambda body.
+        return Mono.fromCallable(() -> {
+                    JsonNode outer = mapper.readTree(firstLine);
+                    String payloadJson = outer.path("payload_json").asText("");
+                    if (payloadJson.isEmpty()) return null;
+                    JsonNode payload = mapper.readTree(payloadJson);
+                    // The movement payload was emitted via Map.of(..., "x", after.x(), ...) in
+                    // GameStateService.applyControl; these field names match.
+                    if (!payload.hasNonNull("x") || !payload.hasNonNull("y") || !payload.hasNonNull("z")) {
+                        return null;
+                    }
+                    return new RecoveredState(
+                            payload.path("x").asDouble(),
+                            payload.path("y").asDouble(),
+                            payload.path("z").asDouble(),
+                            payload.path("rotationY").asDouble(0.0));
+                })
+                // null return from fromCallable means no data — filter to empty
+                .flatMap(state -> state == null ? Mono.empty() : Mono.just(state))
+                // log parse failures and fall back to empty so the recovery caller
+                // treats them the same as "no row found"
+                .doOnError(ex -> log.debug("[state-recovery] parse failed: {}", ex.getMessage()))
+                .onErrorResume(ex -> Mono.empty());
     }
 }

@@ -313,6 +313,9 @@ public class GameUploadService {
 
     // ── install (atomic move + transactional DB updates) ─────────────────────
 
+    // TODO reactive: review this catch for onErrorResume — storage.installFromStaging
+    // is a blocking call; wrapping writeAndRegister in Mono.fromCallable (then chaining
+    // the DB steps via flatMap) would let onErrorResume replace the boundary try/catch.
     private Mono<InstalledUpload> writeAndRegister(StagedBundle staged, String uploadedBy, String domain) {
         String locator;
         try {

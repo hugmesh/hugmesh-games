@@ -19,8 +19,6 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 
 /**
  * Admin endpoint for hot-uploading a Snapdragon bundle zip produced by
@@ -129,20 +127,19 @@ public class GameUploadController {
     }
 
     private static Mono<byte[]> collectBytes(FilePart part) {
-        return part.content()
-                .reduce(new ByteArrayOutputStream(), (out, buf) -> {
+        // DataBufferUtils.join collects the full Flux<DataBuffer> into a single buffer
+        // without requiring a try/catch inside the reduce lambda — buffer release and
+        // IOException from buf.read are both handled by the join operator internally.
+        return org.springframework.core.io.buffer.DataBufferUtils.join(part.content())
+                .map(buf -> {
                     try {
-                        byte[] tmp = new byte[buf.readableByteCount()];
-                        buf.read(tmp);
-                        out.write(tmp);
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
+                        byte[] bytes = new byte[buf.readableByteCount()];
+                        buf.read(bytes);
+                        return bytes;
                     } finally {
                         org.springframework.core.io.buffer.DataBufferUtils.release(buf);
                     }
-                    return out;
-                })
-                .map(ByteArrayOutputStream::toByteArray);
+                });
     }
 
     @SuppressWarnings("unused")
