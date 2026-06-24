@@ -6,7 +6,7 @@ DB to browser, with the rules that hold the federated stack together.
 
 ## Mental model
 
-One repository, three languages, four runtimes. The BFF is Java 21 + Spring Boot 3.4 + WebFlux + R2DBC + JDBC. The frontend is TypeScript + Angular standalone components + Module Federation. The games are GDScript + Godot 4.6, with a Rust GDExtension shared across them. The GraalVM native AOT build of the BFF is the same Java code with a sub-second cold start.
+One repository, three languages, four runtimes. The BFF is Java 21 + Spring Boot 4.0 + WebFlux + R2DBC + JDBC. The frontend is TypeScript + Angular standalone components + Module Federation. The games are GDScript + Godot 4.6, with a Rust GDExtension shared across them. The GraalVM native AOT build of the BFF is the same Java code with a sub-second cold start.
 
 ## How requests are shaped
 

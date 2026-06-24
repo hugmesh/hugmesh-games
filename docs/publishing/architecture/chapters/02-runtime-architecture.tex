@@ -87,7 +87,7 @@ mirrors the host \texttt{AuthService.StoredAuth} shape. \\
 
 \subsection{The BFF}
 
-\snapfile{backend/} runs as a single Spring Boot 3.4 application with both
+\snapfile{backend/} runs as a single Spring Boot 4.0 application with both
 WebFlux (R2DBC, runtime path) and JDBC (Liquibase, blocking) wired in.
 Spring auto-config skips \texttt{DataSourceAutoConfiguration} when an
 R2DBC \texttt{ConnectionFactory} is present, so

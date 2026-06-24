@@ -10,7 +10,7 @@ A self-hosted Godot 4 WASM game studio and portal — authors build RPG and visu
 | --- | --- | --- |
 | Browser | Angular host + native-federation remotes | `frontend/` (host), `frontend/projects/{login,admin,api-docs,games-three-wizards,games-dodecahedron}` |
 | Per-remote nginx | Each remote shipped as its own image, proxied at `/_remotes/<slug>/` by the host nginx | `*/Dockerfile`, `frontend/nginx.conf` |
-| BFF | Spring Boot 3.4 WebFlux + R2DBC + Liquibase + Casdoor + Postgres + Cassandra | `backend/` |
+| BFF | Spring Boot 4.0 WebFlux + R2DBC + Liquibase + Casdoor + Postgres + Cassandra | `backend/` |
 
 Per-game Godot 4 WASM bundles live under `games/<slug>/` and ship into `backend/src/main/resources/assets/levels/<slug>/` via `make build-godot`. The `wasm-fragment` nginx serves them at `/_remotes/wasm-fragment/<slug>/index.html`.
 

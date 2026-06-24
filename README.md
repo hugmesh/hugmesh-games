@@ -53,7 +53,7 @@ Five components build from the monorepo, chained by the root [`Makefile`](Makefi
 | Component | Toolchain | Build command | Status |
 |---|---|---|---|
 | **Snapdragon Gaming BFF** | Java 21 / Spring WebFlux (Maven wrapper) | `make build-backend` (`./mvnw package`) | Builds + tests pass on a host with JDK 21. |
-| **Angular host + remotes** | Node 20 / Angular 19, [native-federation](docs/wiki/decisions/001-native-federation.md) | `make build-frontend` (host) · `make build-frontend-all` (host + every remote bundle) | Builds + Karma unit tests pass (frontend tests run in a Chromium-baked Docker image, so the host needs no browser). |
+| **Angular host + remotes** | Node 20 / Angular 22, [native-federation](docs/wiki/decisions/001-native-federation.md) | `make build-frontend` (host) · `make build-frontend-all` (host + every remote bundle) | Builds + Karma unit tests pass (frontend tests run in a Chromium-baked Docker image, so the host needs no browser). |
 | **snapdragon-bridge** (Rust → native `.so`) | `cargo build --release --features api-custom` | `make build-rust` | Builds + `cargo test` pass on a host with `cargo` + Godot (gdext regenerates `extension_api.json` against your Godot binary). |
 | **snapdragon-bridge** (Rust → WASM) | `wasm32-unknown-emscripten` | `make build-rust-wasm` (dockerised emsdk) | Needs emscripten. Built via a pinned `rust + emsdk` Docker image ([`tools/build-rust-wasm/Dockerfile`](tools/build-rust-wasm/Dockerfile)) so the host never installs emscripten; produces a 3.3 MB `snapdragon_bridge.wasm`. Skipped with a warning if Docker/emsdk is absent — normal browser play does not depend on it (the GDScript path covers the bridge events). |
 | **Godot 4.6 web export** | Godot 4.6 CLI + export templates | `make build-godot` (one bundle per export preset, per game) | Needs the Godot 4.6 binary on `PATH` *and* installed 4.6 export templates. Writes one WASM bundle per chapter under `backend/src/main/resources/assets/levels/<slug>/`, then runs [`scripts/patch-godot-html.py`](scripts/patch-godot-html.py). |
@@ -293,7 +293,7 @@ The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WA
 `docker-compose.yml` exposes no host port for Casdoor. Spring Security's JWT decoder is wired to the anonymous `/.well-known/jwks` — **not** `/api/get-jwks`, which requires admin auth and would return an error payload that throws `"Missing required keys member"` on every Bearer-tagged request, including permitAll ones.
 
 **R2DBC + JDBC coexistence.**
-Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 3 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
+Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 4 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
 
 **Per-brand domain isolation, mirrored from snapdragon.systems.**
 The BFF derives a tenant the way the snapdragon-gateway does: one Casdoor per brand ⇒ a distinct, cryptographically-validated `iss`, mapped to a brand by `DomainRegistry`, stamped as exactly one `DOMAIN_<x>` authority by `CasdoorAuthorities` (with a reserved-prefix guard so a `permissions:["DOMAIN_other"]` entry can't forge a tenant). `DomainGuardFilter` is the first consumer: when `app.tenancy.domain` names the brand this instance serves, it 403s any authenticated token whose `DOMAIN_<x>` ≠ that brand (SUPERADMIN exempt) — the BFF-side, defence-in-depth mirror of the gateway's domain hard-deny, for traffic that reaches the BFF on the compose network bypassing the edge. Unset (the single-Casdoor default) ⇒ a complete no-op. An optional `app.tenancy.issuers` CSV swaps in a per-brand multi-issuer decoder (`TenancyResourceServerConfig`). See [decision 025](docs/wiki/decisions/025-bff-domain-guard.md).
@@ -1537,8 +1537,8 @@ verification, all visible in [SnapdragonRuntimeHints.java](backend/src/main/java
   (with `SPRING_LIQUIBASE_ENABLED=false` on the api) sidesteps the entire
   reflection chain.
 - **Netty's jctools-shaded MPSC queues** read field offsets via `Unsafe` at
-  class-init. Spring Boot 3.4's bundled GraalVM reachability metadata pins
-  netty 4.1.80 but the runtime is 4.1.115 — the Producer/Consumer/Limit
+  class-init. Spring Boot 4's bundled GraalVM reachability metadata pins
+  a netty version that can drift from the resolved runtime — the Producer/Consumer/Limit
   index-field classes drift out of coverage. Fixed by deferring init of
   `io.netty.util.internal.shaded.org.jctools` to runtime AND registering
   the index-field classes for `DECLARED_FIELDS`.
@@ -1698,7 +1698,7 @@ portal/                                   # Snapdragon Game Studio repo
 │       ├── scenes/dodecahedron.tscn
 │       ├── scripts/dodecahedron_spinner.gd
 │       └── (same export plugin + bridge layout)
-├── frontend/                            # Angular 19 host shell
+├── frontend/                            # Angular 22 host shell
 │   ├── nginx.conf / nginx-tls.conf     # Reverse-proxy /api/* and /_remotes/<slug>/
 │   ├── Dockerfile                       # ng build under @angular-architects/native-federation
 │   ├── federation.config.js             # Host-side federation config
@@ -1720,7 +1720,7 @@ portal/                                   # Snapdragon Game Studio repo
 ├── wasm-fragment/                       # Asset-tier nginx (federated WASM bundle serving)
 │   ├── Dockerfile                       # Bakes classpath /assets/levels/<slug>/ into nginx
 │   └── nginx.conf                       # COOP/COEP/CORP headers, .wasm/.pck MIME, /<slug>/
-└── backend/                             # Spring Boot 3.4 / Java 21 / WebFlux + R2DBC
+└── backend/                             # Spring Boot 4.0 / Java 21 / WebFlux + R2DBC
     ├── pom.xml                          # `native` profile for GraalVM AOT
     ├── Dockerfile / Dockerfile.native  # JVM image / GraalVM native-image multi-stage
     └── src/main/java/com/threewizards/

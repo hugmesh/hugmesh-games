@@ -14,7 +14,7 @@ The portal is delivered as one `docker compose` stack of roughly twelve containe
 
 The host shell is a native-federation Angular host that loads its `login`, `admin`, and per-game routes from sibling bundles served by per-remote nginx containers.
 
-The BFF runs on Spring Boot 3.4 WebFlux + R2DBC + JDBC, exposes the SSE stream, the federation manifest, the upload pipeline, and the per-game launch / access endpoints, and persists state in Postgres with a Cassandra cache.
+The BFF runs on Spring Boot 4.0 WebFlux + R2DBC + JDBC, exposes the SSE stream, the federation manifest, the upload pipeline, and the per-game launch / access endpoints, and persists state in Postgres with a Cassandra cache.
 
 Each Godot game lives in its own project under [`games/<slug>/`](../../../games/), exports a self-contained WASM bundle, and is delivered to the browser through the dedicated `wasm-fragment` nginx remote with the COOP / COEP / CORP headers WASM games need.
 
