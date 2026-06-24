@@ -1,6 +1,6 @@
 package games.snapdragon.bff.config;
 
-import org.springframework.boot.autoconfigure.data.r2dbc.R2dbcDataAutoConfiguration;
+import org.springframework.boot.data.r2dbc.autoconfigure.DataR2dbcAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -38,7 +38,7 @@ public class R2dbcConvertersConfig {
 
     /**
      * Replaces the auto-configured {@link R2dbcCustomConversions} bean
-     * (see {@link R2dbcDataAutoConfiguration}) with one that adds the
+     * (see {@link DataR2dbcAutoConfiguration}) with one that adds the
      * two timestamp converters on top of the dialect's defaults.
      */
     @Bean

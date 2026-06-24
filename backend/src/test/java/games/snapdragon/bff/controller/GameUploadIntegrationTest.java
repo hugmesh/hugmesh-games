@@ -59,12 +59,13 @@ import static org.assertj.core.api.Assertions.assertThat;
     // snapshots see the migrated schema.
     "spring.r2dbc.pool.initial-size=0",
     "spring.cassandra.contact-points=",
+    // Boot 4: Cassandra autoconfigure classes moved to new packages.
     "spring.autoconfigure.exclude="
-            + "org.springframework.boot.autoconfigure.cassandra.CassandraAutoConfiguration,"
-            + "org.springframework.boot.autoconfigure.data.cassandra.CassandraDataAutoConfiguration,"
-            + "org.springframework.boot.autoconfigure.data.cassandra.CassandraReactiveDataAutoConfiguration,"
-            + "org.springframework.boot.autoconfigure.data.cassandra.CassandraReactiveRepositoriesAutoConfiguration,"
-            + "org.springframework.boot.autoconfigure.data.cassandra.CassandraRepositoriesAutoConfiguration",
+            + "org.springframework.boot.cassandra.autoconfigure.CassandraAutoConfiguration,"
+            + "org.springframework.boot.data.cassandra.autoconfigure.DataCassandraAutoConfiguration,"
+            + "org.springframework.boot.data.cassandra.autoconfigure.DataCassandraReactiveAutoConfiguration,"
+            + "org.springframework.boot.data.cassandra.autoconfigure.DataCassandraReactiveRepositoriesAutoConfiguration,"
+            + "org.springframework.boot.data.cassandra.autoconfigure.DataCassandraRepositoriesAutoConfiguration",
 })
 @ExtendWith(GameUploadIntegrationTest.PostgresLifecycle.class)
 class GameUploadIntegrationTest {

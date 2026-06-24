@@ -6,6 +6,7 @@ import games.snapdragon.bff.config.RateLimitFilter;
 import games.snapdragon.bff.config.SecurityConfig;
 import games.snapdragon.bff.config.SecurityHeadersFilter;
 import games.snapdragon.bff.controller.support.SecuritySliceSupport;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import games.snapdragon.bff.model.SessionMember;
 import games.snapdragon.bff.repository.InputEventRepository;
 import games.snapdragon.bff.repository.InputEventTypeRepository;
@@ -13,7 +14,7 @@ import games.snapdragon.bff.service.GameSessionService;
 import games.snapdragon.bff.service.GameStateService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.boot.webflux.test.autoconfigure.WebFluxTest;
 import org.springframework.context.annotation.ComponentScan.Filter;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
@@ -69,6 +70,10 @@ class InputEventControllerHttpAuthzTest {
     @MockitoBean InputEventTypeRepository types;
     @MockitoBean GameStateService state;
     @MockitoBean GameSessionService sessions;
+    // Boot 4 auto-configures Jackson 3 (tools.jackson.*) not Jackson 2;
+    // InputEventController injects com.fasterxml.jackson.databind.ObjectMapper
+    // so we supply it explicitly in the @WebFluxTest slice.
+    @MockitoBean ObjectMapper objectMapper;
 
     private static final String CHAR_URI = "/api/input/character/1";
     private static final String SESS_URI = "/api/input/session/s-1";

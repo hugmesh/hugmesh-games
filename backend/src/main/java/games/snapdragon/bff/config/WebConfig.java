@@ -1,5 +1,8 @@
 package games.snapdragon.bff.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,6 +40,24 @@ import java.util.stream.Stream;
  */
 @Configuration
 public class WebConfig {
+
+    /**
+     * Jackson 2 (com.fasterxml) ObjectMapper bean.
+     *
+     * Boot 4 auto-configures Jackson 3 (tools.jackson.*) via JacksonAutoConfiguration;
+     * it does NOT register a Jackson 2 ObjectMapper bean. Several services in this
+     * application were written against the Jackson 2 API (InputEventController,
+     * GameAuditPublisher, GameEventPublisher, GameKpiPublisher, KafkaSessionSubscriber,
+     * PlayerStateRecoveryService, ReferenceArenaSim, AuthoritativeTickService).
+     * Migrating all of them to Jackson 3 is a separate effort; this bean bridges the
+     * gap so Boot 4 spring-wiring succeeds without touching any business logic.
+     */
+    @Bean
+    public ObjectMapper jackson2ObjectMapper() {
+        return new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    }
 
     /**
      * Comma-separated list of additional origin patterns. Empty in dev.

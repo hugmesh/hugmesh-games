@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.4.0</version>
+    <version>4.0.7</version>
     <relativePath/>
   </parent>
 
@@ -101,6 +101,12 @@
       <groupId>org.liquibase</groupId>
       <artifactId>liquibase-core</artifactId>
     </dependency>
+    <!-- Boot 4: Liquibase auto-configuration moved from spring-boot-autoconfigure
+         into its own module — must be explicit for SpringLiquibase to be contributed. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-liquibase</artifactId>
+    </dependency>
 
     <!-- Security — WebFlux reactive security -->
     <dependency>
@@ -118,7 +124,7 @@
     <dependency>
       <groupId>org.springdoc</groupId>
       <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
-      <version>2.7.0</version>
+      <version>3.0.3</version>
     </dependency>
 
     <!-- Actuator -->
@@ -130,6 +136,20 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Boot 4: @WebFluxTest slice moved from spring-boot-test-autoconfigure
+         into its own module. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-webflux-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Boot 4: SecurityWebTestClientAutoConfiguration (needed for mockJwt()
+         in @WebFluxTest slices) moved into its own module. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-security-test</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -228,13 +248,20 @@
          its corresponding cache services. -->
     <dependency>
       <groupId>io.github.resilience4j</groupId>
-      <artifactId>resilience4j-spring-boot3</artifactId>
-      <version>2.2.0</version>
+      <artifactId>resilience4j-spring-boot4</artifactId>
+      <version>2.4.0</version>
     </dependency>
     <dependency>
       <groupId>io.github.resilience4j</groupId>
       <artifactId>resilience4j-reactor</artifactId>
-      <version>2.2.0</version>
+      <version>2.4.0</version>
+    </dependency>
+
+    <!-- Boot 4 removed spring-boot-starter-aop; resilience4j annotations
+         need AspectJ weaving to work — add explicitly. -->
+    <dependency>
+      <groupId>org.aspectj</groupId>
+      <artifactId>aspectjweaver</artifactId>
     </dependency>
 
   </dependencies>

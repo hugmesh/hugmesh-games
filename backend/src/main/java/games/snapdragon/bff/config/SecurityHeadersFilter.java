@@ -92,7 +92,7 @@ public class SecurityHeadersFilter implements WebFilter {
     }
 
     private static void addIfAbsent(HttpHeaders headers, String name, String value) {
-        if (!headers.containsKey(name)) {
+        if (!headers.containsHeader(name)) {
             headers.set(name, value);
         }
     }
