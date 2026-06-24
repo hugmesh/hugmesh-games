@@ -1,5 +1,5 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 
@@ -52,7 +52,7 @@ interface AccessGrantRequest { scope: AccessScope; value?: string; }
 @Component({
   selector: 'app-admin-upload-remote',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [FormsModule],
   template: `
     <section class="upload-page">
       <h2>Upload a game bundle</h2>
@@ -171,6 +171,7 @@ interface AccessGrantRequest { scope: AccessScope; value?: string; }
       </div>
     </section>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display: block; max-width: 960px; margin: 24px auto; padding: 0 16px; color: #d8dde6; }
     section { margin-bottom: 32px; padding: 20px; background: #14172185; border-radius: 8px; }

@@ -1,5 +1,5 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+
 import { Router, RouterOutlet, RouterLink, RouterLinkActive,
          NavigationError, NavigationStart } from '@angular/router';
 import { AuthService } from './services/auth.service';
@@ -30,8 +30,9 @@ const FEDERATED_ROUTE_LABELS: ReadonlyArray<{ prefix: string; label: string }> =
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive],
   templateUrl: './app.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './app.component.scss',
 })
 export class AppComponent implements OnInit {

@@ -1,5 +1,5 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+
 import { FormsModule } from '@angular/forms';
 import { FriendsService, Relationship } from '../services/friends.service';
 import { NotificationService } from '../services/notification.service';
@@ -15,8 +15,9 @@ import { NotificationService } from '../services/notification.service';
 @Component({
   selector: 'app-friends',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [FormsModule],
   templateUrl: './friends.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './friends.component.scss',
 })
 export class FriendsComponent implements OnInit {

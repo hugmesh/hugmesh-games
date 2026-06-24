@@ -1,8 +1,9 @@
 import {
   Component, EffectRef, HostListener, Input, OnChanges, OnDestroy, OnInit,
   ElementRef, ViewChild, effect, inject,
+  ChangeDetectionStrategy
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { SessionControlService } from '../services/session-control.service';
 
@@ -49,8 +50,9 @@ export interface PlayableGame {
 @Component({
   selector: 'app-game-canvas',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   templateUrl: './game-canvas.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './game-canvas.component.scss',
 })
 export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {

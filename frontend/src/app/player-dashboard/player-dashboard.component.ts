@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Observable, Subscription, of } from 'rxjs';
@@ -17,6 +17,7 @@ import { CharacterState } from '../models/character.model';
   standalone: true,
   imports: [CommonModule, RouterLink],
   templateUrl: './player-dashboard.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './player-dashboard.component.scss',
 })
 export class PlayerDashboardComponent implements OnInit, OnDestroy {

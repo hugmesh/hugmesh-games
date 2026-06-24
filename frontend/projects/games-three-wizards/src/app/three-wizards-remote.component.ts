@@ -1,6 +1,7 @@
 import {
   Component, ElementRef, HostListener, Input, OnDestroy, OnInit, ViewChild,
   inject,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 
@@ -87,6 +88,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display: block; width: 100%; height: 100%; }
     .remote-root { display: flex; flex-direction: column; height: 100%; padding: 8px;

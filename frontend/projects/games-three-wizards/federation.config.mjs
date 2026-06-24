@@ -1,3 +1,4 @@
+import { snapdragonRemote } from '../../federation-base.mjs';
 // Federation config for the Three Wizards game remote (TWiaT).
 //
 // `name`     — federation_modules.slug = 'games-three-wizards'.
@@ -9,9 +10,9 @@
 // The wasm-fragment that actually streams the Godot bytes is a
 // separate concern (see federation_modules row 'wasm-fragment').
 
-const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = snapdragonRemote({
+
+export default snapdragonRemote({
   name: 'games-three-wizards',
   exposes: {
     './GameRoot': './projects/games-three-wizards/src/app/three-wizards-remote.component.ts',

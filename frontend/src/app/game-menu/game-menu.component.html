@@ -1,145 +1,174 @@
-<div class="menu-overlay" *ngIf="isOpen" (click)="close()">
-  <div class="menu-panel" (click)="$event.stopPropagation()">
-
-    <!-- Header -->
-    <div class="menu-header">
-      <div class="menu-tabs">
-        <button
-          *ngFor="let tab of tabs"
-          class="tab-btn"
-          [class.active]="activeTab === tab"
-          (click)="selectTab(tab)">
-          {{ tab }}
-        </button>
+@if (isOpen) {
+  <div class="menu-overlay" (click)="close()">
+    <div class="menu-panel" (click)="$event.stopPropagation()">
+      <!-- Header -->
+      <div class="menu-header">
+        <div class="menu-tabs">
+          @for (tab of tabs; track tab) {
+            <button
+              class="tab-btn"
+              [class.active]="activeTab === tab"
+              (click)="selectTab(tab)">
+              {{ tab }}
+            </button>
+          }
+        </div>
+        <button class="close-btn" (click)="close()" title="Close (ESC)">&#10005;</button>
       </div>
-      <button class="close-btn" (click)="close()" title="Close (ESC)">&#10005;</button>
-    </div>
-
-    <!-- QUESTS TAB -->
-    <div class="menu-body" *ngIf="activeTab === 'QUESTS'">
-
-      <div class="quest-section" *ngIf="activeQuests().length > 0">
-        <h3 class="section-label">Active Quests</h3>
-        <div class="quest-list">
-          <div class="quest-card" *ngFor="let cq of activeQuests()">
-            <div class="quest-header">
-              <span class="quest-name">{{ cq.quest.name }}</span>
-              <span class="quest-reward">+{{ cq.quest.rewardXp }} XP</span>
-            </div>
-            <p class="quest-desc">{{ cq.quest.description }}</p>
-            <div class="quest-progress">
-              <div class="progress-bar">
-                <div class="progress-fill" [style.width.%]="questProgress(cq)"></div>
+      <!-- QUESTS TAB -->
+      @if (activeTab === 'QUESTS') {
+        <div class="menu-body">
+          @if (activeQuests().length > 0) {
+            <div class="quest-section">
+              <h3 class="section-label">Active Quests</h3>
+              <div class="quest-list">
+                @for (cq of activeQuests(); track cq) {
+                  <div class="quest-card">
+                    <div class="quest-header">
+                      <span class="quest-name">{{ cq.quest.name }}</span>
+                      <span class="quest-reward">+{{ cq.quest.rewardXp }} XP</span>
+                    </div>
+                    <p class="quest-desc">{{ cq.quest.description }}</p>
+                    <div class="quest-progress">
+                      <div class="progress-bar">
+                        <div class="progress-fill" [style.width.%]="questProgress(cq)"></div>
+                      </div>
+                      <span class="progress-label">{{ questProgress(cq) }}%</span>
+                    </div>
+                  </div>
+                }
               </div>
-              <span class="progress-label">{{ questProgress(cq) }}%</span>
+            </div>
+          }
+          @if (availableCharacterQuests().length > 0) {
+            <div class="quest-section">
+              <h3 class="section-label">Available Quests</h3>
+              <div class="quest-list">
+                @for (cq of availableCharacterQuests(); track cq) {
+                  <div class="quest-card quest-card--available">
+                    <div class="quest-header">
+                      <span class="quest-name">{{ cq.quest.name }}</span>
+                      <span class="quest-reward">+{{ cq.quest.rewardXp }} XP | {{ cq.quest.rewardGold }}g</span>
+                    </div>
+                    <p class="quest-desc">{{ cq.quest.description }}</p>
+                    <button class="accept-btn" (click)="acceptQuest(cq.quest.id)">Accept Quest</button>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+          @if (activeQuests().length === 0 && availableCharacterQuests().length === 0) {
+            <div class="empty-hint">
+              No quests found. Explore the world to discover quests.
+            </div>
+          }
+        </div>
+      }
+      <!-- EQUIPMENT TAB -->
+      @if (activeTab === 'EQUIPMENT') {
+        <div class="menu-body equip-layout">
+          <div class="equip-grid">
+            @for (slotName of allEquipmentSlots; track slotName) {
+              <div
+                class="equip-slot"
+                [class.has-item]="getEquipmentSlot(slotName)?.item != null"
+                [class.selected]="selectedItem?.slot === slotName"
+                (click)="selectEquipmentSlot(getEquipmentSlot(slotName) || { slot: slotName, item: null })">
+                <span class="slot-label">{{ slotName }}</span>
+                <span class="slot-item">{{ getEquipmentSlot(slotName)?.item?.name || 'Empty' }}</span>
+                @if (getEquipmentSlot(slotName)?.item; as item) {
+                  <span class="slot-rarity">
+                    {{ item.rarity }}
+                  </span>
+                }
+              </div>
+            }
+          </div>
+          @if (selectedItem?.item; as item) {
+            <div class="item-detail">
+              <h3 class="detail-name">{{ item.name }}</h3>
+              <p class="detail-type">{{ item.itemType }} &mdash; {{ item.rarity }}</p>
+              <p class="detail-desc">{{ item.description }}</p>
+              @if (getStatModifierEntries(selectedItem).length > 0) {
+                <div class="stat-modifiers">
+                  <h4 class="stats-label">Stats</h4>
+                  @for (entry of getStatModifierEntries(selectedItem); track entry) {
+                    <div class="stat-row">
+                      <span class="stat-key">{{ entry.key }}</span>
+                      <span class="stat-val" [class.positive]="entry.value > 0" [class.negative]="entry.value < 0">
+                        {{ entry.value > 0 ? '+' : '' }}{{ entry.value }}
+                      </span>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+          @if (!selectedItem?.item) {
+            <div class="item-detail item-detail--empty">
+              <p>Click a slot to view item details.</p>
+            </div>
+          }
+        </div>
+      }
+      <!-- SKILLS TAB -->
+      @if (activeTab === 'SKILLS') {
+        <div class="menu-body">
+          <div class="skill-slots-section">
+            <h3 class="section-label">Active Slots</h3>
+            <div class="skill-slots">
+              @for (slot of [1, 2, 3, 4]; track slot) {
+                <div
+                  class="skill-slot"
+                  [class.pending-target]="pendingSkillAssign != null"
+                  (click)="assignToSlot(slot)">
+                  <span class="slot-num">{{ slot }}</span>
+                  @if (getSkillInSlot(slot); as skill) {
+                    <div class="slot-content">
+                      <span class="skill-name">{{ skill.name }}</span>
+                      <span class="skill-mp">{{ skill.mpCost }} MP</span>
+                    </div>
+                  } @else {
+                    <span class="slot-empty">{{ pendingSkillAssign ? 'Click to assign' : '—' }}</span>
+                  }
+                </div>
+              }
+            </div>
+            @if (pendingSkillAssign) {
+              <p class="assign-hint">
+                Assigning: <strong>{{ pendingSkillAssign.name }}</strong> &mdash; click a slot above
+              </p>
+            }
+          </div>
+          <div class="known-skills-section">
+            <h3 class="section-label">Known Skills</h3>
+            <div class="known-skills-list">
+              @for (skill of learnedSkills; track skill) {
+                <div
+                  class="known-skill"
+                  [class.selected]="pendingSkillAssign?.id === skill.id"
+                  (click)="selectSkillForAssign(skill)">
+                  <div class="known-skill-info">
+                    <span class="skill-name">{{ skill.name }}</span>
+                    <span class="skill-type">{{ skill.skillType }}</span>
+                  </div>
+                  <div class="known-skill-stats">
+                    <span class="skill-mp-badge">{{ skill.mpCost }} MP</span>
+                    @if (skill.damage > 0) {
+                      <span class="skill-dmg">{{ skill.damage }} dmg</span>
+                    }
+                  </div>
+                </div>
+              }
+              @if (learnedSkills.length === 0) {
+                <div class="empty-hint">
+                  No skills learned yet.
+                </div>
+              }
             </div>
           </div>
         </div>
-      </div>
-
-      <div class="quest-section" *ngIf="availableCharacterQuests().length > 0">
-        <h3 class="section-label">Available Quests</h3>
-        <div class="quest-list">
-          <div class="quest-card quest-card--available" *ngFor="let cq of availableCharacterQuests()">
-            <div class="quest-header">
-              <span class="quest-name">{{ cq.quest.name }}</span>
-              <span class="quest-reward">+{{ cq.quest.rewardXp }} XP | {{ cq.quest.rewardGold }}g</span>
-            </div>
-            <p class="quest-desc">{{ cq.quest.description }}</p>
-            <button class="accept-btn" (click)="acceptQuest(cq.quest.id)">Accept Quest</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="empty-hint" *ngIf="activeQuests().length === 0 && availableCharacterQuests().length === 0">
-        No quests found. Explore the world to discover quests.
-      </div>
+      }
     </div>
-
-    <!-- EQUIPMENT TAB -->
-    <div class="menu-body equip-layout" *ngIf="activeTab === 'EQUIPMENT'">
-      <div class="equip-grid">
-        <div
-          class="equip-slot"
-          *ngFor="let slotName of allEquipmentSlots"
-          [class.has-item]="getEquipmentSlot(slotName)?.item != null"
-          [class.selected]="selectedItem?.slot === slotName"
-          (click)="selectEquipmentSlot(getEquipmentSlot(slotName) || { slot: slotName, item: null })">
-          <span class="slot-label">{{ slotName }}</span>
-          <span class="slot-item">{{ getEquipmentSlot(slotName)?.item?.name || 'Empty' }}</span>
-          <span class="slot-rarity" *ngIf="getEquipmentSlot(slotName)?.item as item">
-            {{ item.rarity }}
-          </span>
-        </div>
-      </div>
-
-      <div class="item-detail" *ngIf="selectedItem?.item as item">
-        <h3 class="detail-name">{{ item.name }}</h3>
-        <p class="detail-type">{{ item.itemType }} &mdash; {{ item.rarity }}</p>
-        <p class="detail-desc">{{ item.description }}</p>
-        <div class="stat-modifiers" *ngIf="getStatModifierEntries(selectedItem).length > 0">
-          <h4 class="stats-label">Stats</h4>
-          <div class="stat-row" *ngFor="let entry of getStatModifierEntries(selectedItem)">
-            <span class="stat-key">{{ entry.key }}</span>
-            <span class="stat-val" [class.positive]="entry.value > 0" [class.negative]="entry.value < 0">
-              {{ entry.value > 0 ? '+' : '' }}{{ entry.value }}
-            </span>
-          </div>
-        </div>
-      </div>
-      <div class="item-detail item-detail--empty" *ngIf="!selectedItem?.item">
-        <p>Click a slot to view item details.</p>
-      </div>
-    </div>
-
-    <!-- SKILLS TAB -->
-    <div class="menu-body" *ngIf="activeTab === 'SKILLS'">
-      <div class="skill-slots-section">
-        <h3 class="section-label">Active Slots</h3>
-        <div class="skill-slots">
-          <div
-            class="skill-slot"
-            *ngFor="let slot of [1, 2, 3, 4]"
-            [class.pending-target]="pendingSkillAssign != null"
-            (click)="assignToSlot(slot)">
-            <span class="slot-num">{{ slot }}</span>
-            <div class="slot-content" *ngIf="getSkillInSlot(slot) as skill; else emptySlot">
-              <span class="skill-name">{{ skill.name }}</span>
-              <span class="skill-mp">{{ skill.mpCost }} MP</span>
-            </div>
-            <ng-template #emptySlot>
-              <span class="slot-empty">{{ pendingSkillAssign ? 'Click to assign' : '—' }}</span>
-            </ng-template>
-          </div>
-        </div>
-        <p class="assign-hint" *ngIf="pendingSkillAssign">
-          Assigning: <strong>{{ pendingSkillAssign.name }}</strong> &mdash; click a slot above
-        </p>
-      </div>
-
-      <div class="known-skills-section">
-        <h3 class="section-label">Known Skills</h3>
-        <div class="known-skills-list">
-          <div
-            class="known-skill"
-            *ngFor="let skill of learnedSkills"
-            [class.selected]="pendingSkillAssign?.id === skill.id"
-            (click)="selectSkillForAssign(skill)">
-            <div class="known-skill-info">
-              <span class="skill-name">{{ skill.name }}</span>
-              <span class="skill-type">{{ skill.skillType }}</span>
-            </div>
-            <div class="known-skill-stats">
-              <span class="skill-mp-badge">{{ skill.mpCost }} MP</span>
-              <span class="skill-dmg" *ngIf="skill.damage > 0">{{ skill.damage }} dmg</span>
-            </div>
-          </div>
-          <div class="empty-hint" *ngIf="learnedSkills.length === 0">
-            No skills learned yet.
-          </div>
-        </div>
-      </div>
-    </div>
-
   </div>
-</div>
+}

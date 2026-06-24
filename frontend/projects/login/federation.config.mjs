@@ -1,3 +1,4 @@
+import { snapdragonRemote } from '../../federation-base.mjs';
 // Federation config for the login remote-shell.
 //
 // `name`     — federation_modules.slug for the login remote.
@@ -6,9 +7,9 @@
 // shareAll + skip list comes from federation-base.js so all remotes
 // share one surface; specific remotes pass `extraSkip` if needed.
 
-const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = snapdragonRemote({
+
+export default snapdragonRemote({
   name: 'login',
   exposes: {
     './LoginComponent': './projects/login/src/app/login-remote.component.ts',

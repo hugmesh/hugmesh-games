@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
@@ -268,6 +268,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
       }
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .vn-maker { padding: 1rem; font-family: system-ui, sans-serif; }
     header { display: flex; justify-content: space-between; align-items: center; }

@@ -1,5 +1,5 @@
-import { Component, OnInit, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
+
 import { HttpClient } from '@angular/common/http';
 import { Router, RouterModule } from '@angular/router';
 import { AuthService } from '../services/auth.service';
@@ -32,7 +32,7 @@ interface BanStatus {
 @Component({
   selector: 'app-banned-page',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [RouterModule],
   template: `
     <main class="banned-page" role="main" aria-labelledby="banned-title">
       <section class="banned-card">
@@ -76,6 +76,7 @@ interface BanStatus {
       </section>
     </main>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display: block; }
     .banned-page {

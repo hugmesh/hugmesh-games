@@ -15,12 +15,12 @@
     "start": "ng serve snapdragon-games-frontend",
     "build": "ng build snapdragon-games-frontend",
     "build:remote:dodecahedron": "ng build games-dodecahedron --configuration production",
-    "build:remote:login":         "ng build login --configuration production",
-    "build:remote:admin":         "ng build admin --configuration production",
-    "build:remote:api-docs":      "ng build api-docs --configuration production",
+    "build:remote:login": "ng build login --configuration production",
+    "build:remote:admin": "ng build admin --configuration production",
+    "build:remote:api-docs": "ng build api-docs --configuration production",
     "build:remote:three-wizards": "ng build games-three-wizards --configuration production",
-    "build:remotes":              "npm run build:remote:login && npm run build:remote:admin && npm run build:remote:api-docs && npm run build:remote:three-wizards && npm run build:remote:dodecahedron",
-    "build:all":                  "npm run build:prod && npm run build:remotes",
+    "build:remotes": "npm run build:remote:login && npm run build:remote:admin && npm run build:remote:api-docs && npm run build:remote:three-wizards && npm run build:remote:dodecahedron",
+    "build:all": "npm run build:prod && npm run build:remotes",
     "prebuild": "test -s openapi.json && npm run gen || true",
     "build:prod": "ng build snapdragon-games-frontend --configuration production",
     "watch": "ng build snapdragon-games-frontend --watch --configuration development",
@@ -29,14 +29,14 @@
     "gen:fetch": "curl -sf http://localhost:8080/v3/api-docs -o openapi.json && npm run gen"
   },
   "dependencies": {
-    "@angular/animations": "^19.2.25",
-    "@angular/common": "^19.2.25",
-    "@angular/compiler": "^19.2.25",
-    "@angular/core": "^19.2.25",
-    "@angular/forms": "^19.2.25",
-    "@angular/platform-browser": "^19.2.25",
-    "@angular/platform-browser-dynamic": "^19.2.25",
-    "@angular/router": "^19.2.25",
+    "@angular/animations": "^22.0.2",
+    "@angular/common": "^22.0.2",
+    "@angular/compiler": "^22.0.2",
+    "@angular/core": "^22.0.2",
+    "@angular/forms": "^22.0.2",
+    "@angular/platform-browser": "^22.0.2",
+    "@angular/platform-browser-dynamic": "^22.0.2",
+    "@angular/router": "^22.0.2",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.15.0"
@@ -57,18 +57,25 @@
     "launch-editor": "^2.14.1",
     "webpack-dev-server": "^5.2.4",
     "esbuild": "^0.28.1",
-    "cacache": { "tar": "^7.5.16" },
-    "node-gyp": { "tar": "^7.5.16" },
-    "pacote": { "tar": "^7.5.16" }
+    "cacache": {
+      "tar": "^7.5.16"
+    },
+    "node-gyp": {
+      "tar": "^7.5.16"
+    },
+    "pacote": {
+      "tar": "^7.5.16"
+    }
   },
   "devDependencies": {
-    "@angular-architects/native-federation": "^19.0.23",
-    "@angular-devkit/build-angular": "^19.2.26",
-    "@angular/cli": "^19.2.26",
-    "@angular/compiler-cli": "^19.2.25",
-    "@angular/elements": "^19.2.25",
+    "@angular-architects/native-federation": "^22.0.1",
+    "@angular-devkit/build-angular": "^22.0.4",
+    "@angular/cli": "^22.0.4",
+    "@angular/compiler-cli": "^22.0.2",
+    "@angular/elements": "^22.0.2",
     "@types/jasmine": "~5.1.0",
     "es-module-shims": "^2.8.0",
+    "istanbul-lib-instrument": "^6.0.3",
     "jasmine-core": "~5.4.0",
     "karma": "~6.4.0",
     "karma-chrome-launcher": "~3.2.0",
@@ -76,6 +83,6 @@
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
     "ng-openapi-gen": "^1.0.5",
-    "typescript": "~5.6.0"
+    "typescript": "~6.0.3"
   }
 }

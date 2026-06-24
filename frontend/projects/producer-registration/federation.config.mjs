@@ -1,3 +1,4 @@
+import { snapdragonRemote } from '../../federation-base.mjs';
 // Federation config for the producer-registration remote-shell.
 //
 // `name`     — federation_modules.slug. Liquibase 031 seeds this so
@@ -11,9 +12,9 @@
 // until an admin approves. See decision item #8 in the platform
 // roadmap.
 
-const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = snapdragonRemote({
+
+export default snapdragonRemote({
   name: 'producer-registration',
   exposes: {
     './ProducerRegistrationComponent':

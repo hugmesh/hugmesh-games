@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -163,6 +163,7 @@ interface GameSession {
       }
     </section>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .admin-log-page { max-width: 1100px; margin: 24px auto; padding: 0 20px; color: #d8dde6; font-family: sans-serif; }
     .admin-log-page-header h2 { margin: 0 0 4px; color: #f0f2fa; }

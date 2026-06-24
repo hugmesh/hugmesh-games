@@ -1,3 +1,4 @@
+import { snapdragonRemote } from '../../federation-base.mjs';
 // Federation config for the Dodecahedron Demo remote module.
 //
 // `name`     — federation_modules.slug for the dodecahedron remote-game.
@@ -6,9 +7,9 @@
 //              Component (createCustomElement, see RemoteLoaderService).
 // shareAll + skip list comes from federation-base.js.
 
-const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = snapdragonRemote({
+
+export default snapdragonRemote({
   name: 'games-dodecahedron',
   exposes: {
     './GameRoot': './projects/games-dodecahedron/src/app/dodecahedron-remote.component.ts',

@@ -1,3 +1,4 @@
+import { snapdragonRemote } from '../../federation-base.mjs';
 // Federation config for the banned remote-shell.
 //
 // `name`     — federation_modules.slug. Liquibase 039 seeds this so
@@ -10,9 +11,9 @@
 // (besides /login + /registration) — the host's auth guard funnels
 // 403 responses with `X-Revoked` here.
 
-const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = snapdragonRemote({
+
+export default snapdragonRemote({
   name: 'banned',
   exposes: {
     './BannedComponent': './projects/banned/src/app/banned-remote.component.ts',

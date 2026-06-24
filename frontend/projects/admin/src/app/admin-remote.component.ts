@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
@@ -171,6 +171,7 @@ interface PlayerSession {
       </p>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display: block; background: #0a0a12; min-height: 100vh; color: #e8e8f0; }
     .admin-page { min-height: 100vh; background: #0a0a12; padding-bottom: 48px; }

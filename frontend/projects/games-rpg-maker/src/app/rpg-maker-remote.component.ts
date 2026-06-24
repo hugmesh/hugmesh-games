@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
@@ -381,6 +381,7 @@ const IMAGE_MIMES = ['image/png','image/jpeg','image/webp','image/svg+xml'];
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .rpg-maker { padding: 1rem; font-family: system-ui, sans-serif; }
     header { display: flex; justify-content: space-between; align-items: center; }

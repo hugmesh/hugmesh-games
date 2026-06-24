@@ -5,8 +5,9 @@ import {
   Input,
   OnInit,
   Output,
+  ChangeDetectionStrategy
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { QuestService } from '../services/quest.service';
 import { SkillService } from '../services/skill.service';
 import { EquipmentService } from '../services/equipment.service';
@@ -22,8 +23,9 @@ const EQUIPMENT_SLOTS = ['head', 'chest', 'legs', 'feet', 'weapon', 'offhand', '
 @Component({
   selector: 'app-game-menu',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   templateUrl: './game-menu.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './game-menu.component.scss',
 })
 export class GameMenuComponent implements OnInit {

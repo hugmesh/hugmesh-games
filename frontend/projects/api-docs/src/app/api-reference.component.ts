@@ -109,7 +109,7 @@ import { CommonModule } from '@angular/common';
           @for (entry of requestBodyEntries(); track entry[0]) {
             <tr>
               <td><code>{{ entry[0] }}</code></td>
-              <td><code>{{ schemaName(entry[1]?.schema) }}</code></td>
+              <td><code>{{ schemaName($safeNavigationMigration(entry[1]?.schema)) }}</code></td>
             </tr>
           }
         </tbody>

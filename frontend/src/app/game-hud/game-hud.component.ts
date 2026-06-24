@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GameStateService } from '../services/game-state.service';
 import { CharacterService } from '../services/character.service';
@@ -12,6 +12,7 @@ import { GameMenuComponent } from '../game-menu/game-menu.component';
   standalone: true,
   imports: [CommonModule, GameMenuComponent],
   templateUrl: './game-hud.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './game-hud.component.scss'
 })
 export class GameHudComponent implements OnInit {

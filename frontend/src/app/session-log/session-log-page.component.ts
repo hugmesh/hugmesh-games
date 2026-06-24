@@ -1,5 +1,5 @@
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
+
 import { SessionLogComponent } from './session-log.component';
 
 /** Player-facing route at {@code /sessions/log}. Wraps the reusable
@@ -9,7 +9,7 @@ import { SessionLogComponent } from './session-log.component';
 @Component({
   selector: 'app-session-log-page',
   standalone: true,
-  imports: [CommonModule, SessionLogComponent],
+  imports: [SessionLogComponent],
   template: `
     <section class="session-log-page">
       <header class="session-log-page-header">
@@ -19,6 +19,7 @@ import { SessionLogComponent } from './session-log.component';
       <app-session-log scope="me" [limit]="100"></app-session-log>
     </section>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .session-log-page { max-width: 1100px; margin: 24px auto; padding: 0 20px; color: #d8dde6; font-family: sans-serif; }
     .session-log-page-header h2 { margin: 0 0 4px; color: #f0f2fa; }

@@ -1,3 +1,4 @@
+import { snapdragonRemote } from '../../federation-base.mjs';
 // Federation config for the api-docs remote-shell.
 //
 // `name`     — federation_modules.slug = 'api-docs'.
@@ -9,9 +10,9 @@
 //                                  rendered from the OpenAPI spec
 //
 // shareAll + skip list comes from federation-base.js.
-const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = snapdragonRemote({
+
+export default snapdragonRemote({
   name: 'api-docs',
   exposes: {
     './DocsShell':    './projects/api-docs/src/app/docs-shell.component.ts',

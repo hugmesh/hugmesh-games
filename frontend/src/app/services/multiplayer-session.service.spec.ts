@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { MultiplayerSessionService, GameSession } from './multiplayer-session.service';
@@ -19,7 +19,7 @@ describe('MultiplayerSessionService', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(withXhr()), provideHttpClientTesting()],
     });
     svc = TestBed.inject(MultiplayerSessionService);
     httpMock = TestBed.inject(HttpTestingController);

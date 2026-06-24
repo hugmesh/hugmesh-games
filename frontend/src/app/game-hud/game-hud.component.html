@@ -1,52 +1,53 @@
 <div class="hud">
-  <div class="hud-top-left" *ngIf="state$ | async as state">
-
-    <!-- Level badge + XP bar pulled from character API -->
-    <ng-container *ngIf="character$ | async as char">
-      <div class="level-badge">
-        <span class="lv-label">LV</span>
-        <span class="lv-value">{{ char.level }}</span>
-        <div class="xp-track" [title]="char.xp + ' / ' + char.xpToNext + ' XP'">
-          <div class="xp-fill" [style.width.%]="xpPct(char.xp, char.xpToNext)"></div>
-        </div>
-        <span class="xp-label">{{ char.xp }}/{{ char.xpToNext }}</span>
-      </div>
-    </ng-container>
-
-    <!-- HP / MP from CharacterService — auto-updates on SSE `character` events
-         so spell MP drains, item heals, and damage all show in real time. -->
-    <ng-container *ngIf="character$ | async as char">
-      <div class="stat-bar health-bar">
-        <span class="stat-label">HP</span>
-        <div class="bar-track">
-          <div class="bar-fill"
-               [style.width.%]="char.maxHp > 0 ? (char.currentHp / char.maxHp) * 100 : 0">
+  @if (state$ | async; as state) {
+    <div class="hud-top-left">
+      <!-- Level badge + XP bar pulled from character API -->
+      @if (character$ | async; as char) {
+        <div class="level-badge">
+          <span class="lv-label">LV</span>
+          <span class="lv-value">{{ char.level }}</span>
+          <div class="xp-track" [title]="char.xp + ' / ' + char.xpToNext + ' XP'">
+            <div class="xp-fill" [style.width.%]="xpPct(char.xp, char.xpToNext)"></div>
           </div>
+          <span class="xp-label">{{ char.xp }}/{{ char.xpToNext }}</span>
         </div>
-        <span class="stat-value">{{ char.currentHp }}/{{ char.maxHp }}</span>
-      </div>
-      <div class="stat-bar mana-bar">
-        <span class="stat-label">MP</span>
-        <div class="bar-track">
-          <div class="bar-fill"
-               [style.width.%]="char.maxMp > 0 ? (char.currentMp / char.maxMp) * 100 : 0">
+      }
+      <!-- HP / MP from CharacterService — auto-updates on SSE `character` events
+      so spell MP drains, item heals, and damage all show in real time. -->
+      @if (character$ | async; as char) {
+        <div class="stat-bar health-bar">
+          <span class="stat-label">HP</span>
+          <div class="bar-track">
+            <div class="bar-fill"
+              [style.width.%]="char.maxHp > 0 ? (char.currentHp / char.maxHp) * 100 : 0">
+            </div>
           </div>
+          <span class="stat-value">{{ char.currentHp }}/{{ char.maxHp }}</span>
         </div>
-        <span class="stat-value">{{ char.currentMp }}/{{ char.maxMp }}</span>
+        <div class="stat-bar mana-bar">
+          <span class="stat-label">MP</span>
+          <div class="bar-track">
+            <div class="bar-fill"
+              [style.width.%]="char.maxMp > 0 ? (char.currentMp / char.maxMp) * 100 : 0">
+            </div>
+          </div>
+          <span class="stat-value">{{ char.currentMp }}/{{ char.maxMp }}</span>
+        </div>
+      }
+      <div class="position-display">
+        <span class="pos-label">POS</span>
+        <span class="pos-value">{{ positionStr(state) }}</span>
       </div>
-    </ng-container>
-
-    <div class="position-display">
-      <span class="pos-label">POS</span>
-      <span class="pos-value">{{ positionStr(state) }}</span>
     </div>
-  </div>
+  }
 
   <!-- Game time badge (top-center) -->
-  <div class="time-badge" *ngIf="state$ | async as state">
-    <span class="time-day">Day {{ state.gameTime?.dayNumber ?? 1 }}</span>
-    <span class="time-clock">{{ formatTime(state.gameTime) }}</span>
-  </div>
+  @if (state$ | async; as state) {
+    <div class="time-badge">
+      <span class="time-day">Day {{ state.gameTime?.dayNumber ?? 1 }}</span>
+      <span class="time-clock">{{ formatTime(state.gameTime) }}</span>
+    </div>
+  }
 
   <!-- Top-right controls -->
   <div class="hud-top-right">
@@ -58,5 +59,7 @@
   </div>
 
   <!-- Game menu overlay — closeMenu also clears input suppression -->
-  <app-game-menu *ngIf="menuOpen" [isOpen]="menuOpen" (closed)="closeMenu()"></app-game-menu>
+  @if (menuOpen) {
+    <app-game-menu [isOpen]="menuOpen" (closed)="closeMenu()"></app-game-menu>
+  }
 </div>

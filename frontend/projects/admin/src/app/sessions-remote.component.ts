@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -245,6 +245,7 @@ type EventChannel = (typeof EVENT_CHANNELS)[number];
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .sessions-page { padding: 1.5rem; color: #e8e8f0; }
     .sessions-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }

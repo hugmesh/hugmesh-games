@@ -1,3 +1,4 @@
+import { snapdragonRemote } from '../../federation-base.mjs';
 // Federation config for the admin console remote-shell.
 //
 // `name`     — federation_modules.slug = 'admin'.
@@ -7,9 +8,9 @@
 //              ./SessionsShell → /admin/sessions live per-session view stream
 // shareAll + skip list comes from federation-base.js.
 
-const { snapdragonRemote } = require('../../federation-base');
 
-module.exports = snapdragonRemote({
+
+export default snapdragonRemote({
   name: 'admin',
   exposes: {
     './AdminShell':    './projects/admin/src/app/admin-remote.component.ts',

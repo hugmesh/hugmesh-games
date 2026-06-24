@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
@@ -131,6 +131,7 @@ interface GameSession {
       </section>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .mod-page { padding: 1.5rem; }
     .mod-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }

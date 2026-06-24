@@ -1,5 +1,5 @@
-import { Component, HostListener, OnDestroy, OnInit, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, HostListener, OnDestroy, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
+
 import { HttpClient } from '@angular/common/http';
 import { ControlService } from '../services/control.service';
 import { GameAction } from '../models/game-state.model';
@@ -30,8 +30,9 @@ interface ItemSlot {
 @Component({
   selector: 'app-game-controls',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   templateUrl: './game-controls.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './game-controls.component.scss'
 })
 export class GameControlsComponent implements OnInit, OnDestroy {

@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
@@ -116,6 +116,7 @@ interface ModGameScope {
       </section>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .publisher-page { padding: 1.5rem; }
     .publisher-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }

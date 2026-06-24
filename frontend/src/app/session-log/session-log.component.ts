@@ -1,4 +1,4 @@
-import { Component, Input, OnChanges, OnInit, inject, signal } from '@angular/core';
+import { Component, Input, OnChanges, OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SessionLogEntry, SessionLogService } from '../services/session-log.service';
 
@@ -19,6 +19,7 @@ export type SessionLogScope = 'me' | 'admin' | 'scoped';
   standalone: true,
   imports: [CommonModule],
   templateUrl: './session-log.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './session-log.component.scss',
 })
 export class SessionLogComponent implements OnInit, OnChanges {
