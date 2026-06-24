@@ -15,7 +15,7 @@ Quick index of common extension tasks. Each one has a step-by-step recipe under 
 
 ## Adding a new game — three paths
 
-Paths A and B add a **Godot** game; Path C adds a **web-native (Rust→wasm)** game — now the dominant pattern (14 of the 16 catalog titles).
+Paths A and B add a **Godot** game; Path C adds a **web-native (Rust→wasm)** game — now the dominant pattern (14 of the 17 catalog titles).
 
 ### Path A — upload at runtime
 

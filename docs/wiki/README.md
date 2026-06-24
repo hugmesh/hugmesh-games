@@ -8,14 +8,14 @@ Where this wiki disagrees with the source tree, the source tree wins. Each page 
 
 ## Architecture reference
 
-Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, key diagrams inlined as Mermaid. The catalog ships **16 games in two delivery models** — Godot 4 WASM (2 titles) and web-native Rust→wasm32 (14 titles, host-authoritative over the SSE relay); the chapters below cover both.
+Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, key diagrams inlined as Mermaid. The catalog ships **17 games in two delivery models** — Godot 4 WASM (3 titles, incl. *Chess (Godot)* federated via changelog 053) and web-native Rust→wasm32 (14 titles, host-authoritative over the SSE relay); the chapters below cover both.
 
 | # | Page | What's in it |
 |---|---|---|
 | 01 | [Overview](architecture/01-overview.md) | What Snapdragon Games is in three sentences, the container list, and the two game families (Godot WASM vs web-native Rust→wasm32). |
 | 02 | [Runtime architecture](architecture/02-runtime.md) | Browser → host nginx → BFF; the Godot and web-native (`wasm-game`) launch flows; the SSE merge; the `autoCancel=false` rule. |
 | 03 | [Module Federation](architecture/03-federation.md) | The two ordering rules, the manifest endpoint, per-game routing, the `wasm-game` kind for web-native games. |
-| 04 | [Data model](architecture/04-data-model.md) | Postgres schema clusters (53 changelogs), Cassandra cache, Liquibase order incl. the web-native catalog + realtime-match tables. |
+| 04 | [Data model](architecture/04-data-model.md) | Postgres schema clusters (55 changelogs), Cassandra cache, Liquibase order incl. the web-native catalog + realtime-match tables. |
 | 05 | [API + service reference](architecture/05-api-reference.md) | All 38 controllers + services with marbles, examples, error paths (incl. the 🚧 realtime PvP surface). |
 | 06 | [Build and deploy](architecture/06-build-and-deploy.md) | The `make` chain, GraalVM native-image, doc publishing. |
 | 07 | [Extending the portal](architecture/07-extending.md) | Add a game (Godot or web-native) / route / role / SSE channel / DB column. |

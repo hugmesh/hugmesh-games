@@ -2,7 +2,7 @@
 
 > Mirror of [`chapters/04-data-model.tex`](../../publishing/architecture/chapters/04-data-model.tex).
 
-PostgreSQL holds the canonical relational state. Cassandra is a write-through cross-pod cache for movement events, an audit log for game state transitions, and a session store for short-lived browser tokens. Kafka + ClickHouse are the streaming-audit / telemetry side-channel (decision 021) — gated by `app.kafka.enabled` and off by default in dev. Liquibase drives Postgres schema migration through 53 changelogs at the head of `main` (`backend/src/main/resources/db/changelog/`); Cassandra schemas are bootstrapped by an init container and ClickHouse tables by its built-in Kafka-engine + materialized-view DDL bundled in `docker/clickhouse-init/`.
+PostgreSQL holds the canonical relational state. Cassandra is a write-through cross-pod cache for movement events, an audit log for game state transitions, and a session store for short-lived browser tokens. Kafka + ClickHouse are the streaming-audit / telemetry side-channel (decision 021) — gated by `app.kafka.enabled` and off by default in dev. Liquibase drives Postgres schema migration through 55 changelogs at the head of `main` (`backend/src/main/resources/db/changelog/`); Cassandra schemas are bootstrapped by an init container and ClickHouse tables by its built-in Kafka-engine + materialized-view DDL bundled in `docker/clickhouse-init/`.
 
 > **Naming note** — the current schema uses `chapter` (formerly `level`) and `instant` (formerly `spell`). See [decision 006](../decisions/006-naming-rename.md). Filenames under `backend/src/main/resources/assets/levels/<slug>/` did not move; only the schema and code did.
 
@@ -98,7 +98,7 @@ Migrations 001–017 are pre-federation. The federation work landed in:
 - `052-web-game-relay-event-types.xml` — `input_event_types` + `game_event_support` rows for the generic web-native control/world relay channels.
 - `053-chess-godot-federation.xml` — registers the optional `chess-godot` Godot front-end variant (`games`/`chapters`/`federation_modules`/`game_access` rows) alongside the web-native chess title.
 
-The catalog now spans **16 games** (2 Godot + 14 web-native). The `realtime_matches` work (049) adds engines and a match surface, not a 17th launchable title.
+The catalog now spans **17 games** (3 Godot — incl. the `chess-godot` front-end variant registered by changelog 053 — + 14 web-native). The `realtime_matches` work (049) adds engines and a match surface, not a launchable catalog title.
 
 **Never edit a previously-merged changeset.** When something is missed, append a new changeset with `<preConditions onFail="MARK_RAN">` so re-runs are idempotent.
 
