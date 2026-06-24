@@ -57,6 +57,10 @@ Then('the game tree shows at least one game row', async () => {
 When('the admin clicks the row for game {string}', async ({}, slug: string) => {
   const page = pageRegistry.get('admin')!;
   await page.locator('.game-row').filter({ hasText: slug }).first().click();
+  // Wait for the expand/collapse to settle so a follow-up
+  // `not visible` / `expanded shows session` assertion isn't racing
+  // the post-click re-render. ~150 ms is enough on a warm worker.
+  await page.waitForTimeout(150);
 });
 
 Then('the expanded game shows session {string}', async ({}, sessionName: string) => {

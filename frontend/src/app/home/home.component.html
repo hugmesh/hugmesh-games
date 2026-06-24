@@ -16,6 +16,7 @@
             class="game-card"
             type="button"
             role="listitem"
+            [attr.data-game-slug]="game.slug"
             [class.locked]="unlocked === 0"
             [disabled]="unlocked === 0"
             [attr.aria-haspopup]="'dialog'"
@@ -236,9 +237,15 @@
           {{ sceneIcon(activeLevel) }} {{ activeLevel.name }}
         </span>
         <div class="canvas-actions">
-          <button class="icon-btn" (click)="toggleFullscreen()" title="Fullscreen">
-            &#x26F6; {{ isFullscreen ? 'Exit Fullscreen' : 'Fullscreen' }}
-          </button>
+          <!-- Federated remotes (three-wizards / dodecahedron) ship their
+               own toolbar with fullscreen/popout/reload that wraps the
+               same .canvas-wrapper the e2e steps assert against, so the
+               host-shell fullscreen button is suppressed in that path. -->
+          @if (!isFederated(activeLevel)) {
+            <button class="icon-btn" (click)="toggleFullscreen()" title="Fullscreen">
+              &#x26F6; {{ isFullscreen ? 'Exit Fullscreen' : 'Fullscreen' }}
+            </button>
+          }
           <button class="icon-btn close-btn" (click)="closeLevel()" title="Close">&#10005; Close</button>
         </div>
       </div>

@@ -13,7 +13,7 @@ function pageFor(username: string): Page {
 When('{string} sends a friend request to {string}', async ({}, requester: string, target: string) => {
   const page = pageFor(requester);
   await page.evaluate(async (other) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem("tw_auth");
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch('/api/relationships/friends/request', {
       method: 'POST',
@@ -30,7 +30,7 @@ When('{string} sends a friend request to {string}', async ({}, requester: string
 When('{string} accepts the friend request from {string}', async ({}, accepter: string, requester: string) => {
   const page = pageFor(accepter);
   await page.evaluate(async (other) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem("tw_auth");
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch('/api/relationships/friends/accept', {
       method: 'POST',
@@ -52,7 +52,7 @@ Then('{string} sees {string} in their friends list', async ({}, viewer: string, 
   // non-empty list after Given/When steps that requested + accepted
   // is the meaningful invariant.
   const count = await page.evaluate(async () => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem("tw_auth");
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch('/api/relationships/friends', {
       headers: { Authorization: `Bearer ${token}` },
@@ -69,7 +69,7 @@ When('{string} blocks {string} via the relationships API', async ({}, blocker: s
   // r.ok-checked unlike the legacy spec — silent failure is what
   // caused the original regression we fixed via SecurityConfig.cacheLogin.
   await page.evaluate(async (other) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem("tw_auth");
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch('/api/relationships/blocks/add', {
       method: 'POST',

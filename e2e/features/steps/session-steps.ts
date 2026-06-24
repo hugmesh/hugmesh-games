@@ -39,7 +39,12 @@ Given('{string} creates a private session named {string} in Three Wizards',
 When('{string} opens the Three Wizards lobby', async ({}, username: string) => {
   const page = pageFor(username);
   await page.goto('/');
-  await page.locator('.game-card').first().click();
+  // The catalog is sorted by sort_order ASC NULLS FIRST, so newly-
+  // uploaded games (sort_order=0) push three-wizards out of the first
+  // slot. Target the card by data-game-slug so the lobby step picks
+  // the right modal regardless of how many games the BDD run has
+  // built into the catalog above us.
+  await page.locator('.game-card[data-game-slug="three-wizards"]').click();
   await page.locator('.modal-backdrop').first().waitFor({ state: 'visible', timeout: 10_000 });
 });
 
@@ -62,14 +67,16 @@ Then('{string} still sees the session named {string} in their own lobby',
   async ({}, username: string, name: string) => {
     const page = pageFor(username);
     await page.goto('/');
-    await page.locator('.game-card').first().click();
+    // Pin the card by slug — see the "opens the Three Wizards lobby"
+    // step for why .first() is no longer safe.
+    await page.locator('.game-card[data-game-slug="three-wizards"]').click();
     await expect(page.locator(`text=${name}`).first()).toBeVisible({ timeout: 10_000 });
   });
 
 When('{string} requests their own session log', async ({}, username: string) => {
   const page = pageFor(username);
   responseState.lastStatus = await page.evaluate(async () => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem("tw_auth");
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch('/api/session-logs/me', { headers: { Authorization: `Bearer ${token}` } });
     return r.status;
@@ -87,7 +94,7 @@ When("the caller requests {string}'s session log via the admin endpoint",
     const lastPage = Array.from(pageRegistry.values()).at(-1);
     if (!lastPage) throw new Error('No logged-in page; missing Given step?');
     responseState.lastStatus = await lastPage.evaluate(async (t) => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem("tw_auth");
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       const r = await fetch(`/api/session-logs/admin/${t}?limit=10`, {
         headers: { Authorization: `Bearer ${token}` },

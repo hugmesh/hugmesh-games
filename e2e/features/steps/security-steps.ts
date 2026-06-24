@@ -144,7 +144,7 @@ Then('a player can launch chapter {string} of game {string}',
     // proves "after the game was published, a PLAYER (not the
     // publisher) can launch it" rather than re-using the publisher's
     // own access.
-    const rawAdmin = window.sessionStorage.getItem('tw_auth');
+    const rawAdmin = window.localStorage.getItem("tw_auth");
     const adminToken = rawAdmin ? (JSON.parse(rawAdmin).accessToken ?? '') : '';
     if (!adminToken) {
       return { ok: false, stage: 'admin-token-missing', status: 0 };

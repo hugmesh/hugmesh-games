@@ -146,12 +146,19 @@ Then('an inline error reads {string}', async ({}, fragment: string) => {
 
 When('the publisher creates a project {string} called {string}', async ({}, slug: string, name: string) => {
   const page = pageRegistry.get('publisher')!;
-  await page.locator('input[name="newProjSlug"]').fill(slug);
-  await page.locator('input[name="newProjName"]').fill(name);
-  await page.getByRole('button', { name: 'Create' }).click();
-  // Selecting the new project drives the rest of the editor; click
-  // its row in the projects pane.
-  await page.locator('.link-btn', { hasText: name }).first().click({ timeout: 10_000 });
+  // Skip the create form if a prior retry already produced the row —
+  // the side service's slug column is globally unique so a re-POST
+  // returns 409 + the maker only refreshes the project list on
+  // success, leaving `.link-btn` un-rendered without the fall-through.
+  // Bumping the timeout to 20s covers the refreshProjects() round-trip
+  // when the rpg-builder is warm-but-busy under the full BDD load.
+  const link = page.locator('.link-btn', { hasText: name });
+  if (await link.count() === 0) {
+    await page.locator('input[name="newProjSlug"]').fill(slug);
+    await page.locator('input[name="newProjName"]').fill(name);
+    await page.getByRole('button', { name: 'Create' }).click();
+  }
+  await link.first().click({ timeout: 20_000 });
 });
 
 When('the publisher creates an area {string} called {string}', async ({}, slug: string, name: string) => {
@@ -290,7 +297,7 @@ Then('the BFF catalog lists the game {string}', async ({}, slug: string) => {
   const page = pageRegistry.get('publisher')!;
   await expect.poll(async () => {
     return page.evaluate(async (s) => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem("tw_auth");
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       const r = await fetch('/api/games', {
         headers: { Authorization: `Bearer ${token}` },
@@ -386,7 +393,7 @@ Then('the BFF chapter {string} of {string} returns 200 with the bundle index.htm
   // candidate URLs so the assertion stays robust if the path settles
   // a layer up or down (e.g. wasm-fragment vs api).
   const result = await page.evaluate(async ({ g, c }) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem("tw_auth");
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const candidates = [
       `/api/assets/levels/${g}/${c}/index.html`,

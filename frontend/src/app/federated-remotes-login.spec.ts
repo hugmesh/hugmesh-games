@@ -9,7 +9,7 @@ import { LoginRemoteComponent } from '../../projects/login/src/app/login-remote.
 
 // Specs for the federated LoginRemoteComponent. The remote owns the
 // /api/auth/token call and writes the StoredAuth shape to
-// sessionStorage with key 'tw_auth' — these are the cross-bundle
+// localStorage with key 'tw_auth' — these are the cross-bundle
 // contracts the host's interceptor + auth guard depend on, so each
 // gets its own assertion.
 describe('LoginRemoteComponent', () => {
@@ -18,7 +18,7 @@ describe('LoginRemoteComponent', () => {
   let router: Router;
 
   beforeEach(() => {
-    sessionStorage.removeItem('tw_auth');
+    localStorage.removeItem('tw_auth');
 
     TestBed.configureTestingModule({
       providers: [
@@ -53,7 +53,7 @@ describe('LoginRemoteComponent', () => {
     req.flush({ access_token: 'a', id_token: 'b', token_type: 'Bearer', expires_in: 3600 });
   });
 
-  it('writes StoredAuth to sessionStorage and navigates to / on success', () => {
+  it('writes StoredAuth to localStorage and navigates to / on success', () => {
     const navSpy = spyOn(router, 'navigate');
     component.form.setValue({ username: 'magus', password: 'secret' });
     component.submit();
@@ -63,7 +63,7 @@ describe('LoginRemoteComponent', () => {
       token_type: 'Bearer', expires_in: 600,
     });
 
-    const stored = JSON.parse(sessionStorage.getItem('tw_auth') ?? '{}');
+    const stored = JSON.parse(localStorage.getItem('tw_auth') ?? '{}');
     expect(stored.accessToken).toBe('jwt-abc');
     expect(stored.idToken).toBe('id-xyz');
     expect(stored.expiry).toBeGreaterThan(Date.now());
@@ -82,7 +82,7 @@ describe('LoginRemoteComponent', () => {
 
     expect(component.errorMsg()).toBe('bad credentials');
     expect(component.loading()).toBeFalse();
-    expect(sessionStorage.getItem('tw_auth')).toBeNull();
+    expect(localStorage.getItem('tw_auth')).toBeNull();
   });
 
   it('falls back to a generic message when the error has no body', () => {

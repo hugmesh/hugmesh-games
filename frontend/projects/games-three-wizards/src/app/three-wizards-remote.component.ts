@@ -1,5 +1,5 @@
 import {
-  Component, ElementRef, HostListener, Input, ViewChild,
+  Component, ElementRef, HostListener, Input, OnDestroy, OnInit, ViewChild,
   inject,
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
@@ -41,17 +41,49 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
         <code>games-three-wizards</code>. Active level:
         <code>{{ chapterSlug }}</code>.
       </p>
-      <div class="frame-wrap">
+      <div class="frame-wrap canvas-wrapper" #wrap>
         <iframe
-          class="wasm-frame"
+          #gameFrame
+          class="wasm-frame game-frame"
           title="Three Wizards level"
           [src]="safeUrl"
           allow="fullscreen; pointer-lock; autoplay"></iframe>
         <div class="canvas-controls" role="toolbar" aria-label="Game window controls">
-          <button type="button" class="ctrl" (click)="openInNewTab()" title="Open game in a new tab">↗</button>
-          <button type="button" class="ctrl" (click)="openInPopupWindow()" title="Open game in a separate window">⧉</button>
-          <button type="button" class="ctrl" (click)="toggleFullscreen()" [title]="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'">⛶</button>
+          <!-- Glyph in an aria-hidden span and the human-readable label in
+               a screen-reader span so getByRole('button', { name: … })
+               sees the same accessible name the legacy canvas exposes. -->
+          <button type="button" class="ctrl" (click)="reload()" title="Reload game">
+            <span aria-hidden="true">↻</span>
+            <span class="sr">Reload</span>
+          </button>
+          <button type="button" class="ctrl" (click)="openInNewTab()" title="Open game in a new tab">
+            <span aria-hidden="true">↗</span>
+            <span class="sr">Open in new tab</span>
+          </button>
+          <button type="button" class="ctrl" (click)="openInPopupWindow()" title="Open game in a separate window">
+            <span aria-hidden="true">⧉</span>
+            <span class="sr">Open in new window</span>
+          </button>
+          <button type="button" class="ctrl" (click)="toggleFullscreen()" [title]="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'">
+            <span aria-hidden="true">⛶</span>
+            <span class="sr">{{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}</span>
+          </button>
         </div>
+        @if (paused) {
+          <div class="paused-overlay"
+               data-testid="canvas-paused"
+               role="dialog"
+               aria-label="Game paused"
+               aria-modal="true">
+            <p class="paused-msg">Game paused — another window is playing.</p>
+            <button type="button"
+                    class="resume-btn"
+                    data-testid="canvas-resume-btn"
+                    (click)="resumeGame()">
+              ▶ Resume here
+            </button>
+          </div>
+        }
       </div>
     </div>
   `,
@@ -84,9 +116,27 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
       background: rgba(124,77,255,.85); color: #fff;
       border-color: #b388ff; outline: none;
     }
+    .sr {
+      position: absolute; width: 1px; height: 1px;
+      padding: 0; margin: -1px; overflow: hidden;
+      clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+    .paused-overlay {
+      position: absolute; inset: 0; background: rgba(8,9,15,.82);
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px; z-index: 6; color: #e8e8f0;
+      backdrop-filter: blur(2px);
+    }
+    .paused-msg { margin: 0; font-size: 1rem; }
+    .resume-btn {
+      appearance: none; border: 1px solid #b388ff; background: rgba(124,77,255,.85);
+      color: #fff; padding: 8px 16px; border-radius: 4px; font-weight: 600;
+      cursor: pointer;
+    }
+    .resume-btn:hover, .resume-btn:focus-visible { background: #b388ff; outline: none; }
   `],
 })
-export class ThreeWizardsRemoteComponent {
+export class ThreeWizardsRemoteComponent implements OnInit, OnDestroy {
   private readonly sanitizer = inject(DomSanitizer);
 
   /** Reflects the document.fullscreenElement state for the toolbar
@@ -95,23 +145,107 @@ export class ThreeWizardsRemoteComponent {
    *  refuse fullscreen on some browsers). */
   isFullscreen = false;
 
+  /** True when this window's playback has been suspended — either by
+   *  the user popping the game out into a new tab/window, or by a peer
+   *  tab claiming presence on the same-origin BroadcastChannel. Drives
+   *  the grey-out overlay + the Resume CTA. Bound by template via
+   *  data-testid="canvas-paused" for e2e assertions. */
+  paused = false;
+
   /** Plain (un-sanitised) iframe URL — kept in sync with safeUrl on
    *  every refresh so the new-tab / new-window buttons can pass a
    *  real string to window.open. */
   private _frameUrl: string =
     '/_remotes/wasm-fragment/cave/index.html';
 
-  @ViewChild('root') rootEl?: ElementRef<HTMLDivElement>;
+  /** Same-origin presence channel — every mounted federated game shell
+   *  broadcasts on mount, and pauses itself when a peer with a later
+   *  mount timestamp announces presence. Channel name matches
+   *  GameCanvasComponent so legacy + federated mounts speak the same
+   *  protocol. */
+  private static readonly PRESENCE_CHANNEL = 'snapdragon-game-presence';
+  private readonly _windowId =
+      `tw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  private readonly _mountedAt = Date.now();
+  private _presence: BroadcastChannel | null = null;
 
-  /** Toolbar: open the current level URL in a new browser tab. */
+  @ViewChild('root') rootEl?: ElementRef<HTMLDivElement>;
+  @ViewChild('wrap') wrapEl?: ElementRef<HTMLDivElement>;
+  @ViewChild('gameFrame') gameFrame?: ElementRef<HTMLIFrameElement>;
+
+  ngOnInit(): void {
+    if (typeof BroadcastChannel === 'undefined') return;
+    try {
+      this._presence = new BroadcastChannel(ThreeWizardsRemoteComponent.PRESENCE_CHANNEL);
+      this._presence.addEventListener('message', this._onPresenceMessage);
+      this._broadcastPresence();
+    } catch { this._presence = null; }
+  }
+
+  ngOnDestroy(): void {
+    if (this._presence) {
+      try { this._presence.removeEventListener('message', this._onPresenceMessage); } catch { /* */ }
+      try { this._presence.close(); } catch { /* */ }
+      this._presence = null;
+    }
+  }
+
+  private readonly _onPresenceMessage = (ev: MessageEvent): void => {
+    const d = ev.data as { kind?: string; windowId?: string; mountedAt?: number } | null;
+    if (!d || d.windowId === this._windowId) return;
+    if (d.kind === 'mounted' && typeof d.mountedAt === 'number' && d.mountedAt >= this._mountedAt) {
+      this.pauseGame();
+    }
+  };
+
+  private _broadcastPresence(): void {
+    this._presence?.postMessage({
+      kind: 'mounted', windowId: this._windowId, mountedAt: this._mountedAt,
+    });
+  }
+
+  /** Suspend playback in this window: show the grey-out overlay and
+   *  forward SD_GAME_PAUSE to the iframe so the Godot bridge can stop
+   *  the scene tree. Idempotent. */
+  pauseGame(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this._postToIframe({ type: 'SD_GAME_PAUSE' });
+  }
+
+  /** Inverse of pauseGame — re-claim playback. Re-broadcasts presence so
+   *  any sibling tabs pause themselves. */
+  resumeGame(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this._postToIframe({ type: 'SD_GAME_RESUME' });
+    this._broadcastPresence();
+  }
+
+  private _postToIframe(msg: { type: string }): void {
+    try {
+      this.gameFrame?.nativeElement?.contentWindow?.postMessage(msg, '*');
+    } catch { /* iframe gone */ }
+  }
+
+  /** Toolbar: hard-reload the iframe by re-issuing the current URL. */
+  reload(): void {
+    this._refresh();
+  }
+
+  /** Toolbar: open the current level URL in a new browser tab.
+   *  Pauses local playback so the brief window before the new tab
+   *  claims presence doesn't leak keyboard input. */
   openInNewTab(): void {
     if (!this._frameUrl) return;
+    this.pauseGame();
     window.open(this._frameUrl, '_blank', 'noopener');
   }
 
   /** Toolbar: open the current level URL in a detached popup window
    *  (no opener, separate session). Sized to roughly the in-host
-   *  iframe so the user gets a similar viewport. */
+   *  iframe so the user gets a similar viewport. Pauses local
+   *  playback — only one window should hold the keyboard. */
   openInPopupWindow(): void {
     if (!this._frameUrl) return;
     const w = Math.min(1280, window.screen?.availWidth  ?? 1280);
@@ -121,15 +255,17 @@ export class ThreeWizardsRemoteComponent {
       `width=${w}`, `height=${h}`,
       'menubar=no', 'toolbar=no', 'location=no', 'resizable=yes',
     ].join(',');
-    window.open(this._frameUrl, '_blank', features);
+    const handle = window.open(this._frameUrl, '_blank', features);
+    if (handle) this.pauseGame();
   }
 
-  /** Toolbar: toggle fullscreen on the .frame-wrap container.
+  /** Toolbar: toggle fullscreen on the .canvas-wrapper container.
    *  Modern browsers cascade fullscreen permission to descendant
    *  iframes once an ancestor is in fullscreen — no need to call
    *  the iframe's own requestFullscreen. */
   toggleFullscreen(): void {
-    const el = this.rootEl?.nativeElement?.querySelector('.frame-wrap') as HTMLElement | null;
+    const el = this.wrapEl?.nativeElement
+      ?? (this.rootEl?.nativeElement?.querySelector('.canvas-wrapper') as HTMLElement | null);
     if (!el) return;
     if (document.fullscreenElement) {
       document.exitFullscreen?.();

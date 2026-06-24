@@ -67,7 +67,7 @@ When('{string} creates a public lobby session named {string} for game {string} w
   // lobby DOM doesn't surface ids directly. Stash for downstream
   // steps that need to call /api/controls with X-Session-Id.
   const sessionId = await page.evaluate(async ({ name, g }) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem("tw_auth");
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch(`/api/sessions?gameSlug=${encodeURIComponent(g)}`, {
       headers: { Authorization: `Bearer ${token}` },
