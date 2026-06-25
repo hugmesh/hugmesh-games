@@ -9,7 +9,7 @@ Use `@angular-architects/native-federation` rather than the Webpack 5 `ModuleFed
 
 ## Why
 
-Angular 19 moved to ESBuild for the `application` builder. The Webpack-based wrapper would have forced us to either pin to a legacy builder or accept a dual-toolchain story. The native-federation package is ESBuild-native and uses runtime import maps instead of webpack's runtime, which sidesteps the toolchain split.
+Angular (from v19 onward) moved to ESBuild for the `application` builder. The Webpack-based wrapper would have forced us to either pin to a legacy builder or accept a dual-toolchain story. The native-federation package is ESBuild-native and uses runtime import maps instead of webpack's runtime, which sidesteps the toolchain split.
 
 ## How to apply
 
