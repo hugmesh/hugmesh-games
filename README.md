@@ -53,7 +53,7 @@ Five components build from the monorepo, chained by the root [`Makefile`](Makefi
 | Component | Toolchain | Build command | Status |
 |---|---|---|---|
 | **Snapdragon Gaming BFF** | Java 25 / Spring WebFlux (Maven wrapper) | `make build-backend` (`./mvnw package`) | Builds + tests pass on a host with JDK 25. |
-| **Angular host + remotes** | Node 20 / Angular 22, [native-federation](docs/wiki/decisions/001-native-federation.md) | `make build-frontend` (host) · `make build-frontend-all` (host + every remote bundle) | Builds + Karma unit tests pass (frontend tests run in a Chromium-baked Docker image, so the host needs no browser). |
+| **Angular host + remotes** | Node 22 / Angular 22, [native-federation](docs/wiki/decisions/001-native-federation.md) | `make build-frontend` (host) · `make build-frontend-all` (host + every remote bundle) | Builds + Karma unit tests pass (frontend tests run in a Chromium-baked Docker image, so the host needs no browser). |
 | **snapdragon-bridge** (Rust → native `.so`) | `cargo build --release --features api-custom` | `make build-rust` | Builds + `cargo test` pass on a host with `cargo` + Godot (gdext regenerates `extension_api.json` against your Godot binary). |
 | **snapdragon-bridge** (Rust → WASM) | `wasm32-unknown-emscripten` | `make build-rust-wasm` (dockerised emsdk) | Needs emscripten. Built via a pinned `rust + emsdk` Docker image ([`tools/build-rust-wasm/Dockerfile`](tools/build-rust-wasm/Dockerfile)) so the host never installs emscripten; produces a 3.3 MB `snapdragon_bridge.wasm`. Skipped with a warning if Docker/emsdk is absent — normal browser play does not depend on it (the GDScript path covers the bridge events). |
 | **Godot 4.6 web export** | Godot 4.6 CLI + export templates | `make build-godot` (one bundle per export preset, per game) | Needs the Godot 4.6 binary on `PATH` *and* installed 4.6 export templates. Writes one WASM bundle per chapter under `backend/src/main/resources/assets/levels/<slug>/`, then runs [`scripts/patch-godot-html.py`](scripts/patch-godot-html.py). |
@@ -63,6 +63,8 @@ Five components build from the monorepo, chained by the root [`Makefile`](Makefi
 **Tests.** `make test` fans out to `test-rust` (cargo), `test-backend` (`./mvnw test`), and `test-frontend` (Karma in Docker). End-to-end is Playwright against the live Docker Compose stack: `make e2e` (canonical suite — TLS, all images, self-isolation specs), `make e2e-bdd` (Gherkin `.feature` files with per-step screenshots), and `make e2e-native` (the same suite against the GraalVM native image overlay). Godot has no GDScript unit suite yet — the runtime layer is exercised by `make e2e` loading the real WASM bundle in a browser.
 
 **Run it.** `docker compose up -d` brings up Postgres + Cassandra + Casdoor + BFF + the Angular host + the federated remotes; Liquibase migrates the schema on first boot. `make lan-up` / `make lan-up-tls` expose the stack to the LAN via [`lan.properties`](lan.properties). Dev servers: `make dev-backend` (`:8080`) and `make dev-frontend` (`:4200`, proxied to the BFF). See [architecture · 06 — build and deploy](docs/wiki/architecture/06-build-and-deploy.md) for the full chain and the Docker 29.x buildx caveat.
+
+**Parent POM note.** The three Spring services (`backend/`, `rpg-builder/`, `vn-builder/`) each inherit directly from `spring-boot-starter-parent`. Migration to the org-wide `snapdragon-parent` metapom (v2.7.0) is a pending fan-out item tracked in the Snapdragon-Systems org; it is not yet applied to this repo.
 
 **CI is GitLab, not GitHub Actions.** [`.gitlab-ci.yml`](.gitlab-ci.yml) builds + pushes one Docker image per deployable component (`backend`, `frontend`, `rpg-builder`, `vn-builder`, `wasm-fragment`) to the in-cluster GitLab container registry, in parallel on a privileged x86 runner, on the default branch and tags. Images carry no secrets — key material is supplied from USB at first boot.
 
@@ -307,6 +309,7 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 | `admin` | `remote-shell` | `./AdminShell` + `./UploadShell` | `loadComponent` for `/admin` and `/admin/games` |
 | `mod` | `remote-shell` | `./ModShell` | `loadComponent` for `/mod` (per-game moderation surface; gated by `mod_game_scopes`) |
 | `publisher` | `remote-shell` | `./PublisherShell` | `loadComponent` for `/publisher` (uploads + per-game grants; gated by `publisher_game_scopes`) |
+| `registration` | `remote-shell` | `./RegistrationComponent` | `loadComponent` for `/register` (player self-registration) |
 | `producer-registration` | `remote-shell` | `./RegistrationComponent` | `loadComponent` for `/register` (intake form → `POST /api/producer-contacts`) |
 | `banned` | `remote-shell` | `./BannedComponent` | `loadComponent` for `/banned` (auth-error interceptor redirects on `X-Revoked`; resolves appeal email via `GET /api/security/appeal-contact`) |
 | `games-three-wizards` | `remote-game` | `./GameRoot` | `<app-three-wizards-remote>` Web Component (cave + field) |
@@ -1200,7 +1203,7 @@ See the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md#mid-game-level-tra
 | Rust + Cargo | stable (1.78+) | GDExtension + optional WASM |
 | Godot 4 | 4.6 | Game engine / WebGL export |
 | Java (JDK) | 25 | Spring Boot API |
-| Node.js | 20 LTS | Angular frontend |
+| Node.js | 22 LTS | Angular frontend |
 | npm | 10+ | JS package manager |
 | Angular CLI | 22 | Frontend build tool |
 | Make | any | Build orchestration |
@@ -1258,12 +1261,12 @@ source "$HOME/.sdkman/bin/sdkman-init.sh"
 sdk install java 25-tem
 ```
 
-### 4. Node.js 20 + npm
+### 4. Node.js 22 + npm
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 source ~/.bashrc
-nvm install 20 && nvm use 20
+nvm install 22 && nvm use 22
 node --version && npm --version
 ```
 
@@ -1358,7 +1361,7 @@ winget install Microsoft.OpenJDK.25
 java -version
 ```
 
-### 4. Node.js 20 + npm
+### 4. Node.js 22 + npm
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
