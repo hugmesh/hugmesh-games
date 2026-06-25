@@ -52,7 +52,7 @@ Five components build from the monorepo, chained by the root [`Makefile`](Makefi
 
 | Component | Toolchain | Build command | Status |
 |---|---|---|---|
-| **Snapdragon Gaming BFF** | Java 21 / Spring WebFlux (Maven wrapper) | `make build-backend` (`./mvnw package`) | Builds + tests pass on a host with JDK 21. |
+| **Snapdragon Gaming BFF** | Java 25 / Spring WebFlux (Maven wrapper) | `make build-backend` (`./mvnw package`) | Builds + tests pass on a host with JDK 25. |
 | **Angular host + remotes** | Node 20 / Angular 22, [native-federation](docs/wiki/decisions/001-native-federation.md) | `make build-frontend` (host) · `make build-frontend-all` (host + every remote bundle) | Builds + Karma unit tests pass (frontend tests run in a Chromium-baked Docker image, so the host needs no browser). |
 | **snapdragon-bridge** (Rust → native `.so`) | `cargo build --release --features api-custom` | `make build-rust` | Builds + `cargo test` pass on a host with `cargo` + Godot (gdext regenerates `extension_api.json` against your Godot binary). |
 | **snapdragon-bridge** (Rust → WASM) | `wasm32-unknown-emscripten` | `make build-rust-wasm` (dockerised emsdk) | Needs emscripten. Built via a pinned `rust + emsdk` Docker image ([`tools/build-rust-wasm/Dockerfile`](tools/build-rust-wasm/Dockerfile)) so the host never installs emscripten; produces a 3.3 MB `snapdragon_bridge.wasm`. Skipped with a warning if Docker/emsdk is absent — normal browser play does not depend on it (the GDScript path covers the bridge events). |
@@ -1199,10 +1199,10 @@ See the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md#mid-game-level-tra
 |---|---|---|
 | Rust + Cargo | stable (1.78+) | GDExtension + optional WASM |
 | Godot 4 | 4.6 | Game engine / WebGL export |
-| Java (JDK) | 21 | Spring Boot API |
+| Java (JDK) | 25 | Spring Boot API |
 | Node.js | 20 LTS | Angular frontend |
 | npm | 10+ | JS package manager |
-| Angular CLI | 19 | Frontend build tool |
+| Angular CLI | 22 | Frontend build tool |
 | Make | any | Build orchestration |
 | Docker + Compose | 24+ / v2 | Full stack (Postgres, Casdoor, API, nginx) |
 | Emscripten | 3.1+ | *(optional)* Rust → WASM |
@@ -1240,22 +1240,22 @@ godot --version
 2. Download templates for **4.6 stable**
 3. Or place them manually at `~/.local/share/godot/export_templates/4.6.stable/`
 
-### 3. Java 21
+### 3. Java 25
 
 ```bash
 # Debian/Ubuntu
-sudo apt update && sudo apt install -y openjdk-21-jdk
+sudo apt update && sudo apt install -y openjdk-25-jdk
 
 # Fedora/RHEL
-sudo dnf install java-21-openjdk-devel
+sudo dnf install java-25-openjdk-devel
 
 # Arch
-sudo pacman -S jdk21-openjdk
+sudo pacman -S jdk25-openjdk
 
 # SDKMAN (distro-agnostic)
 curl -s "https://get.sdkman.io" | bash
 source "$HOME/.sdkman/bin/sdkman-init.sh"
-sdk install java 21.0.4-tem
+sdk install java 25-tem
 ```
 
 ### 4. Node.js 20 + npm
@@ -1270,7 +1270,7 @@ node --version && npm --version
 ### 5. Angular CLI
 
 ```bash
-npm install -g @angular/cli@19
+npm install -g @angular/cli@22
 ng version
 ```
 
@@ -1351,10 +1351,10 @@ Download the **Windows (64-bit)** zip from [godotengine.org/download](https://go
 3. Add `C:\tools\godot` to your `PATH`
 4. Open Godot → Editor → Manage Export Templates → Download for **4.6 stable**
 
-### 3. Java 21
+### 3. Java 25
 
 ```powershell
-winget install Microsoft.OpenJDK.21
+winget install Microsoft.OpenJDK.25
 java -version
 ```
 
@@ -1368,7 +1368,7 @@ node --version && npm --version
 ### 5. Angular CLI
 
 ```powershell
-npm install -g @angular/cli@19
+npm install -g @angular/cli@22
 ```
 
 ### 6. Make
@@ -1564,7 +1564,7 @@ chains them sequentially.
 ```bash
 make test            # rust + backend + frontend (chains through all three)
 make test-rust       # cargo test in extensions/snapdragon-bridge (host toolchain; needs cargo)
-make test-backend    # mvnw test in backend/ (host toolchain; needs JDK 21)
+make test-backend    # mvnw test in backend/ (host toolchain; needs JDK 25)
 make test-frontend   # ng test inside Docker (Chromium baked into the image,
                      # so the host doesn't need a browser installed)
 ```
@@ -1720,7 +1720,7 @@ portal/                                   # Snapdragon Game Studio repo
 ├── wasm-fragment/                       # Asset-tier nginx (federated WASM bundle serving)
 │   ├── Dockerfile                       # Bakes classpath /assets/levels/<slug>/ into nginx
 │   └── nginx.conf                       # COOP/COEP/CORP headers, .wasm/.pck MIME, /<slug>/
-└── backend/                             # Spring Boot 4.0 / Java 21 / WebFlux + R2DBC
+└── backend/                             # Spring Boot 4.0 / Java 25 / WebFlux + R2DBC
     ├── pom.xml                          # `native` profile for GraalVM AOT
     ├── Dockerfile / Dockerfile.native  # JVM image / GraalVM native-image multi-stage
     └── src/main/java/com/threewizards/
