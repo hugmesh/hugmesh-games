@@ -19,7 +19,9 @@ import java.util.Map;
  * emit BYTE-IDENTICAL authorities. Copied verbatim (logic) from
  * snapdragon-gateway ({@code systems.snapdragon.gateway.config.CasdoorAuthorities})
  * — keeping one converter avoids the half-migration pitfall where one path
- * silently drops the {@code DOMAIN_<x>} authority.
+ * silently drops the {@code DOMAIN_<x>} authority. Re-synced with the
+ * gateway's role-name canonicalization fix (snapdragon-gateway#74) — see
+ * {@link #canonicalRoleName}.
  *
  * <h2>Authority mapping — three claim sources</h2>
  *
@@ -99,6 +101,31 @@ final class CasdoorAuthorities {
     // -------------------------------------------------------------------------
 
     /**
+     * Canonicalize a raw Casdoor role NAME to the bare, upper-cased role token
+     * this converter re-prefixes with the single Spring {@code ROLE_}.
+     *
+     * <p>Ported from {@code systems.snapdragon.gateway.security.Roles#canonicalRoleName}
+     * (added by snapdragon-gateway#74, "canonicalize Casdoor role names so
+     * ROLE_-prefixed seeds don't double-prefix") — that fix's own doc comment
+     * calls out this exact games realm as the "bare role name" convention it
+     * was written to stay compatible with, alongside the systems realm's
+     * {@code ROLE_}-prefixed seed shape. The {@code threewizards} Casdoor org
+     * currently only ever seeds bare names ({@code admin}/{@code mod}/…), so
+     * this has no behavioral effect today — it closes a latent gap so a future
+     * {@code ROLE_}-prefixed role name here doesn't silently double-prefix to
+     * {@code ROLE_ROLE_ADMIN} and drop out of every {@code hasRole()} check,
+     * the same bug class #74 fixed on the gateway side.
+     */
+    private static String canonicalRoleName(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        if (s.length() >= 5 && s.regionMatches(true, 0, "ROLE_", 0, 5)) {
+            s = s.substring(5).trim();
+        }
+        return s.toUpperCase();
+    }
+
+    /**
      * Builds a reactive {@link Converter} bound to the given {@link DomainRegistry}
      * (used to resolve the issuer → {@code DOMAIN_<x>} authority). Both the
      * single-issuer and multi-issuer decoder paths call this factory so they share
@@ -150,13 +177,15 @@ final class CasdoorAuthorities {
         Object rolesClaim = jwt.getClaim("roles");
         if (rolesClaim instanceof Collection<?> list) {
             for (Object r : list) {
-                String name = roleNameOf(r);
+                // Canonicalize FIRST (strip one leading ROLE_ so a Casdoor role named
+                // "ROLE_ADMIN" doesn't double-prefix to ROLE_ROLE_ADMIN and miss every
+                // hasRole()/route-access check), THEN re-add the single Spring ROLE_.
+                // Still always ROLE_-prefixed, so a roles entry can NEVER inject a
+                // DOMAIN_ authority: "DOMAIN_x" -> "ROLE_DOMAIN_X" (inert, non-tenant).
+                // See RESERVED_PREFIXES + canonicalRoleName.
+                String name = canonicalRoleName(roleNameOf(r));
                 if (!name.isBlank()) {
-                    // Always ROLE_-prefixed, so a roles entry can NEVER inject a DOMAIN_
-                    // authority: "DOMAIN_x" -> "ROLE_DOMAIN_X" (inert, non-tenant). See
-                    // RESERVED_PREFIXES.
-                    authorities.add(new SimpleGrantedAuthority(
-                            "ROLE_" + name.trim().toUpperCase()));
+                    authorities.add(new SimpleGrantedAuthority("ROLE_" + name));
                 }
             }
         }

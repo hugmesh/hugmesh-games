@@ -114,6 +114,19 @@ class CasdoorAuthoritiesTest {
         }
 
         @Test
+        void roleClaimAlreadyRolePrefixedDoesNotDoublePrefix() {
+            // Regression for the bug class snapdragon-gateway#74 fixed: a Casdoor
+            // role NAMED "ROLE_ADMIN" (the snapdragon.systems seed convention,
+            // as opposed to this realm's own bare "admin" convention) must still
+            // canonicalize to the single-prefixed ROLE_ADMIN, not double-prefix
+            // to ROLE_ROLE_ADMIN and silently miss every hasRole() check.
+            Jwt jwt = baseJwt().claim("roles", List.of("ROLE_ADMIN", "role_mod")).build();
+            Set<String> auths = authStrings(jwt, singleIssuerRegistry());
+            assertThat(auths).contains("ROLE_ADMIN", "ROLE_MOD");
+            assertThat(auths).noneMatch(a -> a.startsWith("ROLE_ROLE_"));
+        }
+
+        @Test
         void blankAndNullRoleEntriesAreSkipped() {
             List<Object> roles = new ArrayList<>();
             roles.add("player");
