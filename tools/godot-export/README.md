@@ -1,10 +1,21 @@
 # Godot export tools (real maker builds)
 
-The RPG/VN makers render a Godot 4 project and, when `app.build.godot-enabled=true`,
-run a headless **Web** export (`GodotExporter`) to produce a real playable WASM bundle.
-That needs a Godot 4 binary **and** the matching Web export templates. To keep the
-default builder image small, these live on the host and are bind-mounted via
+The RPG and VN makers generate a Godot 4 source project from the author's data, then
+export it to a playable WASM bundle that browsers can run. The export step is performed
+by `GodotExporter`, which calls `godot --headless --export-release "Web"` inside the
+builder container. That requires two things on the host:
+
+- a Godot 4 headless binary
+- the matching Web export templates for that binary version
+
+To keep the default builder image small, both are bind-mounted from the host rather than
+baked into the image. The bind-mount is declared in
 [`docker-compose.godot.yml`](../../docker-compose.godot.yml).
+
+When `app.build.godot-enabled=false` (the default), the export step is skipped and the
+builder emits a zero-byte stub so the rest of the pipeline (upload, registration) runs
+without requiring the toolchain. Set `app.build.godot-enabled=true` — via the overlay
+described below — to produce a real multi-MB WASM bundle.
 
 ## Layout this dir expects
 
@@ -47,33 +58,62 @@ make build-with-godot          # brings rpg-builder + vn-builder up with the ove
 # then trigger a build from the maker UI (or POST /api/{rpg,vn}/projects/{id}/build)
 ```
 
+The overlay sets `app.build.godot-enabled=true`, points `app.build.godot-bin` at the
+host binary, and bind-mounts the bridge WASM via `app.build.bridge-dir`. Once the
+services are up, triggering a build walks the following pipeline:
+
+```mermaid
+flowchart TB
+    QUEUED --> RENDERING["RENDERING<br/>(render Godot 4 source tree)"]
+    RENDERING --> EXPORTING["EXPORTING<br/>(GodotExporter: godot --headless --export-release)"]
+    EXPORTING --> UPLOADING["UPLOADING<br/>(POST /api/admin/games/upload with bearer token)"]
+    UPLOADING --> DONE
+    EXPORTING -->|"non-zero exit / timeout / empty bundle"| FAILED
+    UPLOADING -->|"stub detected by assertNoStubBundles"| FAILED
+```
+
+Each Area (RPG) or Act (VN) becomes its own Chapter in the BFF, exported as
+`bundle/<area-slug>/index.html`. The chapter chooser in the host portal handles
+multi-chapter games automatically.
+
 ## Caveats
 
-- **Shared libs.** The `eclipse-temurin:21-jre` base is Debian-slim and may lack libs the
-  Godot headless binary loads (`libgl1`, `libxi6`, `libxrandr2`, `libxcursor1`,
-  `libxinerama1`, `libfontconfig1`). If `godot --version` fails inside the container, add
-  them in the builder Dockerfile (an `apt-get install` line) or use a Godot image that
-  bundles them.
-- **Bridge binary.** Only `snapdragon_bridge.wasm` (the `web.wasm32` library) is required
-  for the Web export; it's bind-mounted from `backend/src/main/resources/assets/levels/cave/`.
-  Rebuild it with `make build-rust` if you change the Rust GDExtension.
-- **No silent stubs in prod (enforced).** When `app.build.godot-enabled=true` a real
-  Web export ALWAYS emits a multi-MB `index.wasm`. The export path now fails loudly on a
-  stub-shaped output rather than shipping a placeholder, in two layers:
-    1. `GodotExporter.exportWeb` rejects an exit-0 export whose sibling `index.wasm` is
-       empty/absent (in addition to the existing `index.html` check); and
-    2. `GodotCompileWorker` re-checks the WHOLE staged `bundle/` tree just before upload
-       (`assertNoStubBundles`) so no `bundle/<area|act>/index.wasm` can be empty.
-  Both throw → the build is marked FAILED. Unit-tested in `GodotExporterTest`
+- **Shared libs.** The `eclipse-temurin:21-jre` base image is Debian-slim and may be
+  missing shared libraries that the Godot headless binary requires at load time:
+  `libgl1`, `libxi6`, `libxrandr2`, `libxcursor1`, `libxinerama1`, `libfontconfig1`.
+  If `godot --version` fails inside the container, add an `apt-get install` line for the
+  missing packages in the builder Dockerfile, or switch to a Godot image that bundles
+  them.
+- **Bridge binary.** The Web export requires `snapdragon_bridge.wasm` (the `web.wasm32`
+  GDExtension library) so the exported bundle is multiplayer-aware. It is bind-mounted
+  from `backend/src/main/resources/assets/levels/cave/`. If you modify the Rust
+  GDExtension source, run `make build-rust` to rebuild it before triggering an export.
+- **No silent stubs in prod (enforced).** When `app.build.godot-enabled=true`, a
+  successful Web export always produces a multi-MB `index.wasm`. The build path now
+  fails loudly on stub-shaped output rather than silently shipping a placeholder. Two
+  independent checks enforce this:
+    1. **`GodotExporter.exportWeb`** — rejects an exit-0 export whose sibling `index.wasm`
+       is empty or absent (in addition to the existing `index.html` presence check).
+    2. **`GodotCompileWorker.assertNoStubBundles`** — re-scans the entire staged `bundle/`
+       tree immediately before upload and refuses to proceed if any
+       `bundle/<area|act>/index.wasm` is empty.
+  Either check failing throws an exception, and the build is marked `FAILED`. Both
+  checks are covered by unit tests in `GodotExporterTest`
   (`exitZeroButEmptyWasmFailsAsStub`) and `GodotCompileWorkerTest`
-  (`enabledExportRefusesToShipStubWasm`) for both makers. The dev default
-  (`godot-enabled=false`) still emits the zero-byte stub so the rest of the pipeline runs
-  without the toolchain — the gate is unchanged; only ON is now guaranteed real.
+  (`enabledExportRefusesToShipStubWasm`) for both makers.
 
-- **Verified end-to-end (2026-06).** A rendered Flatland fixture project (RPG + VN) was
-  exported on a host with Godot 4.6.3 + Web templates via the exact `GodotExporter`
-  command — `godot --headless --path <godot-src> --export-release "Web" <out>/index.html` —
-  producing deliverable WASM:
-  `index.wasm` 1,509,558 B, `index.side.wasm` 41,113,842 B, `index.pck` ~18–20 KB,
-  `snapdragon_bridge.wasm` 2,678,048 B (all `\0asm` magic-bytes verified). The maker e2e
-  (`make e2e-bdd` with the overlay) additionally asserts the bundle bytes are non-empty.
+  When `godot-enabled=false` (the dev default), the builder still emits a zero-byte stub
+  so the upload and registration steps can run without the toolchain. The validation
+  gates do not fire in that mode — they only apply when real exports are expected.
+
+- **Verified end-to-end (2026-06).** The Flatland fixture project (RPG + VN) was exported
+  on a host running Godot 4.6.3 with matching Web templates using the exact command
+  `GodotExporter` issues:
+  ```
+  godot --headless --path <godot-src> --export-release "Web" <out>/index.html
+  ```
+  The resulting bundle sizes were: `index.wasm` 1,509,558 B, `index.side.wasm`
+  41,113,842 B, `index.pck` ~18–20 KB, `snapdragon_bridge.wasm` 2,678,048 B. All four
+  files were confirmed as valid WASM via their `\0asm` magic bytes. The maker BDD e2e
+  suite (`make e2e-bdd` with the Godot overlay) additionally asserts that each bundle
+  file is non-empty before the build is considered passing.

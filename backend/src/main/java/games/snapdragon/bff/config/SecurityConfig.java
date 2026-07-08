@@ -18,39 +18,85 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 
+/**
+ * Spring Security resource-server configuration for the games BFF.
+ *
+ * <h2>Responsibility</h2>
+ *
+ * <p>Wires the WebFlux security filter chain: authorization rules, the JWT
+ * resource-server decoder, and the Casdoor-to-Spring authority converter.
+ * Two filter chain beans are produced — one for the {@code dev} profile
+ * (OpenAPI spec public) and one for production (OpenAPI spec admin-only) —
+ * selected by {@code @Profile}. All other rules are identical.
+ *
+ * <h2>Authorization rule summary</h2>
+ *
+ * <pre>
+ *  Path pattern            │ Dev         │ Prod
+ *  ────────────────────────┼─────────────┼──────────────────────────
+ *  /api/auth/**            │ permitAll   │ permitAll
+ *  /actuator/health/**     │ permitAll   │ permitAll
+ *  /actuator/info          │ permitAll   │ permitAll
+ *  /actuator/**            │ GAME-MASTER │ GAME-MASTER
+ *  /api/admin/**           │ ADMIN       │ ADMIN
+ *  /api/realtime/**        │ authenticated│ authenticated
+ *  /api/characters/**      │ authenticated│ authenticated
+ *  /api/skills/**          │ authenticated│ authenticated
+ *  /api/quests/**          │ authenticated│ authenticated
+ *  /api/items/**           │ authenticated│ authenticated
+ *  /api/sessions/**        │ authenticated│ authenticated
+ *  /api/relationships/**   │ authenticated│ authenticated
+ *  /v3/api-docs/**         │ permitAll   │ ADMIN
+ *  /swagger-ui/**          │ permitAll   │ ADMIN
+ *  anyExchange             │ permitAll   │ permitAll
+ * </pre>
+ *
+ * <h2>JWT resource-server wiring</h2>
+ *
+ * <p>The resource server is configured via {@link #configureResourceServer}.
+ * Single-issuer (the games realm's default) and multi-issuer (opt-in via
+ * {@code app.tenancy.issuers}) are both supported with backward-compatible
+ * auto-detection: the multi-issuer path is only activated when BOTH a
+ * {@link TenancyResourceServerConfig}-contributed resolver is present AND
+ * {@link DomainRegistry#isMultiIssuer()} confirms more than the lone
+ * back-compat entry is registered.
+ *
+ * <h2>Authority mapping</h2>
+ *
+ * <p>Every authenticated principal receives authorities derived from the
+ * JWT's {@code roles} claim (prefixed {@code ROLE_<UPPER>}), the
+ * {@code permissions} claim (verbatim, with reserved-prefix injection
+ * defense), the legacy {@code isAdmin} boolean, and exactly one
+ * issuer-derived {@code DOMAIN_<x>} authority (see {@link CasdoorAuthorities}).
+ * A {@code cacheLogin} side-effect is also applied per request to warm the
+ * username-to-casdoorId cache.
+ *
+ * <h2>CSRF note</h2>
+ *
+ * <p>CSRF protection is disabled on bearer-token resource servers because the
+ * bearer credential in the {@code Authorization} header is not automatically
+ * forwarded by a cross-site browser form (unlike a cookie), so the CSRF attack
+ * surface does not apply. This is the correct-by-design setting for JWT-bearer
+ * APIs. See the security-hardening standard in MEMORY.md.
+ *
+ * @see CasdoorAuthorities
+ * @see TenancyResourceServerConfig
+ * @see DomainRegistry
+ */
 @Configuration
 @EnableWebFluxSecurity
 @EnableReactiveMethodSecurity
 public class SecurityConfig {
 
+    // -------------------------------------------------------------------------
+    // Path constant groups
+    // -------------------------------------------------------------------------
+
     /**
-     * Lazy provider so we don't create a bootstrap-time dependency from the
-     * security filter chain to the user directory service. The converter
-     * captures the provider in a closure and resolves on first JWT validation.
+     * Game-player API paths that require an authenticated principal. See inline
+     * comments for the rationale behind each entry — several were added explicitly
+     * to close permissive fall-through holes.
      */
-    private final ObjectProvider<UserDirectoryService> directoryProvider;
-
-    /** Issuer -&gt; brand/domain registry — the single source of truth for the
-     *  issuer-derived {@code DOMAIN_<x>} authority the shared
-     *  {@link CasdoorAuthorities} converter stamps, and the multi-issuer gate. */
-    private final DomainRegistry domainRegistry;
-
-    /** OPTIONAL per-brand multi-issuer resolver, contributed by
-     *  {@link TenancyResourceServerConfig} ONLY when {@code app.tenancy.issuers}
-     *  genuinely carries issuer=domain pairs. Absent on a single-issuer cluster
-     *  (the games realm's default — only a jwk-set-uri is configured). */
-    private final ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
-            tenantAuthManagerResolver;
-
-    public SecurityConfig(ObjectProvider<UserDirectoryService> directoryProvider,
-                          DomainRegistry domainRegistry,
-                          ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
-                                  tenantAuthManagerResolver) {
-        this.directoryProvider = directoryProvider;
-        this.domainRegistry = domainRegistry;
-        this.tenantAuthManagerResolver = tenantAuthManagerResolver;
-    }
-
     private static final String[] PLAYER_PATHS = {
             "/api/characters/**", "/api/skills/**",
             "/api/quests/**", "/api/items/**", "/api/sessions/**",
@@ -89,6 +135,10 @@ public class SecurityConfig {
             "/api/relationships/**"
     };
 
+    /**
+     * OpenAPI / Swagger UI paths. Public in dev (so {@code ng-openapi-gen} can
+     * fetch without a token); gated to {@code ROLE_ADMIN} in prod.
+     */
     private static final String[] SPEC_PATHS = {
             "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"
     };
@@ -121,32 +171,91 @@ public class SecurityConfig {
     };
 
     /**
-     * Dev profile: OpenAPI spec is public so ng-openapi-gen can fetch it
+     * Infra/observability paths that are always public. Kubernetes and Docker
+     * healthchecks hit {@code /actuator/health} without a token. The {@code info}
+     * endpoint returns only metadata, not topology details.
+     *
+     * <p>Dev profile: OpenAPI spec is public so ng-openapi-gen can fetch it
      * without authentication. Run with SPRING_PROFILES_ACTIVE=dev locally.
-     */
-    /**
-     * Infra / observability paths — restricted to ROLE_GAME-MASTER
+     *
+     * <p>Infra / observability paths — restricted to ROLE_GAME-MASTER
      * (platform admin issued out of snapdragon.systems Casdoor).
      * Same policy as the snapdragon-gateway + id-gateway, so leaking
      * cluster topology / Cassandra reachability / Liquibase
      * changelog state is impossible across the platform regardless
      * of which Spring service is reached first.
      *
-     * <p>{@code /actuator/health} + {@code /actuator/info} are
-     * deliberately PUBLIC — Kubernetes / Docker healthchecks need
-     * them and they return only the bare green/red status, not
-     * topology details (which require the `roles: GAME-MASTER`
-     * configured on the health endpoint's show-details policy).
+     * <p>All other {@code /actuator/**} paths (metrics, loggers, Liquibase
+     * changelog state) are restricted to {@code ROLE_GAME-MASTER} to prevent
+     * cluster topology / connection-pool state leaking across the platform.
+     * Same policy as snapdragon-gateway and id-gateway.
      */
     private static final String[] INFRA_PROBES_PUBLIC = {
             "/actuator/health", "/actuator/health/**",
             "/actuator/info",
     };
 
+    /**
+     * Actuator paths that require the platform-admin {@code GAME-MASTER} role.
+     * The catch-all here is intentional: any new actuator endpoint is gated by
+     * default, not exposed by accident.
+     */
     private static final String[] INFRA_GATED = {
             "/actuator/**",
     };
 
+    // -------------------------------------------------------------------------
+    // Dependencies
+    // -------------------------------------------------------------------------
+
+    /**
+     * Lazy provider so we don't create a bootstrap-time dependency from the
+     * security filter chain to the user directory service. The converter
+     * captures the provider in a closure and resolves on first JWT validation.
+     */
+    private final ObjectProvider<UserDirectoryService> directoryProvider;
+
+    /**
+     * Issuer-to-brand/domain registry — the single source of truth for the
+     * issuer-derived {@code DOMAIN_<x>} authority the shared
+     * {@link CasdoorAuthorities} converter stamps, and the multi-issuer gate.
+     */
+    private final DomainRegistry domainRegistry;
+
+    /**
+     * OPTIONAL per-brand multi-issuer resolver, contributed by
+     * {@link TenancyResourceServerConfig} ONLY when {@code app.tenancy.issuers}
+     * genuinely carries issuer=domain pairs. Absent on a single-issuer cluster
+     * (the games realm's default — only a {@code jwk-set-uri} is configured).
+     */
+    private final ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
+            tenantAuthManagerResolver;
+
+    public SecurityConfig(ObjectProvider<UserDirectoryService> directoryProvider,
+                          DomainRegistry domainRegistry,
+                          ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
+                                  tenantAuthManagerResolver) {
+        this.directoryProvider = directoryProvider;
+        this.domainRegistry = domainRegistry;
+        this.tenantAuthManagerResolver = tenantAuthManagerResolver;
+    }
+
+    // -------------------------------------------------------------------------
+    // Filter chain beans
+    // -------------------------------------------------------------------------
+
+    /**
+     * Dev-profile filter chain: OpenAPI spec is public so {@code ng-openapi-gen}
+     * can fetch it without a token. Run with
+     * {@code SPRING_PROFILES_ACTIVE=dev} locally.
+     *
+     * <p>{@code X-Frame-Options} is relaxed to {@code SAMEORIGIN} because the
+     * Angular game-canvas mounts the Godot WASM bundle in an iframe on the same
+     * origin; Spring Security's default of {@code DENY} would block it.
+     *
+     * @param http the Spring Security server HTTP security customizer
+     * @return the configured {@link SecurityWebFilterChain}
+     */
     @Bean
     @Profile("dev")
     SecurityWebFilterChain devFilterChain(ServerHttpSecurity http) {
@@ -173,8 +282,14 @@ public class SecurityConfig {
     }
 
     /**
-     * Production profile (default when dev is not active): OpenAPI spec
-     * requires ROLE_ADMIN so it is never publicly reachable.
+     * Production filter chain (default when {@code dev} profile is not active):
+     * OpenAPI spec requires {@code ROLE_ADMIN} so it is never publicly reachable.
+     *
+     * <p>{@code X-Frame-Options} is relaxed to {@code SAMEORIGIN} for the same
+     * reason as the dev chain — the Godot WASM iframe is same-origin.
+     *
+     * @param http the Spring Security server HTTP security customizer
+     * @return the configured {@link SecurityWebFilterChain}
      */
     @Bean
     @Profile("!dev")
@@ -201,35 +316,52 @@ public class SecurityConfig {
                 .build();
     }
 
+    // -------------------------------------------------------------------------
+    // Resource-server wiring
+    // -------------------------------------------------------------------------
+
     /**
-     * Wire the resource server. Multi-issuer (per-brand Casdoor) is OPT-IN +
-     * backward-compatible: swap to the per-issuer authentication-manager
-     * resolver ONLY when BOTH a resolver was contributed by
-     * {@link TenancyResourceServerConfig} AND the registry is genuinely
-     * multi-issuer ({@link DomainRegistry#isMultiIssuer()} — more than the lone
-     * back-compat entry). Gating on {@code isMultiIssuer()} — not merely
-     * {@code resolver != null} — keeps a single-issuer cluster on the EXISTING
+     * Wires the JWT resource server. Multi-issuer (per-brand Casdoor) is OPT-IN
+     * and backward-compatible: the per-issuer authentication-manager resolver
+     * from {@link TenancyResourceServerConfig} is used ONLY when BOTH a resolver
+     * was contributed AND the registry is genuinely multi-issuer
+     * ({@link DomainRegistry#isMultiIssuer()} — more than the lone back-compat
+     * entry). Gating on {@code isMultiIssuer()} — not merely
+     * {@code resolver != null} — keeps a single-issuer cluster on the existing
      * {@code jwk-set-uri} {@code o.jwt(...)} decoder path even if the tenancy
      * conditional ever activates with just the lone back-compat issuer. In true
      * multi-brand mode each trusted per-brand Casdoor validates its own tokens
-     * (unknown iss -&gt; 401, fail-closed).
+     * (unknown iss → 401, fail-closed).
      *
      * <p>The games realm ships a single Casdoor (only {@code jwk-set-uri} is
      * configured, no {@code issuer-uri} / {@code app.tenancy.issuers}), so this
      * always takes the single-issuer branch today and the existing decoder path
      * is byte-for-byte unchanged — the converter merely additionally stamps
      * {@code DOMAIN_default}.
+     *
+     * @param o the resource-server spec customizer provided by Spring Security
      */
     private void configureResourceServer(ServerHttpSecurity.OAuth2ResourceServerSpec o) {
         ReactiveAuthenticationManagerResolver<ServerWebExchange> resolver =
                 tenantAuthManagerResolver.getIfAvailable();
         if (resolver != null && domainRegistry.isMultiIssuer()) {
+            // Multi-brand mode: each trusted per-brand Casdoor manages its own tokens.
+            // Unknown iss -> Mono.empty() from the resolver -> 401 (fail-closed).
             o.authenticationManagerResolver(resolver);
         } else {
+            // Single-issuer path (the games realm default): standard jwk-set-uri decoder
+            // with the shared Casdoor authorities converter applied.
             o.jwt(j -> j.jwtAuthenticationConverter(jwtConverter()));
         }
     }
 
+    /**
+     * Builds the {@link ReactiveJwtAuthenticationConverter} that wraps the
+     * shared {@link CasdoorAuthorities} converter, additionally applying the
+     * games-BFF-specific {@code UserDirectoryService.cacheLogin} side-effect.
+     *
+     * @return the configured converter
+     */
     private ReactiveJwtAuthenticationConverter jwtConverter() {
         ReactiveJwtAuthenticationConverter converter = new ReactiveJwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(casdoorAuthoritiesConverter());
@@ -237,12 +369,14 @@ public class SecurityConfig {
     }
 
     /**
-     * Maps Casdoor JWT claims to Spring Security authorities. The AUTHORITY
-     * mapping itself is delegated to the shared {@link CasdoorAuthorities}
-     * converter (COPIED VERBATIM from snapdragon-gateway) so the single-issuer
-     * path here and the optional multi-issuer path
-     * ({@link TenancyResourceServerConfig}) emit BYTE-IDENTICAL authorities.
-     * Three claim sources, in precedence order:
+     * Maps Casdoor JWT claims to Spring Security authorities, extended with the
+     * games-BFF-specific {@code cacheLogin} side-effect. The AUTHORITY mapping
+     * itself is delegated to the shared {@link CasdoorAuthorities} converter
+     * (copied verbatim from snapdragon-gateway) so the single-issuer path here
+     * and the optional multi-issuer path ({@link TenancyResourceServerConfig})
+     * emit BYTE-IDENTICAL authorities.
+     *
+     * <p>Three claim sources, in precedence order:
      * <ol>
      *   <li>{@code roles} — array of role names (strings OR {@code {name}}
      *       objects) assigned via the Casdoor admin console. Each entry produces
@@ -261,10 +395,13 @@ public class SecurityConfig {
      * exactly one issuer-derived {@code DOMAIN_<x>} authority
      * ({@code DOMAIN_default} on this single-issuer cluster).
      *
-     * <p>This wrapper additionally preserves the games-BFF-specific
+     * <p>The wrapper additionally preserves the games-BFF-specific
      * username→casdoorId {@code cacheLogin} side-effect (best-effort cache
      * warm-up, NOT a security control) — it runs on every authenticated request
      * but never alters the emitted authorities.
+     *
+     * @return a converter from {@link Jwt} to a {@link Flux} of
+     *         {@link GrantedAuthority} instances
      */
     private Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
         Converter<Jwt, Flux<GrantedAuthority>> delegate =
@@ -284,6 +421,7 @@ public class SecurityConfig {
                     directory.cacheLogin(name, sub);
                 }
             }
+            // Delegate to the shared converter for the actual authority mapping.
             return delegate.convert(jwt);
         };
     }

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { GameListing } from '../models/game-listing.model';
-import { Level } from '../models/level.model';
+import { Chapter } from '../models/chapter.model';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { environment } from '../../environments/environment';
 
@@ -21,18 +21,18 @@ export class GameLibraryService {
   }
 
   /** All chapters across all games. */
-  listChapters(): Observable<Level[]> {
-    return this.http.get<Level[]>(`${this.base}/api/chapters`);
+  listChapters(): Observable<Chapter[]> {
+    return this.http.get<Chapter[]>(`${this.base}/api/chapters`);
   }
 
   /** Chapters belonging to one umbrella game. */
-  listChaptersByGame(gameId: number): Observable<Level[]> {
-    return this.http.get<Level[]>(`${this.base}/api/games/${gameId}/chapters`);
+  listChaptersByGame(gameId: number): Observable<Chapter[]> {
+    return this.http.get<Chapter[]>(`${this.base}/api/games/${gameId}/chapters`);
   }
 
   /** One chapter (WASM bundle metadata). */
-  getChapter(id: number): Observable<Level> {
-    return this.http.get<Level>(`${this.base}/api/chapters/${id}`);
+  getChapter(id: number): Observable<Chapter> {
+    return this.http.get<Chapter>(`${this.base}/api/chapters/${id}`);
   }
 
   /** Games with nested unlocked levels for a character. */

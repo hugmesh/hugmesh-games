@@ -1,7 +1,7 @@
 /**
- * A Level enriched with per-character unlock info. Kept under the `AvailableGame`
- * filename for backward-compat but semantically represents a Level in the
- * games → levels → scenes hierarchy.
+ * A Chapter enriched with per-character unlock info. Kept under the `AvailableGame`
+ * filename for backward-compat but semantically represents a Chapter in the
+ * games → chapters → scenes hierarchy.
  */
 export interface AvailableGame {
   id: number;

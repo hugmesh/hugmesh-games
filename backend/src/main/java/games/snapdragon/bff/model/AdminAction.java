@@ -13,6 +13,8 @@ import java.time.Instant;
  * <p>{@link Action} is open-coded as a string so the entity stays
  * compatible with R2DBC's row mapping (no enum codec on the path).
  * The DB CHECK constraint pins the value set.
+ *
+ * @see games.snapdragon.bff.repository.AdminActionRepository
  */
 @Table("admin_actions")
 public class AdminAction {
@@ -23,14 +25,44 @@ public class AdminAction {
     public static final String BAN   = "ban";
     public static final String UNBAN = "unban";
 
+    // -------------------------------------------------------------------------
+    // Persistent fields
+    // -------------------------------------------------------------------------
+
+    /** Auto-generated surrogate primary key for the {@code admin_actions} row. */
     @Id
     private Long id;
+
+    /** Casdoor subject of the player this action targets (the affected user). */
     private String targetCasdoorId;
+
+    /** Casdoor subject of the mod or admin who performed the action. */
     private String actorCasdoorId;
+
+    /**
+     * The moderation verb applied — one of {@link #KICK}, {@link #BAN}, or
+     * {@link #UNBAN}. Constrained at the DB level via {@code chk_admin_actions_action}.
+     */
     private String action;
+
+    /**
+     * Optional human-readable reason the actor provided when taking the action.
+     * Shown to the target player and visible in the admin audit log.
+     */
     private String message;
+
+    /**
+     * Optional expiry timestamp for temporary bans. {@code null} means the action
+     * has no automatic expiry (permanent until an explicit UNBAN row is appended).
+     */
     private Instant expiresAt;
+
+    /** Wall-clock time at which this row was inserted. Never updated — this table is append-only. */
     private Instant createdAt;
+
+    // -------------------------------------------------------------------------
+    // Accessors
+    // -------------------------------------------------------------------------
 
     public Long getId() { return id; }
     public String getTargetCasdoorId() { return targetCasdoorId; }

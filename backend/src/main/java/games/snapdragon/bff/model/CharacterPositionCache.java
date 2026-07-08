@@ -17,28 +17,91 @@ import java.time.Instant;
  * compound partition gives O(1) lookups + writes. The keyspace's
  * 5-minute TTL means a long-idle row eventually drops; the durable
  * Postgres row backs the cache when it does.
+ *
+ * @see games.snapdragon.bff.service.PositionCacheService
  */
 @Table("character_position_cache")
 public class CharacterPositionCache {
 
+    // -------------------------------------------------------------------------
+    // Composite partition key — both columns required on every read/write
+    // -------------------------------------------------------------------------
+
+    /** First component of the compound partition key — the character whose position
+     *  this row describes. */
     @PrimaryKeyColumn(name = "character_id", type = PrimaryKeyType.PARTITIONED, ordinal = 0)
     private long characterId;
 
+    /** Second component of the compound partition key — the chapter the character is
+     *  currently located in. A character moving between chapters gets a separate row. */
     @PrimaryKeyColumn(name = "chapter_id", type = PrimaryKeyType.PARTITIONED, ordinal = 1)
     private long chapterId;
 
+    // -------------------------------------------------------------------------
+    // Position + input state
+    // -------------------------------------------------------------------------
+
+    /** World-space X coordinate of the character's current position in Godot's
+     *  3-D coordinate system (right is positive). */
     private double posX;
+
+    /** World-space Y coordinate — the vertical axis in Godot (up is positive). */
     private double posY;
+
+    /** World-space Z coordinate (forward into the scene is negative in Godot). */
     private double posZ;
+
+    /** Character's current heading rotation around the Y (vertical) axis, in radians.
+     *  Used by remote clients to orient the character model correctly. */
     private double rotationY;
+
+    /** The last movement or action verb the character submitted (e.g. {@code "walk"},
+     *  {@code "attack"}, {@code "idle"}). Drives the animation state machine on
+     *  remote peers. */
     private String  lastAction;
+
+    /** Whether the action key was held down ({@code true}), released ({@code false}),
+     *  or not yet received ({@code null}) in the last input frame. Used by the Godot
+     *  bridge to decide whether to trigger a continuous-press animation. */
     private Boolean lastPressed;
+
+    /** Kubernetes pod identity (hostname) that last wrote this row. Allows a
+     *  subscribing pod to detect that a position update came from a different pod
+     *  and should be relayed to its own SSE subscribers. */
     private String  podId;
+
+    /** Wall-clock timestamp of the last write to this row. Used together with
+     *  {@link #tick} to detect stale cache entries when Cassandra's TTL has not
+     *  yet evicted the row. */
     private Instant updatedAt;
+
+    /** Monotonically increasing sequence number incremented by the authoritative pod
+     *  on every position update. Remote pods compare their local tick to this value
+     *  to detect out-of-order or duplicate Cassandra reads. */
     private long    tick;
 
+    // -------------------------------------------------------------------------
+    // Constructors
+    // -------------------------------------------------------------------------
+
+    /** No-arg constructor required by the Spring Data Cassandra mapper. */
     public CharacterPositionCache() {}
 
+    /**
+     * All-args constructor for building a cache row from a position update event.
+     *
+     * @param characterId  character whose position is being cached
+     * @param chapterId    chapter the character is currently in
+     * @param posX         world-space X coordinate
+     * @param posY         world-space Y coordinate (vertical)
+     * @param posZ         world-space Z coordinate
+     * @param rotationY    heading rotation around the Y axis in radians
+     * @param lastAction   last movement/action verb (e.g. {@code "walk"})
+     * @param lastPressed  whether the action key was held down in the last frame
+     * @param podId        Kubernetes pod hostname that produced this update
+     * @param updatedAt    wall-clock time of this update
+     * @param tick         monotonic sequence number for ordering updates
+     */
     public CharacterPositionCache(long characterId, long chapterId,
                                   double posX, double posY, double posZ,
                                   double rotationY,
@@ -54,6 +117,10 @@ public class CharacterPositionCache {
         this.updatedAt = updatedAt;
         this.tick = tick;
     }
+
+    // -------------------------------------------------------------------------
+    // Accessors
+    // -------------------------------------------------------------------------
 
     public long getCharacterId() { return characterId; }
     public long getChapterId() { return chapterId; }

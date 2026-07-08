@@ -35,46 +35,122 @@ import java.util.zip.ZipInputStream;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
 /**
- * Validates + installs a Snapdragon bundle zip uploaded via the admin
- * console. Pipeline (PLAN section C, simplified for first cut):
+ * Validates and installs Snapdragon game-bundle ZIP archives uploaded via the
+ * admin console or the publisher upload endpoint.
+ *
+ * <h2>Responsibility</h2>
+ *
+ * <p>Handles the full lifecycle of a multipart game-bundle upload from
+ * raw bytes to an installed, database-registered, domain-stamped game version:
  *
  * <ol>
- *   <li>Stream the multipart file bytes into memory (TODO: spool to disk
- *       for big bundles; 50 MB cap for now).</li>
- *   <li>Walk the zip with zip-slip-safe path checks (every entry must
- *       normalise inside the staging dir).</li>
- *   <li>Read manifest.json; reject if {@code schema_version} isn't 2.</li>
- *   <li>SHA-256 the bundle/ tree → version dir name.</li>
- *   <li>Move staging into {@code <gamesDir>/<slug>/<sha-prefix>}.</li>
- *   <li>Inside ONE R2DBC transaction:
+ *   <li><b>Receive</b> — the caller provides raw ZIP bytes (max
+ *       {@value #MAX_BUNDLE_BYTES} bytes, {@value #MAX_ZIP_ENTRIES} entries).
+ *       A 50 MB soft cap is enforced here; controllers impose stricter limits
+ *       via Spring's {@code spring.codec.max-in-memory-size} / multipart config.</li>
+ *   <li><b>Stage + validate</b> ({@link #stageAndValidate}) — the ZIP is
+ *       unpacked into a temporary staging directory under {@code stagingRoot}.
+ *       Every entry is zip-slip-checked (no {@code ..} / absolute / backslash
+ *       paths). {@code manifest.json} must be present and have
+ *       {@code schema_version == 2}; {@code bundle/} must be non-empty.
+ *       The bundle tree is written to disk and SHA-256'd in a single
+ *       deterministic pass so the same content always produces the same hash.</li>
+ *   <li><b>Authorize</b> — a caller-supplied {@code requireScope} hook runs
+ *       AFTER the slug is known from {@code manifest.json} but BEFORE any
+ *       filesystem move or DB write. The publisher path threads
+ *       {@link PublisherService#requireOwns} through this hook; admin paths
+ *       pass a no-op.</li>
+ *   <li><b>Install + register</b> ({@link #writeAndRegister}) — the storage
+ *       strategy atomically moves (filesystem) or uploads (S3) the staged tree
+ *       into its final location. Inside a single R2DBC transaction:
  *       <ol type="a">
- *         <li>insert game_uploads row,</li>
- *         <li>execute register.sql (one statement at a time — Postgres
- *             doesn't pipe multi-statement strings well over R2DBC),</li>
- *         <li>UPDATE games SET current_version_dir = …,</li>
- *         <li>mark prior uploads superseded.</li>
+ *         <li>a {@code game_uploads} row is inserted;</li>
+ *         <li>{@code register.sql} statements are executed one at a time under
+ *             the least-privilege Postgres role (see {@link #runRegisterSql});</li>
+ *         <li>{@code games.current_version_dir} is updated to the new locator;</li>
+ *         <li>the brand domain is stamped onto the {@code games} row (first-writer-wins
+ *             — a re-upload of an existing game preserves the existing domain);</li>
+ *         <li>prior upload rows for the same slug are marked superseded.</li>
  *       </ol>
  *   </li>
  * </ol>
  *
- * <p>Failure rolls the transaction back and best-effort removes the
- * version dir. Active sessions captured the previous version_dir at
- * launch time so a swap doesn't disturb anyone mid-play.
+ * <p><b>Rollback behaviour</b>: a transaction failure rolls back all DB changes.
+ * The service then best-effort removes the version directory from storage so no
+ * orphaned artifacts are left behind. Active sessions that captured the previous
+ * {@code version_dir} at launch time are unaffected — the swap takes effect for
+ * new launches only.
+ *
+ * <h2>Defence in depth on {@code register.sql}</h2>
+ *
+ * <p>{@code register.sql} is attacker-controlled bundle content. Three
+ * independent layers contain it (see {@link #runRegisterSql} for detail):
+ * <ol>
+ *   <li>{@link RegisterSqlPolicy#vet} allowlist — default-deny, only permits
+ *       INSERTs into the six catalog tables and a games feature-flag UPDATE;</li>
+ *   <li>per-statement execution with a top-level {@code ;} guard so a
+ *       multi-statement blob can never reach the Postgres simple-query protocol;</li>
+ *   <li>least-privilege role switch ({@code SET LOCAL ROLE}) scoped to the
+ *       install transaction — the role reverts on commit/rollback.</li>
+ * </ol>
+ *
+ * <h2>Storage strategy</h2>
+ *
+ * <p>The {@link UploadStorage} strategy is resolved at construction time from
+ * the configured label:
+ * <ul>
+ *   <li>{@code filesystem} (default) — moves the staged directory under
+ *       {@code <gamesDir>/<slug>/<sha16>}; {@code stagingRoot = gamesDir}.</li>
+ *   <li>{@code s3} — walks the staged directory and issues {@code PutObject}
+ *       calls; {@code stagingRoot = java.io.tmpdir/snapdragon-uploads} so the
+ *       BFF host does not need {@code gamesDir} mounted.</li>
+ * </ul>
+ *
+ * <h2>Multi-tenancy / brand domain stamping</h2>
+ *
+ * <p>The {@code domain} parameter is the uploader's issuer-derived brand
+ * ({@code Roles.domainOf(jwt, registry)}), NOT anything from the uploaded
+ * {@code register.sql}. It is server-controlled and written by a trusted
+ * {@code UPDATE} inside the install transaction. First-writer-wins: a
+ * re-upload of an existing game preserves the domain already on the
+ * {@code games} row — an uploader cannot move a game between brands by
+ * re-uploading it.
+ *
+ * <h2>Caller-role access matrix</h2>
+ *
+ * <pre>
+ *   Player      — no access (upload is admin / publisher only)
+ *   Publisher   — may upload bundles for games they own via {@code publisher_game_scopes};
+ *                 {@code requireScope} hook enforces this at the slug level
+ *   Mod         — no access
+ *   Admin       — may upload any bundle (passes a no-op {@code requireScope} hook)
+ *   Superadmin  — same as Admin
+ * </pre>
+ *
+ * @see RegisterSqlPolicy
+ * @see UploadStorage
+ * @see PublisherService#requireOwns
+ * @see GameUploadPruner
  */
 @Service
 public class GameUploadService {
 
     private static final Logger log = LoggerFactory.getLogger(GameUploadService.class);
+
+    /** Slug validation: lowercase alphanumeric + hyphens, 1–64 characters, no leading hyphen. */
     private static final Pattern SLUG_RE = Pattern.compile("^[a-z0-9][a-z0-9-]{0,63}$");
+
+    /** Maximum accepted ZIP size in bytes (200 MB). Controllers may enforce stricter limits. */
     private static final long MAX_BUNDLE_BYTES = 200L * 1024 * 1024;
+
+    /** Maximum number of ZIP entries to unpack; guards against ZIP-bomb attacks. */
     private static final int MAX_ZIP_ENTRIES = 500;
 
     /**
-     * Staging directory under which every upload's pre-validation files
-     * land before being handed to the storage strategy. Stays on the
-     * host filesystem regardless of the configured storage backend ---
-     * the strategy is responsible for COPYING (S3) or MOVING (filesystem)
-     * the staged tree into its final home.
+     * Staging directory under which every upload's pre-validation files land
+     * before being handed to the storage strategy. Stays on the host filesystem
+     * regardless of the configured storage backend — the strategy is responsible
+     * for COPYING (S3) or MOVING (filesystem) the staged tree into its final home.
      */
     private final Path stagingRoot;
     private final UploadStorage storage;
@@ -83,15 +159,18 @@ public class GameUploadService {
     private final TransactionalOperator tx;
 
     /**
-     * Least-privilege Postgres role the attacker-controlled register.sql is run
-     * under (NOSUPERUSER, no DDL, INSERT/UPDATE/SELECT on only the six catalog
-     * tables — created by migration 054). Applied via a transaction-scoped
-     * {@code SET LOCAL ROLE} so the install stays atomic on one connection and
-     * the role reverts on commit/rollback. Blank disables the switch (the
-     * application-layer allowlist + hardened lexer still apply); validated only
-     * as a SQL identifier to keep it out of the injection surface.
+     * Least-privilege Postgres role under which the attacker-controlled
+     * {@code register.sql} statements are executed (NOSUPERUSER, no DDL,
+     * INSERT/UPDATE/SELECT on only the six catalog tables — created by
+     * migration 054). Applied via a transaction-scoped {@code SET LOCAL ROLE}
+     * so the install stays atomic on one connection and the role reverts on
+     * commit/rollback. Blank disables the switch (the application-layer allowlist
+     * + hardened lexer still apply); validated as a SQL identifier in the
+     * constructor to prevent injection through the config value itself.
      */
     private final String registerSqlRole;
+
+    /** Validates {@code registerSqlRole} is a plain SQL identifier. */
     private static final Pattern ROLE_RE = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]{0,62}$");
 
     public GameUploadService(@Value("${app.uploads.games-dir:/var/snapdragon/games}") String gamesDirCfg,
@@ -120,13 +199,29 @@ public class GameUploadService {
                 storage.label(), stagingRoot, role.isEmpty() ? "(disabled)" : role);
     }
 
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
+
+    /**
+     * Result type emitted by all {@code install} overloads on success.
+     *
+     * @param slug        the game slug parsed from {@code manifest.json}
+     * @param contentHash SHA-256 hex of the installed {@code bundle/} tree
+     * @param versionDir  storage locator written to {@code game_uploads.version_dir}
+     *                    and {@code games.current_version_dir}
+     * @param uploadedAt  server timestamp set by the DB on row insertion
+     */
     public record InstalledUpload(String slug, String contentHash, String versionDir, Instant uploadedAt) {}
 
     /**
-     * Install a single bundle zip. The caller hands over the bytes and
-     * the {@code uploadedBy} = JWT subject. Domain defaults to
-     * {@code "default"} (global / single-tenant) — the multi-brand path
-     * uses the {@code domain}-carrying overload below.
+     * Convenience overload: installs a bundle ZIP stamped with the global
+     * {@code "default"} brand domain. Intended for single-tenant deployments
+     * or test callers that do not need to thread a brand.
+     *
+     * @param zipBytes   raw bytes of the ZIP archive; must not be null or empty
+     * @param uploadedBy Casdoor subject of the uploader (from the validated JWT)
+     * @return a {@link Mono} emitting the {@link InstalledUpload} descriptor on success
      */
     public Mono<InstalledUpload> install(byte[] zipBytes, String uploadedBy) {
         return install(zipBytes, uploadedBy, DomainRegistry.DEFAULT_DOMAIN, slug -> Mono.empty());
@@ -136,6 +231,13 @@ public class GameUploadService {
      * Back-compat overload (no explicit domain) — stamps the installed game with the
      * {@code "default"} (global) brand. Existing callers that don't yet thread a
      * brand keep working unchanged.
+     *
+     * @param zipBytes     raw bytes of the ZIP archive
+     * @param uploadedBy   Casdoor subject of the uploader
+     * @param requireScope per-slug authorization hook; publisher path supplies
+     *                     {@link PublisherService#requireOwns}, admin path passes
+     *                     {@code slug -> Mono.empty()}
+     * @return a {@link Mono} emitting the {@link InstalledUpload} descriptor on success
      */
     public Mono<InstalledUpload> install(byte[] zipBytes,
                                          String uploadedBy,
@@ -144,27 +246,31 @@ public class GameUploadService {
     }
 
     /**
-     * Variant that runs a per-slug authorization check after staging
-     * exposes the slug from the manifest. The caller is the only one
-     * that knows the JWT's authorities + the right service to ask;
-     * controller-level {@code @PreAuthorize} can only check the role,
-     * not the per-game scope. The publisher upload path threads
-     * {@link games.snapdragon.bff.service.PublisherService#requireOwns}
-     * through this hook; admin paths pass {@code slug -> Mono.empty()}.
+     * Full install pipeline: validate the ZIP, run the per-slug authorization
+     * check, move the staged tree to storage, and register the bundle in the DB.
      *
-     * <p>The hook fires AFTER the zip has been validated + the manifest
-     * parsed (so slug is known) but BEFORE any filesystem move or DB
-     * write happens. A failed scope check rolls back the staged dir
-     * and surfaces the hook's error to the caller as-is — the
-     * publisher path produces a 403.
+     * <p>The {@code requireScope} hook fires AFTER the ZIP has been validated and
+     * the slug is known from {@code manifest.json}, but BEFORE any filesystem move
+     * or DB write. A failed scope check cleans up the staging directory and
+     * propagates the hook's error as-is (typically a 403 from
+     * {@link PublisherService#requireOwns}).
      *
-     * <p>{@code domain} is the trusted brand stamped onto the installed
-     * {@code games} row (migration 043) — the uploader's issuer-derived
-     * domain ({@code Roles.domainOf(jwt, registry)}), NOT anything from the
-     * uploaded {@code register.sql}. {@code "default"} (global) on the
-     * single-tenant cluster. The stamp is a server-controlled {@code UPDATE}
-     * inside the same transaction so a brand-X upload can never claim a
-     * brand-Y scope by hand-crafting its register.sql.
+     * <p>{@code domain} is the trusted brand stamp derived server-side from the
+     * caller's JWT issuer ({@code Roles.domainOf(jwt, registry)}). It is written
+     * inside the install transaction and cannot be influenced by anything in the
+     * uploaded ZIP.
+     *
+     * @param zipBytes     raw bytes of the ZIP archive; rejected if null/empty or
+     *                     larger than {@value #MAX_BUNDLE_BYTES} bytes
+     * @param uploadedBy   Casdoor subject of the uploader (from the validated JWT)
+     * @param domain       brand domain to stamp onto the {@code games} row on first
+     *                     creation; {@code "default"} for single-tenant deployments
+     * @param requireScope per-slug authorization hook; admin paths pass
+     *                     {@code slug -> Mono.empty()}; publisher paths supply
+     *                     {@link PublisherService#requireOwns}
+     * @return a {@link Mono} emitting an {@link InstalledUpload} on success, or
+     *         erroring with a {@link org.springframework.web.server.ResponseStatusException}
+     *         (400 for validation failures, 403 for scope refusals)
      */
     public Mono<InstalledUpload> install(byte[] zipBytes,
                                          String uploadedBy,
@@ -178,6 +284,7 @@ public class GameUploadService {
                     "bundle exceeds " + MAX_BUNDLE_BYTES + " bytes"));
         }
 
+        // Fall back to the global default when the caller passes null/blank domain.
         String stampDomain = (domain == null || domain.isBlank())
                 ? DomainRegistry.DEFAULT_DOMAIN
                 : domain.trim();
@@ -185,17 +292,23 @@ public class GameUploadService {
         return Mono.fromCallable(() -> stageAndValidate(zipBytes))
                 .flatMap(staged -> requireScope.apply(staged.slug())
                         .onErrorResume(err -> {
-                            // Authorization rejected — clean up the
-                            // staging dir before propagating so we
-                            // don't leak inodes per refused upload.
+                            // Authorization rejected — clean up the staging dir before
+                            // propagating so we don't leak inodes per refused upload.
                             cleanup(staged.stagingDir());
                             return Mono.error(err);
                         })
                         .then(writeAndRegister(staged, uploadedBy, stampDomain)));
     }
 
-    // ── staging + validation (blocking; runs on Mono.fromCallable) ──────────
+    // -------------------------------------------------------------------------
+    // Stage + validate (blocking; runs inside Mono.fromCallable)
+    // -------------------------------------------------------------------------
 
+    /**
+     * Holds the validated, staged bundle content prior to the atomic storage move
+     * and DB transaction. All fields are extracted from the ZIP in a single pass
+     * so the install step never re-reads the archive.
+     */
     private record StagedBundle(
             String slug,
             String contentHash,
@@ -205,6 +318,36 @@ public class GameUploadService {
             String displayName,
             String description) {}
 
+    /**
+     * Extracts, validates, and stages a bundle ZIP into a temporary directory
+     * under {@link #stagingRoot}. Performs the following checks in order:
+     * <ol>
+     *   <li>Creates the staging directory under {@code stagingRoot}.</li>
+     *   <li>Unzips the archive entry by entry, zip-slip-checking each path
+     *       (rejects entries containing {@code ..}, starting with {@code /},
+     *       or containing {@code \}).</li>
+     *   <li>Rejects archives with more than {@value #MAX_ZIP_ENTRIES} entries.</li>
+     *   <li>Extracts {@code manifest.json} and {@code register.sql} (optional)
+     *       verbatim; writes {@code bundle/*} entries to disk.</li>
+     *   <li>Rejects if {@code manifest.json} is absent or if the {@code bundle/}
+     *       tree is empty.</li>
+     *   <li>Validates {@code manifest.schema_version == 2} and that
+     *       {@code manifest.game.slug} matches {@link #SLUG_RE}.</li>
+     *   <li>SHA-256s the {@code bundle/} tree in sorted-name order for a
+     *       deterministic content hash.</li>
+     * </ol>
+     *
+     * <p>Any validation failure cleans up the staging directory and throws a
+     * 400 {@link ResponseStatusException}.
+     *
+     * <p><b>Threading</b>: this method performs blocking I/O (ZIP decompression,
+     * file writes, SHA-256 hashing). It must only be called inside a
+     * {@link Mono#fromCallable} subscribed on a boundedElastic scheduler.
+     *
+     * @param zipBytes the raw bytes of the ZIP archive
+     * @return a populated {@link StagedBundle} record ready for the install step
+     * @throws ResponseStatusException (400) if validation fails at any step
+     */
     private StagedBundle stageAndValidate(byte[] zipBytes) {
         Path staging;
         try {
@@ -222,16 +365,19 @@ public class GameUploadService {
             ZipEntry e;
             int count = 0;
             while ((e = zis.getNextEntry()) != null) {
+                // Guard against ZIP bombs: cap total entry count.
                 if (++count > MAX_ZIP_ENTRIES) {
                     throw new ResponseStatusException(BAD_REQUEST, "zip has too many entries");
                 }
                 String name = e.getName();
+                // Zip-slip guard: reject any entry that tries to escape the staging root.
                 if (name.contains("..") || name.startsWith("/") || name.contains("\\")) {
                     throw new ResponseStatusException(BAD_REQUEST, "zip-slip-unsafe entry: " + name);
                 }
                 if (e.isDirectory()) continue;
 
                 byte[] bytes = readAll(zis);
+                // Route the three recognised entry types; ignore everything else.
                 if ("manifest.json".equals(name)) {
                     manifestJson = new String(bytes);
                 } else if ("register.sql".equals(name)) {
@@ -290,12 +436,14 @@ public class GameUploadService {
         for (String rel : sortedNames) {
             try {
                 Path target = staging.resolve(rel).normalize();
+                // Second zip-slip check after normalize() — belt-and-suspenders.
                 if (!target.startsWith(staging)) {
                     throw new ResponseStatusException(BAD_REQUEST, "zip-slip blocked: " + rel);
                 }
                 Files.createDirectories(target.getParent());
                 byte[] data = bundleFiles.get(rel);
                 Files.write(target, data);
+                // Hash the filename and content together so a rename changes the hash.
                 md.update(rel.getBytes());
                 md.update((byte) 0);
                 md.update(data);
@@ -311,8 +459,37 @@ public class GameUploadService {
         return new StagedBundle(slug, contentHash, staging, manifestJson, registerSql, displayName, description);
     }
 
-    // ── install (atomic move + transactional DB updates) ─────────────────────
+    // -------------------------------------------------------------------------
+    // Install: atomic storage move + transactional DB updates
+    // -------------------------------------------------------------------------
 
+    /**
+     * Hands the staged bundle to the storage strategy and registers the
+     * installation inside a single R2DBC transaction.
+     *
+     * <p>Reactive marble diagram:
+     * <pre>
+     *   storage.installFromStaging(slug, sha16, stagingDir)   ← blocking; returns locator
+     *     → uploads.save(row)                                 ← insert game_uploads row
+     *       → db.sql("SELECT 1 FROM games …").hasElement()    ← check if game already exists
+     *         → runRegisterSql(sql)          (if present)     ← execute register.sql statements
+     *         → db.sql("UPDATE games SET current_version_dir…") ← point to new version
+     *         → db.sql("UPDATE games SET domain …")
+     *             (only on NEW game — first-writer-wins brand stamp)
+     *         → uploads.markPriorsSuperseded(slug, id)        ← deprecate old uploads
+     *     → tx.transactional(txn)                             ← commit / rollback atomically
+     *     → map(saved → InstalledUpload)
+     * </pre>
+     *
+     * <p>If the storage move fails or the transaction rolls back, the service
+     * best-effort removes the version directory from storage so no orphaned
+     * artifacts are left.
+     *
+     * @param staged     the validated staged bundle from {@link #stageAndValidate}
+     * @param uploadedBy Casdoor subject of the uploader
+     * @param domain     trusted brand domain to stamp on a new game row
+     * @return a {@link Mono} emitting the {@link InstalledUpload} on success
+     */
     // TODO reactive: review this catch for onErrorResume — storage.installFromStaging
     // is a blocking call; wrapping writeAndRegister in Mono.fromCallable (then chaining
     // the DB steps via flatMap) would let onErrorResume replace the boundary try/catch.
@@ -356,9 +533,11 @@ public class GameUploadService {
                             .first()
                             .hasElement();
                     return gameExisted.flatMap(existed -> {
+                        // Run register.sql if the bundle included one; skip if absent.
                         Mono<Void> sqlStep = staged.registerSql() == null
                                 ? Mono.empty()
                                 : runRegisterSql(staged.registerSql());
+                        // Point the game catalog to the newly-installed version directory.
                         Mono<Long> markCurrent = db.sql("UPDATE games SET current_version_dir = :dir WHERE slug = :slug")
                                 .bind("dir", locator)
                                 .bind("slug", staged.slug())
@@ -377,6 +556,8 @@ public class GameUploadService {
                                         .bind("slug", staged.slug())
                                         .fetch()
                                         .rowsUpdated();
+                        // Mark every earlier upload row for this slug as superseded by the
+                        // new upload so the admin console and pruner see the version ordering.
                         Mono<Integer> markPriors = uploads.markPriorsSuperseded(staged.slug(), saved.getId());
                         return sqlStep
                                 .then(markCurrent)
@@ -391,33 +572,34 @@ public class GameUploadService {
                                                   saved.getVersionDir(), saved.getUploadedAt()));
     }
 
+    // -------------------------------------------------------------------------
+    // register.sql execution
+    // -------------------------------------------------------------------------
+
     /**
-     * Splits a multi-statement register.sql into individual statements and runs
-     * them in order, under the least-privilege role, inside the caller's
-     * transaction.
+     * Splits a multi-statement {@code register.sql} into individual statements
+     * and runs them in order inside the caller's R2DBC transaction.
      *
-     * <p><b>Defence in depth (OWASP A03/A04).</b> register.sql is
-     * attacker-controlled bundle content; three independent layers contain it:
+     * <p><b>Defence in depth (OWASP A03/A04)</b> — three independent layers:
      * <ol>
-     *   <li>{@link RegisterSqlPolicy#vet} — the default-deny application
-     *       allowlist (only INSERTs into the six catalog tables / a games
-     *       feature-flag UPDATE), now backed by a standard-conforming-strings
-     *       lexer that rejects backslash/E''/$tag$/block-comment desyncs;</li>
-     *   <li>per-statement execution — each VETTED statement is sent on its own
-     *       to {@code db.sql(...)}, and a belt-and-suspenders guard rejects any
-     *       vetted statement that still contains a top-level {@code ;}, so a
-     *       multi-statement blob can never reach Postgres' simple-query protocol
-     *       (which would otherwise run every {@code ;}-separated statement);</li>
-     *   <li>least-privilege role — {@code SET LOCAL ROLE} switches the session to
-     *       a NOSUPERUSER, no-DDL role scoped to only the six catalog tables for
-     *       the duration of register.sql, then {@code RESET ROLE} restores the
-     *       app role. {@code LOCAL} ties the switch to THIS transaction, so the
-     *       install stays atomic and the role reverts on commit/rollback even on
-     *       error. Skipped (with the other two layers still active) when
-     *       {@code app.uploads.register-sql.role} is blank.</li>
+     *   <li>{@link RegisterSqlPolicy#vet} default-deny allowlist — only INSERTs
+     *       into the six catalog tables / a games feature-flag UPDATE; backed by
+     *       a standard-conforming-strings lexer that rejects backslash/E''/$tag$/
+     *       block-comment desyncs.</li>
+     *   <li>Per-statement execution — each vetted statement runs via its own
+     *       {@code db.sql(...)} call; a belt-and-suspenders guard rejects any
+     *       statement that still contains a top-level {@code ;}, preventing a
+     *       multi-statement blob from reaching Postgres' simple-query protocol.</li>
+     *   <li>Least-privilege role — {@code SET LOCAL ROLE} switches the session to
+     *       a NOSUPERUSER, no-DDL role for the duration of register.sql, then
+     *       {@code RESET ROLE} restores the app role. {@code LOCAL} ties the switch
+     *       to the active transaction so the role reverts on commit/rollback.
+     *       Skipped when {@code app.uploads.register-sql.role} is blank.</li>
      * </ol>
-     * A statement that violates the allowlist fails the whole upload with 400
-     * and rolls the install transaction back.
+     *
+     * @param sql the raw content of {@code register.sql} from the bundle ZIP
+     * @return a {@link Mono} completing empty when all statements succeed, or
+     *         erroring with a 400 if the allowlist rejects any statement
      */
     private Mono<Void> runRegisterSql(String sql) {
         return Mono.fromCallable(() -> RegisterSqlPolicy.vet(sql))
@@ -439,10 +621,19 @@ public class GameUploadService {
     }
 
     /**
-     * Wraps the register.sql execution in a transaction-scoped role switch to
-     * the least-privilege {@code registerSqlRole}. {@code SET LOCAL ROLE} +
-     * {@code RESET ROLE} both run on the same pooled connection inside the
-     * active transaction. No-op when the role is disabled (blank).
+     * Wraps the register.sql execution body in a transaction-scoped role switch to
+     * the least-privilege {@link #registerSqlRole}. Both {@code SET LOCAL ROLE} and
+     * {@code RESET ROLE} run on the same pooled connection inside the active
+     * transaction. {@code RESET ROLE} is called on both success and error paths
+     * so the application role is always restored before the remainder of the
+     * transaction (domain stamp, markCurrent) runs.
+     *
+     * <p>No-op when {@link #registerSqlRole} is blank — the other two defence
+     * layers (allowlist + per-statement guard) remain active regardless.
+     *
+     * @param body the reactive chain to execute under the restricted role
+     * @return a {@link Mono} wrapping {@code body} with the role switch, or
+     *         {@code body} itself when the role is disabled
      */
     private Mono<Void> underLeastPrivRole(Mono<Void> body) {
         if (registerSqlRole.isEmpty()) {
@@ -462,13 +653,24 @@ public class GameUploadService {
                 .then(resetRole);
     }
 
-    /** True if {@code s} has a {@code ;} outside a (standard-conforming) string literal. */
+    /**
+     * Returns {@code true} if {@code s} contains a {@code ;} character that is
+     * outside a standard-conforming single-quoted string literal.
+     *
+     * <p>Used as a belt-and-suspenders guard after {@link RegisterSqlPolicy#vet}
+     * to prevent a multi-statement blob from reaching the Postgres simple-query
+     * protocol, which would run every {@code ;}-separated statement in sequence.
+     *
+     * @param s a single vetted statement string
+     * @return {@code true} if a top-level separator was found
+     */
     private static boolean containsTopLevelSeparator(String s) {
         boolean inString = false;
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
             if (inString) {
                 if (c == '\'') {
+                    // Escaped quote inside a string literal — skip the next char.
                     if (i + 1 < s.length() && s.charAt(i + 1) == '\'') {
                         i++;
                     } else {
@@ -484,8 +686,11 @@ public class GameUploadService {
         return false;
     }
 
-    // ── helpers ─────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
+    /** Reads all bytes from {@code in} into a freshly allocated byte array. */
     private static byte[] readAll(InputStream in) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
@@ -494,12 +699,24 @@ public class GameUploadService {
         return baos.toByteArray();
     }
 
+    /** Converts a byte array to a lower-case hexadecimal string. */
     private static String toHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder(bytes.length * 2);
         for (byte b : bytes) sb.append(String.format("%02x", b));
         return sb.toString();
     }
 
+    /**
+     * Naïve integer value extraction from a JSON string — locates {@code key}
+     * and reads the numeric token after its {@code :}. Returns {@code fallback}
+     * when the key is absent, the JSON is malformed, or the value is not an integer.
+     * Good enough for the small, well-formed manifests the Godot plugin emits.
+     *
+     * @param json     the raw JSON string to search
+     * @param key      the JSON key to search for (including surrounding quotes)
+     * @param fallback value to return when the key is absent or unreadable
+     * @return the integer value, or {@code fallback}
+     */
     private static int parseInt(String json, String key, int fallback) {
         int idx = json.indexOf(key);
         if (idx < 0) return fallback;
@@ -515,16 +732,23 @@ public class GameUploadService {
     }
 
     /**
-     * Naïve nested-string lookup: find the parent key, then within its
-     * brace-balanced object find the inner key's string value. Good
-     * enough for the small, well-formed manifests the Godot plugin
-     * emits. NOT a general JSON parser — don't use elsewhere.
+     * Naïve nested-string lookup: finds the parent key, then within its
+     * brace-balanced object finds the inner key's string value. Good enough
+     * for the small, well-formed manifests the Godot plugin emits.
+     *
+     * <p><b>Not a general JSON parser</b> — do not use elsewhere.
+     *
+     * @param json      the raw JSON string to search
+     * @param parentKey the outer key (including surrounding quotes)
+     * @param innerKey  the inner key within the parent object (including quotes)
+     * @return the string value, or {@code null} if absent or unparseable
      */
     private static String parseStringInObject(String json, String parentKey, String innerKey) {
         int p = json.indexOf(parentKey);
         if (p < 0) return null;
         int braceStart = json.indexOf('{', p);
         if (braceStart < 0) return null;
+        // Walk brace depth to find the matching close brace for the parent object.
         int depth = 0, end = -1;
         for (int i = braceStart; i < json.length(); i++) {
             char c = json.charAt(i);
@@ -543,9 +767,17 @@ public class GameUploadService {
         return slice.substring(q1 + 1, q2);
     }
 
+    /**
+     * Best-effort recursive deletion of a staging directory.
+     * Errors are silently ignored — a leaked staging directory is at most
+     * a storage nuisance; the active install transaction has already failed.
+     *
+     * @param dir the staging directory to remove; null-safe
+     */
     private static void cleanup(Path dir) {
         if (dir == null) return;
         try (var s = Files.walk(dir)) {
+            // Delete deepest paths first (sorted by path-string length descending).
             s.sorted((a, b) -> b.toString().length() - a.toString().length())
              .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
         } catch (IOException ignored) {}

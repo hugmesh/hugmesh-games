@@ -22,18 +22,47 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Wires the Kafka producer used by {@link GameAuditPublisher} (state-transition
- * audit log) and, in a follow-up, by the F2 game-KPI publisher. Gated behind
- * {@code app.kafka.enabled} (default {@code false}) so vanilla compose-up keeps
- * working when the Kafka container isn't running. Enable in production +
- * integration-test profiles.
+ * Configures the Kafka producer and consumer beans for the decision 021 streaming
+ * telemetry pipeline.
  *
- * <p>Why two beans rather than letting Spring Boot's auto-config do it: the
- * codebase deliberately keeps Kafka opt-in (the rest of the platform works
- * without it). Auto-config would attempt to construct a producer on every
- * profile and log warnings when Kafka isn't reachable; the explicit
- * {@code @ConditionalOnProperty} keeps boot quiet for the filesystem-only
- * default deploy.
+ * <h2>Responsibility</h2>
+ *
+ * <p>Wires the {@link KafkaTemplate} used by {@link GameAuditPublisher},
+ * {@link GameEventPublisher}, and {@link GameKpiPublisher} (producer side), and the
+ * {@link ConcurrentKafkaListenerContainerFactory} used by {@link KafkaSessionSubscriber}
+ * (consumer side). Both sides share the same bootstrap-servers and client-id properties.
+ *
+ * <h2>Why an explicit config rather than Spring Boot auto-config</h2>
+ *
+ * <p>The codebase deliberately keeps Kafka opt-in via {@code app.kafka.enabled} (default
+ * {@code false}). Spring Boot's auto-config would attempt to construct a producer on every
+ * profile and log connection-refused warnings when Kafka isn't reachable. The explicit
+ * {@code @ConditionalOnProperty} keeps boot quiet for the filesystem-only default deploy
+ * (vanilla {@code docker compose up -d}) and integration-test profiles that don't start a
+ * Kafka container.
+ *
+ * <h2>Producer settings</h2>
+ *
+ * <p>The producer is configured as an idempotent producer ({@code acks=all} +
+ * {@code enable.idempotence=true}) so every state-transition write is durable and
+ * exactly-once per broker attempt. Event volume is bounded by player actions (not
+ * microsecond-latency HFT), so the latency cost of {@code acks=all} is acceptable.
+ * LZ4 compression is enabled for network efficiency.
+ *
+ * <h2>Consumer settings</h2>
+ *
+ * <p>The consumer group is shared across all BFF pod instances so Kafka distributes
+ * partitions automatically as pods scale. Offset reset is {@code latest} because the
+ * cross-pod subscriber is not durable — replaying a 30-day backlog of {@code game_events}
+ * after a restart would double-fire stale events into local {@code Sinks.Many}. Auto-commit
+ * is enabled because the consume path ({@link KafkaSessionSubscriber#onGameEvent}) is
+ * idempotent ({@code tryEmitNext} on a local sink is a cheap no-op when there are no
+ * subscribers).
+ *
+ * @see GameAuditPublisher
+ * @see GameEventPublisher
+ * @see GameKpiPublisher
+ * @see KafkaSessionSubscriber
  */
 @Configuration
 @ConditionalOnProperty(name = "app.kafka.enabled", havingValue = "true")
@@ -42,6 +71,27 @@ public class KafkaProducerConfig {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaProducerConfig.class);
 
+    // -------------------------------------------------------------------------
+    // Producer beans
+    // -------------------------------------------------------------------------
+
+    /**
+     * Creates the {@code ProducerFactory} used by {@link #auditKafkaTemplate}.
+     *
+     * <p>Idempotent producer settings applied:
+     * <ul>
+     *   <li>{@code acks=all} — wait for all in-sync replicas before ack</li>
+     *   <li>{@code enable.idempotence=true} — exactly-once-per-attempt delivery</li>
+     *   <li>{@code retries=3} — automatic retry on transient errors</li>
+     *   <li>{@code max.in.flight.requests.per.connection=5} — maximum concurrency
+     *       compatible with idempotence</li>
+     *   <li>{@code compression.type=lz4} — LZ4 for network efficiency</li>
+     * </ul>
+     *
+     * @param bootstrap the Kafka bootstrap servers; defaults to {@code kafka:9092}
+     * @param clientId  the producer client id; defaults to {@code snapdragon-bff}
+     * @return a configured {@code ProducerFactory} for String key/value messages
+     */
     @Bean
     public ProducerFactory<String, String> auditProducerFactory(
             @Value("${app.kafka.bootstrap-servers:kafka:9092}") String bootstrap,
@@ -64,14 +114,41 @@ public class KafkaProducerConfig {
         return new DefaultKafkaProducerFactory<>(cfg);
     }
 
+    /**
+     * Creates the {@code KafkaTemplate} injected into {@link GameAuditPublisher},
+     * {@link GameEventPublisher}, and {@link GameKpiPublisher}.
+     *
+     * @param auditProducerFactory the producer factory wired by {@link #auditProducerFactory}
+     * @return a {@code KafkaTemplate} for String key/value messages
+     */
     @Bean
     public KafkaTemplate<String, String> auditKafkaTemplate(
             ProducerFactory<String, String> auditProducerFactory) {
         return new KafkaTemplate<>(auditProducerFactory);
     }
 
-    // ── Consumer side (cross-pod subscriber) ──────────────────────────
+    // -------------------------------------------------------------------------
+    // Consumer beans (cross-pod subscriber)
+    // -------------------------------------------------------------------------
 
+    /**
+     * Creates the {@code ConsumerFactory} used by
+     * {@link #kafkaListenerContainerFactory} for the cross-pod session subscriber.
+     *
+     * <p>Key settings:
+     * <ul>
+     *   <li>{@code auto.offset.reset=latest} — after a restart, do not replay the
+     *       backlog; stale events would double-fire into local {@code Sinks.Many}.</li>
+     *   <li>{@code enable.auto.commit=true} — the consume path is idempotent
+     *       ({@code tryEmitNext} is a no-op when there are no subscribers), so
+     *       at-least-once delivery with auto-commit keeps the consumer simple.</li>
+     * </ul>
+     *
+     * @param bootstrap the Kafka bootstrap servers; defaults to {@code kafka:9092}
+     * @param clientId  base client id; {@code -consumer} suffix appended
+     * @param groupId   consumer group id; defaults to {@code snapdragon-bff-cross-pod}
+     * @return a configured {@code ConsumerFactory} for String key/value messages
+     */
     @Bean
     public ConsumerFactory<String, String> crossPodConsumerFactory(
             @Value("${app.kafka.bootstrap-servers:kafka:9092}") String bootstrap,
@@ -96,6 +173,18 @@ public class KafkaProducerConfig {
         return new DefaultKafkaConsumerFactory<>(cfg);
     }
 
+    /**
+     * Creates the {@code ConcurrentKafkaListenerContainerFactory} used by
+     * {@link KafkaSessionSubscriber}'s {@code @KafkaListener}.
+     *
+     * <p>Concurrency is set to {@code 1} — the cross-pod re-emit path is a non-blocking
+     * {@code Sinks.Many.tryEmitNext} call; additional listener threads would only
+     * complicate partition ordering guarantees without any throughput benefit.
+     *
+     * @param crossPodConsumerFactory the consumer factory wired by
+     *                                {@link #crossPodConsumerFactory}
+     * @return a listener container factory configured for single-threaded consumption
+     */
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
             ConsumerFactory<String, String> crossPodConsumerFactory) {

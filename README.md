@@ -26,6 +26,7 @@ The catalog ships titles in **two technical families** (see [Two game technologi
 | Contributor onboarding | [CLAUDE.md](CLAUDE.md) |
 | **Build status** | [What builds today + the key dev commands](#build-status) |
 | **Roadmap** | [Done / in progress / planned](#roadmap) |
+| **Known gaps / TODO** | [Verified unfinished spots in the current source](#known-gaps--todo) |
 
 The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with [Intro for coders](docs/wiki/guides/intro-for-coders.md) for an orientation, [Architecture overview](docs/wiki/architecture/01-overview.md) for the typeset reference, or jump straight to a [how-to](docs/wiki/howto/) for a specific task.
 
@@ -40,7 +41,7 @@ The 17-title catalog (✅ shipped on `main`) splits into two delivery models. Th
 | **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)* | Godot 4.6 project under [`games/<slug>/`](games/) exported to a self-contained WASM bundle | per-game `remote-game` Angular Web Component (or the legacy iframe path) loading the bundle from `wasm-fragment`; *Chess (Godot)* federates via a `wasm-game` row straight at the `wasm-fragment` bundle (changelog [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)) | server (BFF) holds canonical game state (*Chess (Godot)* is host-authoritative, reusing the chess Rust core via the bridge — the guest re-validates) |
 | **Web-native Rust→wasm32** | chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three | pure-Rust engine under [`extensions/snapdragon-<game>/`](extensions/) + a `-wasm` shim crate compiled to `wasm32-unknown-unknown` (zero host imports), driving a vanilla-JS canvas frontend under [`games/<slug>/`](games/) | **no per-game Angular remote** — a `federation_modules` row of `kind='wasm-game'` points the host straight at the `wasm-fragment` bundle (changelog [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml)) | **host-authoritative** — the host browser runs the engine, the BFF only relays `control`/`world` over the per-session SSE stream, the guest re-applies and re-validates |
 
-The web-native engines run identically in three places — the browser (`WebAssembly.instantiateStreaming`), the JVM test harness (Chicory), and a Node functional test — so the same `.wasm` is verified end-to-end. See [`games/_shared/README.md`](games/_shared/README.md) for the shared shell contract, [`docs/multiplayer-chess-design.md`](docs/multiplayer-chess-design.md) for the host-authoritative relay model, and the "Web-native games" section of [CLAUDE.md](CLAUDE.md) for the add-a-game recipe.
+Each web-native engine runs identically in three environments — the browser (`WebAssembly.instantiateStreaming`), the JVM test harness (Chicory), and a Node functional test — so the same `.wasm` binary is verified end-to-end without environment-specific shims. See [`games/_shared/README.md`](games/_shared/README.md) for the shared shell contract, [`docs/multiplayer-chess-design.md`](docs/multiplayer-chess-design.md) for the host-authoritative relay model, and the "Web-native games" section of [CLAUDE.md](CLAUDE.md) for the add-a-game recipe.
 
 > Server-authoritative realtime FPS/RTS sim cores ([`extensions/snapdragon-fps-core`](extensions/), [`extensions/snapdragon-rts-core`](extensions/)) and their Cassandra-truth tick loop are 🚧 in-flight at the *engine* level — verified in-JVM via Chicory — but **no FPS/RTS title is registered in the catalog yet**. See [Roadmap](#roadmap).
 
@@ -83,6 +84,7 @@ Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-fede
 - **Hot upload + cryptographic launch UIDs.** Done. `POST /api/admin/games/upload` install pipeline (validate → SHA-256 → atomic move → one R2DBC tx → version pinning + pruner); `POST /api/games/{slug}/launch` mints launch UIDs with admin revoke + sweeper. PLAN sections C & H.
 - **JWT roles + per-game access policy + mod/publisher RBAC.** Done. `game_access` scopes, `RoleProxyController`, per-game `mod_game_scopes` / `publisher_game_scopes`. Decisions [009](docs/wiki/decisions/009-game-access-scopes.md), [011](docs/wiki/decisions/011-mod-publisher-rbac.md).
 - **The makers (RPG + VN editors).** Done. `/rpg-maker` and `/vn-maker` federated remotes backed by the `rpg-builder/` + `vn-builder/` Spring services compile authored projects to upload-ready Godot bundles. [Decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
+- **Chess (Godot) — Godot pivot pilot title.** Done (migration [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)). A `games/chess-godot/` Godot 4 project reuses the same deterministic `snapdragon-chess` Rust rules engine as the web-native `chess` title via the `ChessEngine` GDExtension node (no GDScript rules), federated as its own `kind='wasm-game'` row alongside — not replacing — the original web-native `chess` tile. `games/_godot-template/` documents it as the reference recipe for porting the remaining web-native titles to Godot. Reversible: disabling the `games-chess-godot` federation row rolls back to web-native-only with one UPDATE.
 - **Per-brand domain foundation (the `DOMAIN_` authority).** Done (merged via PR #65). The games BFF now derives a tenant the way snapdragon-gateway does — `DomainRegistry` (issuer → brand), `CasdoorAuthorities` stamping exactly one issuer-derived `DOMAIN_<x>` per token with a reserved-prefix anti-forgery guard, and `Roles.isSuperadmin` / fail-closed `Roles.domainOf`. *Note:* PR #65 stamped the authority and added the converter hardening; the **enforcement** layer that consumes it (the BFF-side guard and catalog partitioning below) has since merged to `main` as well.
 - **BFF-side `DOMAIN_` guard.** Done. `DomainGuardFilter` — a reactive `WebFilter` re-running the gateway's per-instance domain hard-deny as defence-in-depth for callers that reach the BFF without traversing the gateway. Gated on `app.tenancy.domain`; a complete no-op when unset (single-tenant today). [Decision 025](docs/wiki/decisions/025-bff-domain-guard.md), 16-spec `DomainGuardFilterTest`.
 - **Per-brand games-catalog domain partitioning.** Done. `games.domain` column (migration 043, defaults `'default'` = unscoped), `Roles.domainApplies` predicate, `DomainScopeService.requireGameDomain`, server-controlled first-writer-wins upload stamping (untrusted-`register.sql`-proof), and the `GameAccessController` list/grant/revoke enforcement surface. [Decision 026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
@@ -109,9 +111,20 @@ Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-fede
 
 ---
 
+## Known gaps / TODO
+
+Specific unfinished spots verified in the current source, beyond the roadmap items above:
+
+- **`InputEventController` only enforces gate 1 of 3.** The class Javadoc documents three validation gates for `POST /api/input/{characterId}`; only gate 1 (the `(kind, type)` pair exists in `input_event_types`) is wired in. Gate 2 (reject a kind the active game's `games.features` doesn't accept) and gate 3 (reject an `(game_slug, event_kind, event_type)` triple not present in `game_event_support`) are explicitly marked "Not yet implemented" in the class doc, with a `// TODO` at the end of `submit()` (`InputEventController.java:136`) pointing at the missing `GameRepository.findFeatures`-shaped helper. Net effect: any registered `(kind, type)` pair is currently accepted for any game regardless of that game's declared feature flags or per-game opt-in table.
+- **Server-authoritative FPS/RTS engines have no catalog title yet.** `snapdragon-fps-core` / `snapdragon-rts-core`, the `RealtimeController` / `AdminRealtimeController` REST surface, and the Cassandra-truth tick loop all exist and are verified in-JVM via Chicory, but no FPS/RTS game is registered in the `games` catalog or federation manifest — see [Roadmap](#roadmap).
+- **Strict CSP not done.** Both nginx confs still ship `'unsafe-eval'`/`'unsafe-inline'` in `script-src` and `'unsafe-inline'` in `style-src` — load-bearing for es-module-shims and Angular's runtime style injection today. Dropping them is a documented follow-up, not started ([decision 023](docs/wiki/decisions/023-content-security-policy.md)).
+- **`CassandraSyncService` not yet retired.** Superseded in intent by the Kafka → ClickHouse streaming pipeline (`decision 021`), but still in the codebase pending a production soak period before removal.
+
+---
+
 ## Multiplayer sessions
 
-The portal supports multiple concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker; pick an existing session or start a new one. The Three Wizards game spawns one wizard `CharacterBody3D` per registered slot — the local player drives their slot via `/api/controls/{characterId}` while remote-slot movement events arriving on the per-session SSE stream drive the other wizards.
+The portal supports multiple concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker, then choose an existing session or start a new one. In Three Wizards, the server spawns one wizard `CharacterBody3D` per registered slot — the local player drives their own slot via `/api/controls/{characterId}`, while movement events from other players arrive on the per-session SSE stream and drive the remote wizards.
 
 | Surface | What it does |
 |---|---|
@@ -121,9 +134,9 @@ The portal supports multiple concurrent **named sessions** per game, each with i
 | `GET /api/game/stream?sessionId=` | Per-session SSE stream — only this session's movement / world / character / view events. |
 | `GET /api/admin/sessions/{id}/stream` | Admin-only per-session merged stream including the `view` channel. |
 
-The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)) — a subscriber to session A never sees session B's events. The contract is locked in at three layers: [`SessionIsolationTest`](backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) (BFF unit), [`multiplayer-same-session.spec.ts`](e2e/tests/multiplayer-same-session.spec.ts) (two players, one session — strict positive), and [`cross-session-isolation.spec.ts`](e2e/tests/cross-session-isolation.spec.ts) (two players, two sessions — strict negative). The e2e suite passes 21/21; see [howto/run-multi-user-e2e.md](docs/wiki/howto/run-multi-user-e2e.md) for adding new specs.
+The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)) — a subscriber to session A never sees session B's events. This guarantee is enforced at three independent layers: [`SessionIsolationTest`](backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) (BFF unit), [`multiplayer-same-session.spec.ts`](e2e/tests/multiplayer-same-session.spec.ts) (two players, one session — strict positive assertion), and [`cross-session-isolation.spec.ts`](e2e/tests/cross-session-isolation.spec.ts) (two players, two sessions — strict negative assertion). The e2e suite passes 21/21; see [howto/run-multi-user-e2e.md](docs/wiki/howto/run-multi-user-e2e.md) for adding new specs.
 
-When two players legitimately use the same `character_id` in different sessions, the BFF resolves the ambiguity via [`findActiveOwnerInSession(sessionId, characterId)`](backend/src/main/java/games/snapdragon/bff/repository/SessionMemberRepository.java) — `POST /api/controls/{id}` threads the `X-Session-Id` header through to a session-scoped overload of `authorizeControl` so neither side 403s.
+When two players legitimately use the same `character_id` in different sessions, the BFF resolves the ambiguity with [`findActiveOwnerInSession(sessionId, characterId)`](backend/src/main/java/games/snapdragon/bff/repository/SessionMemberRepository.java). `POST /api/controls/{id}` threads the `X-Session-Id` header through to a session-scoped overload of `authorizeControl` so neither player receives a spurious 403.
 
 ## Roles
 
@@ -134,25 +147,43 @@ When two players legitimately use the same `character_id` in different sessions,
 | `publisher` | Upload game bundles + grant the `mod` role. | Per-game (`publisher_game_scopes`). |
 | `admin` | Everything, including granting publisher / mod scope. | Global. |
 
-Casdoor owns role membership; per-game scope rows in Postgres decide which games each mod / publisher may act on. Admins manage both via `/api/admin/role-grants/*`. Per-game seeded users (`mod-three-wizards`, `publisher-dodecahedron`, etc.) are pre-loaded on first boot — passwords printed by `casdoor/entrypoint.sh`. See [decision 011](docs/wiki/decisions/011-mod-publisher-rbac.md) and [howto/grant-mod-or-publisher.md](docs/wiki/howto/grant-mod-or-publisher.md).
+Casdoor owns role membership; per-game scope rows in Postgres control which games each mod or publisher may act on. Admins manage both layers via `/api/admin/role-grants/*`. Per-game seed users (`mod-three-wizards`, `publisher-dodecahedron`, etc.) are pre-loaded on first boot — passwords are printed by `casdoor/entrypoint.sh`. See [decision 011](docs/wiki/decisions/011-mod-publisher-rbac.md) and [howto/grant-mod-or-publisher.md](docs/wiki/howto/grant-mod-or-publisher.md).
 
-The frontend ships **separate federated remotes** for each role — `/admin`, `/mod`, `/publisher` — each loaded by the host shell only when the matching role is in the JWT. A fourth federated remote, `/admin/docs`, embeds an OpenAPI explorer (live `/v3/api-docs` with a static `openapi.fallback.json` backup) and is gated to admins via the federation manifest's `requires: ROLE_ADMIN` metadata. Per-audience guides cover each role end-to-end: [admin](docs/wiki/guides/administration.md), [mod](docs/wiki/guides/moderator.md), [publisher](docs/wiki/guides/publisher.md), plus the [maintainer runbook](docs/wiki/guides/maintainer-runbook.md) for on-call.
+```mermaid
+flowchart TB
+    Admin["admin\n(global — all games)"]
+    Publisher["publisher\n(per-game scope)"]
+    Mod["mod\n(per-game scope)"]
+    Player["player\n(global)"]
+
+    Admin -->|"can grant"| Publisher
+    Admin -->|"can grant"| Mod
+    Publisher -->|"can grant mod scope\nfor their own games"| Mod
+    Admin -->|"includes all"| Player
+
+    Admin ---|"upload bundles · manage access · admin revoke · manage roles"| AdminActs["admin actions"]
+    Publisher ---|"upload bundles · grant/revoke mod scope"| PubActs["publisher actions"]
+    Mod ---|"stop sessions · kick players"| ModActs["mod actions"]
+    Player ---|"play unlocked games · create/join sessions"| PlayerActs["player actions"]
+```
+
+The frontend ships **separate federated remotes** for each role — `/admin`, `/mod`, `/publisher` — and the host shell loads each one only when the matching role is present in the JWT. A fourth federated remote, `/admin/docs`, embeds an OpenAPI explorer (backed by the live `/v3/api-docs` endpoint, with `openapi.fallback.json` as a static backup) and is gated to admins via the federation manifest's `requires: ROLE_ADMIN` metadata. Per-audience guides cover each role end-to-end: [admin](docs/wiki/guides/administration.md), [mod](docs/wiki/guides/moderator.md), [publisher](docs/wiki/guides/publisher.md), plus the [maintainer runbook](docs/wiki/guides/maintainer-runbook.md) for on-call.
 
 The `/publisher` console exposes **two more federated remotes** for authoring new games end-to-end without touching Godot directly:
 - `/rpg-maker` — Mudlet-shaped editor (areas / rooms / 6+1-direction exits / items / NPCs / scripts) backed by the [`rpg-builder/`](rpg-builder/) Spring service and its dedicated Postgres DB.
 - `/vn-maker` — godot-2d-visual-novel-shaped editor (acts / characters / backgrounds / scenes / dialogue / branching choices) backed by the [`vn-builder/`](vn-builder/) Spring service and its dedicated Postgres DB.
 
-Each maker compiles the project to a Snapdragon-bridge-aware Godot 4 WASM bundle (one per Area/Act → one per Chapter), zips it, and POSTs to the BFF `/api/admin/games/upload` endpoint with the originating user's bearer token, so the produced game federates under the building user just like any uploaded bundle. See [decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
+Each maker compiles the authored project to a Snapdragon-bridge-aware Godot 4 WASM bundle (one bundle per Area or Act, which maps to one Chapter in the BFF), zips it, and POSTs it to `/api/admin/games/upload` with the originating user's bearer token. The resulting game federates under the building user exactly like any manually uploaded bundle. See [decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
 
 ## Security primitives
 
-All URL-facing identifiers are derived through [`Crypto.mintUid()`](backend/src/main/java/games/snapdragon/bff/util/Crypto.java) — a SHA3-256 digest of 64 random bytes drawn from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as 43-character URL-safe base64. Launch tokens, session ids, session tokens, and pod ids all share this shape, so a leak through a log line is equally hard to backtrack regardless of category. Liquibase 036 widens legacy `varchar(36)` columns to fit; old UUID-shape rows continue to work.
+All URL-facing identifiers flow through a single function: [`Crypto.mintUid()`](backend/src/main/java/games/snapdragon/bff/util/Crypto.java). It produces a SHA3-256 digest of 64 random bytes drawn from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as a 43-character URL-safe base64 string. Launch tokens, session IDs, session tokens, and pod IDs all share this shape, so a value leaked through a log line is equally difficult to backtrack regardless of which category it belongs to. Liquibase 036 widens legacy `varchar(36)` columns to accommodate the new length; pre-existing UUID-shaped rows remain valid.
 
-JWT role extraction goes through one seam — [`Roles`](backend/src/main/java/games/snapdragon/bff/security/Roles.java). New role checks call `Roles.has(jwt, "ADMIN")` or `Roles.fromAuthentication(auth)`; `@PreAuthorize("hasRole('ADMIN')")` is the preferred form at controller boundaries. No copy-pasted extraction helpers anywhere else in the codebase.
+JWT role extraction is centralised in one class: [`Roles`](backend/src/main/java/games/snapdragon/bff/security/Roles.java). New role checks use `Roles.has(jwt, "ADMIN")` or `Roles.fromAuthentication(auth)`; `@PreAuthorize("hasRole('ADMIN')")` is the preferred form at controller boundaries. There are no copy-pasted extraction helpers elsewhere in the codebase.
 
 ## Diagnostic capture is admin-only and off by default
 
-`POST /api/diagnostics/wasm-console` is gated on `ROLE_ADMIN` AND a runtime flag `wasm_console_debug_enabled` (default off). Admins flip the flag at `PUT /api/admin/debug-mode/wasm-console` while triaging an iframe issue. Non-admin players' iframe console captures are never forwarded to the BFF. See [decision 012](docs/wiki/decisions/012-debug-mode-gate.md).
+`POST /api/diagnostics/wasm-console` requires both `ROLE_ADMIN` and the runtime flag `wasm_console_debug_enabled` (default: off). An admin enables the flag via `PUT /api/admin/debug-mode/wasm-console` while triaging an iframe issue. Non-admin iframe console captures are never forwarded to the BFF — the frontend gate ensures the POST is never even attempted. See [decision 012](docs/wiki/decisions/012-debug-mode-gate.md).
 
 ---
 
@@ -202,11 +233,11 @@ Adding levels and assets is a documented workflow — see the
 
 ## Architecture
 
-Up to 3 players may be connected simultaneously; exactly one holds the **controller** role and can send input. For the Godot family, all game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with nine typed event channels. For the 14 web-native titles the same per-session SSE channels (`control` / `world`) are reused as a **host-authoritative relay**: the host browser's Rust engine is authoritative and re-emits to the session via `GameStateService.reemitToSession`, and the guest re-applies + re-validates each event (see [`e2e/games-arch/README.md`](e2e/games-arch/README.md)).
+Up to three players may be connected simultaneously; exactly one holds the **controller** role and can send input. For the Godot family, all game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with nine typed event channels. The 14 web-native titles reuse the same per-session SSE channels (`control` / `world`) as a **host-authoritative relay**: the host browser's Rust engine is authoritative, re-emits state to the session via `GameStateService.reemitToSession`, and the guest re-applies and re-validates each incoming event (see [`e2e/games-arch/README.md`](e2e/games-arch/README.md)).
 
 The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host: at runtime it loads role-gated sibling bundles (`login`, `admin`, `mod`, `publisher`, `games-three-wizards`, `games-dodecahedron`, `games-rpg-maker`, `games-vn-maker`, `registration`, `producer-registration`, `banned`, `api-docs`) plus a `wasm-fragment` asset-tier nginx, all served by per-remote services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The runtime data flow below describes the **post-federation** rendering path; legacy `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. See *Module Federation: host + remotes + a fragment* under [Key architectural decisions](#key-architectural-decisions) for the bundle-view companion to this runtime view.
 
-All browser traffic enters through the **snapdragon-gateway** (Spring Cloud Gateway). The gateway terminates TLS, enforces the primary rate-limit, holds the revocation list (stamps `X-Revoked` on requests from banned keys), and routes `/api/*` to the BFF and everything else to the Angular host nginx. The BFF runs the same revocation + rate-limit checks as defence-in-depth (`RevocationListService` / `RateLimitFilter`), so service-to-service traffic on the compose network that bypasses the gateway stays gated.
+All browser traffic enters through the **snapdragon-gateway** (Spring Cloud Gateway). The gateway terminates TLS, enforces the primary rate limit, and holds the revocation list — stamping `X-Revoked` on requests from banned keys. It routes `/api/*` to the BFF and all other paths to the Angular host nginx. The BFF then re-runs the same revocation and rate-limit checks as defence-in-depth (`RevocationListService` / `RateLimitFilter`), so service-to-service traffic on the compose network that bypasses the gateway edge is still gated at the application layer.
 
 ```mermaid
 flowchart TB
@@ -275,7 +306,7 @@ flowchart TB
 ### Key architectural decisions
 
 **Per-chapter WASM bundles.**
-Each chapter compiles to its own Godot export under `/api/assets/levels/{slug}/` (filesystem path kept for back-compat). The iframe URL carries `?chapter_id=N`; `index.html` prefetches `/api/chapters/N/scene` early so scene config is ready before the 30 s+ WASM compile finishes. The prefetch now checks `if (!r.ok) throw new Error(...)` so a BFF error falls to `.catch()` with a console warning instead of silently becoming an empty scene config. Adding a new chapter = new `.tscn` + new preset in `export_presets.cfg` + new row in `chapters` — see [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md).
+Each chapter compiles to its own Godot export under `/api/assets/levels/{slug}/` (the filesystem path is kept as-is for back-compat). The iframe URL carries `?chapter_id=N`; `index.html` prefetches `/api/chapters/N/scene` immediately so that scene config is ready before the 30 s+ WASM compile finishes. The prefetch checks `if (!r.ok) throw new Error(...)` so a BFF error falls to `.catch()` with a console warning rather than silently producing an empty scene config. Adding a new chapter requires four things: a new `.tscn`, a new preset in `export_presets.cfg`, a new row in `chapters`, and a Liquibase migration if new data is needed — see [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md).
 
 **All controls authenticate through a session.**
 Every `POST /api/controls/{charId}` is JWT-authenticated; the server rejects it with 403 unless the JWT subject is the holder of the controller role. `HomeComponent.ngOnInit` auto-calls `session.connect()` → `session.claimControl()` on page load so solo play "just works". If the BFF restarts (clearing the in-memory `activeSessions`/`currentController`), `game_bridge.gd` detects the first 403, posts `SD_SESSION_EXPIRED` to the host shell, and `ApiBridgeService` automatically re-runs connect + claim — the next keypress works without a page reload. Up to 3 players may be connected simultaneously; only one holds the controller role at a time.
@@ -287,19 +318,19 @@ The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WA
 `GameStreamController` merges eight `Sinks.Many` from `GameStateService` (movement, world, character, scene, input, audio, wasm-console, session-control) + one from `GameTimeService` (time) + a keepalive `Flux.interval(Duration.ZERO, 15s)` into a single `Flux<ServerSentEvent>`. The immediate first-tick keepalive forces response headers to flush at connect time, so browser `EventSource.onopen` fires in milliseconds instead of waiting for the first real event. Each payload carries an `event:` field so clients register per-type listeners.
 
 **SSE sinks must not autoCancel.**
-`Sinks.many().multicast().onBackpressureBuffer(N)` defaults to `autoCancel=true` — when every subscriber disconnects (iframe remount, EventSource reconnect, network blip), the sink terminates permanently and all subsequent `tryEmitNext` calls silently drop. Every sink in this project passes `autoCancel=false` explicitly. Producing a "first keypress works, then everything dies" symptom until this was fixed.
+`Sinks.many().multicast().onBackpressureBuffer(N)` defaults to `autoCancel=true`. This means that when every subscriber disconnects — due to an iframe remount, an EventSource reconnect, or a momentary network blip — the sink terminates permanently and all subsequent `tryEmitNext` calls are silently dropped. Every sink in this project passes `autoCancel=false` explicitly. Before this was fixed, the symptom was "first keypress works, then all subsequent input dies".
 
 **Movement queue, not latest-wins.**
-`window._twMovementQueue` is an array that the JS SSE listener pushes to per-event. Previously the listener stored only the latest payload, so rapid keydown+keyup pairs (exactly what spell keys produce) collapsed into just the keyup and the `pressed=true` event was lost between Godot's 16 ms polls. `_drain_movement_queue` now splices the array atomically each frame and emits `state_updated` in FIFO order.
+`window._twMovementQueue` is an array that the JS SSE listener appends to on each event. Previously the listener stored only the most recent payload, so rapid keydown+keyup pairs — exactly what spell keys produce — collapsed into just the keyup, and the `pressed=true` event was lost between Godot's 16 ms polls. `_drain_movement_queue` now splices the array atomically each frame and dispatches events in FIFO order via `state_updated`.
 
 **Casdoor kept internal; JWKS at `/.well-known/jwks`.**
-`docker-compose.yml` exposes no host port for Casdoor. Spring Security's JWT decoder is wired to the anonymous `/.well-known/jwks` — **not** `/api/get-jwks`, which requires admin auth and would return an error payload that throws `"Missing required keys member"` on every Bearer-tagged request, including permitAll ones.
+`docker-compose.yml` exposes no host port for Casdoor — it is not reachable from outside the compose network. Spring Security's JWT decoder is wired to the anonymous `/.well-known/jwks` endpoint. Do not use `/api/get-jwks`: that endpoint requires admin authentication and returns an error payload that causes Spring Security to throw `"Missing required keys member"` on every Bearer-tagged request, including `permitAll` routes.
 
 **R2DBC + JDBC coexistence.**
 Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 4 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
 
 **Per-brand domain isolation, mirrored from snapdragon.systems.**
-The BFF derives a tenant the way the snapdragon-gateway does: one Casdoor per brand ⇒ a distinct, cryptographically-validated `iss`, mapped to a brand by `DomainRegistry`, stamped as exactly one `DOMAIN_<x>` authority by `CasdoorAuthorities` (with a reserved-prefix guard so a `permissions:["DOMAIN_other"]` entry can't forge a tenant). `DomainGuardFilter` is the first consumer: when `app.tenancy.domain` names the brand this instance serves, it 403s any authenticated token whose `DOMAIN_<x>` ≠ that brand (SUPERADMIN exempt) — the BFF-side, defence-in-depth mirror of the gateway's domain hard-deny, for traffic that reaches the BFF on the compose network bypassing the edge. Unset (the single-Casdoor default) ⇒ a complete no-op. An optional `app.tenancy.issuers` CSV swaps in a per-brand multi-issuer decoder (`TenancyResourceServerConfig`). See [decision 025](docs/wiki/decisions/025-bff-domain-guard.md).
+The BFF derives tenant identity the same way the snapdragon-gateway does: each brand has its own Casdoor instance, producing a distinct cryptographically-validated `iss` claim. `DomainRegistry` maps that issuer to a brand name; `CasdoorAuthorities` stamps exactly one `DOMAIN_<x>` authority on every token, with a reserved-prefix guard that prevents a `permissions:["DOMAIN_other"]` entry from forging a cross-tenant identity. `DomainGuardFilter` is the first consumer of this authority: when `app.tenancy.domain` names the brand this BFF instance serves, it returns 403 (with `X-Domain-Denied`) for any authenticated non-SUPERADMIN token whose `DOMAIN_<x>` does not match — a defence-in-depth mirror of the gateway's domain hard-deny, covering compose-network traffic that reaches the BFF without traversing the gateway edge. When `app.tenancy.domain` is unset (the single-Casdoor default), the filter is a complete no-op. An optional `app.tenancy.issuers` CSV activates a per-brand multi-issuer decoder (`TenancyResourceServerConfig`). See [decision 025](docs/wiki/decisions/025-bff-domain-guard.md).
 
 **Module Federation: host + twelve remotes + a fragment + 14 `wasm-game` rows.**
 The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads role-gated sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The 14 web-native titles add no per-remote container — they ride the shared `wasm-fragment` via `wasm-game` manifest rows (last row below):
@@ -320,7 +351,7 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 | `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
 | `<game-slug>` (×14) | `wasm-game` | — (`exposed_module=NULL`) | Web-native titles. `remote_entry_url` points **directly** at `/_remotes/wasm-fragment/<slug>/index.html` (not a `remoteEntry.json`), `game_slug` carries the catalog slug. The host mounts it as a parametrised iframe; `home.component` reads `isWebNative` off the manifest. `main.ts` excludes `wasm-game` from `initFederation`. Seeded by [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml). |
 
-A fourth federation `kind`, **`wasm-game`**, was added for the 14 web-native titles: it carries no Angular module (`exposed_module=NULL`) and its `remote_entry_url` resolves straight to the `wasm-fragment` bundle, so a new web-native game federates by adding one DB row with no frontend change. Because `main.ts` only wires `kind ∈ {remote-game, remote-shell}` into `initFederation`, these rows are consumed only by the host's manifest reader and cannot perturb the federation runtime. See the "Web-native games" section of [CLAUDE.md](CLAUDE.md).
+The **`wasm-game`** federation kind was added specifically for the 14 web-native titles, and was later reused as-is for the *Chess (Godot)* pilot title (migration 053) — proof the kind works for a Godot-authored bundle too, not just the Rust→wasm32 engines. A `wasm-game` row carries no Angular module (`exposed_module=NULL`); its `remote_entry_url` resolves directly to the `wasm-fragment` bundle. This means a new web-native (or Godot) game can be federated simply by inserting one database row — no frontend rebuild required. Because `main.ts` only passes `kind ∈ {remote-game, remote-shell}` into `initFederation`, `wasm-game` rows are consumed only by the host's manifest reader and cannot affect the federation runtime. See the "Web-native games" section of [CLAUDE.md](CLAUDE.md).
 
 `HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` for the Godot family (cave/field → `three-wizards`, dodecahedron → `dodecahedron`) and on the manifest's `isWebNative` flag for the web-native family; chapters with sceneTypes outside that map and no `wasm-game` row fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_CHAPTER_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.
 
@@ -393,7 +424,7 @@ flowchart TB
     API --> Stream --> SSE --> Drain --> OnState --> Match
 ```
 
-Spells cast via two redundant paths — the direct in-WASM call fires the visual instantly; the round-trip through the API exists so the server can eventually subtract MP, grant XP, resolve collisions with enemies, etc.
+Spells are cast via two redundant paths — the direct in-WASM call fires the visual instantly; the round-trip through the API exists so the server can eventually subtract MP, grant XP, resolve collisions with enemies, etc.
 
 ### `ControlEvent` — `POST /api/controls/{characterId}` body
 
@@ -514,7 +545,7 @@ flowchart LR
 
 ### `GameController` — `/api/games`  *(public)*
 
-Umbrella tier. Each game groups one or more Levels.
+Umbrella tier. Each game groups one or more chapters.
 
 #### `GET /api/games` · `GET /api/games/{id}`
 
@@ -523,9 +554,12 @@ flowchart LR
     R(["GET /api/games"]) --> Q["gameRepo.findAllByOrderBySortOrderAsc()"] --> O(["● ● …  Game{id, name, slug, sortOrder}"])
 ```
 
-#### `GET /api/games/{id}/chapters`
+#### `GET /api/games/{id}/chapters` · `GET /api/games/{id}/levels` (legacy alias)
 
-Returns every Chapter inside the umbrella game, ordered by sort_order.
+Returns every Chapter inside the umbrella game, ordered by sort_order. The
+Java controller method is `listChapters(...)`; `/levels` is kept as a
+back-compat alias (same dual-mapping pattern `ChapterController` uses) for
+any already-exported WASM bundle still calling the pre-PR-#20 path.
 
 ```mermaid
 flowchart LR
@@ -1120,8 +1154,8 @@ Projectile size scales with tier: starter radius ≈ 0.6, advanced ≈ 1.0.
 ## Godot asset pipeline
 
 Each game lives in its **own** Godot project under `games/<game-slug>/`, and
-each level inside that project compiles to its **own** WASM bundle. Per-game
-`export_presets.cfg` holds one preset per level; the Makefile walks
+each chapter inside that project compiles to its **own** WASM bundle. Per-game
+`export_presets.cfg` holds one preset per chapter; the Makefile walks
 `GAME_PROJECTS` and the per-game `PRESETS_<dir>` variable, runs
 `godot --headless --export-release "<preset>"` from each game's directory, and
 writes the output under `backend/src/main/resources/assets/levels/<slug>/`.
@@ -1155,9 +1189,9 @@ games need) at `/_remotes/wasm-fragment/<slug>/index.html`. The Angular host's
 `HomeComponent` selects between the legacy classpath URL and the federated
 one via `SCENE_TYPE_TO_GAME_SLUG`.
 
-Adding a new level touches four places — the game's `export_presets.cfg`,
-the Makefile's `PRESETS_<game>`, the `levels` DB row, and (optionally)
-`level_prerequisites`. Adding a brand-new game touches a fifth (a row in
+Adding a new chapter touches four places — the game's `export_presets.cfg`,
+the Makefile's `PRESETS_<game>`, the `chapters` DB row, and (optionally)
+`chapter_prerequisites`. Adding a brand-new game touches a fifth (a row in
 `federation_modules`) — or you can let the editor's *Snapdragon Export*
 plugin produce an upload zip and let `GameUploadController` register
 everything atomically. Full walk-through with naming rules and common
@@ -1187,7 +1221,7 @@ api.resolve_asset(chapter_id, "oak-bark", func(url):
 )
 ```
 
-Level transitions from inside the game are one call:
+Chapter transitions from inside the game are one call:
 
 ```gdscript
 $GameBridge.request_chapter_transition("field", 2)
@@ -1399,11 +1433,28 @@ docker compose up -d
 # Check Casdoor seed credentials (client-id, client-secret, admin/player passwords)
 docker compose logs casdoor | grep -A 6 "Casdoor seed"
 
-# Open the app
-open http://localhost:4200
+# Open the app — the frontend nginx serves the SPA on :8080, not :4200
+# (only `make dev-frontend`'s standalone Angular dev server uses :4200)
+open http://localhost:8080
 ```
 
 The `api` container waits for both `postgres` (healthcheck) and `casdoor` (healthcheck) before starting. Liquibase runs schema migrations automatically on first boot.
+
+```mermaid
+flowchart TB
+    PG["postgres\n(healthcheck: pg_isready)"]
+    CAS["casdoor\n(healthcheck: /health)"]
+    API["api (BFF)\nwaits for postgres + casdoor\nruns Liquibase migrations"]
+    FE["frontend (Angular host nginx)\nwaits for api"]
+    REMOTES["federated remotes\n(login, admin, mod, publisher, …)"]
+    WASM["wasm-fragment nginx\n(static bundle serving)"]
+
+    PG --> API
+    CAS --> API
+    API --> FE
+    REMOTES -.->|"proxied at /_remotes/<slug>/ by frontend nginx"| FE
+    WASM -.->|"proxied at /_remotes/wasm-fragment/ by frontend nginx"| FE
+```
 
 To override credentials:
 ```bash
@@ -1429,7 +1480,7 @@ SNAPDRAGON_TAG=2026-04-26.42 \
   docker compose -f compose.yml -f compose.prod.yml up -d
 ```
 
-Each app service is tagged `snapdragon-games/<svc>:${SNAPDRAGON_TAG:-dev}` in the dev compose so the same images are pushable to a registry; staging and prod overlays require `SNAPDRAGON_TAG` to be set explicitly (no `:dev` fallback). The image-name map:
+Each app service is tagged `snapdragon-games/<svc>:${SNAPDRAGON_TAG:-dev}` in the dev compose, so the same images can be pushed to a registry without modification. Staging and prod overlays require `SNAPDRAGON_TAG` to be set explicitly (no `:dev` fallback). The image-name map:
 
 | Compose service | Image |
 |---|---|
@@ -1442,11 +1493,11 @@ Each app service is tagged `snapdragon-games/<svc>:${SNAPDRAGON_TAG:-dev}` in th
 | `games-dodecahedron`   | `snapdragon-games/dodecahedron-remote` |
 | `wasm-fragment`        | `snapdragon-games/wasm-fragment` |
 
-**CORS posture across environments.** `WebConfig.java` ships a development-friendly default allowlist (localhost + e2e + `*.snapdragon.games` + `*.staging.snapdragon.games`); the overlays narrow it via `SPRING_WEB_CORS_ALLOWED_ORIGINS` so a production BFF only accepts requests whose `Origin` header is on `snapdragon.games` / `*.snapdragon.games`. The two values are merged so a developer pointing a local browser at a staging BFF for debugging still works.
+**CORS posture across environments.** `WebConfig.java` ships a development-friendly default allowlist covering localhost, e2e origins, and `*.snapdragon.games`. The staging and prod overlays narrow this via `SPRING_WEB_CORS_ALLOWED_ORIGINS` so a production BFF only accepts requests whose `Origin` header is `snapdragon.games` or `*.snapdragon.games`. The two values are merged, so a developer pointing a local browser at a staging BFF for debugging remains unaffected.
 
 **Casdoor public URL.** Both overlays set `CASDOOR_PUBLIC_BASE_URL` to the matching environment's Casdoor host (`login.staging.snapdragon.games` / `login.snapdragon.games`) so OAuth2 redirect URIs match the public DNS.
 
-**Large-file upload + storage.** Game bundle zips can run into the gigabyte range. The relevant Spring + compose env vars (default in parens):
+**Large-file upload + storage.** Game bundle zips can reach gigabyte sizes. The relevant Spring and compose environment variables (defaults shown in parentheses):
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -1457,7 +1508,7 @@ Each app service is tagged `snapdragon-games/<svc>:${SNAPDRAGON_TAG:-dev}` in th
 | `APP_UPLOADS_GAMES_DIR` | `/var/snapdragon/games` | In-container path the BFF writes installed bundles into. |
 | `APP_GAMES_UPLOAD_HOST_DIR` | (named volume in dev; required in prod) | **Host** path the in-container `/var/snapdragon/games` is bind-mounted from. Set to a fast SSD / NFS / managed volume in staging+prod. |
 
-Production refuses to start without `APP_GAMES_UPLOAD_HOST_DIR` set — `compose.prod.yml` declares it required so a misconfigured deploy fails fast instead of silently writing into ephemeral storage.
+Production refuses to start without `APP_GAMES_UPLOAD_HOST_DIR` set. `compose.prod.yml` declares it required so that a misconfigured deploy fails immediately rather than silently writing game bundles into ephemeral container storage.
 
 ### Gamepad / generalised input / WASM error capture
 
@@ -1465,13 +1516,15 @@ Liquibase changeset 026 added a generalised input surface covering everything Go
 
 - `input_event_kinds` — closed vocabulary (`gamepad`, `mouse`, `keyboard`, `touch`, `audio`, `world`, `control`).
 - `input_event_types` — **composite** primary key on `(kind, type)`. Per-kind type vocabulary + example payloads.
-- `game_event_support` — per-game opt-in. **Composite** key `(game_slug, event_kind, event_type)`. The Snapdragon Export plugin writes this on upload; the BFF refuses input emits whose triple isn't enabled.
+- `game_event_support` — per-game opt-in. **Composite** key `(game_slug, event_kind, event_type)`. The Snapdragon Export plugin writes this table on upload.
 
 Plus a `games.features` JSONB column with per-game feature flags so JRPG-only subsystems (spell loadout / quests / items / character progression) and per-input-kind flags can be flipped off for non-JRPG games.
 
-The browser-tier [`GamepadService`](frontend/src/app/services/gamepad.service.ts) polls `navigator.getGamepads()` every animation frame, diffs, and forwards canonical input events both into the active game iframe (via `postMessage` for Godot) and to the BFF (`POST /api/input/{characterId}`). A connected Nintendo Pro Controller (or any standard-mapped gamepad) drives gameplay without any per-game JS — [`wasm-fragment/snapdragon-shim.js`](wasm-fragment/snapdragon-shim.js) is injected via `nginx sub_filter` into every Godot bundle's `index.html` and exposes the inputs through `window._sdInputQueue`, which the GDScript glue drains every frame and dispatches through `HostBridge` so the Rust extension's typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`) fire in-game.
+`InputEventController` validates against these tables in three gates, of which only the first is currently wired in: the `(kind, type)` pair must exist in `input_event_types` (400 if not). The other two gates — rejecting a kind the active game's `games.features` doesn't accept, and rejecting an `(game_slug, event_kind, event_type)` triple not present in `game_event_support` — are not yet implemented; see [Known gaps / TODO](#known-gaps--todo).
 
-The same shim wraps `console.error` / `window.onerror` / `unhandledrejection` and forwards captures to `POST /api/diagnostics/wasm-console`, fanning out on the new `wasm-console` SSE channel so admin devtools mirror crashes from inside the WASM iframe.
+The browser-tier [`GamepadService`](frontend/src/app/services/gamepad.service.ts) polls `navigator.getGamepads()` on every animation frame, diffs the state, and forwards canonical input events both into the active game iframe (via `postMessage` for Godot) and to the BFF (`POST /api/input/{characterId}`). Any standard-mapped gamepad — such as a Nintendo Pro Controller — drives gameplay without per-game JS changes. [`wasm-fragment/snapdragon-shim.js`](wasm-fragment/snapdragon-shim.js) is injected by `nginx sub_filter` into every Godot bundle's `index.html`, exposing inputs through `window._sdInputQueue`. The GDScript glue drains that queue every frame and dispatches through `HostBridge`, causing the Rust extension's typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`) to fire in-game.
+
+The same shim also wraps `console.error`, `window.onerror`, and `unhandledrejection`. Captured errors are forwarded to `POST /api/diagnostics/wasm-console` and fanned out on the `wasm-console` SSE channel, so admin devtools can mirror crashes that occur inside the WASM iframe in real time.
 
 ---
 
@@ -1508,8 +1561,7 @@ make deploy                # build-godot + seed-db (rebuild api image afterwards
 
 ### GraalVM native-image build (BFF)
 
-The native build trades ~5–10× longer compile time for sub-second cold start
-and ~70 % smaller container. Flow:
+The native build trades a longer compile time (~5–10× vs JVM) for a sub-second cold start and a ~70% smaller container image. Flow:
 
 ```bash
 make build-backend-native        # one-shot: docker build -f backend/Dockerfile.native
@@ -1517,19 +1569,19 @@ make e2e-native                  # full Playwright suite against the native imag
 ```
 
 **Prerequisites + tradeoffs**:
-- The AOT compiler (GraalVM `native-image`) wants **6–8 GB of free RAM** during
-  the compile pass. On a 16 GB laptop the build takes ~5–10 minutes; on
-  smaller machines it OOMs partway through with no graceful fallback. Run
-  the JVM build (`make build-backend`) on memory-constrained hosts.
-- The build is **not** wired into PR CI by default — it's gated behind a
-  `[native]` commit-message marker so a normal PR doesn't pay the 5–10 min
-  compile tax. Flip on when a release branch is being prepared.
+- The AOT compiler (GraalVM `native-image`) requires **6–8 GB of free RAM**
+  during the compile pass. On a 16 GB laptop the build takes roughly 5–10 minutes;
+  on smaller machines it runs out of memory midway with no graceful fallback. Use
+  `make build-backend` (JVM build) on memory-constrained hosts.
+- The build is **not** wired into PR CI by default. It is gated behind a
+  `[native]` commit-message marker so that ordinary PRs do not pay the 5–10 minute
+  compile cost. Enable it when preparing a release branch.
 - Image runtime size is ~150 MB (vs ~600 MB for the JVM build). Cold start
   is **~0.4 s** (vs ~3 s JVM). RSS at idle is ~100 MB (vs ~400 MB JVM).
 - Liquibase migrations run from a separate init container at startup
-  (see `docker-compose.native.yml`) — the native binary itself has
-  `SPRING_LIQUIBASE_ENABLED=false`. New migrations land transparently;
-  no rebuild of the native image is required for schema-only changes.
+  (see `docker-compose.native.yml`) — the native binary itself runs with
+  `SPRING_LIQUIBASE_ENABLED=false`. Schema-only changes can be deployed
+  without rebuilding the native image; the init container applies them on next boot.
 
 Implementation notes — gotchas surfaced and fixed during initial
 verification, all visible in [SnapdragonRuntimeHints.java](backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java) +
@@ -1662,31 +1714,36 @@ Keyboard input works both from the Angular page and from inside the Godot canvas
 ## Project structure
 
 ```
-portal/                                   # Snapdragon Game Studio repo
-├── Makefile                              # Master build + seed-db + e2e + e2e-native
+snapdragon.games/                         # Snapdragon Game Studio repo
+├── Makefile                              # Master build + seed-db + e2e + e2e-native + docs
 ├── scripts/
 │   ├── patch-godot-html.py              # Patches WASM sizes + scene prefetch
 │   ├── gen-certs.sh                     # Self-signed TLS certs for `make e2e`
-│   ├── seed-games.sql                   # Idempotent game record upserts
-│   └── seed-roles.sh                    # Casdoor role seeder (per-game ROLE_PLAY_*)
+│   ├── seed-games.sql                   # Idempotent game/chapter record upserts
+│   ├── setup-pg-replica.sh              # Streaming-replica bootstrap (decision 022)
+│   └── migrate-uploads-to-s3.sh         # One-shot filesystem → S3 upload migration
 ├── docker-compose.yml                   # postgres + cassandra + casdoor + api + frontend
-│                                          + 4 federated remotes + wasm-fragment
-├── docker-compose.e2e.yml               # TLS overlay: nginx HTTPS on :8443, e2e service
+│                                          + ~12 federated remotes + wasm-fragment + rpg/vn-builder
+├── docker-compose.e2e.yml               # TLS overlay for `make e2e` / `make e2e-bdd`
 ├── docker-compose.native.yml            # Native-image overlay: GraalVM api + Liquibase init
-├── docker/
-│   ├── postgres-init.sql                # Creates casdoor + threewizards DBs
-│   └── cassandra-init.cql               # Cross-pod session/cache keyspace
+├── docker-compose.replica.yml           # Optional Postgres streaming-replica overlay
+├── docker-compose.godot.yml             # Real Godot export overlay for the makers (opt-in)
+├── compose.staging.yml / compose.prod.yml  # Staging / prod overlays (image tags, CORS, storage)
 ├── casdoor/
 │   ├── conf/app.conf                    # Casdoor config (postgres, origin, initDataFile)
 │   ├── init_data.json.tpl               # Org / app / user / role seed template
 │   └── entrypoint.sh                    # Substitutes env vars, generates random secrets
-├── extensions/snapdragon-bridge/        # Reusable Rust GDExtension (replaces game/rust/)
-│   ├── Cargo.toml                       # crate-type cdylib (native + WASM target)
-│   ├── src/
-│   │   ├── lib.rs                       # Crate entry, registers HostBridge
-│   │   └── host_bridge.rs               # HostBridge node: typed signals + Standalone mode
-│   └── example/bridge_glue.gd           # Reference glue script for new game projects
-├── games/                               # Per-game Godot 4.6 projects
+├── extensions/                           # Rust GDExtension + web-native game engines
+│   ├── snapdragon-bridge/               # Reusable Rust GDExtension (HostBridge)
+│   │   ├── Cargo.toml                   # crate-type cdylib (native + WASM target)
+│   │   ├── src/
+│   │   │   ├── lib.rs                   # Crate entry, registers HostBridge
+│   │   │   └── host_bridge.rs           # HostBridge node: typed signals + Standalone mode
+│   │   ├── addons/snapdragon_export/    # Editor → upload-zip export plugin
+│   │   └── example/bridge_glue.gd       # Reference glue script for new game projects
+│   ├── snapdragon-fps-core/, snapdragon-rts-core/  # 🚧 server-authoritative sim cores (no catalog title yet)
+│   └── snapdragon-<game>/ + snapdragon-<game>-wasm/  # 14 pure-Rust engines → wasm32-unknown-unknown
+├── games/                               # Per-game Godot 4.6 projects + web-native canvas frontends
 │   ├── three-wizards-in-a-trenchcoat/  # Flagship JRPG (cave + field)
 │   │   ├── project.godot
 │   │   ├── export_presets.cfg           # Cave + Field web export presets
@@ -1697,56 +1754,69 @@ portal/                                   # Snapdragon Game Studio repo
 │   │   ├── addons/snapdragon_export/   # Project → Tools → Snapdragon → Export plugin
 │   │   ├── bin/                         # libsnapdragon_bridge.so (per-project copy)
 │   │   └── snapdragon_bridge.gdextension
-│   └── dodecahedron-demo/               # Chrome-less single-scene tech demo
-│       ├── project.godot
-│       ├── scenes/dodecahedron.tscn
-│       ├── scripts/dodecahedron_spinner.gd
-│       └── (same export plugin + bridge layout)
+│   ├── dodecahedron-demo/               # Chrome-less single-scene tech demo
+│   │   ├── project.godot
+│   │   ├── scenes/dodecahedron.tscn
+│   │   ├── scripts/dodecahedron_spinner.gd
+│   │   └── (same export plugin + bridge layout)
+│   ├── chess-godot/                     # Godot pilot port of chess (reuses ChessEngine GDExtension node)
+│   ├── _shared/                        # Shared GAME interface for web-native titles
+│   ├── _godot-template/                # Starter template for new Godot games (chess-godot is the reference)
+│   └── chess/, tetris/, go/, …          # 14 web-native canvas frontends (one per engine)
 ├── frontend/                            # Angular 22 host shell
 │   ├── nginx.conf / nginx-tls.conf     # Reverse-proxy /api/* and /_remotes/<slug>/
 │   ├── Dockerfile                       # ng build under @angular-architects/native-federation
 │   ├── federation.config.js             # Host-side federation config
-│   ├── federation-base.js               # Shared shareAll/skip helpers (host + 4 remotes)
-│   ├── projects/                        # Federated remote bundles (per-remote Angular projects)
-│   │   ├── login/                       # remote-shell — exposes ./LoginComponent
-│   │   ├── admin/                       # remote-shell — exposes ./AdminShell + ./UploadShell
-│   │   ├── games-three-wizards/         # remote-game  — exposes ./GameRoot (cave + field)
-│   │   └── games-dodecahedron/          # remote-game  — exposes ./GameRoot
+│   ├── projects/                        # Federated remote bundles (per-remote Angular projects):
+│   │                                      login, admin, mod, publisher, api-docs,
+│   │                                      games-three-wizards, games-dodecahedron,
+│   │                                      games-rpg-maker, games-vn-maker, registration,
+│   │                                      producer-registration, banned
 │   └── src/app/                         # Host shell sources
 │       ├── http-auth.interceptor.ts    # Attaches Bearer token to /api/* requests
 │       ├── auth.guard.ts                # Route guard: AuthService.isAuthenticated()
-│       ├── app.routes.ts                # /login + /admin + /admin/games via loadRemote()
+│       ├── app.routes.ts                # Route table incl. loadRemote() federated routes
 │       ├── home/                        # Game listing + federated render fork
 │       ├── game-canvas/                 # Legacy iframe path (fallback, sceneType not in
-│       │                                  SCENE_TYPE_TO_GAME_SLUG)
-│       ├── game-controls/ + game-hud/   # WASD/spell overlays, character status
-│       └── services/                    # auth/control/game-state/federation/remote-loader
+│       │                                  SCENE_TYPE_TO_GAME_SLUG and no wasm-game row)
+│       ├── game-controls/ + game-hud/   # WASD/instant overlays, character status
+│       └── services/                    # auth/control/game-state/federation/gamepad/…
 ├── wasm-fragment/                       # Asset-tier nginx (federated WASM bundle serving)
-│   ├── Dockerfile                       # Bakes classpath /assets/levels/<slug>/ into nginx
-│   └── nginx.conf                       # COOP/COEP/CORP headers, .wasm/.pck MIME, /<slug>/
+│   ├── Dockerfile                       # Bakes classpath assets/levels/<slug>/ into nginx
+│   ├── nginx.conf                       # COOP/COEP/CORP headers, .wasm/.pck MIME, /<slug>/
+│   └── snapdragon-shim.js               # Injected via sub_filter — gamepad/input/console capture
+├── rpg-builder/ · vn-builder/            # Twin Spring Boot maker side-services (decision 018)
+│   └── src/main/java/games/snapdragon/{rpgbuilder,vnbuilder}/  # own Postgres DB + Liquibase
 └── backend/                             # Spring Boot 4.0 / Java 25 / WebFlux + R2DBC
     ├── pom.xml                          # `native` profile for GraalVM AOT
     ├── Dockerfile / Dockerfile.native  # JVM image / GraalVM native-image multi-stage
-    └── src/main/java/com/threewizards/
-        ├── aot/SnapdragonRuntimeHints.java  # Native-image reflection hints
-        ├── config/
-        │   ├── JdbcDataSourceConfig.java   # @Primary HikariDataSource for Liquibase
-        │   ├── R2dbcConvertersConfig.java  # OffsetDateTime ↔ Instant (native-image)
-        │   ├── SecurityConfig.java         # JWT resource server, path rules
-        │   └── WebConfig.java              # CORS
-        ├── controller/                     # See API Reference below — 14 controllers,
-        │                                     federation/admin-uploads/launches/access added
-        ├── model/                          # R2DBC entities + DTOs + records
-        ├── repository/                     # ReactiveCrudRepository interfaces
-        └── service/
-            ├── GameStateService.java       # @DependsOn(liquibase) — 4 typed Sinks
-            ├── GameTimeService.java        # @DependsOn(liquibase) — 10s = 1min scheduler
-            ├── GameUploadService.java      # Hot-upload pipeline: validate → stage → tx-install
-            ├── GameUploadPruner.java       # @Scheduled — keep-last-N version_dir trees
-            ├── GameLaunchSweeper.java      # @Scheduled — bulk-terminate expired launches
-            ├── PgNotificationService.java  # LISTEN game_events → SSE scene$
-            ├── SessionService.java         # 3-player cap + controller arbitration
-            └── AdminPasswordService.java   # Dev profile: prints credentials at startup
+    └── src/main/java/games/snapdragon/
+        ├── autoconfigure/                  # Cassandra-backed services auto-config (outside scan root)
+        └── bff/
+            ├── aot/SnapdragonRuntimeHints.java  # Native-image reflection hints
+            ├── config/
+            │   ├── JdbcDataSourceConfig.java   # @Primary HikariDataSource for Liquibase
+            │   ├── R2dbcConvertersConfig.java  # OffsetDateTime ↔ Instant (native-image)
+            │   ├── SecurityConfig.java         # JWT resource server, path rules
+            │   ├── R2dbcReadReplicaConfig.java # @Qualifier("replica") beans (decision 022)
+            │   ├── DomainGuardFilter.java       # Multi-brand DOMAIN_ hard-deny (decision 025)
+            │   └── WebConfig.java              # CORS
+            ├── controller/                     # See API reference below — 38 controllers
+            ├── model/                          # R2DBC entities + DTOs + records
+            ├── repository/                     # ReactiveCrudRepository interfaces
+            ├── security/                       # Roles.java, DomainRegistry.java, CasdoorAuthorities.java
+            ├── audit/                           # Kafka producers/subscribers (decision 021)
+            ├── upload/                          # UploadStorage strategy: filesystem / S3 (decision 020)
+            └── service/
+                ├── GameStateService.java       # @DependsOn(liquibase) — per-session sinks, 8 typed channels
+                ├── GameTimeService.java        # @DependsOn(liquibase) — 10s = 1min scheduler
+                ├── GameUploadService.java      # Hot-upload pipeline: validate → stage → tx-install
+                ├── GameUploadPruner.java       # @Scheduled — keep-last-N version_dir trees
+                ├── GameLaunchSweeper.java      # @Scheduled — bulk-terminate expired launches
+                ├── PgNotificationService.java  # LISTEN game_events → SSE scene$
+                ├── SessionService.java         # Legacy 3-player-cap single-session path
+                ├── CassandraSyncService.java   # 🔭 planned retirement once Kafka pipeline soaks
+                └── AdminPasswordService.java   # Dev profile: prints credentials at startup
 ```
 
 ---
@@ -1754,7 +1824,8 @@ portal/                                   # Snapdragon Game Studio repo
 ## SSE debugging
 
 ```bash
-# Watch the full multiplexed stream (all 5 event types)
+# Watch the full multiplexed stream (9 typed channels + keepalive — see
+# "SSE event types" in the Data model section above)
 curl -N http://localhost:8080/api/game/stream
 
 # Filter to a single channel
@@ -1778,7 +1849,7 @@ To enable DEBUG logging:
 # backend/src/main/resources/application.yml
 logging:
   level:
-    com.threewizards: DEBUG
+    games.snapdragon.bff: DEBUG
 ```
 
 ---
@@ -1791,10 +1862,10 @@ symptom across the stack.
 
 ### Every API request returns 500 with `Missing required "keys" member`
 
-Spring Security's reactive JWT decoder is fetching JWKs from a non-JWK endpoint.
-Casdoor exposes both `/api/get-jwks` (admin-auth required, returns an error
-JSON) and `/.well-known/jwks` (anonymous, real JWK Set). Always use the
-well-known path:
+Spring Security's reactive JWT decoder is fetching JWKs from the wrong endpoint.
+Casdoor exposes two paths: `/api/get-jwks` (requires admin authentication, returns
+an error JSON that Spring cannot parse as a JWK Set) and `/.well-known/jwks`
+(anonymous, returns a real JWK Set). Always use the well-known path:
 
 ```yaml
 spring:
@@ -1807,54 +1878,61 @@ spring:
 
 ### Iframe blocked by Firefox / Chrome refuses to embed the WASM bundle
 
-`SecurityConfig` must call `.headers(h -> h.frameOptions(fo ->
-fo.mode(SAMEORIGIN)))`. Spring Security WebFlux defaults to
-`X-Frame-Options: DENY` which blocks even same-origin embedding.
+`SecurityConfig` must call `.headers(h -> h.frameOptions(fo -> fo.mode(SAMEORIGIN)))`.
+Spring Security WebFlux defaults to `X-Frame-Options: DENY`, which blocks all iframe
+embedding — including same-origin iframes like the Godot WASM bundle. The `SAMEORIGIN`
+mode allows the Angular host to embed the bundle while still blocking third-party framing.
 
 ### "API offline" stays on for 30 s after every page load
 
-`Flux.interval(period)` first emits at `t = period`, and Reactor-Netty doesn't
-flush response headers until the first body chunk — so the browser's
-`EventSource` never fires `onopen` and the Angular `connected$` BehaviorSubject
-stays `false`. The fix in `GameStreamController` is `Flux.interval(Duration.ZERO,
-Duration.ofSeconds(15))` so a `:keepalive` comment ships immediately.
+`Flux.interval(period)` does not emit until `t = period`, and Reactor-Netty does
+not flush response headers until the first body chunk arrives. This means the
+browser's `EventSource` never fires `onopen`, and the Angular `connected$`
+BehaviorSubject stays `false` for the full interval. The fix in
+`GameStreamController` is to use `Flux.interval(Duration.ZERO, Duration.ofSeconds(15))`
+so a `:keepalive` comment is emitted immediately at `t=0`, forcing headers to flush
+and `onopen` to fire within milliseconds.
 
 ### Liquibase fails on `relation "games_pkey" already exists`
 
-`<renameTable>` in PostgreSQL renames the table only — the backing PK index,
-unique constraints, and sequences keep their original names. The `012-5b`
-changeset renames `games_pkey` / `games_slug_key` / `games_id_seq` to
-`levels_*` (with `IF EXISTS` guards) before `012-6` creates the new
-umbrella `games` table. Any future `<renameTable>` migration needs a
-matching cleanup changeset.
+PostgreSQL's `<renameTable>` renames only the table itself — the backing primary
+key index, unique constraints, and sequences keep their original names. When
+changeset `012-6` tries to create a new `games` table, Postgres rejects it because
+`games_pkey` already exists from the previous incarnation of that table. Changeset
+`012-5b` handles this by renaming `games_pkey`, `games_slug_key`, and `games_id_seq`
+to their `levels_*` equivalents (guarded with `IF EXISTS`) before `012-6` runs.
+Any future `<renameTable>` migration must include a matching cleanup changeset for
+its constraints and sequences.
 
 ### Cave loads but is empty (no lights, fairies, or geometry)
 
-Two distinct GD bugs both produce this:
+Two distinct GDScript bugs produce the same empty-world symptom:
 
-- `add_child` from inside `_ready()` or `_process()` while the scene tree is
-  still propagating `_ready` to siblings. Godot 4 emits `Parent node is busy
-  setting up children, add_child() failed`. Always use
-  `node.add_child.call_deferred(child)` for tree mutations from these callbacks.
-  In `scene_loader.gd` both the loading-overlay attachment to the tree root and
-  the per-element `_apply(config)` are deferred.
-- `JavaScriptBridge.eval(...) != true` is unreliable Variant comparison. Use
-  `bool(JavaScriptBridge.eval("!!window.foo"))` so the bridge marshals a real
-  JS boolean. Without this the polling loop never advances and the loading
-  dots animate forever.
+- Calling `add_child` from inside `_ready()` or `_process()` while the scene tree
+  is still propagating `_ready` to siblings causes Godot 4 to log `Parent node is
+  busy setting up children, add_child() failed` and silently skip the child.
+  Always use `node.add_child.call_deferred(child)` for any tree mutation from
+  these callbacks. In `scene_loader.gd`, both the loading-overlay attachment and
+  each per-element `_apply(config)` call are deferred for this reason.
+- Comparing `JavaScriptBridge.eval(...) != true` is an unreliable Variant
+  comparison. Use `bool(JavaScriptBridge.eval("!!window.foo"))` instead, which
+  forces the bridge to marshal a real JS boolean. Without this, the polling loop
+  stalls at the first check and the loading dots animate forever.
 
 ### Iframe shows a stale Godot bundle after rebuild
 
-Browsers aggressively cache iframe contents even when `Cache-Control:
-no-store` is set, because the URL didn't change between mounts. The Angular
-game-canvas component now appends `&t=${Date.now()}` to the iframe `src` so
-each mount gets a unique URL and Firefox refetches.
+Browsers aggressively cache iframe contents even when `Cache-Control: no-store`
+is set, because the URL is identical between mounts and the browser treats it as
+"same page, already cached". The Angular game-canvas component now appends
+`&t=${Date.now()}` to the iframe `src` so each mount gets a distinct URL and
+the browser always refetches.
 
 ### Movement events silently dropped at the API
 
-`POST /api/controls/{characterId}` returns `403` when the caller is not the
-holder of the controller role. The frontend must call `POST /api/sessions/connect`
-on login (which auto-grants controller to the first joiner) before any
-controls fire — otherwise the server logs `Not the current controller` and
-no movement reaches the SSE stream. The Angular dashboard / home-page
-session bootstrap is responsible for that handshake.
+`POST /api/controls/{characterId}` returns `403` when the caller does not hold
+the controller role for the current session. The frontend must call
+`POST /api/sessions/connect` on login — which auto-grants the controller role
+to the first joiner — before sending any control events. If this handshake is
+skipped, the server logs `Not the current controller` and discards all input
+without any error visible to the player. The Angular home-page session bootstrap
+(`HomeComponent.ngOnInit`) is responsible for completing this handshake.

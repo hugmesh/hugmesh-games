@@ -1,5 +1,5 @@
-/** One playable level = one Godot WASM bundle. Belongs to an umbrella Game. */
-export interface Level {
+/** One playable chapter = one Godot WASM bundle. Belongs to an umbrella Game. */
+export interface Chapter {
   id: number;
   gameId: number;
   name: string;

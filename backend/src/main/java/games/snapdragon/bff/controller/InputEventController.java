@@ -11,16 +11,12 @@ import games.snapdragon.bff.service.GameStateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-
-import java.time.Instant;
-import java.util.List;
 
 /**
  * Generalised input + audio event ingestion.
@@ -31,18 +27,21 @@ import java.util.List;
  *
  * <h2>Validation</h2>
  *
- * Each emit goes through three gates:
+ * Each emit is designed to go through three gates, of which only the
+ * first is currently implemented (see the TODO at the end of {@link
+ * #submit}):
  * <ol>
- *   <li>The {@code (kind, type)} pair must exist in the
- *       {@code input_event_types} reference table. Unknown pairs →
- *       400.</li>
- *   <li>The active game's {@code games.features} JSONB must accept
- *       the event kind (a chrome-less demo with
- *       {@code spell_loadout: false} can't have a JRPG client smuggle
- *       in fake control:cast events). Refused kinds → 405.</li>
- *   <li>{@code game_event_support} must list the
- *       {@code (game_slug, event_kind, event_type)} triple as
- *       enabled. Per-game opt-in beyond the feature flags. Refused
+ *   <li><b>Implemented.</b> The {@code (kind, type)} pair must exist
+ *       in the {@code input_event_types} reference table. Unknown
+ *       pairs → 400.</li>
+ *   <li><b>Not yet implemented.</b> The active game's {@code
+ *       games.features} JSONB must accept the event kind (a
+ *       chrome-less demo with {@code spell_loadout: false} can't have
+ *       a JRPG client smuggle in fake control:cast events). Refused
+ *       kinds → 405.</li>
+ *   <li><b>Not yet implemented.</b> {@code game_event_support} must
+ *       list the {@code (game_slug, event_kind, event_type)} triple
+ *       as enabled. Per-game opt-in beyond the feature flags. Refused
  *       triples → 405.</li>
  * </ol>
  *
@@ -133,10 +132,11 @@ public class InputEventController {
                             .flatMap(payloadJson -> events.insert(ev, payloadJson)
                                     .doOnNext(state::emitInput));
                 }));
-        // Gates 2 (features.<kind>) and 3 (game_event_support) added in
-        // a follow-up commit alongside the GameRepository.findFeatures
-        // helper — keeping THIS commit focused on the schema +
-        // ingestion path so it's reviewable independently.
+        // TODO: gates 2 (features.<kind>) and 3 (game_event_support) are not
+        // yet implemented. They require a not-yet-existing
+        // GameRepository.findFeatures helper — deferred to a follow-up
+        // commit so this one stays focused on the schema + ingestion path
+        // and is reviewable independently. See the class Javadoc above.
     }
 
     @Operation(summary = "Recent events for a character (newest first).")

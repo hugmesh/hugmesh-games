@@ -1,7 +1,6 @@
 package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.model.AdminAction;
-import games.snapdragon.bff.model.GameSession;
 import games.snapdragon.bff.repository.AdminActionRepository;
 import games.snapdragon.bff.repository.GameSessionRepository;
 import games.snapdragon.bff.repository.ModGameScopeRepository;

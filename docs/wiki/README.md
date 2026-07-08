@@ -1,8 +1,8 @@
 # Snapdragon Games — Wiki
 
-A Markdown-rendered companion to the LaTeX-typeset reference under [`../publishing/`](../publishing/). The PDFs and PowerPoints are the canonical artefacts; this tree mirrors their content in a form that renders inline on GitHub and survives without a TeX install.
+A Markdown-rendered companion to the LaTeX-typeset reference under [`../publishing/`](../publishing/). The PDFs and PowerPoints are the canonical artefacts; this tree presents their content in a form that renders inline on GitHub and requires no TeX installation.
 
-Where this wiki disagrees with the source tree, the source tree wins. Each page links back to the file you'd edit if you wanted to fix something.
+When this wiki disagrees with the source tree, the source tree wins. Each page links back to the file you would edit to fix something.
 
 ---
 
@@ -10,7 +10,7 @@ Where this wiki disagrees with the source tree, the source tree wins. Each page 
 
 Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, key diagrams inlined as Mermaid. The catalog ships **17 games in two delivery models** — Godot 4 WASM (3 titles, incl. *Chess (Godot)* federated via changelog 053) and web-native Rust→wasm32 (14 titles, host-authoritative over the SSE relay); the chapters below cover both.
 
-| # | Page | What's in it |
+| # | Page | Contents |
 |---|---|---|
 | 01 | [Overview](architecture/01-overview.md) | What Snapdragon Games is in three sentences, the container list, and the two game families (Godot WASM vs web-native Rust→wasm32). |
 | 02 | [Runtime architecture](architecture/02-runtime.md) | Browser → host nginx → BFF; the Godot and web-native (`wasm-game`) launch flows; the SSE merge; the `autoCancel=false` rule. |
@@ -22,7 +22,7 @@ Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/archit
 
 ## Audience guides
 
-Eight audience-targeted condensations. Mirror of [`docs/publishing/userguides/`](../publishing/userguides/).
+Eight audience-targeted condensations of the full reference. Mirror of [`docs/publishing/userguides/`](../publishing/userguides/).
 
 | Audience | Page | When to read it |
 |---|---|---|
@@ -54,7 +54,7 @@ Recipe cards. Each one is a task you've done before and want to do again without
 
 ## Decisions and notes
 
-Why the system has the shape it has. Each entry is one decision, the constraint that drove it, and the trade-off accepted.
+Why the system has the shape it has. Each entry records one decision, the constraint that drove it, and the trade-off accepted.
 
 - [001 — Native federation over Webpack ModuleFederation](decisions/001-native-federation.md)
 - [002 — R2DBC + JDBC coexistence in one BFF](decisions/002-r2dbc-jdbc-coexistence.md)
@@ -83,20 +83,33 @@ Why the system has the shape it has. Each entry is one decision, the constraint 
 - [025 — BFF-side `DOMAIN_` guard (multi-brand; full single-BFF operation 🚧 deferred)](decisions/025-bff-domain-guard.md)
 - [026 — Games-catalog domain partitioning (public-read brand filtering 🚧 deferred)](decisions/026-games-catalog-domain-partitioning.md)
 
-> **Engine-level / roadmap design records** (not yet catalog-launchable): [`docs/realtime-server-authoritative-design.md`](../realtime-server-authoritative-design.md) + [`docs/realtime-sim-wiring-p4.md`](../realtime-sim-wiring-p4.md) (🚧 server-authoritative FPS/RTS engines) and [`docs/game-ports-backlog.md`](../game-ports-backlog.md) (🔭 future game ports).
+> **Engine-level and roadmap design records** (not yet catalog-launchable): [`docs/realtime-server-authoritative-design.md`](../realtime-server-authoritative-design.md) and [`docs/realtime-sim-wiring-p4.md`](../realtime-sim-wiring-p4.md) (🚧 server-authoritative FPS/RTS engines); [`docs/game-ports-backlog.md`](../game-ports-backlog.md) (🔭 future game ports).
 
 ## Where the canonical sources live
 
-The wiki is one of several views over the same source tree. If you need depth this view doesn't carry:
+The wiki is one of several views over the same source tree. For depth that this view does not carry, consult the sources below:
+
+```mermaid
+flowchart TB
+    src["Source tree\n(LaTeX · Java · TypeScript · Rust)"]
+
+    src -->|make docs-pdf| pdf["Architecture PDF\ndocs/publishing/architecture/"]
+    src -->|make docs-userguides| guides["Audience-guide PDFs\ndocs/publishing/userguides/"]
+    src -->|make docs-slides| slides["PowerPoint decks\ndocs/publishing/slides/"]
+    src -->|make docs-javadocs| javadoc["Themed Javadoc\ndocs/publishing/javadoc-output/"]
+    src -->|make docs-openapi-spec| openapi["Static OpenAPI spec\ndocs/publishing/openapi/"]
+    src -->|make docs-diagrams| diagrams["Rendered PNGs\ndocs/publishing/diagrams-rendered/"]
+    src -->|"rendered inline\n(no build step)"| wiki["This wiki\ndocs/wiki/"]
+```
 
 | Source | What it has | Build |
 |---|---|---|
 | [`docs/publishing/architecture/`](../publishing/architecture/) | LaTeX chapters → typeset PDF with full tables, marble diagrams, hyperref links. | `make docs-pdf` |
-| [`docs/publishing/userguides/`](../publishing/userguides/) | Six per-audience PDFs. | `make docs-userguides` |
+| [`docs/publishing/userguides/`](../publishing/userguides/) | Per-audience PDFs, one per guide above. | `make docs-userguides` |
 | [`docs/publishing/slides/`](../publishing/slides/) | Six PowerPoint decks via `python-pptx`. | `make docs-slides` |
 | [`docs/publishing/javadoc-output/`](../publishing/javadoc-output/) | Themed Javadoc for every `@Operation` / `@Tag` in the BFF. | `make docs-javadocs` |
 | [`docs/publishing/openapi/`](../publishing/openapi/) | Static fallback OpenAPI spec; the live one is `/v3/api-docs`. | `make docs-openapi-spec` |
-| [`docs/publishing/diagrams-rendered/`](../publishing/diagrams-rendered/) | Every marble + topology diagram rendered to PNG (git-ignored output). | `make docs-rendered-diagrams` |
+| [`docs/publishing/diagrams-rendered/`](../publishing/diagrams-rendered/) | Every marble + topology diagram rendered to PNG (git-ignored output). | `make docs-diagrams` |
 | [`docs/PLAN-module-federation-and-native.md`](../PLAN-module-federation-and-native.md) | The 921-line plan that produced the federated topology. Pre-rename language. |
 | [`docs/GODOT_DEVELOPER_GUIDE.md`](../GODOT_DEVELOPER_GUIDE.md) | Slug contract, presets, asset registration. |
 | [`CLAUDE.md`](../../CLAUDE.md) | Contributor onboarding for AI + human pair-programmers. |

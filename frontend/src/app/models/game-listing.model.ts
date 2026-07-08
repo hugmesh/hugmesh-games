@@ -1,4 +1,4 @@
-/** Umbrella game metadata. Levels (with assetUrl/sceneType) live under it — see Level model. */
+/** Umbrella game metadata. Chapters (with assetUrl/sceneType) live under it — see Chapter model. */
 export interface GameListing {
   id: number;
   name: string;

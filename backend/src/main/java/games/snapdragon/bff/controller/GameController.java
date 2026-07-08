@@ -14,7 +14,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @Tag(name = "Games",
-     description = "Umbrella Game tier. Each game groups one or more Levels (each its own WASM bundle). Public — no authentication required.")
+     description = "Umbrella Game tier. Each game groups one or more Chapters (each its own WASM bundle). Public — no authentication required.")
 @RestController
 @RequestMapping("/api/games")
 public class GameController {
@@ -36,8 +36,9 @@ public class GameController {
     @Operation(
         summary = "List all umbrella games",
         description = """
-            Returns every game ordered by sort_order. Games group related levels
-            (WASM bundles). Fetch /api/games/{id}/levels to expand each.
+            Returns every game ordered by sort_order. Games group related chapters
+            (WASM bundles). Fetch /api/games/{id}/chapters to expand each
+            (the legacy /api/games/{id}/levels path also still works).
 
             ```
             ──request──► gameRepo.findAllByOrderBySortOrderAsc()
@@ -58,18 +59,21 @@ public class GameController {
     }
 
     @Operation(
-        summary = "Levels belonging to a game",
+        summary = "Chapters belonging to a game",
         description = """
-            Returns all playable levels for an umbrella game, in sort order.
+            Returns all playable chapters for an umbrella game, in sort order.
+            Both /{id}/chapters (canonical) and /{id}/levels (legacy alias,
+            kept for already-exported WASM bundles that hardcode the old path)
+            resolve here — same dual-mapping pattern as ChapterController.
 
             ```
-            ──request──► levelRepo.findByGameIdOrderBySortOrderAsc(id)
+            ──request──► chapterRepo.findByGameIdOrderBySortOrderAsc(id)
              ──────────────●──●──|
                            Chapter{id, slug, assetUrl, sceneType, …}…
             ```
             """)
-    @GetMapping("/{id}/levels")
-    public Flux<Chapter> listLevels(@PathVariable Long id) {
+    @GetMapping({ "/{id}/chapters", "/{id}/levels" })
+    public Flux<Chapter> listChapters(@PathVariable Long id) {
         return levels.findByGameIdOrderBySortOrderAsc(id);
     }
 

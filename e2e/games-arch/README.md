@@ -1,79 +1,126 @@
 # Multi-user games architecture e2e (`games-arch`)
 
-A **committed, re-runnable** harness that proves the 14 web-native games REALLY
-work in the deployed architecture **with users** — the host-authoritative SSE
-relay, sessions, multiplayer delivery, and cross-session isolation — at the
-**API/SSE layer** (no browser). In host-authoritative games this is the server's
-actual job: gameplay runs in the host browser's wasm engine and the BFF is a
-**dumb relay** over per-session Server-Sent Events. So the meaningful "does
-multiplayer work?" proof lives at the relay, not in a headless Chrome.
+A **committed, re-runnable** harness that proves the 14 web-native games work
+correctly in the deployed architecture **with real users** — the
+host-authoritative SSE relay, session lifecycle, multiplayer event delivery,
+and cross-session isolation — at the **API/SSE layer**, without a browser.
+
+In the host-authoritative model, the BFF's job is to relay events between
+players over per-session Server-Sent Events; the game engine itself runs in the
+host player's WASM process. That means the meaningful "does multiplayer work?"
+proof lives at the relay layer, not in a headless Chrome. The harness exercises
+that layer directly.
 
 This is the live multi-user complement to the agent-free build proof (all 14
-wasm rebuild byte-identically + 29/29 node suites) — it does NOT re-do that.
+wasm bundles rebuild byte-identically + 29/29 node suites pass). It does not
+repeat those checks.
 
 ## What it asserts
 
 **Per RELAY game** (chess, connect-four, reversi, gomoku, dots-and-boxes, go,
 battleship, tron, bomberman, asteroids-duel):
 
-1. mint 2 tokens (player1, player2) via Casdoor ROPC;
-2. player1 `POST /api/sessions {gameSlug}` → `sessionId`;
-3. player2 `POST /api/sessions/{id}/join`;
-4. player2 opens the **real** SSE stream `GET /api/game/stream?sessionId=…` and
-   reads it (a manual SSE line-reader over the fetch body — **a harness that
-   only sends is worthless**);
-5. player1 sends the game's **representative move** via `POST /api/input/{cid}`
-   (the exact `(kind,type,payload)` the game's frontend emits — see
-   `scenarios.mjs`), plus the host `world/state` echo for games that broadcast;
-6. **assert** player2 receives the relayed event on the `input` channel within a
-   timeout, with a content check.
+1. Mint 2 tokens (player1, player2) via Casdoor ROPC.
+2. player1 `POST /api/sessions {gameSlug}` → `sessionId`.
+3. player2 `POST /api/sessions/{id}/join`.
+4. player2 opens and actively reads the **real** SSE stream
+   (`GET /api/game/stream?sessionId=…`) via a manual line-reader over the fetch
+   body. Reading the stream is not optional — a harness that only sends events
+   and never verifies receipt proves nothing.
+5. player1 sends the game's **representative move** via `POST /api/input/{cid}`,
+   using the exact `(kind, type, payload)` tuple the game's frontend emits (see
+   `scenarios.mjs`). For games that broadcast a world snapshot, the host's
+   `world/state` echo is sent as well.
+6. **Assert** that player2 receives the relayed event on the `input` channel
+   within the timeout, and that the event content matches.
 
-**Isolation**: a 2nd session for a different game; assert its events are
-**absent** on session 1's stream (the live flip-side of `SessionIsolationTest`).
+The diagram below shows the event flow the harness exercises:
+
+```mermaid
+sequenceDiagram
+    participant P1 as player1
+    participant BFF as BFF (relay)
+    participant P2 as player2 SSE reader
+
+    P1->>BFF: POST /api/sessions {gameSlug}
+    BFF-->>P1: sessionId
+
+    P2->>BFF: POST /api/sessions/{id}/join
+    P2->>BFF: GET /api/game/stream?sessionId=… (SSE open)
+
+    P1->>BFF: POST /api/input/{cid} {kind,type,payload}
+    BFF-->>P2: SSE event on `input` channel
+
+    Note over P2: harness asserts event received<br/>within timeout, content matches
+```
+
+**Isolation**: the harness opens a second session for a different game and
+asserts that its events do **not** appear on session 1's SSE stream. This is
+the live end-to-end counterpart to the unit-level `SessionIsolationTest` — it
+confirms that the in-process isolation guarantee holds through the full HTTP +
+SSE stack.
 
 **Per SOLO game** (tetris, minesweeper, sudoku, match-three): `POST
-/api/games/{slug}/launch` mints a uid + the bundle serves; no relay.
+/api/games/{slug}/launch` mints a uid and the bundle is served; no relay
+is involved.
 
-**Global**: a plain `player` sees all 14 via `/api/games/available/{cid}`; the
-federation manifest lists 14 `wasm-game` rows; each bundle serves via the
-wasm-fragment (`index.html` + its **real** wasm filename = 200).
+**Global**: a plain `player` sees all 14 games via
+`/api/games/available/{cid}`; the federation manifest contains 14 `wasm-game`
+rows; each bundle's `index.html` and real `.wasm` file return HTTP 200 from
+the wasm-fragment.
 
 ## Relay contract (verified from source)
 
-- read: `EventSource`/`GET /api/game/stream?sessionId={id}`, per-channel events.
-  Both the guest's `kind:'control'` move AND the host's `kind:'world',
-  type:'state'` echo ride the **`input`** SSE channel — `GameStateService.emitInput`
-  fans every `/api/input` emit to the session-scoped input sink regardless of kind.
-- send: `POST /api/input/{characterId}` body `{gameSlug, sessionId, kind, type,
-  payload}` (`sendInput`/`sendWorld`).
-- `InputEventController` Gate 0 = session-member ownership of `characterId`;
-  Gate 1 = `(kind,type)` must exist in `input_event_types` (unknown → **400**).
+**Reading events**: Clients subscribe to
+`GET /api/game/stream?sessionId={id}` as a standard `EventSource`. Both the
+guest's `kind:'control'` move and the host's `kind:'world', type:'state'` echo
+are delivered on the **`input`** SSE channel. This is because
+`GameStateService.emitInput` fans every `/api/input` call to the
+session-scoped input sink regardless of the event's `kind` field.
+
+**Sending events**: `POST /api/input/{characterId}` with a JSON body of
+`{gameSlug, sessionId, kind, type, payload}` (called `sendInput` for control
+events and `sendWorld` for world-state broadcasts).
+
+**Authorization gates in `InputEventController`**:
+- Gate 0: the caller must be a session member who owns `characterId`.
+- Gate 1: the `(kind, type)` pair must exist in `input_event_types`. An
+  unrecognised pair is rejected with **400**.
 
 ## Run it
 
-The api has no host port, so the harness runs from a container on the
-`sdgames_default` network.
+The BFF API is not exposed on a host port, so the harness must run from inside
+a container on the `sdgames_default` network.
 
 ```bash
-# One-shot (brings the stack up, runs, tears down):
+# One-shot (brings the stack up, runs the harness, then tears down):
 make games-arch-e2e-up
 
-# Against an already-up stack (docker compose -p sdgames up -d --build):
+# Against an already-running stack:
 make games-arch-e2e
-# or directly:
+# or invoke the driver script directly:
 PROJECT=sdgames bash e2e/games-arch/run-in-docker.sh
 ```
 
-`run-in-docker.sh` greps the per-fresh-DB Casdoor seed creds (client secret +
-player passwords) out of `docker compose -p sdgames logs casdoor` and injects
-them as env. Override with `CASDOOR_CLIENT_SECRET` / `PLAYER1_PASS` /
-`PLAYER2_PASS` / `PLAYER_PASS`.
+`run-in-docker.sh` handles credential resolution automatically. Because Casdoor
+randomises the client secret and player passwords on every fresh database, the
+script greps the seed values out of `docker compose -p sdgames logs casdoor`
+and injects them as environment variables before starting the harness. To
+supply credentials manually, set any of these environment variables before
+invoking the script:
+
+| Variable | What it overrides |
+|---|---|
+| `CASDOOR_CLIENT_SECRET` | Casdoor OAuth client secret |
+| `PLAYER1_PASS` | password for the `player1` seed user |
+| `PLAYER2_PASS` | password for the `player2` seed user |
+| `PLAYER_PASS` | password for the `player` seed user (global assertions) |
 
 ## Files
 
-| file | role |
+| File | Role |
 |---|---|
-| `scenarios.mjs` | the scenario table — relay games + their real moves, solo games, expected slugs |
-| `lib.mjs` | zero-dep transport: ROPC mint, JSON fetch, the manual SSE line-reader, health wait |
-| `run.mjs` | the runner — relay / isolation / solo / global, prints per-game pass/fail + a `RESULTS_JSON` block |
-| `run-in-docker.sh` | cred-resolving driver that runs `run.mjs` in node:20 on `sdgames_default` |
+| `scenarios.mjs` | Scenario table: relay games with their representative moves, solo games, and expected slugs. |
+| `lib.mjs` | Zero-dependency transport layer: ROPC token mint, JSON fetch helper, manual SSE line-reader, health-wait. |
+| `run.mjs` | Test runner: drives relay, isolation, solo, and global assertions; prints per-game pass/fail and emits a `RESULTS_JSON` block. |
+| `run-in-docker.sh` | Credential-resolving driver: extracts Casdoor seed values from compose logs and runs `run.mjs` in a `node:20` container on `sdgames_default`. |
