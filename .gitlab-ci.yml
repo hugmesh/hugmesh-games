@@ -63,8 +63,11 @@ build:image:
     # One image per component: $CI_REGISTRY_IMAGE/<component>. GODOT_MIRROR_BASE_URL
     # is an optional project CI/CD variable (unset until the mirror below is
     # seeded) pointing at this project's own generic package registry, e.g.
-    # "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/godot/4.6-stable"
-    # — the SAME convention snapdragon-generator's `deliver:isos` job uses. Until
+    # "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/godot"
+    # — the SAME convention snapdragon-generator's `deliver:isos` job uses. NOTE:
+    # do NOT include the Godot version segment here — the Dockerfiles' godot
+    # stage appends "/${GODOT_VERSION}" themselves (base="${GODOT_RELEASE_BASE_URL}/${GODOT_VERSION}"),
+    # so a trailing "/4.6-stable" here would double up and 404 every fetch. Until
     # it's set, GODOT_MIRROR is empty and the Dockerfile ARG default (public
     # GitHub releases) applies, i.e. today's (non-air-gapped) behavior is unchanged.
     - |
