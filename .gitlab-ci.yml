@@ -42,19 +42,37 @@ build:image:
     matrix:
       # Most components build from their own subdir; wasm-fragment's Dockerfile
       # COPYs from backend/ + wasm-fragment/, so it needs the repo ROOT context.
-      - { COMPONENT: backend,       CONTEXT: backend,       DOCKERFILE: backend/Dockerfile }
-      - { COMPONENT: frontend,      CONTEXT: frontend,      DOCKERFILE: frontend/Dockerfile }
-      - { COMPONENT: rpg-builder,   CONTEXT: rpg-builder,   DOCKERFILE: rpg-builder/Dockerfile }
-      - { COMPONENT: vn-builder,    CONTEXT: vn-builder,    DOCKERFILE: vn-builder/Dockerfile }
-      - { COMPONENT: wasm-fragment, CONTEXT: ".",           DOCKERFILE: wasm-fragment/Dockerfile }
+      # rpg-builder/vn-builder additionally fetch the Godot toolchain at build
+      # time (see their Dockerfiles' "Godot toolchain stage" comment) — the
+      # privileged x86 runner is Tailscale-only and cannot reach github.com, so
+      # GODOT_RELEASE_BASE_URL (below) redirects that fetch to an in-cluster
+      # mirror. GODOT_MIRROR is empty for the other 3 components, which don't
+      # declare that build ARG at all (an unset/empty --build-arg for an ARG a
+      # Dockerfile never references is a silent no-op, not an error).
+      - { COMPONENT: backend,       CONTEXT: backend,       DOCKERFILE: backend/Dockerfile,       GODOT_MIRROR: "" }
+      - { COMPONENT: frontend,      CONTEXT: frontend,      DOCKERFILE: frontend/Dockerfile,      GODOT_MIRROR: "" }
+      - { COMPONENT: rpg-builder,   CONTEXT: rpg-builder,   DOCKERFILE: rpg-builder/Dockerfile,   GODOT_MIRROR: "${GODOT_MIRROR_BASE_URL}" }
+      - { COMPONENT: vn-builder,    CONTEXT: vn-builder,    DOCKERFILE: vn-builder/Dockerfile,    GODOT_MIRROR: "${GODOT_MIRROR_BASE_URL}" }
+      - { COMPONENT: wasm-fragment, CONTEXT: ".",           DOCKERFILE: wasm-fragment/Dockerfile, GODOT_MIRROR: "" }
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_COMMIT_TAG'
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - export TAG="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
-    # One image per component: $CI_REGISTRY_IMAGE/<component>
-    - docker build --pull -f "$DOCKERFILE" -t "$CI_REGISTRY_IMAGE/$COMPONENT:$TAG" -t "$CI_REGISTRY_IMAGE/$COMPONENT:$CI_COMMIT_REF_SLUG" "$CONTEXT"
+    # One image per component: $CI_REGISTRY_IMAGE/<component>. GODOT_MIRROR_BASE_URL
+    # is an optional project CI/CD variable (unset until the mirror below is
+    # seeded) pointing at this project's own generic package registry, e.g.
+    # "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/godot/4.6-stable"
+    # — the SAME convention snapdragon-generator's `deliver:isos` job uses. Until
+    # it's set, GODOT_MIRROR is empty and the Dockerfile ARG default (public
+    # GitHub releases) applies, i.e. today's (non-air-gapped) behavior is unchanged.
+    - |
+      EXTRA_ARGS=()
+      if [ -n "${GODOT_MIRROR}" ]; then
+        EXTRA_ARGS+=(--build-arg "GODOT_RELEASE_BASE_URL=${GODOT_MIRROR}")
+      fi
+    - docker build --pull -f "$DOCKERFILE" "${EXTRA_ARGS[@]}" -t "$CI_REGISTRY_IMAGE/$COMPONENT:$TAG" -t "$CI_REGISTRY_IMAGE/$COMPONENT:$CI_COMMIT_REF_SLUG" "$CONTEXT"
     - docker push "$CI_REGISTRY_IMAGE/$COMPONENT:$TAG"
     - docker push "$CI_REGISTRY_IMAGE/$COMPONENT:$CI_COMMIT_REF_SLUG"
 
