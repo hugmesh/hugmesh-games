@@ -252,7 +252,7 @@ flowchart TB
         Shell["Host shell<br/>HTTP interceptor adds Bearer JWT · AuthGuard<br/>/login · /admin · HomeComponent → selectLevel()"]
         Remote["Federated game remote<br/>app-(slug)-remote Web Component<br/>three-wizards · dodecahedron · legacy game-canvas"]
         subgraph iframe["iframe — Godot 4 WASM bundle (per chapter, server-authoritative)"]
-            Bridge["game_bridge.gd<br/>EventSource /api/game/stream → movement queue (FIFO, cap 32)<br/>_unhandled_input(KEY_1..5) → _cast_spell(N)"]
+            Bridge["game_bridge.gd<br/>postMessage SD_SSE_SUBSCRIBE → wrapper opens EventSource<br/>Rust BridgeGlue drains window._twSseEventQueue/_twApiResponseQueue → HostBridge signals<br/>_unhandled_input(KEY_1..3) → _cast_spell(N) [keys 4/5 via HostBridge.movement_received only]"]
             SceneLoader["scene_loader.gd<br/>spawns lights / fairies / geometry · rotates the sun"]
             PlayerCtl["player_controller.gd (CharacterBody3D)<br/>SSE dir → velocity · spells · use-first-item"]
         end
@@ -269,7 +269,8 @@ flowchart TB
         State["GameStateService<br/>Sinks.many().multicast().onBackpressureBuffer(N, autoCancel=false)<br/>movement · world · character · scene · input · audio · wasm-console · session-control sinks"]
         Ctrls["Controllers — Session · Control · Character · Asset<br/>GameUpload · GameLaunch · Federation · GameAccess"]
         PG[("PostgreSQL — R2DBC runtime + Hikari for Liquibase<br/>games → chapters → scene_elements<br/>characters · quests · sessions · positions")]
-        PgNotify["PgNotificationService<br/>LISTEN game_events → sceneSink"]
+        PgNotify["PgNotificationService<br/>pg_notify('game_events', ...) — legacy write-only tap, no active LISTEN consumer"]
+        Kafka["Optional Kafka path — GameEventPublisher → KafkaSessionSubscriber<br/>GameStateService.reemitToSession (cross-pod fan-out)"]
     end
 
     subgraph remotes["Federated remotes — per-service nginx"]
@@ -296,8 +297,8 @@ flowchart TB
     Ctrls --> State
     State --> Stream
     Ctrls --> PG
-    PG --> PgNotify
-    PgNotify --> State
+    State --> PgNotify
+    Kafka -.->|"cross-pod re-emission (optional)"| State
     Sec -->|"ROPC proxy + JWKS verify"| Casdoor
 ```
 
@@ -320,8 +321,8 @@ The key handler in `game_bridge.gd` calls `player._cast_spell(N)` directly in-WA
 **SSE sinks must not autoCancel.**
 `Sinks.many().multicast().onBackpressureBuffer(N)` defaults to `autoCancel=true`. This means that when every subscriber disconnects — due to an iframe remount, an EventSource reconnect, or a momentary network blip — the sink terminates permanently and all subsequent `tryEmitNext` calls are silently dropped. Every sink in this project passes `autoCancel=false` explicitly. Before this was fixed, the symptom was "first keypress works, then all subsequent input dies".
 
-**Movement queue, not latest-wins.**
-`window._twMovementQueue` is an array that the JS SSE listener appends to on each event. Previously the listener stored only the most recent payload, so rapid keydown+keyup pairs — exactly what spell keys produce — collapsed into just the keyup, and the `pressed=true` event was lost between Godot's 16 ms polls. `_drain_movement_queue` now splices the array atomically each frame and dispatches events in FIFO order via `state_updated`.
+**Two JS-side queues, drained in Rust.**
+The Angular wrapper owns the EventSource and posts each typed SSE event into the iframe as `SD_SSE_EVENT`; Rust's `BridgeGlue` buckets inbound postMessages onto `window._twSseEventQueue` (and API responses onto `window._twApiResponseQueue`), splicing the queue atomically every `_process` frame and dispatching each event through `HostBridge.dispatch_event` into typed signals (`movement_received`, `world_received`, …) that `player_controller.gd`'s `_on_movement_json` → `_on_state_updated` consumes in FIFO order. This replaced storing only the most recent payload, which collapsed rapid keydown+keyup pairs — exactly what spell keys produce — into just the keyup, losing the `pressed=true` event between Godot's 16 ms polls. See [decision 016](docs/wiki/decisions/016-rust-extension-and-fragment-relay.md).
 
 **Casdoor kept internal; JWKS at `/.well-known/jwks`.**
 `docker-compose.yml` exposes no host port for Casdoor — it is not reachable from outside the compose network. Spring Security's JWT decoder is wired to the anonymous `/.well-known/jwks` endpoint. Do not use `/api/get-jwks`: that endpoint requires admin authentication and returns an error payload that causes Spring Security to throw `"Missing required keys member"` on every Bearer-tagged request, including `permitAll` routes.
@@ -346,8 +347,8 @@ The Angular shell is a [native-federation](https://www.npmjs.com/package/@angula
 | `banned` | `remote-shell` | `./BannedComponent` | `loadComponent` for `/banned` (auth-error interceptor redirects on `X-Revoked`; resolves appeal email via `GET /api/security/appeal-contact`) |
 | `games-three-wizards` | `remote-game` | `./GameRoot` | `<app-three-wizards-remote>` Web Component (cave + field) |
 | `games-dodecahedron` | `remote-game` | `./GameRoot` | `<app-dodecahedron-remote>` Web Component (chrome-less demo) |
-| `games-rpg-maker` | `remote-shell` | `./RpgMakerRemote` | RPG maker UI; drives the `rpg-builder/` side service (decision 018) |
-| `games-vn-maker` | `remote-shell` | `./VnMakerRemote` | VN maker UI; drives the `vn-builder/` side service (decision 018) |
+| `games-rpg-maker` | `remote-shell` | `./RpgMakerShell` | RPG maker UI; drives the `rpg-builder/` side service (decision 018) |
+| `games-vn-maker` | `remote-shell` | `./VnMakerShell` | VN maker UI; drives the `vn-builder/` side service (decision 018) |
 | `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
 | `<game-slug>` (×14) | `wasm-game` | — (`exposed_module=NULL`) | Web-native titles. `remote_entry_url` points **directly** at `/_remotes/wasm-fragment/<slug>/index.html` (not a `remoteEntry.json`), `game_slug` carries the catalog slug. The host mounts it as a parametrised iframe; `home.component` reads `isWebNative` off the manifest. `main.ts` excludes `wasm-game` from `initFederation`. Seeded by [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml). |
 
@@ -399,7 +400,7 @@ flowchart TB
         PK["keydown '1'"]
         POnKey["game-controls.onKeyDown"]
         POverlay["_fireSpellOverlay(1)<br/>CSS orb flies up — always visible"]
-        PSend["ControlService.sendControl('CAST_INSTANT_1', true)<br/>POST /api/controls/1 + X-Casdoor-Id<br/>50 ms later: sendControl(…, false)"]
+        PSend["ControlService.sendControl('CAST_INSTANT_1', true)<br/>POST /api/controls/1 (Authorization: Bearer JWT via http-auth.interceptor)<br/>50 ms later: sendControl(…, false)"]
         PK --> POnKey
         POnKey --> POverlay
         POnKey --> PSend
@@ -408,15 +409,15 @@ flowchart TB
         FK["keydown '1' (KEY_1)"]
         FInput["game_bridge._unhandled_input"]
         FCast["player._cast_spell(1)<br/>projectile from hand"]
-        FSend["send_control('CAST_INSTANT_1', true)<br/>POST /api/controls/1 (no casdoor header)<br/>keyup: send_control(…, false)"]
+        FSend["send_control('CAST_INSTANT_1', true)<br/>POST /api/controls/1 (Authorization: Bearer JWT read from parent sessionStorage)<br/>keyup: send_control(…, false)"]
         FK --> FInput
         FInput --> FCast
         FInput --> FSend
     end
     API["Spring Boot API — ControlController.receiveControl<br/>applyControl: gate on posChanged || actionChanged || pressedChanged<br/>movementSink.tryEmitNext"]
     Stream["GET /api/game/stream — Flux&lt;ServerSentEvent&gt;"]
-    SSE["iframe JS SSE listener<br/>push into window._twMovementQueue (FIFO)"]
-    Drain["game_bridge._drain_movement_queue (each _process frame)"]
+    SSE["Angular wrapper EventSource<br/>postMessage SD_SSE_EVENT into iframe"]
+    Drain["Rust BridgeGlue._process<br/>drains window._twSseEventQueue → HostBridge.dispatch_event"]
     OnState["player_controller._on_state_updated (per-event)"]
     Match["match action → _cast_spell / _use_first_item / _sse_dir"]
     PSend --> API
@@ -433,6 +434,7 @@ Spells are cast via two redundant paths — the direct in-WASM call fires the vi
 | `action` | `String` | `MOVE_FORWARD`, `MOVE_BACKWARD`, `MOVE_LEFT`, `MOVE_RIGHT`, `JUMP`, `INTERACT`, `CAST_INSTANT_1/2/3/4/5` |
 | `pressed` | `boolean` | `true` = key down, `false` = key up |
 | `timestamp` | `long` | Client epoch-ms |
+| `chapterId` | `Long` (nullable) | Explicit chapter the move applies to; falls back to the character's `current_chapter_id` when omitted |
 
 ### `SceneDto` — `GET /api/chapters/{id}/scene` response
 
@@ -452,7 +454,7 @@ When a running Godot WASM needs to hand off to another chapter's bundle:
 ```mermaid
 sequenceDiagram
     participant Godot as Godot (inside iframe)
-    participant Host as Angular host (game-canvas.component.ts)
+    participant Host as Angular host (home.component.ts)
     Godot->>Godot: $GameBridge.request_chapter_transition("field", 2)
     Godot->>Host: postMessage TW_CHAPTER_TRANSITION {slug:"field", chapterId:2}
     Host->>Host: HostListener('window:message') catches payload
@@ -520,9 +522,9 @@ Multiplexed SSE stream. Nine typed channels plus a keepalive are merged into a s
 ```mermaid
 flowchart LR
     M["movement$ — Sinks replay"] --> Merge
-    W["world$ — 1 s heartbeat"] --> Merge
+    W["world$ — emitted on control/movement tick + on session hydrate (event-driven, not a fixed timer)"] --> Merge
     Ch["character$ — stat changes"] --> Merge
-    T["time$ — every ~10 s"] --> Merge
+    T["time$ — every ~5 s (every 5 game-minutes)"] --> Merge
     Sc["scene$ — transitions"] --> Merge
     In["input$ — generalised input events"] --> Merge
     Au["audio$ — audio cues"] --> Merge
@@ -678,13 +680,17 @@ Supported extensions → content-types:
 
 #### `POST /api/controls/{characterId}`
 
-Accepts control events. Validates that the `X-Casdoor-Id` header matches the session marked `is_controller = true`. Non-controllers receive `403`.
+Accepts control events. Two authorization modes, gated on whether `X-Session-Id` is present: multiplayer mode checks `gameSessionService.authorizeControl` (session_members ownership); legacy single-session mode checks `sessionService.isController(casdoorId)`. Non-authorized callers receive `403`.
 
 ```mermaid
 flowchart LR
-    R(["POST /api/controls/{characterId}"]) --> Chk["sessionService.isController(casdoorId, characterId)"] --> D{"is controller?"}
-    D -->|yes| AC["gameStateService.applyControl(event)"] --> Emit["Sinks.many().emitNext(newState)"] --> O(["● 200 ResponseEntity"])
+    R(["POST /api/controls/{characterId}"]) --> H{"X-Session-Id present?"}
+    H -->|yes| Chk["gameSessionService.authorizeControl(casdoorId, characterId, sessionId)"] --> D{"authorized?"}
+    D -->|yes| AC["gameStateService.applyControl(event, characterId, sessionId)"] --> O(["● 204 No Content"])
     D -->|no| F["✗ 403 Forbidden"]:::err
+    H -->|no| Chk2["sessionService.isController(casdoorId)"] --> D2{"is controller?"}
+    D2 -->|yes| AC
+    D2 -->|no| F2["✗ 403 Forbidden"]:::err
     classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
@@ -698,8 +704,8 @@ Creates or resumes a player session, enforcing the 3-player cap.
 
 ```mermaid
 flowchart LR
-    R(["POST /api/sessions/connect"]) --> C["sessionRepo.countActiveSessions()"] --> D{"under 3-player cap?"}
-    D -->|"yes — count under 3"| OK["createOrResumeSession()<br/>first joiner auto-claims controller"] --> O(["● {sessionToken, isController, playerCount}"])
+    R(["POST /api/sessions/connect"]) --> C["activeSessions.size() >= MAX_SESSIONS (in-memory ConcurrentHashMap, cap=3)"] --> D{"under 3-player cap?"}
+    D -->|"yes — count under 3"| OK["createOrResumeSession()<br/>first joiner auto-claims controller"] --> O(["● {sessionToken, isController, activePlayers}"])
     D -->|"no — count = 3"| F["✗ 409 Conflict"]:::err
     classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
@@ -710,7 +716,7 @@ Attempts to claim the exclusive controller role.
 
 ```mermaid
 flowchart LR
-    R(["POST /api/sessions/control"]) --> C["sessionRepo.countByIsControllerTrue()"] --> D{"count = 0?"}
+    R(["POST /api/sessions/control"]) --> C["currentController.compareAndSet(null, casdoorId) (AtomicReference)"] --> D{"count = 0?"}
     D -->|"count = 0"| OK["setController(true)"] --> O1(["● {claimed: true}"])
     D -->|"count over 0"| O2(["● {claimed: false}"])
 ```
@@ -730,7 +736,9 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    R(["GET /api/characters"]) --> Q["characterRepo.findAll()"] --> Mp["map(toDto)"] --> O(["● ● ● …  CharacterDto"])
+    R(["GET /api/characters"]) --> Adm{"admin?"}
+    Adm -->|yes| Q["characterRepo.findAll()"] --> Mp["map(toDto)"] --> O(["● ● ● …  CharacterDto"])
+    Adm -->|no| Q2["characterRepo.findByCasdoorId(jwt.sub)"] --> Mp
 ```
 
 #### `GET /api/characters/{id}`
@@ -822,7 +830,10 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    R(["PUT /api/skills/character/{characterId}/slots/{slot}"]) --> S["slotRepo.save(CharacterSkillSlot{charId, slot, skillId})"] --> O(["● (no body)"])
+    R(["PUT /api/skills/character/{characterId}/slots/{slot}"]) --> F["slotRepo.findByCharacterIdAndSlotNumber(charId, slot)"] --> D{"found?"}
+    D -->|found| S["setSkillId(skillId) → slotRepo.save()"] --> O(["● (no body)"])
+    D -->|empty| NF["switchIfEmpty(404) → ✗"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 ---
@@ -847,7 +858,10 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    R(["PUT /api/items/character/{characterId}/equipment/{slot}"]) --> S["charEquipRepo.save(CharacterEquipment{charId, slot, itemId})"] --> O(["● (no body)"])
+    R(["PUT /api/items/character/{characterId}/equipment/{slot}"]) --> F["charEquipRepo.findByCharacterIdAndSlot(charId, slot)"] --> D{"found?"}
+    D -->|found| S["setItemId(itemId) → charEquipRepo.save()"] --> O(["● (no body)"])
+    D -->|empty| NF["switchIfEmpty(404) → ✗"]:::err
+    classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
 ---
@@ -876,7 +890,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    R(["GET /api/admin/sessions"]) --> Q["sessionRepo.findAll()"] --> O(["● ● …  SessionDto"])
+    R(["GET /api/admin/sessions"]) --> Q["sessionService.activeSessions() (in-memory presence map)"] --> O(["● ● …  SessionDto"])
 ```
 
 #### `DELETE /api/admin/sessions/{casdoorId}`
@@ -910,13 +924,13 @@ flowchart LR
 
 #### `GET /api/time`
 
-Returns the current in-game clock state. The `GameTimeService` scheduler advances 1 game-minute every ~10 real seconds and persists to `game_time_state`.
+Returns the current in-game clock state. The `GameTimeService` scheduler advances 1 game-minute every real second (persisted to `game_time_state` every 10 s).
 
 ```mermaid
 flowchart TB
-    subgraph sched["GameTimeService scheduler — every 10 s real"]
+    subgraph sched["GameTimeService scheduler — tick every 1 s real, persist every 10 s, SSE emit every 5 s"]
         direction LR
-        T["──tick── loop"] --> Inc["minute++ · day++ at 23:59"] --> Persist["persist + emit time$ SSE event"]
+        T["──tick── loop (1 s)"] --> Inc["minute++ · day++ at 23:59"] --> Persist["persist every 10 s + emit time$ SSE event every 5 s"]
     end
     R(["GET /api/time"]) --> Q["timeRepo.findFirst()"] --> Mp["map(toDto)"] --> O(["● {dayNumber, hour, minute}"])
 ```
@@ -1022,6 +1036,8 @@ erDiagram
         int sort_order
         text thumbnail_url
         timestamp created_at
+        text current_version_dir
+        text domain
     }
     chapters {
         bigint id PK
@@ -1164,10 +1180,11 @@ writes the output under `backend/src/main/resources/assets/levels/<slug>/`.
 flowchart TB
     subgraph br["make build-rust"]
         direction TB
-        BR1["cd extensions/snapdragon-bridge · cargo build --release<br/>→ target/release/libsnapdragon_bridge.so"]
-        BR2["cp libsnapdragon_bridge.so → games/(game)/bin/ — each game"]
-        BR3["cargo build --release --target wasm32-unknown-emscripten<br/>skipped if emsdk missing"]
-        BR1 --> BR2 --> BR3
+        BR0["sync-bridge-addon: rsync snapdragon_bridge/snapdragon_export addons into every game project"]
+        BR1a["build-rust-wasm (dockerised emsdk 3.1.74 via tools/build-rust-wasm/Dockerfile)<br/>→ extensions/snapdragon-bridge/bin/snapdragon_bridge.wasm — requires Docker"]
+        BR1["cd extensions/snapdragon-bridge · GODOT4_BIN=&lt;godot&gt; cargo build --release --features api-custom<br/>→ target/release/libsnapdragon_bridge.so"]
+        BR2["cp libsnapdragon_bridge.so + snapdragon_bridge.wasm → games/(game)/bin/ — each game"]
+        BR0 --> BR1a --> BR1 --> BR2
     end
     subgraph bg["make build-godot — depends on build-rust"]
         direction TB
@@ -1178,7 +1195,7 @@ flowchart TB
         BG1 --> BG2 --> BG3 --> BG4
     end
     subgraph sd["make seed-db"]
-        SD1["scripts/seed-games.sql — ON CONFLICT (slug) DO UPDATE<br/>upserts game + chapter rows · asset_url = /api/assets/levels/(slug)/index.html"]
+        SD1["scripts/seed-games.sql — ON CONFLICT (slug) DO UPDATE<br/>upserts game + chapter rows into the &quot;chapters&quot; table · asset_url = /api/assets/levels/(slug)/index.html<br/>⚠ currently broken: script still says INSERT INTO levels, table renamed to chapters by migration 028"]
     end
     br --> bg --> sd --> Deploy["make deploy = build-godot + seed-db<br/>then rebuild api + wasm-fragment images so new classpath assets ship"]
 ```
@@ -1332,13 +1349,25 @@ sudo usermod -aG docker $USER   # re-login after this
 docker compose version
 ```
 
-### 8. Emscripten + WASM Rust target (optional, but required for `wasm32-unknown-emscripten`)
+### 8. Rust → WASM build (optional, but required for `wasm32-unknown-emscripten`)
 
 The Rust GDExtension (`extensions/snapdragon-bridge/`) compiles to a native
 `.so` for the editor and to `wasm32-unknown-emscripten` for the web build.
-The native path needs no extra tooling; the WASM path needs **two** things
-that distro Rust packages typically don't ship together — emscripten itself,
-and the `wasm32-unknown-emscripten` Rust standard library.
+The native path needs no extra tooling. The WASM path runs inside a pinned
+Docker image (`tools/build-rust-wasm/Dockerfile`, `EMSDK_VERSION=3.1.74`) —
+install Docker (step 7) and run:
+
+```bash
+make build-rust-wasm
+```
+
+No host emscripten install is needed; the Makefile builds and caches the
+`snapdragon-rust-wasm` image on first run (~5 min one-time), then runs
+`cargo build --release --target wasm32-unknown-emscripten` inside the
+container.
+
+**Legacy/manual fallback (no Docker).** May drift from the pinned emsdk
+version (3.1.74) the Docker image uses:
 
 ```bash
 # 1. emscripten via emsdk
@@ -1352,8 +1381,7 @@ source ./emsdk_env.sh
 rustup-init -y --no-modify-path --default-toolchain stable --profile minimal
 ~/.cargo/bin/rustup target add wasm32-unknown-emscripten
 
-# 3. Build (the Makefile's `build-rust` target does this automatically when
-#    emcc is on PATH):
+# 3. Build manually (bypasses the Makefile's dockerised build-rust-wasm target):
 source ~/Tools/emsdk/emsdk_env.sh
 PATH=$HOME/.cargo/bin:$PATH cargo build --release \
   --target wasm32-unknown-emscripten \
@@ -1366,7 +1394,7 @@ feature; `extensions/snapdragon-bridge/Cargo.toml` enables it by default
 via the local `wasm-opt-in` feature, so a plain `cargo build` works on
 both target triples without extra flags.
 
-Add `source ~/Tools/emsdk/emsdk_env.sh` to your shell profile to persist it.
+Add `source ~/Tools/emsdk/emsdk_env.sh` to your shell profile to persist it (manual fallback only).
 
 ---
 
@@ -1438,19 +1466,23 @@ docker compose logs casdoor | grep -A 6 "Casdoor seed"
 open http://localhost:8080
 ```
 
-The `api` container waits for both `postgres` (healthcheck) and `casdoor` (healthcheck) before starting. Liquibase runs schema migrations automatically on first boot.
+The `api` container waits for `postgres`, `casdoor`, and `cassandra` to report healthy, plus the one-shot `cassandra-init` keyspace-bootstrap job to complete, before starting. Liquibase runs schema migrations automatically on first boot.
 
 ```mermaid
 flowchart TB
     PG["postgres\n(healthcheck: pg_isready)"]
-    CAS["casdoor\n(healthcheck: /health)"]
-    API["api (BFF)\nwaits for postgres + casdoor\nruns Liquibase migrations"]
+    CAS["casdoor\n(healthcheck: /api/health)"]
+    CASS["cassandra\n(healthcheck: service_healthy)"]
+    CASSINIT["cassandra-init\n(one-shot keyspace bootstrap, service_completed_successfully)"]
+    API["api (BFF)\nwaits for postgres + casdoor + cassandra + cassandra-init\nruns Liquibase migrations"]
     FE["frontend (Angular host nginx)\nwaits for api"]
     REMOTES["federated remotes\n(login, admin, mod, publisher, …)"]
     WASM["wasm-fragment nginx\n(static bundle serving)"]
 
     PG --> API
     CAS --> API
+    CASS --> API
+    CASSINIT --> API
     API --> FE
     REMOTES -.->|"proxied at /_remotes/<slug>/ by frontend nginx"| FE
     WASM -.->|"proxied at /_remotes/wasm-fragment/ by frontend nginx"| FE
@@ -1473,11 +1505,11 @@ Two compose overlays sit on top of the dev `docker-compose.yml` for these target
 ```bash
 # Staging — pin a build tag, narrow CORS to *.staging.snapdragon.games:
 SNAPDRAGON_TAG=2026-04-26.42 \
-  docker compose -f compose.yml -f compose.staging.yml up -d
+  docker compose -f docker-compose.yml -f compose.staging.yml up -d
 
 # Production — same pattern, narrower allowlist + separate volumes:
 SNAPDRAGON_TAG=2026-04-26.42 \
-  docker compose -f compose.yml -f compose.prod.yml up -d
+  docker compose -f docker-compose.yml -f compose.prod.yml up -d
 ```
 
 Each app service is tagged `snapdragon-games/<svc>:${SNAPDRAGON_TAG:-dev}` in the dev compose, so the same images can be pushed to a registry without modification. Staging and prod overlays require `SNAPDRAGON_TAG` to be set explicitly (no `:dev` fallback). The image-name map:
