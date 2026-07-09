@@ -1,11 +1,13 @@
--- Upsert level records with their per-level Godot WASM asset URLs.
+-- Upsert chapter records with their per-chapter Godot WASM asset URLs.
 -- Safe to run multiple times (ON CONFLICT … DO UPDATE).
 -- Run via: make seed-db
 --      or: psql -h localhost -U threewizards -d threewizards -f scripts/seed-games.sql
 --
--- After migration 012 the `games` table is the umbrella tier and `levels`
--- holds the per-WASM rows with asset_url + scene_type. Updates here target
--- `levels` accordingly.
+-- After migration 012 the `games` table is the umbrella tier and the
+-- per-WASM rows (asset_url + scene_type) hold the level/scene data.
+-- Migration 028 renamed that table from `levels` to `chapters`
+-- (games/snapdragon/bff/model/Chapter.java maps @Table("chapters")) — this
+-- script targets `chapters` accordingly.
 
 -- Snapdragon Games is a portal: each row in `games` is a separate game
 -- title. "Three Wizards In A Trenchcoat" is just one of the games in the
@@ -29,10 +31,10 @@ ON CONFLICT (slug) DO UPDATE
         description = EXCLUDED.description,
         sort_order  = EXCLUDED.sort_order;
 
--- Levels — point each at its own per-level WASM bundle. The dodecahedron
--- level uses scene_type = 'dodecahedron' which the home view treats as a
+-- Chapters — point each at its own per-chapter WASM bundle. The dodecahedron
+-- chapter uses scene_type = 'dodecahedron' which the home view treats as a
 -- chrome-less demo (no HUD, no controls overlay).
-INSERT INTO levels
+INSERT INTO chapters
     (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
 VALUES
     (
