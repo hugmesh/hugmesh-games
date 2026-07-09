@@ -419,7 +419,16 @@ public final class ReferenceArenaSim implements SimCore {
         String winner = null;
         boolean kill = players.values().stream().anyMatch(p -> p.hp <= 0);
         if (kill) {
-            // First live player in fixed (sorted-id) iteration order is the winner.
+            // With >2 players, a kill can leave several survivors — the pick
+            // among them is otherwise arbitrary, but it MUST be deterministic.
+            // This same resultJson() call runs independently on every pod, and
+            // again on any pod that restore()s this match from a snapshot; all
+            // of them have to agree on one winnerId for the same match state
+            // (the authoritative-tick recovery contract — see class-level
+            // "Determinism rules"). Iterating players.values() in the fixed
+            // sorted-id order guarantees that; swapping in a HashMap or any
+            // other order-unstable collection here would let two pods report
+            // different winners for the identical match.
             for (Player p : players.values()) {
                 if (p.hp > 0) { winner = p.id; break; }
             }
