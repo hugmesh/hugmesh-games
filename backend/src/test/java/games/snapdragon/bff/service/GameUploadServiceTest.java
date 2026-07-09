@@ -1,17 +1,21 @@
 package games.snapdragon.bff.service;
 
 import games.snapdragon.bff.repository.GameUploadRepository;
+import games.snapdragon.bff.security.DomainRegistry;
 import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryMetadata;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -25,6 +29,11 @@ import static org.mockito.Mockito.mock;
  * malformed manifest, zip-slip-unsafe entries, slug regex) all run
  * BEFORE the R2DBC chain, so the repos / connection factory / tx
  * operator can be mocks — none of them are touched.
+ *
+ * <p>{@link #authorizationFailureNeverTouchesStorage} additionally covers
+ * the {@code requireScope} / storage-move ordering boundary: it still
+ * never reaches the DB (the authorization Mono errors first), so the same
+ * mocks apply.
  */
 class GameUploadServiceTest {
 
@@ -143,6 +152,46 @@ class GameUploadServiceTest {
                     assertThat(err.getMessage()).contains("bundle/ tree is empty");
                 })
                 .verify();
+    }
+
+    /**
+     * Guards the documented ordering contract in {@link GameUploadService#install}:
+     * "the {@code requireScope} hook fires ... BEFORE any filesystem move or DB
+     * write." A rejecting {@code requireScope} must short-circuit the chain before
+     * {@link games.snapdragon.bff.upload.FilesystemUploadStorage#installFromStaging}
+     * ever runs — i.e. the bundle must never land under
+     * {@code <gamesDir>/<slug>/...} for an unauthorized upload.
+     *
+     * <p>Regression coverage for a real ordering bug: {@code writeAndRegister(...)}
+     * was previously invoked as a plain (eager) Java method argument to
+     * {@code .then(...)}, so its blocking {@code storage.installFromStaging} call
+     * ran as a side effect of assembling that argument — before the
+     * {@code requireScope} Mono earlier in the chain was even subscribed, let
+     * alone completed. Wrapping the storage call in {@code Mono.fromCallable}
+     * defers it until subscription, restoring correct sequencing.
+     */
+    @Test
+    void authorizationFailureNeverTouchesStorage() throws Exception {
+        byte[] zip = makeZip(entry -> {
+            entry.put("manifest.json",
+                    "{\"schema_version\":2,\"game\":{\"name\":\"X\",\"slug\":\"authtest\"}}".getBytes());
+            entry.put("bundle/index.html", "<html></html>".getBytes());
+        });
+        java.util.function.Function<String, Mono<Void>> alwaysForbidden =
+                slug -> Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "not your game"));
+
+        StepVerifier.create(newService().install(
+                        zip, "mallory", DomainRegistry.DEFAULT_DOMAIN, alwaysForbidden))
+                .expectErrorSatisfies(err -> {
+                    assertThat(err).isInstanceOf(ResponseStatusException.class);
+                    assertThat(((ResponseStatusException) err).getStatusCode().value()).isEqualTo(403);
+                })
+                .verify();
+
+        // FilesystemUploadStorage.installFromStaging() would have created
+        // <gamesDir>/authtest/... on its way to moving the staged bundle in;
+        // its absence proves the storage move never ran.
+        assertThat(Files.exists(tempDir.resolve("authtest"))).isFalse();
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────

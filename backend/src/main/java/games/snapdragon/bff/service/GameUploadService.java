@@ -485,31 +485,53 @@ public class GameUploadService {
      * best-effort removes the version directory from storage so no orphaned
      * artifacts are left.
      *
+     * <p>The blocking {@code storage.installFromStaging} call is wrapped in
+     * {@link Mono#fromCallable} rather than invoked as a plain synchronous
+     * method body: this method's result is passed as a plain Java argument
+     * to {@code .then(...)} in {@link #install}, so a synchronous call here
+     * would run the storage move as a side effect of assembling that
+     * argument — BEFORE the {@code requireScope} authorization Mono earlier
+     * in the {@code .then()} chain is even subscribed, let alone completes.
+     * Deferring via {@code Mono.fromCallable} keeps the move from running
+     * until this Mono is subscribed in sequence, i.e. only after
+     * authorization has actually succeeded.
+     *
      * @param staged     the validated staged bundle from {@link #stageAndValidate}
      * @param uploadedBy Casdoor subject of the uploader
      * @param domain     trusted brand domain to stamp on a new game row
      * @return a {@link Mono} emitting the {@link InstalledUpload} on success
      */
-    // TODO reactive: review this catch for onErrorResume — storage.installFromStaging
-    // is a blocking call; wrapping writeAndRegister in Mono.fromCallable (then chaining
-    // the DB steps via flatMap) would let onErrorResume replace the boundary try/catch.
     private Mono<InstalledUpload> writeAndRegister(StagedBundle staged, String uploadedBy, String domain) {
-        String locator;
-        try {
-            // Storage strategy claims ownership of stagingDir from here.
-            // Filesystem impl atomically moves it under gamesDir/<slug>/<hash>;
-            // S3 impl walks + putObject's each file and cleans the dir up.
-            // The returned locator is what we persist in game_uploads.version_dir
-            // for both AssetController reads + the pruner sweeps.
-            locator = storage.installFromStaging(
-                    staged.slug(),
-                    staged.contentHash().substring(0, 16),
-                    staged.stagingDir());
-        } catch (RuntimeException ex) {
-            cleanup(staged.stagingDir());
-            return Mono.error(ex);
-        }
+        return Mono.fromCallable(() ->
+                        // Storage strategy claims ownership of stagingDir from here.
+                        // Filesystem impl atomically moves it under gamesDir/<slug>/<hash>;
+                        // S3 impl walks + putObject's each file and cleans the dir up.
+                        // The returned locator is what we persist in game_uploads.version_dir
+                        // for both AssetController reads + the pruner sweeps.
+                        storage.installFromStaging(
+                                staged.slug(),
+                                staged.contentHash().substring(0, 16),
+                                staged.stagingDir()))
+                // Mirrors the original catch (RuntimeException): a peek, not a
+                // recovery — the same exception continues to propagate after the
+                // staging dir is cleaned up. Non-RuntimeException Throwables (e.g.
+                // an Error) are intentionally left unhandled, same as before.
+                .doOnError(RuntimeException.class, ex -> cleanup(staged.stagingDir()))
+                .flatMap(locator -> writeAndRegisterAt(staged, uploadedBy, domain, locator));
+    }
 
+    /**
+     * Continuation of {@link #writeAndRegister} once the storage move has
+     * produced {@code locator}: builds the {@code game_uploads} row and runs
+     * the transactional DB chain described in the marble diagram above.
+     *
+     * @param staged     the validated staged bundle from {@link #stageAndValidate}
+     * @param uploadedBy Casdoor subject of the uploader
+     * @param domain     trusted brand domain to stamp on a new game row
+     * @param locator    the storage locator returned by {@code storage.installFromStaging}
+     * @return a {@link Mono} emitting the {@link InstalledUpload} on success
+     */
+    private Mono<InstalledUpload> writeAndRegisterAt(StagedBundle staged, String uploadedBy, String domain, String locator) {
         GameUpload row = new GameUpload();
         row.setSlug(staged.slug());
         row.setVersionDir(locator);
