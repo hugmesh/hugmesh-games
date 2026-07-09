@@ -2,7 +2,42 @@
 
 Equivalent ports of well-known open-source games onto the Snapdragon platform
 (Godot 4 WASM client + the event-streaming multiplayer architecture). Generated
-as a planning backlog; each row is a future epic, not yet built.
+as a planning backlog; each row was a future epic, not yet built, at the time
+this doc was written.
+
+> **Since then, 13 of the rows below have shipped** (Wave 1 partially, Wave 2
+> partially, Wave 3 completely) — see [Already shipped](#already-shipped-13-titles-since-this-backlog-was-written)
+> for the corrected status, cross-checked against the [README's catalog table](../README.md#two-game-technologies)
+> and the `games/` / `extensions/` directories. The tables below now list only
+> the titles that are genuinely still not built.
+
+## Already shipped (13 titles, since this backlog was written)
+
+These rows have merged to `main` as part of the 14-title "Web-native
+Rust→wasm32" family (see the [README](../README.md#two-game-technologies)) and
+are removed from the "not yet built" tables further down. `chess` itself
+shipped too, but it was the pre-existing template the rest of this doc is
+built on, not a backlog row.
+
+| Snapdragon port | Wave | Upstream reference | Ships as |
+|---|---|---|---|
+| Reversi/Othello | Wave 1 | KReversi | [`extensions/snapdragon-reversi`](../extensions/snapdragon-reversi), [`games/reversi`](../games/reversi) |
+| Connect Four | Wave 1 | KFourInLine | [`extensions/snapdragon-connect-four`](../extensions/snapdragon-connect-four), [`games/connect-four`](../games/connect-four) |
+| Gomoku (five-in-a-row) | Wave 1 | Bovo | [`extensions/snapdragon-gomoku`](../extensions/snapdragon-gomoku), [`games/gomoku`](../games/gomoku) |
+| Go | Wave 1 | Kigo | [`extensions/snapdragon-go`](../extensions/snapdragon-go), [`games/go`](../games/go) |
+| Battleship | Wave 1 | Knavalbattle | [`extensions/snapdragon-battleship`](../extensions/snapdragon-battleship), [`games/battleship`](../games/battleship) |
+| Dots and Boxes | Wave 1 | KSquares | [`extensions/snapdragon-dots-and-boxes`](../extensions/snapdragon-dots-and-boxes), [`games/dots-and-boxes`](../games/dots-and-boxes) |
+| Tetris | Wave 2 | KBlocks | [`extensions/snapdragon-tetris`](../extensions/snapdragon-tetris), [`games/tetris`](../games/tetris) |
+| Minesweeper | Wave 2 | KMines | [`extensions/snapdragon-minesweeper`](../extensions/snapdragon-minesweeper), [`games/minesweeper`](../games/minesweeper) |
+| Sudoku | Wave 2 | KSudoku | [`extensions/snapdragon-sudoku`](../extensions/snapdragon-sudoku), [`games/sudoku`](../games/sudoku) |
+| Match-3 | Wave 2 | KDiamond | [`extensions/snapdragon-match-three`](../extensions/snapdragon-match-three), [`games/match-three`](../games/match-three) |
+| Tron light-cycles | Wave 3 | KSnakeDuel (KTron) | [`extensions/snapdragon-tron`](../extensions/snapdragon-tron), [`games/tron`](../games/tron) |
+| Bomberman | Wave 3 | Bomber, Granatier | [`extensions/snapdragon-bomberman`](../extensions/snapdragon-bomberman), [`games/bomberman`](../games/bomberman) |
+| Asteroids duel | Wave 3 | KSpaceDuel | [`extensions/snapdragon-asteroids-duel`](../extensions/snapdragon-asteroids-duel), [`games/asteroids-duel`](../games/asteroids-duel) |
+
+**Wave 3 (real-time arcade duels) is now fully shipped** — all three of its
+rows are done, so the Wave 3 table below has been removed. Wave 1 and Wave 2
+are partially shipped; the tables below list only their remaining rows.
 
 ## How a port maps to the platform (the reusable pattern)
 
@@ -29,31 +64,32 @@ budget for **libre assets** (or original Godot art) per game.
 ### A1. Two-player abstract — reuse the chess template directly (Wave 1)
 Each = a small Rust rules crate (sibling to `snapdragon-chess`) + a Godot board + the chess relay.
 
+**6 of the original 10 rows have shipped** — Reversi, Connect Four, Gomoku, Go,
+Battleship, and Dots and Boxes are done; see
+[Already shipped](#already-shipped-13-titles-since-this-backlog-was-written).
+The remaining, genuinely-not-yet-built rows:
+
 | Snapdragon port | kdegames / upstream | Notes |
 |---|---|---|
-| Reversi/Othello | KReversi | trivial rules engine; perfect chess-template clone |
-| Connect Four | KFourInLine | tiny engine; great first non-chess port |
-| Gomoku (five-in-a-row) | Bovo | tiny engine |
-| Go | Kigo (+ GNU Go as AI/oracle, like gnuchess) | ko/scoring rules non-trivial; medium |
-| Battleship | Knavalbattle | hidden-state → host holds boards, reveals hits only (fits host-authoritative) |
-| Dots and Boxes | KSquares | tiny engine |
 | Backgammon | (not in kdegames; GNU Backgammon engine) | dice = shared RNG seed over the stream |
 | Skat / card games | LSkat, KPat(engine) | hidden hands → host deals; relay plays |
 | Risk-like conquest | KsirK | turn-based strategy; larger |
 | Galactic conquest | Konquest | turn-based; medium |
 
 ### A2. Single-player puzzles & arcade (Wave 2) — Godot WASM, no/optional MP
+
+**4 of the original 15 rows have shipped** — Tetris, Minesweeper, Sudoku, and
+Match-3 are done; see
+[Already shipped](#already-shipped-13-titles-since-this-backlog-was-written).
+The remaining, genuinely-not-yet-built rows:
+
 | Snapdragon port | kdegames | Clone of |
 |---|---|---|
-| Tetris | KBlocks | Tetris |
-| Minesweeper | KMines | Minesweeper |
-| Sudoku | KSudoku | Sudoku |
 | Solitaire suite | KPat | Klondike/FreeCell/Spider |
 | Mahjong solitaire | KMahjongg, Kshisen | Shanghai/Shisen-Sho |
 | Pac-Man | Kapman | Pac-Man |
 | Lode Runner | KGoldrunner | Lode Runner |
 | Breakout/Arkanoid | KBounce, KBreakOut | Breakout |
-| Match-3 | KDiamond | Bejeweled |
 | Picross/nonogram | Picmi | Picross |
 | Pipe/network puzzle | KNetWalk | NetWalk |
 | Robots | Killbots | Chase/Robots |
@@ -62,11 +98,9 @@ Each = a small Rust rules crate (sibling to `snapdragon-chess`) + a Godot board 
 | JumpingCube | KJumpingCube | Tactics |
 
 ### A3. Real-time arcade duels (Wave 3) — 2-player real-time over the stream
-| Snapdragon port | kdegames | Clone of |
-|---|---|---|
-| Tron light-cycles | KSnakeDuel (KTron) | Tron/Snake duel |
-| Bomberman | Bomber, Granatier | Bomberman |
-| Asteroids duel | KSpaceDuel | Asteroids/space duel |
+
+**All 3 rows have shipped** — Tron, Bomberman, and Asteroids duel are done;
+Wave 3 is complete. See [Already shipped](#already-shipped-13-titles-since-this-backlog-was-written).
 
 ---
 
@@ -119,16 +153,25 @@ scale; reuse Warzone 2100 / 0 A.D. libre assets where license-compatible.
 
 ## Recommended waves (the todos)
 
-1. **Wave 1 — abstract 2-player** on the chess template: Reversi, Connect Four,
-   Gomoku, Battleship, Dots-and-Boxes, Go. (Each: a Rust rules crate + Godot
-   board + the chess relay. Reversi/Connect-Four first — smallest engines.)
-2. **Wave 2 — single-player puzzles** (Godot WASM): Tetris, Minesweeper, Sudoku,
-   Solitaire, Pac-Man, Breakout, Match-3.
-3. **Wave 3 — real-time duels**: Tron, Bomberman, Asteroids-duel.
+1. **Wave 1 — abstract 2-player** on the chess template. ✅ **Shipped:**
+   Reversi, Connect Four, Gomoku, Battleship, Dots-and-Boxes, Go. Remaining:
+   Backgammon, Skat/card games, Risk-like conquest (KsirK), Galactic conquest
+   (Konquest).
+2. **Wave 2 — single-player puzzles** (Godot WASM). ✅ **Shipped:** Tetris,
+   Minesweeper, Sudoku, Match-3. Remaining: Solitaire, Mahjong solitaire,
+   Pac-Man, Lode Runner, Breakout, Picross, Pipe/network puzzle, Robots,
+   Jigsaw, Black Box, JumpingCube.
+3. **Wave 3 — real-time duels**: Tron, Bomberman, Asteroids-duel. ✅ **Fully
+   shipped** — no remaining rows.
 4. **Wave 4 — FPS**: Godot-native "Snapdragon Arena" (Xonotic/OpenArena-modeled,
-   libre data) + spike an Emscripten Freedoom/AssaultCube WASM port.
+   libre data) + spike an Emscripten Freedoom/AssaultCube WASM port. Not yet
+   started as a catalog title — note that `extensions/snapdragon-fps-core`
+   (the server-authoritative sim engine, not a title) is 🚧 in-flight per the
+   [README roadmap](../README.md#in-progress--server-authoritative-realtime-engines-catalog-launch-deferred).
 5. **Wave 5 — RTS**: Godot-native deterministic-lockstep "Snapdragon Command"
    (Warzone 2100 / 0 A.D.-modeled, libre data) proving lockstep-over-stream.
+   Not yet started as a catalog title — `extensions/snapdragon-rts-core` (the
+   engine, not a title) is likewise 🚧 in-flight per the README roadmap.
 
 Cross-cutting per port: pick libre assets, a rules/sim engine where applicable
 (Rust→WASM, chess pattern), Godot remote + federation seed + Liquibase catalog
