@@ -19,6 +19,8 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -396,6 +398,20 @@ public class AuthoritativeTickService {
      * mutations are protected by {@code synchronized(ms)}.
      */
     private final ConcurrentHashMap<String, MatchState> running = new ConcurrentHashMap<>();
+
+    /**
+     * Scheduler backing the production {@link Flux#interval} tick loop in
+     * {@link #startLoop}. Defaults to {@link Schedulers#parallel()} — exactly
+     * what {@code Flux.interval(Duration)} resolves implicitly — so production
+     * behaviour is unchanged. Package-visible and reassignable ONLY as a test
+     * seam: tests substitute a
+     * {@link reactor.test.scheduler.VirtualTimeScheduler} to drive the loop
+     * (and its {@code catch(Throwable)} → {@link #abortMatch} failsafe) in
+     * deterministic virtual time — no real clock, no sleeps. Same
+     * test-visibility rationale as the package-visible {@link #runTick}; never
+     * reassigned by production code.
+     */
+    Scheduler tickScheduler = Schedulers.parallel();
 
     // -------------------------------------------------------------------------
     // Construction
@@ -1026,13 +1042,29 @@ public class AuthoritativeTickService {
     private void startLoop(String sessionId, MatchState ms) {
         // Tick-hz <= 0 = manual test mode; no interval is started.
         if (tickHz <= 0) return;
-        // TODO reactive: review this catch for onErrorResume — the Throwable guard
-        // (not just RuntimeException) is intentional: an Error from SimCore.step
-        // must trigger abortMatch or the interval keeps ticking into a dead match.
-        // A full reactive rewrite would convert runTick to Mono<Void> and use
-        // .onErrorResume(Throwable.class, ex -> { abortMatch(...); return Mono.empty(); })
-        // on the flatMap inside the interval chain instead of subscribe.
-        ms.loop = Flux.interval(Duration.ofMillis(Math.max(1, 1000 / tickHz)))
+        // The imperative try/catch below is DELIBERATE, not a pending reactive
+        // rewrite: a .subscribe(onNext) with a plain catch(Throwable) around the
+        // synchronous runTick is a strictly stronger failsafe than an operator
+        // chain, on two axes a naive rewrite would weaken.
+        //  (1) Fatal errors: catch(Throwable) also catches the JVM-fatal subset
+        //      (VirtualMachineError, LinkageError, ThreadDeath) that reactor-core
+        //      3.8.6's reactor.core.Exceptions.throwIfFatal RE-THROWS rather than
+        //      delivering to onError (verified: isJvmFatal covers exactly those
+        //      three). So a reactive .onErrorResume(Throwable.class, ex ->
+        //      abortMatch(...)) would silently NOT fire for e.g. an
+        //      UnsatisfiedLinkError/NoClassDefFoundError out of a future Rust-FFI
+        //      SimCore.step — the interval would die, the match would stay in
+        //      `running`, and the replay-latest sink would never terminate (every
+        //      WebSocket/SSE subscriber hangs forever). A non-JVM-fatal Error such
+        //      as AssertionError IS delivered to onError, so the gap is exactly the
+        //      throwIfFatal subset — which is precisely why the guard is Throwable.
+        //  (2) Tick overlap: .subscribe(onNext) delivers ticks strictly one-at-a-
+        //      time (serial onNext); a naive .flatMap(runTick) would run ticks
+        //      concurrently the moment one tick outlasts the ~33ms period, mutating
+        //      one MatchState off the single-threaded discipline runTick assumes (a
+        //      .concatMap would keep order but change backpressure/buffering).
+        // Coverage: AuthoritativeTickServiceTest > AuthoritativeLoopAbort.
+        ms.loop = Flux.interval(Duration.ofMillis(Math.max(1, 1000 / tickHz)), tickScheduler)
                 .subscribe(i -> {
                     // Throwable, not RuntimeException: an Error out of
                     // SimCore.step would otherwise kill the interval silently

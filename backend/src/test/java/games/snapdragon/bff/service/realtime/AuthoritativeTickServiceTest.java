@@ -13,7 +13,9 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+import reactor.test.scheduler.VirtualTimeScheduler;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -108,6 +110,64 @@ class AuthoritativeTickServiceTest {
         @Override public SimCore restore(String snapshotJson) { restores.incrementAndGet(); return sim; }
     }
 
+    /** A sim whose {@link #step} throws a supplied UNCHECKED throwable on every
+     *  tick — the injection point for the startLoop {@code catch(Throwable)} →
+     *  {@code abortMatch} failsafe. Only RuntimeExceptions and Errors are ever
+     *  injected (both unchecked), so no sneaky-throw is needed. */
+    static final class ThrowingSim implements SimCore {
+        private final Throwable toThrow;
+        final java.util.concurrent.atomic.AtomicInteger steps =
+                new java.util.concurrent.atomic.AtomicInteger();
+        ThrowingSim(Throwable toThrow) { this.toThrow = toThrow; }
+        @Override public long tick() { return 0; }
+        @Override public void step(List<SimCommand> cmds) {
+            steps.incrementAndGet();
+            if (toThrow instanceof Error e) throw e;
+            throw (RuntimeException) toThrow;
+        }
+        @Override public String snapshotJson() { return "{\"tick\":0}"; }
+        @Override public boolean isTerminal() { return false; }
+        @Override public String resultJson() { return null; }
+    }
+
+    static final class ThrowingFactory implements SimCoreFactory {
+        final ThrowingSim sim;
+        ThrowingFactory(Throwable toThrow) { this.sim = new ThrowingSim(toThrow); }
+        @Override public String kind() { return "throwing"; }
+        @Override public SimCore create(long seed, String configJson) { return sim; }
+        @Override public SimCore restore(String snapshotJson) { return sim; }
+    }
+
+    /** Records the order of {@link #step} calls and gauges whether any two ever
+     *  overlap — the structural invariant the {@code .subscribe(onNext)} form
+     *  guarantees (serial onNext) and a naive {@code .flatMap(runTick)} rewrite
+     *  would break once a tick outlasts the interval period. */
+    static final class OrderTrackingSim implements SimCore {
+        long tick;
+        final java.util.concurrent.atomic.AtomicInteger inStep =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicInteger maxConcurrent =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final List<Long> stepOrder = new CopyOnWriteArrayList<>();
+        @Override public long tick() { return tick; }
+        @Override public void step(List<SimCommand> cmds) {
+            maxConcurrent.accumulateAndGet(inStep.incrementAndGet(), Math::max);
+            stepOrder.add(tick);          // the tick this step consumes as its input
+            tick++;
+            inStep.decrementAndGet();
+        }
+        @Override public String snapshotJson() { return "{\"tick\":" + tick + "}"; }
+        @Override public boolean isTerminal() { return false; }
+        @Override public String resultJson() { return null; }
+    }
+
+    static final class OrderTrackingFactory implements SimCoreFactory {
+        final OrderTrackingSim sim = new OrderTrackingSim();
+        @Override public String kind() { return "order-tracking"; }
+        @Override public SimCore create(long seed, String configJson) { return sim; }
+        @Override public SimCore restore(String snapshotJson) { return sim; }
+    }
+
     // ── wiring helpers ──────────────────────────────────────────────────
 
     private RealtimeMatchRepository matchRepo;
@@ -136,6 +196,48 @@ class AuthoritativeTickServiceTest {
         // tickHz=0 disables the production Flux.interval — tests own the clock.
         return new AuthoritativeTickService(factories, matchRepo, memberRepo, provider,
                 publisher, 0, inputDelay, keyframeInterval);
+    }
+
+    /**
+     * Like {@link #newService} but with the production interval ENABLED
+     * ({@code tickHz > 0}) and a {@link VirtualTimeScheduler} substituted through
+     * the {@code tickScheduler} seam, so the loop can be driven in deterministic
+     * virtual time. The truth store is left null so the abort's registry removal
+     * is cleanly observable through the public API (a post-abort 404) and the
+     * keyframe branch stays out of {@code runTick}.
+     */
+    private AuthoritativeTickService newLoopService(VirtualTimeScheduler vts, int tickHz,
+                                                    int inputDelay, int keyframeInterval,
+                                                    SimCoreFactory... extraFactories) {
+        matchRepo = mock(RealtimeMatchRepository.class);
+        memberRepo = mock(SessionMemberRepository.class);
+        lenient().when(matchRepo.save(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        lenient().when(matchRepo.findById(anyString())).thenReturn(Mono.empty());
+        lenient().when(memberRepo.findActiveBySession(anyString())).thenReturn(Flux.empty());
+        @SuppressWarnings("unchecked")
+        ObjectProvider<RealtimeTruthStore> provider = mock(ObjectProvider.class);
+        lenient().when(provider.getIfAvailable()).thenReturn(null);
+        List<SimCoreFactory> factories = new ArrayList<>(List.of(new ReferenceArenaSimFactory()));
+        factories.addAll(List.of(extraFactories));
+        AuthoritativeTickService svc = new AuthoritativeTickService(factories, matchRepo, memberRepo,
+                provider, Optional.empty(), tickHz, inputDelay, keyframeInterval);
+        svc.tickScheduler = vts;   // deterministic virtual-time seam (see field javadoc)
+        return svc;
+    }
+
+    /** Reflective read of the private {@code running} registry so a test can
+     *  hold a {@link AuthoritativeTickService.MatchState} reference before the
+     *  abort removes it, then assert its terminal/loop fields directly. */
+    @SuppressWarnings("unchecked")
+    private static AuthoritativeTickService.MatchState liveState(AuthoritativeTickService svc,
+                                                                 String sessionId) {
+        try {
+            java.lang.reflect.Field f = AuthoritativeTickService.class.getDeclaredField("running");
+            f.setAccessible(true);
+            return ((Map<String, AuthoritativeTickService.MatchState>) f.get(svc)).get(sessionId);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("cannot read the running registry", e);
+        }
     }
 
     private static void start(AuthoritativeTickService svc, String sessionId,
@@ -917,6 +1019,139 @@ class AuthoritativeTickServiceTest {
             for (int i = 0; i < 6; i++) svc.runTick("s");
             assertThat(store.keyframes.get("s"))
                     .as("keyframes still persist without the tee").containsKeys(3L, 6L);
+        }
+    }
+
+    // ===================================================================
+    // (k) production interval loop — the tickHz > 0 path that every other
+    //     test skips (tickHz=0). Drives the Flux.interval subscription in
+    //     deterministic virtual time and pins the catch(Throwable) →
+    //     abortMatch failsafe: an uncaught Throwable out of SimCore.step must
+    //     tear the match DOWN (remove from registry, mark terminal, error the
+    //     snapshot sink so subscribers don't hang, dispose the loop) rather
+    //     than silently kill the interval and strand the match. Also documents
+    //     the strict-sequential tick-ordering invariant a reactive rewrite
+    //     would have to preserve. See the rationale comment in startLoop.
+    // ===================================================================
+    @Nested
+    class AuthoritativeLoopAbort {
+
+        // 100 Hz ⇒ 1000/100 = 10 ms/tick; kept in lockstep so PERIOD advances
+        // the VirtualTimeScheduler exactly one interval tick.
+        private static final int TICK_HZ = 100;
+        private static final Duration PERIOD = Duration.ofMillis(1000 / TICK_HZ);
+
+        private static void assert404(org.reactivestreams.Publisher<?> p) {
+            StepVerifier.create(p)
+                    .expectErrorSatisfies(err -> assertThat(((ResponseStatusException) err)
+                            .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND))
+                    .verify();
+        }
+
+        /**
+         * Build a looping service whose sim throws {@code injected} out of the
+         * FIRST tick, drive exactly one interval tick, and assert the full abort
+         * contract: (1) the session is removed from the running registry, (2) its
+         * terminal flag is set, (3) a live snapshot subscriber receives onError
+         * (the injected throwable) rather than hanging, and (4) the interval
+         * subscription is disposed and never ticks again.
+         */
+        private void assertAbortsCleanlyWhenStepThrows(Throwable injected) {
+            VirtualTimeScheduler vts = VirtualTimeScheduler.create();
+            ThrowingFactory factory = new ThrowingFactory(injected);
+            AuthoritativeTickService svc = newLoopService(vts, TICK_HZ, 2, 0, factory);
+            start(svc, "s", "throwing", 1L, List.of("p1"), null);
+
+            // Grab the live state BEFORE the abort removes it, and attach a
+            // subscriber so we can prove it gets an ERROR signal, not a hang.
+            AuthoritativeTickService.MatchState ms = liveState(svc, "s");
+            assertThat(ms).as("match is live before the first tick").isNotNull();
+            java.util.concurrent.atomic.AtomicReference<Throwable> onError =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            AtomicBoolean onComplete = new AtomicBoolean();
+            List<String> frames = new CopyOnWriteArrayList<>();
+            svc.snapshotStream("s").subscribe(frames::add, onError::set, () -> onComplete.set(true));
+
+            // One interval tick: runTick → sim.step throws → catch(Throwable) → abortMatch.
+            vts.advanceTimeBy(PERIOD);
+            assertThat(factory.sim.steps).as("the tick actually ran and threw").hasValue(1);
+
+            // ── full abort contract ──────────────────────────────────────────
+            assertThat(liveState(svc, "s"))
+                    .as("(1) session removed from the running registry").isNull();
+            assertThat(ms.terminal).as("(2) terminal flag set true on abort").isTrue();
+            assertThat(onError.get())
+                    .as("(3) subscriber receives onError (the injected throwable), never a hang")
+                    .isSameAs(injected);
+            assertThat(onComplete).as("(3) aborted — not completed normally").isFalse();
+            assertThat(frames).as("step threw before the emit — no snapshot frame").isEmpty();
+            assertThat(ms.loop).isNotNull();
+            assertThat(ms.loop.isDisposed()).as("(4) loop subscription disposed on abort").isTrue();
+
+            // Registry removal is also observable through the public API …
+            assert404(svc.snapshotStream("s"));
+            // … and a disposed loop must never tick again, however far time advances.
+            vts.advanceTimeBy(PERIOD.multipliedBy(5));
+            assertThat(factory.sim.steps).as("a disposed loop never ticks again").hasValue(1);
+        }
+
+        @Test
+        void abortsAndSignalsSubscribersWhenStepThrowsRuntimeException() {
+            // The ordinary case — a RuntimeException a reactive
+            // .onErrorResume(Throwable.class,…) would also have caught.
+            assertAbortsCleanlyWhenStepThrows(new IllegalStateException("sim blew up"));
+        }
+
+        @Test
+        void abortsAndSignalsSubscribersWhenStepThrowsPlainError() {
+            // A non-JVM-fatal Error: catch(Throwable) is REQUIRED (catch(RuntimeException)
+            // would miss it), even though reactor's throwIfFatal would still deliver an
+            // AssertionError to onError. This pins the Throwable (not RuntimeException) guard.
+            assertAbortsCleanlyWhenStepThrows(new AssertionError("sim assertion failed"));
+        }
+
+        @Test
+        void abortsAndSignalsSubscribersWhenStepThrowsJvmFatalLinkageError() {
+            // The load-bearing case for the imperative guard: reactor-core 3.8.6
+            // Exceptions.throwIfFatal RE-THROWS LinkageError (isJvmFatal) instead of
+            // delivering it to onError, so a reactive .onErrorResume(Throwable.class,…)
+            // rewrite would DROP it and strand the match. The plain catch(Throwable)
+            // still catches it. Safe to simulate: we only construct and throw the Error
+            // object (a stand-in for an UnsatisfiedLinkError from a future Rust-FFI core),
+            // never actually unlink a class or exhaust the JVM.
+            assertAbortsCleanlyWhenStepThrows(new NoClassDefFoundError("simulated FFI link failure"));
+        }
+
+        @Test
+        void ticksRunStrictlyInOrderAndNeverOverlapUnderTheIntervalSubscription() {
+            VirtualTimeScheduler vts = VirtualTimeScheduler.create();
+            OrderTrackingFactory factory = new OrderTrackingFactory();
+            AuthoritativeTickService svc = newLoopService(vts, TICK_HZ, 2, 0, factory);
+            start(svc, "s", "order-tracking", 1L, List.of("p1"), null);
+
+            List<String> frames = new CopyOnWriteArrayList<>();
+            svc.snapshotStream("s").subscribe(frames::add);
+
+            // Advance six interval periods deterministically.
+            vts.advanceTimeBy(PERIOD.multipliedBy(6));
+
+            // Exactly six ticks, each consuming the previous tick (0..5) in strict
+            // ascending order, one at a time — the ordering/no-overlap invariant the
+            // .subscribe(onNext) form (or a .concatMap rewrite) preserves by
+            // construction but a naive .flatMap(runTick) would violate once a tick
+            // outlasts the period. (Virtual time is single-threaded, so this
+            // DOCUMENTS the serial-onNext guarantee rather than racing threads.)
+            assertThat(factory.sim.stepOrder).containsExactly(0L, 1L, 2L, 3L, 4L, 5L);
+            assertThat(factory.sim.maxConcurrent)
+                    .as("serial onNext: runTick is never re-entered concurrently").hasValue(1);
+            assertThat(frames)
+                    .as("one snapshot per tick, monotonic order")
+                    .containsExactly("{\"tick\":1}", "{\"tick\":2}", "{\"tick\":3}",
+                            "{\"tick\":4}", "{\"tick\":5}", "{\"tick\":6}");
+
+            // Tidy up the lingering periodic task on the local scheduler.
+            AuthoritativeTickService.MatchState ms = liveState(svc, "s");
+            if (ms != null && ms.loop != null) ms.loop.dispose();
         }
     }
 }
