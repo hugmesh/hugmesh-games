@@ -1,4 +1,4 @@
-import { Component, EventEmitter, HostListener, Input, OnDestroy, OnInit, Output, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, OnDestroy, OnInit, Output, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 
@@ -174,6 +174,31 @@ export class VnPlayerComponent implements OnInit, OnDestroy {
   @Output() close = new EventEmitter<void>();
 
   private http = inject(HttpClient);
+  private readonly hostEl: ElementRef<HTMLElement> = inject(ElementRef);
+
+  /** Standard focusable-element selector for the overlay's focus trap.
+   *  Self-contained here (not imported from the host app's
+   *  FocusTrapDirective) because this is a separately-built federated
+   *  project — see frontend/src/app/directives/focus-trap.directive.ts
+   *  for the sibling implementation in the host shell. Keep in sync.
+   *  Re-queried live on every Tab press (not cached), since the choice
+   *  buttons / Next button swap in and out as the preview advances. */
+  private static readonly FOCUSABLE_SELECTOR = [
+    'a[href]', 'button:not([disabled])', 'input:not([disabled])',
+    'select:not([disabled])', 'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(',');
+
+  /** Element that held focus before this preview overlay opened —
+   *  restored on close so the publisher isn't stranded at the top of
+   *  the page. */
+  private previouslyFocused: HTMLElement | null = null;
+
+  private focusableElements(): HTMLElement[] {
+    return Array.from(
+      this.hostEl.nativeElement.querySelectorAll<HTMLElement>(VnPlayerComponent.FOCUSABLE_SELECTOR),
+    );
+  }
 
   state: VnPlayerState = initialState();
   loadError = '';
@@ -194,6 +219,18 @@ export class VnPlayerComponent implements OnInit, OnDestroy {
   private assetRequested = new Set<string>();
 
   ngOnInit(): void {
+    // Keyboard-trap remediation: role="dialog" aria-modal="true" alone
+    // only tells assistive tech the rest of the page is inert — it does
+    // nothing to keep Tab/Shift+Tab actually cycling within the overlay.
+    // Remember what had focus (restored in ngOnDestroy) and move focus
+    // into the dialog. The .vn-close button is always present on first
+    // render regardless of the async project data still loading.
+    this.previouslyFocused = document.activeElement as HTMLElement | null;
+    const host = this.hostEl.nativeElement;
+    if (!host.hasAttribute('tabindex')) host.setAttribute('tabindex', '-1');
+    const focusable = this.focusableElements();
+    (focusable[0] ?? host).focus();
+
     const pid = this.project.id;
     // Fan out the project-level GETs, then start the engine once scenes land.
     this.http.get<VnCharacter[]>(`/api/vn/projects/${pid}/characters`).subscribe({
@@ -213,6 +250,12 @@ export class VnPlayerComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     for (const url of Object.values(this.assetUrls)) URL.revokeObjectURL(url);
     this.assetUrls = {};
+    // Restore focus to whatever had it before the preview opened, so
+    // closing the overlay doesn't strand focus at the top of the page.
+    const target = this.previouslyFocused;
+    if (target && typeof target.focus === 'function' && document.contains(target)) {
+      target.focus();
+    }
   }
 
   // ---- engine driving -----------------------------------------------------
@@ -264,6 +307,37 @@ export class VnPlayerComponent implements OnInit, OnDestroy {
     if ((ev.key === 'Enter' || ev.key === ' ') && this.canAdvanceByClick()) {
       ev.preventDefault();
       this.next();
+      return;
+    }
+    if (ev.key === 'Tab') { this.trapTab(ev); }
+  }
+
+  /** Tab from the last focusable element wraps to the first; Shift+Tab
+   *  from the first wraps to the last — keeps keyboard users cycling
+   *  within the overlay instead of escaping into the (visually inert)
+   *  maker UI behind it. Bound at the document level since this
+   *  component's whole template IS the modal (a fixed full-viewport
+   *  overlay), and the component instance only exists while it's open. */
+  private trapTab(ev: KeyboardEvent): void {
+    const host = this.hostEl.nativeElement;
+    const focusable = this.focusableElements();
+    if (focusable.length === 0) {
+      ev.preventDefault();
+      host.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (ev.shiftKey) {
+      // Also wrap when focus is on the overlay host itself (tabindex=-1
+      // fallback) or has escaped outside it — not just from the first
+      // focusable — so Shift+Tab never leaks into the inert maker UI.
+      if (active === host || active === first || !host.contains(active)) {
+        ev.preventDefault(); last.focus();
+      }
+    } else {
+      if (active === last) { ev.preventDefault(); first.focus(); }
     }
   }
 

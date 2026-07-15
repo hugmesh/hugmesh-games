@@ -6,6 +6,7 @@ import {
 
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { SessionControlService } from '../services/session-control.service';
+import { FocusTrapDirective } from '../directives/focus-trap.directive';
 
 /**
  * Same-origin broadcast channel used to coordinate "only one window plays
@@ -50,7 +51,7 @@ export interface PlayableGame {
 @Component({
   selector: 'app-game-canvas',
   standalone: true,
-  imports: [],
+  imports: [FocusTrapDirective],
   templateUrl: './game-canvas.component.html',
   changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './game-canvas.component.scss',

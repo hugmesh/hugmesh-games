@@ -49,13 +49,17 @@
 
   <!-- Pause / grey-out overlay. Driven by `paused` — set when another
        window of the same origin takes over (via BroadcastChannel) OR
-       when this window's own "open in new window" button fires. -->
+       when this window's own "open in new window" button fires.
+       appFocusTrap keeps Tab/Shift+Tab inside the overlay (only the
+       Resume button today) instead of escaping into the now-inert
+       game frame, and restores focus to whatever had it on resume. -->
   @if (paused) {
     <div class="paused-overlay"
          data-testid="canvas-paused"
          role="dialog"
          aria-label="Game paused"
-         aria-modal="true">
+         aria-modal="true"
+         appFocusTrap>
       <p class="paused-msg">Game paused — another window is playing.</p>
       <button type="button"
               class="resume-btn"

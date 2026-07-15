@@ -22,6 +22,7 @@ import { AvailableGame, GameWithChapters } from '../models/available-game.model'
 import { GameCanvasComponent } from '../game-canvas/game-canvas.component';
 import { GameHudComponent } from '../game-hud/game-hud.component';
 import { GameControlsComponent } from '../game-controls/game-controls.component';
+import { FocusTrapDirective } from '../directives/focus-trap.directive';
 import { Observable, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
 
@@ -65,7 +66,7 @@ const FEDERATED_GAME_SLUGS = new Set(['dodecahedron', 'three-wizards']);
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [CommonModule, FormsModule, GameCanvasComponent, GameHudComponent, GameControlsComponent],
+  imports: [CommonModule, FormsModule, GameCanvasComponent, GameHudComponent, GameControlsComponent, FocusTrapDirective],
   // Federated remote elements (e.g. <app-dodecahedron-remote>) are
   // bootstrapped by their own bundle, not Angular's host compiler.
   schemas: [CUSTOM_ELEMENTS_SCHEMA],

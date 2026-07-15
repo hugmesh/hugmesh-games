@@ -71,11 +71,21 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
           </button>
         </div>
         @if (paused) {
+          <!-- appFocusTrap-equivalent inline (federated remote, own build —
+               can't import the host shell's FocusTrapDirective across the
+               federation boundary; see
+               frontend/src/app/directives/focus-trap.directive.ts for the
+               sibling implementation and keep the two in sync). Keeps
+               Tab/Shift+Tab cycling within the overlay instead of escaping
+               into the now-inert game frame behind it. -->
           <div class="paused-overlay"
+               #pausedOverlay
                data-testid="canvas-paused"
                role="dialog"
                aria-label="Game paused"
-               aria-modal="true">
+               aria-modal="true"
+               tabindex="-1"
+               (keydown)="onPausedOverlayKeydown($event)">
             <p class="paused-msg">Game paused — another window is playing.</p>
             <button type="button"
                     class="resume-btn"
@@ -174,6 +184,54 @@ export class ThreeWizardsRemoteComponent implements OnInit, OnDestroy {
   @ViewChild('root') rootEl?: ElementRef<HTMLDivElement>;
   @ViewChild('wrap') wrapEl?: ElementRef<HTMLDivElement>;
   @ViewChild('gameFrame') gameFrame?: ElementRef<HTMLIFrameElement>;
+  @ViewChild('pausedOverlay') pausedOverlayEl?: ElementRef<HTMLDivElement>;
+
+  /** Standard focusable-element selector for the paused-overlay focus
+   *  trap. Re-queried live on every Tab press (not cached) — mirrors
+   *  frontend/src/app/directives/focus-trap.directive.ts. */
+  private static readonly FOCUSABLE_SELECTOR = [
+    'a[href]', 'button:not([disabled])', 'input:not([disabled])',
+    'select:not([disabled])', 'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(',');
+
+  /** Element that held focus before the paused-overlay opened — restored
+   *  on resume so closing the overlay doesn't strand focus. */
+  private _pausedPreviouslyFocused: HTMLElement | null = null;
+
+  private _focusableInPausedOverlay(): HTMLElement[] {
+    const host = this.pausedOverlayEl?.nativeElement;
+    if (!host) return [];
+    return Array.from(
+      host.querySelectorAll<HTMLElement>(ThreeWizardsRemoteComponent.FOCUSABLE_SELECTOR),
+    );
+  }
+
+  /** Tab/Shift+Tab handler bound on the paused-overlay div itself — traps
+   *  focus so a keyboard user can't tab out into the (aria-hidden-by-
+   *  intent) game frame behind the overlay while it's up. */
+  onPausedOverlayKeydown(ev: KeyboardEvent): void {
+    if (ev.key !== 'Tab') return;
+    const host = this.pausedOverlayEl?.nativeElement;
+    const focusable = this._focusableInPausedOverlay();
+    if (focusable.length === 0) {
+      if (host) { ev.preventDefault(); host.focus(); }
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (ev.shiftKey) {
+      // Also wrap when focus sits on the overlay host itself (tabindex=-1
+      // fallback) or has escaped outside it — not just from the first
+      // focusable — so Shift+Tab can't leak into the paused game frame.
+      if (active === host || active === first || !host?.contains(active)) {
+        ev.preventDefault(); last.focus();
+      }
+    } else {
+      if (active === last) { ev.preventDefault(); first.focus(); }
+    }
+  }
 
   ngOnInit(): void {
     if (typeof BroadcastChannel === 'undefined') return;
@@ -208,20 +266,37 @@ export class ThreeWizardsRemoteComponent implements OnInit, OnDestroy {
 
   /** Suspend playback in this window: show the grey-out overlay and
    *  forward SD_GAME_PAUSE to the iframe so the Godot bridge can stop
-   *  the scene tree. Idempotent. */
+   *  the scene tree. Idempotent. Remembers the currently-focused element
+   *  and moves focus into the overlay once it's rendered. Deferred to
+   *  the next animation frame (NOT a microtask) so Angular's change
+   *  detection has actually mounted the `@if (paused)` overlay DOM before
+   *  we query it for a focus target — a microtask can run before CD
+   *  flushes, leaving the overlay unmounted and focus stranded. */
   pauseGame(): void {
     if (this.paused) return;
     this.paused = true;
+    this._pausedPreviouslyFocused = document.activeElement as HTMLElement | null;
     this._postToIframe({ type: 'SD_GAME_PAUSE' });
+    requestAnimationFrame(() => {
+      const focusable = this._focusableInPausedOverlay();
+      const target = focusable[0] ?? this.pausedOverlayEl?.nativeElement ?? null;
+      target?.focus();
+    });
   }
 
   /** Inverse of pauseGame — re-claim playback. Re-broadcasts presence so
-   *  any sibling tabs pause themselves. */
+   *  any sibling tabs pause themselves, and restores focus to whatever
+   *  held it before the overlay opened. */
   resumeGame(): void {
     if (!this.paused) return;
     this.paused = false;
     this._postToIframe({ type: 'SD_GAME_RESUME' });
     this._broadcastPresence();
+    const target = this._pausedPreviouslyFocused;
+    this._pausedPreviouslyFocused = null;
+    if (target && typeof target.focus === 'function' && document.contains(target)) {
+      target.focus();
+    }
   }
 
   private _postToIframe(msg: { type: string }): void {

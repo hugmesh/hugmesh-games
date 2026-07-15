@@ -97,4 +97,93 @@ describe('GameCanvasComponent', () => {
     expect(() => comp.pauseGame('session-control')).not.toThrow();
     expect(comp.paused).toBeTrue();
   });
+
+  /**
+   * Keyboard-trap remediation coverage for the paused-overlay
+   * (appFocusTrap on .paused-overlay). Unlike the specs above, these
+   * render the real template so the directive actually runs against the
+   * live DOM. `onFrameLoad` is stubbed out so the real <iframe src="">
+   * this renders can't fire its own async focus-grab (see
+   * GameCanvasComponent.onFrameLoad) and race these assertions — that
+   * behaviour has its own dedicated coverage already via the "Movement
+   * doesn't happen in the WASM iframe" fix, unrelated to this trap.
+   */
+  describe('paused-overlay focus trap', () => {
+    let outsideTrigger: HTMLButtonElement;
+
+    beforeEach(() => {
+      spyOn(comp, 'onFrameLoad');
+      // Mount a real chapter first so `frameSrc` goes through
+      // `_mountLevel` (DomSanitizer.bypassSecurityTrustResourceUrl) —
+      // otherwise the iframe's default `frameSrc = ''` plain string
+      // trips Angular's NG0904 "unsafe value in a resource URL context"
+      // the moment the template actually renders.
+      comp.game = { id: 1, slug: 'cave', assetUrl: '/api/assets/levels/cave/index.html' };
+      comp.ngOnChanges();
+      outsideTrigger = document.createElement('button');
+      outsideTrigger.textContent = 'outside trigger';
+      document.body.appendChild(outsideTrigger);
+      document.body.appendChild(fixture.nativeElement);
+      outsideTrigger.focus();
+      fixture.detectChanges(); // initial render — paused=false, no overlay yet
+    });
+
+    afterEach(() => {
+      outsideTrigger.remove();
+      fixture.nativeElement.remove();
+    });
+
+    function resumeButton(): HTMLElement {
+      return fixture.nativeElement.querySelector('[data-testid="canvas-resume-btn"]');
+    }
+
+    function tabEvent(shiftKey: boolean): KeyboardEvent {
+      return new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+    }
+
+    it('moves focus onto the Resume button when the overlay opens and remembers the trigger', () => {
+      comp.pauseGame('manual');
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(resumeButton());
+    });
+
+    it('Tab from the (only) Resume button wraps back to itself', () => {
+      comp.pauseGame('manual');
+      fixture.detectChanges();
+      const resume = resumeButton();
+      resume.focus();
+
+      const ev = tabEvent(false);
+      const preventSpy = spyOn(ev, 'preventDefault').and.callThrough();
+      resume.dispatchEvent(ev);
+
+      expect(preventSpy).toHaveBeenCalled();
+      expect(document.activeElement).toBe(resume);
+    });
+
+    it('Shift+Tab from the Resume button wraps back to itself', () => {
+      comp.pauseGame('manual');
+      fixture.detectChanges();
+      const resume = resumeButton();
+      resume.focus();
+
+      const ev = tabEvent(true);
+      const preventSpy = spyOn(ev, 'preventDefault').and.callThrough();
+      resume.dispatchEvent(ev);
+
+      expect(preventSpy).toHaveBeenCalled();
+      expect(document.activeElement).toBe(resume);
+    });
+
+    it('restores focus to the pre-pause trigger element after resumeGame()', () => {
+      comp.pauseGame('manual');
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(resumeButton());
+
+      comp.resumeGame();
+      fixture.detectChanges();
+
+      expect(document.activeElement).toBe(outsideTrigger);
+    });
+  });
 });

@@ -1,10 +1,10 @@
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient, withXhr } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 
 import { HomeComponent } from './home.component';
-import { AvailableGame } from '../models/available-game.model';
+import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 
 /**
  * Pure-helper coverage for HomeComponent. Heavier orchestration is
@@ -127,5 +127,123 @@ describe('HomeComponent helpers', () => {
       component.onWindowMessage(new MessageEvent('message', { data: 'hello' }));
       expect(spy).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * Keyboard-trap remediation coverage for the chapter/session-picker
+ * modal (appFocusTrap on .modal-backdrop). Sets `modalGame` directly
+ * rather than going through `openGame()` so the test doesn't depend on
+ * the (unrelated) multiplayer-session HTTP fetch resolving — the modal
+ * renders identically either way since the template only reads
+ * `modalGame` + `modalSessions`/`modalSessionsLoading` (both default to
+ * `[]` / `false`, matching the picker's "no open sessions yet" state).
+ */
+describe('HomeComponent chapter modal — focus trap', () => {
+  let fixture: ComponentFixture<HomeComponent>;
+  let component: HomeComponent;
+  let outsideTrigger: HTMLButtonElement;
+
+  function fakeGame(): GameWithChapters {
+    const chapter: AvailableGame = {
+      id: 1, gameId: 1, name: 'Cave', description: 'A cave chapter.', slug: 'cave',
+      sceneType: 'cave', assetUrl: null, thumbnailUrl: null, sortOrder: 1,
+      unlocked: true, requiredQuestIds: [], completedQuestIds: [],
+      totalQuests: 0, completedQuests: 0,
+    };
+    return {
+      id: 1, name: 'Three Wizards', description: 'desc', slug: 'three-wizards',
+      thumbnailUrl: null, sortOrder: 1, chapters: [chapter],
+    };
+  }
+
+  function tabEvent(shiftKey: boolean): KeyboardEvent {
+    return new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+  }
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
+    });
+    fixture = TestBed.createComponent(HomeComponent);
+    component = fixture.componentInstance;
+    outsideTrigger = document.createElement('button');
+    outsideTrigger.textContent = 'outside trigger';
+    document.body.appendChild(outsideTrigger);
+    document.body.appendChild(fixture.nativeElement);
+    outsideTrigger.focus();
+    fixture.detectChanges(); // runs ngOnInit (games$/session HTTP calls go unflushed — harmless)
+  });
+
+  afterEach(() => {
+    fixture.nativeElement.remove();
+    outsideTrigger.remove();
+  });
+
+  function firstFocusable(): HTMLElement {
+    return fixture.nativeElement.querySelector('.modal-backdrop .close-btn');
+  }
+
+  function lastFocusable(): HTMLElement {
+    // The only unlocked chapter's Play button is the last focusable
+    // element in DOM order (after the close button and the session
+    // picker's create-session form, whose submit button stays disabled
+    // — and therefore not focusable — while newSessionName is empty).
+    return fixture.nativeElement.querySelector('.chapter-row .play-btn:not(.play-btn--locked)');
+  }
+
+  it('moves focus to the close button on open and remembers the triggering element', () => {
+    component.modalGame = fakeGame();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(firstFocusable());
+  });
+
+  it('Tab from the LAST focusable element (Play) wraps to the FIRST (Close)', () => {
+    component.modalGame = fakeGame();
+    fixture.detectChanges();
+
+    const last = lastFocusable();
+    const first = firstFocusable();
+    last.focus();
+    expect(document.activeElement).toBe(last);
+
+    const ev = tabEvent(false);
+    const preventSpy = spyOn(ev, 'preventDefault').and.callThrough();
+    last.dispatchEvent(ev);
+
+    expect(preventSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('Shift+Tab from the FIRST focusable element (Close) wraps to the LAST (Play)', () => {
+    component.modalGame = fakeGame();
+    fixture.detectChanges();
+
+    const first = firstFocusable();
+    const last = lastFocusable();
+    first.focus();
+    expect(document.activeElement).toBe(first);
+
+    const ev = tabEvent(true);
+    const preventSpy = spyOn(ev, 'preventDefault').and.callThrough();
+    first.dispatchEvent(ev);
+
+    expect(preventSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('restores focus to the triggering element when the modal closes', () => {
+    component.modalGame = fakeGame();
+    fixture.detectChanges();
+    expect(document.activeElement).not.toBe(outsideTrigger);
+
+    component.closeModal();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(outsideTrigger);
   });
 });

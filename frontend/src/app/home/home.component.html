@@ -64,10 +64,15 @@
          The backdrop is the dialog wrapper so click-outside closes it.
          role=dialog + aria-modal=true + aria-labelledby on the title
          keeps screen readers in step. Esc-to-close lives on the
-         component (HostListener document:keydown.escape). -->
+         component (HostListener document:keydown.escape). appFocusTrap
+         keeps Tab/Shift+Tab cycling within the dialog (aria-modal alone
+         only tells assistive tech the background is inert — it does not
+         stop a keyboard user tabbing straight out into it) and restores
+         focus to the triggering game card on close. -->
     <div class="modal-backdrop"
          role="dialog"
          aria-modal="true"
+         appFocusTrap
          [attr.aria-labelledby]="'modal-title-' + modalGame.id"
          (click)="onModalBackdrop($event)">
       <div class="modal-card">
