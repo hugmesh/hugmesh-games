@@ -5,14 +5,18 @@ import games.snapdragon.rpgbuilder.entity.RpgProject;
 import games.snapdragon.rpgbuilder.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -20,19 +24,22 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for the asset-list path. Mirrors {@link RpgProjectServiceTest}:
- * the ownership guard runs through a real {@link RpgProjectService} (its
- * concrete class can't be mocked under ByteBuddy on Java 25) backed by a
- * mocked project repo, so list() is exercised against the same
- * 404/403 enforcement upload()/read() use. The positive case asserts the
- * project's assets come back newest-first; the negative case asserts a
- * non-owner principal is rejected 403 AND the asset repo is never touched.
+ * Unit tests for the asset-list + procedural-generate paths. Mirrors
+ * {@link RpgProjectServiceTest}: the ownership guard runs through a real
+ * {@link RpgProjectService} (its concrete class can't be mocked under ByteBuddy
+ * on Java 25) backed by a mocked project repo, so list()/generate() are
+ * exercised against the same 404/403 enforcement upload()/read() use. The
+ * positive list case asserts newest-first; the negative asserts a non-owner
+ * principal is rejected 403 AND the asset repo is never touched. The generate
+ * cases assert a real row is persisted through the SAME storage layout an
+ * upload uses, and that a foreign project is rejected without writing bytes.
  */
 class AssetStorageServiceTest {
 
     private RpgAssetRepository assets;
     private RpgProjectRepository projects;
     private AssetStorageService svc;
+    @TempDir Path assetsDir;
 
     @BeforeEach
     void setUp() {
@@ -46,7 +53,7 @@ class AssetStorageServiceTest {
                 mock(RpgItemRepository.class),
                 mock(RpgNpcRepository.class),
                 mock(RpgScriptRepository.class));
-        svc = new AssetStorageService("/tmp/rpg-assets-test", assets, projectSvc);
+        svc = new AssetStorageService(assetsDir.toString(), assets, projectSvc, new ProceduralAssetService());
     }
 
     @Test void list_returnsProjectAssetsNewestFirst() {
@@ -92,6 +99,53 @@ class AssetStorageServiceTest {
                 .verifyComplete();
 
         verify(assets, never()).findByProjectIdOrderByUploadedAtDesc(any());
+    }
+
+    @Test void generate_persistsRowWiredThroughStorage() throws Exception {
+        UUID pid = UUID.randomUUID();
+        RpgProject p = new RpgProject();
+        p.setId(pid);
+        p.setOwnerCasdoorId("alice");
+        when(projects.findById(pid)).thenReturn(Mono.just(p));
+        when(assets.save(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+
+        RpgAsset saved = svc.generate(pid, "cave-floor", "tileset", "stone", "alice").block();
+
+        assertThat(saved).isNotNull();
+        assertThat(saved.getMimeType()).isEqualTo("image/svg+xml");
+        assertThat(saved.getKind()).isEqualTo("tileset");
+        assertThat(saved.getUploadedBy()).isEqualTo("alice");
+        assertThat(saved.getByteSize()).isGreaterThan(0);
+        // stored through the SAME <assetsDir>/<project-id>/<asset-id> layout an upload uses.
+        Path expected = assetsDir.resolve(pid.toString()).resolve(saved.getId().toString());
+        assertThat(saved.getStoragePath()).isEqualTo(expected.toString());
+        assertThat(Files.exists(expected)).isTrue();
+        assertThat(Files.readString(expected)).startsWith("<svg").contains("</svg>");
+    }
+
+    @Test void generate_rejectsUnsupportedKind() {
+        UUID pid = UUID.randomUUID();
+        StepVerifier.create(svc.generate(pid, "cave-floor", "audio", null, "alice"))
+                .expectErrorMatches(err -> err instanceof ResponseStatusException rse
+                        && rse.getStatusCode().value() == 400)
+                .verify();
+        verify(projects, never()).findById(any(UUID.class));
+    }
+
+    @Test void generate_rejectsForeignProjectAndWritesNoBytes() {
+        UUID pid = UUID.randomUUID();
+        RpgProject p = new RpgProject();
+        p.setId(pid);
+        p.setOwnerCasdoorId("bob");
+        when(projects.findById(pid)).thenReturn(Mono.just(p));
+
+        StepVerifier.create(svc.generate(pid, "cave-floor", "tileset", null, "alice"))
+                .expectErrorMatches(err -> err instanceof ResponseStatusException rse
+                        && rse.getStatusCode().value() == 403)
+                .verify();
+
+        verify(assets, never()).save(any());
+        assertThat(Files.exists(assetsDir.resolve(pid.toString()))).isFalse();
     }
 
     private static RpgAsset asset(UUID projectId, String slug, OffsetDateTime uploadedAt) {

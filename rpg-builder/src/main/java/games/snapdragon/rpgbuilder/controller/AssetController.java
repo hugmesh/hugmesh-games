@@ -34,6 +34,23 @@ public class AssetController {
         return storage.upload(pid, slug, kind, file, Roles.principalOf(auth));
     }
 
+    /**
+     * Generate house-style placeholder art server-side and persist it as a
+     * real asset row — same {@code ADMIN/PUBLISHER} + project-ownership gate as
+     * {@link #upload}, same storage path, same 201 response shape. Lets a fresh
+     * project get art without a hand-upload.
+     */
+    @PostMapping(path = "/projects/{pid}/assets/generate", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public Mono<RpgAsset> generate(@PathVariable UUID pid,
+                                   @RequestBody GenerateRequest body,
+                                   Authentication auth) {
+        return storage.generate(pid, body.slug(), body.kind(), body.theme(), Roles.principalOf(auth));
+    }
+
+    /** Body for {@link #generate}: {@code { "slug", "kind", "theme"? }}. */
+    public record GenerateRequest(String slug, String kind, String theme) {}
+
     @GetMapping("/projects/{pid}/assets")
     public Flux<RpgAsset> list(@PathVariable UUID pid, Authentication auth) {
         return storage.list(pid, Roles.principalOf(auth));

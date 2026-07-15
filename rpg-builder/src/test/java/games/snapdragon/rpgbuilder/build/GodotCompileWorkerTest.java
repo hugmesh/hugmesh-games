@@ -47,7 +47,7 @@ class GodotCompileWorkerTest {
     private static final class FakeRenderer extends RpgGodotProjectRenderer {
         FakeRenderer() {
             super(mock(RpgAreaRepository.class), mock(RpgRoomRepository.class), mock(RpgExitRepository.class),
-                  mock(RpgItemRepository.class), mock(RpgNpcRepository.class), "");
+                  mock(RpgItemRepository.class), mock(RpgNpcRepository.class), mock(RpgAssetRepository.class), "");
         }
         @Override
         public Mono<RenderedProject> render(RpgProject project, Path workdir) {

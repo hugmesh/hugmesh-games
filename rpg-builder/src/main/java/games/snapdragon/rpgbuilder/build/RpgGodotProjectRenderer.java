@@ -43,6 +43,7 @@ public class RpgGodotProjectRenderer {
     private final RpgExitRepository exits;
     private final RpgItemRepository items;
     private final RpgNpcRepository npcs;
+    private final RpgAssetRepository assets;
     /** Directory holding the compiled snapdragon-bridge binaries
      *  ({@code snapdragon_bridge.wasm} + {@code libsnapdragon_bridge.so}) to bake into
      *  the rendered project's {@code bin/} so the produced WASM carries the multiplayer
@@ -51,7 +52,7 @@ public class RpgGodotProjectRenderer {
     private final String bridgeDir;
 
     public RpgGodotProjectRenderer(RpgAreaRepository areas, RpgRoomRepository rooms, RpgExitRepository exits,
-                                   RpgItemRepository items, RpgNpcRepository npcs,
+                                   RpgItemRepository items, RpgNpcRepository npcs, RpgAssetRepository assets,
                                    @org.springframework.beans.factory.annotation.Value("${app.build.bridge-dir:}")
                                    String bridgeDir) {
         this.areas = areas;
@@ -59,6 +60,7 @@ public class RpgGodotProjectRenderer {
         this.exits = exits;
         this.items = items;
         this.npcs = npcs;
+        this.assets = assets;
         this.bridgeDir = bridgeDir;
     }
 
@@ -71,15 +73,17 @@ public class RpgGodotProjectRenderer {
                 rooms.findByProjectIdOrderByNameAsc(project.getId()).collectList(),
                 exits.findByProjectId(project.getId()).collectList(),
                 items.findByProjectIdOrderByNameAsc(project.getId()).collectList(),
-                npcs.findByProjectIdOrderByNameAsc(project.getId()).collectList())
+                npcs.findByProjectIdOrderByNameAsc(project.getId()).collectList(),
+                assets.findByProjectIdOrderByUploadedAtDesc(project.getId()).collectList())
                 .flatMap(t -> Mono.fromCallable(() ->
-                        writeTree(project, workdir, t.getT1(), t.getT2(), t.getT3(), t.getT4(), t.getT5()))
+                        writeTree(project, workdir, t.getT1(), t.getT2(), t.getT3(), t.getT4(), t.getT5(), t.getT6()))
                         .subscribeOn(Schedulers.boundedElastic()));
     }
 
     private RenderedProject writeTree(RpgProject project, Path workdir,
                                       List<RpgArea> areaList, List<RpgRoom> roomList, List<RpgExit> exitList,
-                                      List<RpgItem> itemList, List<RpgNpc> npcList) throws IOException {
+                                      List<RpgItem> itemList, List<RpgNpc> npcList,
+                                      List<RpgAsset> assetList) throws IOException {
         if (areaList.isEmpty()) {
             throw new IllegalStateException("project has no areas; cannot render");
         }
@@ -98,6 +102,15 @@ public class RpgGodotProjectRenderer {
                .replace("{{displayName}}", project.getDisplayName());
         Files.writeString(projectGodot, pg);
 
+        // Materialize the actual bytes of every referenced asset into the staged
+        // tree (gap 1: previously only asset UUIDs were serialized and the bytes
+        // never left storage, so exported games referenced art that wasn't in the
+        // bundle). Returns asset-UUID → stable res:// path; asset_index.gd exposes
+        // that map to the runtime and each room script resolves its floor art
+        // through it.
+        Map<UUID, String> assetPaths = materializeAssets(root, roomList, npcList, itemList, assetList);
+        writeAssetIndex(root.resolve("scripts/asset_index.gd"), assetPaths);
+
         // Per-area + per-room scene + script files
         for (RpgArea area : areaList) {
             Path areaScripts = root.resolve("scripts/rooms").resolve(area.getSlug());
@@ -108,7 +121,8 @@ public class RpgGodotProjectRenderer {
             List<RpgRoom> areaRooms = roomList.stream().filter(r -> r.getAreaId().equals(area.getId())).toList();
             for (RpgRoom room : areaRooms) {
                 writeRoomScript(areaScripts.resolve(room.getSlug() + ".gd"), area, room,
-                        exitList.stream().filter(x -> x.getFromRoomId().equals(room.getId())).toList());
+                        exitList.stream().filter(x -> x.getFromRoomId().equals(room.getId())).toList(),
+                        assetPaths);
                 writeRoomScene(areaScenes.resolve(room.getSlug() + ".tscn"), area, room);
             }
         }
@@ -149,6 +163,85 @@ public class RpgGodotProjectRenderer {
         Files.writeString(target, sb.toString(), StandardCharsets.UTF_8);
     }
 
+    /**
+     * Copy the bytes of every referenced asset (room floor icon, NPC portrait,
+     * item icon) out of {@link games.snapdragon.rpgbuilder.service.AssetStorageService}
+     * storage into {@code res://assets/<asset-id>.<ext>} in the staged tree, so
+     * the export packs real art instead of dangling UUIDs. Deduplicates by asset
+     * id (an asset shared across rooms is staged once) and is graceful: an
+     * unknown asset id or a byte file missing on disk is logged and skipped, not
+     * fatal. Iteration order (rooms → npcs → items) makes the emitted index
+     * deterministic.
+     *
+     * @return asset-UUID → {@code res://assets/…} path for every asset actually staged
+     */
+    private Map<UUID, String> materializeAssets(Path root, List<RpgRoom> roomList,
+                                                List<RpgNpc> npcList, List<RpgItem> itemList,
+                                                List<RpgAsset> assetList) throws IOException {
+        Map<UUID, RpgAsset> byId = new HashMap<>();
+        for (RpgAsset a : assetList) {
+            byId.put(a.getId(), a);
+        }
+        List<UUID> referenced = new ArrayList<>();
+        for (RpgRoom r : roomList) referenced.add(r.getIconAssetId());
+        for (RpgNpc n : npcList)   referenced.add(n.getPortraitAssetId());
+        for (RpgItem it : itemList) referenced.add(it.getIconAssetId());
+
+        Path assetsDir = root.resolve("assets");
+        Map<UUID, String> staged = new LinkedHashMap<>();
+        for (UUID id : referenced) {
+            if (id == null || staged.containsKey(id)) continue;
+            RpgAsset asset = byId.get(id);
+            if (asset == null || asset.getStoragePath() == null) {
+                log.warn("[render] referenced asset {} has no row/storage path; skipping", id);
+                continue;
+            }
+            Path src = Path.of(asset.getStoragePath());
+            if (!Files.isRegularFile(src)) {
+                log.warn("[render] asset {} bytes missing on disk at {}; skipping", id, src);
+                continue;
+            }
+            String fileName = id + extFor(asset.getMimeType());
+            Files.createDirectories(assetsDir);
+            Files.copy(src, assetsDir.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
+            staged.put(id, "res://assets/" + fileName);
+        }
+        if (!staged.isEmpty()) {
+            log.info("[render] materialized {} referenced asset(s) into res://assets/", staged.size());
+        }
+        return staged;
+    }
+
+    /**
+     * Emit {@code scripts/asset_index.gd} — an {@code asset UUID → res://assets/…}
+     * map the runtime reads (room_visuals resolves a room's floor art through it;
+     * NPC/item art can resolve through the same map). Overwrites the template
+     * placeholder.
+     */
+    private void writeAssetIndex(Path target, Map<UUID, String> assetPaths) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Generated by snapdragon-rpg-builder. Do not hand-edit.\n");
+        sb.append("# Maps an asset UUID (referenced by a room/npc/item) to its staged art path.\n");
+        sb.append("const ASSETS := {\n");
+        for (Map.Entry<UUID, String> e : assetPaths.entrySet()) {
+            sb.append("    \"").append(e.getKey()).append("\": \"").append(e.getValue()).append("\",\n");
+        }
+        sb.append("}\n");
+        Files.writeString(target, sb.toString(), StandardCharsets.UTF_8);
+    }
+
+    /** Map a stored asset mime to a file extension Godot's importer recognises. */
+    private static String extFor(String mime) {
+        if (mime == null) return ".bin";
+        return switch (mime) {
+            case "image/svg+xml" -> ".svg";
+            case "image/png"     -> ".png";
+            case "image/jpeg"    -> ".jpg";
+            case "image/webp"    -> ".webp";
+            default              -> ".bin";
+        };
+    }
+
     private void copyTemplateTree(Path dst) throws IOException {
         // The template lives on classpath under godot-template/. We copy
         // a fixed set of files; per-room generation happens above.
@@ -158,6 +251,8 @@ public class RpgGodotProjectRenderer {
         copyClasspath("godot-template/scripts/world.gd",    dst.resolve("scripts/world.gd"));
         copyClasspath("godot-template/scripts/exits.gd",    dst.resolve("scripts/exits.gd"));
         copyClasspath("godot-template/scripts/room_index.gd", dst.resolve("scripts/room_index.gd"));
+        copyClasspath("godot-template/scripts/asset_index.gd", dst.resolve("scripts/asset_index.gd"));
+        copyClasspath("godot-template/scripts/room_visuals.gd", dst.resolve("scripts/room_visuals.gd"));
         copyClasspath("godot-template/snapdragon_bridge.gdextension",
                                                             dst.resolve("snapdragon_bridge.gdextension"));
         copyBridgeBinaries(dst.resolve("bin"));
@@ -203,11 +298,22 @@ public class RpgGodotProjectRenderer {
         }
     }
 
-    private void writeRoomScript(Path target, RpgArea area, RpgRoom room, List<RpgExit> roomExits) throws IOException {
+    private void writeRoomScript(Path target, RpgArea area, RpgRoom room, List<RpgExit> roomExits,
+                                 Map<UUID, String> assetPaths) throws IOException {
+        // The room's icon asset (if materialized) becomes its floor/background art
+        // at runtime — see gap 2. We reference it by UUID and let the runtime
+        // resolve the res:// path through AssetIndex so the data path is uniform.
+        String floorAssetId = (room.getIconAssetId() != null && assetPaths.containsKey(room.getIconAssetId()))
+                ? room.getIconAssetId().toString() : null;
+
         StringBuilder sb = new StringBuilder();
         sb.append("# Generated by snapdragon-rpg-builder. Do not hand-edit.\n");
         sb.append("# Room: ").append(room.getName()).append(" (").append(room.getSlug()).append(")\n");
         sb.append("extends Node3D\n\n");
+        if (floorAssetId != null) {
+            sb.append("const AssetIndex := preload(\"res://scripts/asset_index.gd\")\n");
+            sb.append("const RoomVisuals := preload(\"res://scripts/room_visuals.gd\")\n\n");
+        }
         sb.append("const ROOM_SLUG := \"").append(room.getSlug()).append("\"\n");
         sb.append("const AREA_SLUG := \"").append(area.getSlug()).append("\"\n\n");
         sb.append("var exits := {\n");
@@ -217,6 +323,12 @@ public class RpgGodotProjectRenderer {
         }
         sb.append("}\n\n");
         sb.append("func _ready() -> void:\n");
+        if (floorAssetId != null) {
+            // Load + apply the room's floor art. apply_floor() no-ops gracefully
+            // if the asset is somehow absent from the bundle.
+            sb.append("    RoomVisuals.apply_floor(self, AssetIndex.ASSETS.get(\"")
+              .append(floorAssetId).append("\", \"\"))\n");
+        }
         sb.append("    %WorldGreeting.text = \"").append(escape(room.getName())).append("\"\n");
         if (room.getDescription() != null && !room.getDescription().isBlank()) {
             sb.append("    %WorldDescription.text = \"").append(escape(room.getDescription())).append("\"\n");

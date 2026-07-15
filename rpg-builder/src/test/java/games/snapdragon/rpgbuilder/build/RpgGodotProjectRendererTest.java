@@ -32,6 +32,7 @@ class RpgGodotProjectRendererTest {
     private final RpgExitRepository exits = mock(RpgExitRepository.class);
     private final RpgItemRepository items = mock(RpgItemRepository.class);
     private final RpgNpcRepository npcs = mock(RpgNpcRepository.class);
+    private final RpgAssetRepository assets = mock(RpgAssetRepository.class);
 
     private static RpgProject project() {
         RpgProject p = new RpgProject();
@@ -71,15 +72,32 @@ class RpgGodotProjectRendererTest {
     }
 
     private void stub(RpgProject p, List<RpgArea> areaList, List<RpgRoom> roomList, List<RpgExit> exitList) {
+        stub(p, areaList, roomList, exitList, List.of());
+    }
+
+    private void stub(RpgProject p, List<RpgArea> areaList, List<RpgRoom> roomList, List<RpgExit> exitList,
+                      List<RpgAsset> assetList) {
         when(areas.findByProjectIdOrderBySortOrderAscNameAsc(any())).thenReturn(Flux.fromIterable(areaList));
         when(rooms.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.fromIterable(roomList));
         when(exits.findByProjectId(any())).thenReturn(Flux.fromIterable(exitList));
         when(items.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.empty());
         when(npcs.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.empty());
+        when(assets.findByProjectIdOrderByUploadedAtDesc(any())).thenReturn(Flux.fromIterable(assetList));
     }
 
     private RpgGodotProjectRenderer renderer(String bridgeDir) {
-        return new RpgGodotProjectRenderer(areas, rooms, exits, items, npcs, bridgeDir);
+        return new RpgGodotProjectRenderer(areas, rooms, exits, items, npcs, assets, bridgeDir);
+    }
+
+    private static RpgAsset asset(UUID projectId, String slug, String kind, String mime, String storagePath) {
+        RpgAsset a = new RpgAsset();
+        a.setId(UUID.randomUUID());
+        a.setProjectId(projectId);
+        a.setSlug(slug);
+        a.setKind(kind);
+        a.setMimeType(mime);
+        a.setStoragePath(storagePath);
+        return a;
     }
 
     @Test
@@ -119,6 +137,66 @@ class RpgGodotProjectRendererTest {
         // the gdextension descriptor + a bin/ (placeholder when no bridge-dir).
         assertThat(Files.exists(root.resolve("snapdragon_bridge.gdextension"))).isTrue();
         assertThat(Files.exists(root.resolve("bin/README.md"))).isTrue();
+
+        // the runtime art loader + the (empty here) asset index are always staged.
+        assertThat(Files.exists(root.resolve("scripts/room_visuals.gd"))).isTrue();
+        String assetIndex = Files.readString(root.resolve("scripts/asset_index.gd"));
+        assertThat(assetIndex).contains("const ASSETS");
+        // no rooms carry an icon asset here → no floor art applied.
+        assertThat(squareGd).doesNotContain("apply_floor");
+    }
+
+    @Test
+    void materializesReferencedRoomIconBytesIntoStagedTree(@TempDir Path work, @TempDir Path store) throws IOException {
+        RpgProject p = project();
+        RpgArea lineland = area(p.getId(), "lineland");
+        RpgRoom square = room(p.getId(), lineland.getId(), "town-square");
+
+        // A real SVG asset on disk (as AssetStorageService would have stored it).
+        byte[] svgBytes = "<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>".getBytes();
+        Path svgOnDisk = store.resolve("floor-bytes");
+        Files.write(svgOnDisk, svgBytes);
+        RpgAsset floor = asset(p.getId(), "cave-floor", "tileset", "image/svg+xml", svgOnDisk.toString());
+        square.setIconAssetId(floor.getId());
+
+        stub(p, List.of(lineland), List.of(square), List.of(), List.of(floor));
+        renderer("").render(p, work).block();
+
+        Path root = work.resolve("godot-src");
+
+        // (gap 1) the actual bytes land at the stable res:// path, byte-identical.
+        Path stagedArt = root.resolve("assets/" + floor.getId() + ".svg");
+        assertThat(Files.exists(stagedArt)).isTrue();
+        assertThat(Files.readAllBytes(stagedArt)).isEqualTo(svgBytes);
+
+        // asset_index.gd maps the asset UUID → its staged res:// path.
+        String assetIndex = Files.readString(root.resolve("scripts/asset_index.gd"));
+        assertThat(assetIndex)
+                .contains("\"" + floor.getId() + "\": \"res://assets/" + floor.getId() + ".svg\"");
+
+        // (gap 2) the room script resolves + applies that art as its floor.
+        String squareGd = Files.readString(root.resolve("scripts/rooms/lineland/town-square.gd"));
+        assertThat(squareGd).contains("RoomVisuals.apply_floor(self, AssetIndex.ASSETS.get(\"" + floor.getId() + "\"");
+        assertThat(squareGd).contains("preload(\"res://scripts/room_visuals.gd\")");
+    }
+
+    @Test
+    void skipsMissingAssetBytesGracefully(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea lineland = area(p.getId(), "lineland");
+        RpgRoom square = room(p.getId(), lineland.getId(), "town-square");
+        // Row references a storage path that does not exist on disk.
+        RpgAsset ghost = asset(p.getId(), "ghost", "tileset", "image/svg+xml", "/no/such/file/here");
+        square.setIconAssetId(ghost.getId());
+
+        stub(p, List.of(lineland), List.of(square), List.of(), List.of(ghost));
+        renderer("").render(p, work).block();   // must not throw
+
+        Path root = work.resolve("godot-src");
+        // nothing staged, no floor call, empty index — but the render still succeeds.
+        assertThat(Files.exists(root.resolve("assets/" + ghost.getId() + ".svg"))).isFalse();
+        String squareGd = Files.readString(root.resolve("scripts/rooms/lineland/town-square.gd"));
+        assertThat(squareGd).doesNotContain("apply_floor");
     }
 
     @Test

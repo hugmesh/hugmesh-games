@@ -17,6 +17,8 @@ interface RpgBuildJob    { id: string; status: string; progressPct: number; logT
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] as const;
 const ASSET_KINDS = ['background','sprite','tileset','portrait','audio'] as const;
+// Kinds the server-side procedural generator can draw house-style art for.
+const GENERATE_KINDS = ['tileset','sprite','portrait','icon'] as const;
 const IMAGE_MIMES = ['image/png','image/jpeg','image/webp','image/svg+xml'];
 
 /**
@@ -363,6 +365,33 @@ const IMAGE_MIMES = ['image/png','image/jpeg','image/webp','image/svg+xml'];
                       [disabled]="!slugOk(newAsset.slug) || !newAsset.kind?.trim() || !assetFile">Upload asset</button>
             </fieldset>
 
+            <fieldset>
+              <legend>Generate art <small>(no upload needed)</small></legend>
+              <p class="hint">makes deterministic house-style placeholder SVG art so a fresh project isn't blank.</p>
+              <label>Slug
+                <input name="genAssetSlug" [(ngModel)]="genAsset.slug" placeholder="cave-floor" />
+              </label>
+              @if (genAsset.slug && !slugOk(genAsset.slug)) {
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+              }
+              <label>Kind
+                <select name="genAssetKind" [(ngModel)]="genAsset.kind">
+                  <option value="">— pick —</option>
+                  @for (k of generateKinds; track k) { <option [value]="k">{{ k }}</option> }
+                </select>
+              </label>
+              @if (submitted.generate && !genAsset.kind?.trim()) {
+                <p class="field-error" role="alert">kind is required.</p>
+              }
+              <label>Theme / seed (optional)
+                <input name="genAssetTheme" [(ngModel)]="genAsset.theme" placeholder="stone, grass, red…" />
+              </label>
+              <button type="button" class="primary-btn" (click)="generateAsset()"
+                      [disabled]="generating || !slugOk(genAsset.slug) || !genAsset.kind?.trim()">
+                @if (generating) { Generating &hellip; } @else { Generate art }
+              </button>
+            </fieldset>
+
             <h3>Gallery <small>(this session's uploads)</small></h3>
             <ul class="row-list asset-grid">
               @for (a of assets; track a.id) {
@@ -417,6 +446,7 @@ export class RpgMakerRemoteComponent implements OnInit {
   private destroy$ = new Subject<void>();
   readonly directions = DIRECTIONS;
   readonly assetKinds = ASSET_KINDS;
+  readonly generateKinds = GENERATE_KINDS;
 
   errorBanner = '';
   successBanner = '';
@@ -439,7 +469,9 @@ export class RpgMakerRemoteComponent implements OnInit {
   newItem: Partial<RpgItem> = {};
   newNpc: Partial<RpgNpc> = {};
   newAsset: Partial<RpgAsset> = {};
-  submitted = { project: false, area: false, room: false, exit: false, item: false, npc: false, asset: false };
+  genAsset: { slug?: string; kind?: string; theme?: string } = {};
+  generating = false;
+  submitted = { project: false, area: false, room: false, exit: false, item: false, npc: false, asset: false, generate: false };
   buildTargetSlug = '';
   buildInFlight = false;
   currentBuild: RpgBuildJob | null = null;
@@ -588,6 +620,28 @@ export class RpgMakerRemoteComponent implements OnInit {
         this.successBanner = 'Asset uploaded.';
       },
       error: e => this.errorBanner = this.fmt(e, 'upload asset'),
+    });
+  }
+
+  /**
+   * Generate house-style placeholder art server-side (POST .../assets/generate),
+   * then fold the created asset into the gallery exactly like an upload — no file
+   * picker needed. Reuses the same asset-list state + preview loader.
+   */
+  generateAsset(): void {
+    if (!this.selectedProject) return;
+    this.submitted.generate = true;
+    if (!this.slugOk(this.genAsset.slug) || !this.genAsset.kind?.trim()) return;
+    this.generating = true;
+    const body = { slug: this.genAsset.slug!, kind: this.genAsset.kind!, theme: this.genAsset.theme?.trim() || null };
+    this.http.post<RpgAsset>(`/api/rpg/projects/${this.selectedProject.id}/assets/generate`, body).subscribe({
+      next: a => {
+        this.assets = [...this.assets, a];
+        this.loadAssetPreview(a);
+        this.genAsset = {}; this.submitted.generate = false; this.generating = false;
+        this.successBanner = `Generated ${a.kind} art "${a.slug}".`;
+      },
+      error: e => { this.generating = false; this.errorBanner = this.fmt(e, 'generate art'); },
     });
   }
 
