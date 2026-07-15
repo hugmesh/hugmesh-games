@@ -1,13 +1,17 @@
 package games.snapdragon.vnbuilder.build;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import games.snapdragon.vnbuilder.entity.*;
 import games.snapdragon.vnbuilder.repository.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -32,6 +36,8 @@ class VnGodotProjectRendererTest {
     private final VnChoiceRepository choices = mock(VnChoiceRepository.class);
     private final VnCharacterRepository characters = mock(VnCharacterRepository.class);
     private final VnBackgroundRepository backgrounds = mock(VnBackgroundRepository.class);
+    private final VnAssetRepository assets = mock(VnAssetRepository.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private static VnProject project() {
         VnProject p = new VnProject();
@@ -66,10 +72,11 @@ class VnGodotProjectRendererTest {
         when(backgrounds.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.empty());
         when(lines.findBySceneIdOrderByLineIndexAsc(any())).thenReturn(Flux.empty());
         when(choices.findByLineIdOrderBySortOrderAsc(any())).thenReturn(Flux.empty());
+        when(assets.findById(any(UUID.class))).thenReturn(Mono.empty());
     }
 
     private VnGodotProjectRenderer renderer(String bridgeDir) {
-        return new VnGodotProjectRenderer(acts, scenes, lines, choices, characters, backgrounds, bridgeDir);
+        return new VnGodotProjectRenderer(acts, scenes, lines, choices, characters, backgrounds, assets, bridgeDir);
     }
 
     @Test
@@ -117,5 +124,162 @@ class VnGodotProjectRendererTest {
         StepVerifier.create(renderer("").render(project(), work))
                 .expectErrorSatisfies(e -> assertThat(e).hasMessageContaining("no scenes"))
                 .verify();
+    }
+
+    /**
+     * The core of gap (1): the renderer must copy the ACTUAL asset bytes for a
+     * referenced background + portrait into the staged tree at a stable res://
+     * path AND write that resolvable path (not just the UUID) into
+     * scenes_data.json so the runtime can load the texture.
+     */
+    @Test
+    void materializesReferencedAssetsAndWritesResolvablePaths(@TempDir Path work, @TempDir Path store) throws IOException {
+        VnProject p = project();
+        VnAct act1 = act("act1");
+
+        // Background asset (svg) + portrait asset (png), each with real bytes
+        // on disk that the renderer reads via the row's storage_path.
+        UUID bgAssetId = UUID.randomUUID();
+        byte[] bgBytes = "<svg>background</svg>".getBytes(StandardCharsets.UTF_8);
+        Path bgFile = store.resolve(bgAssetId.toString());
+        Files.write(bgFile, bgBytes);
+        VnAsset bgAsset = asset(bgAssetId, p.getId(), "image/svg+xml", bgFile.toString());
+
+        UUID portraitAssetId = UUID.randomUUID();
+        byte[] portraitBytes = new byte[]{(byte) 0x89, 'P', 'N', 'G', 1, 2, 3, 4};
+        Path portraitFile = store.resolve(portraitAssetId.toString());
+        Files.write(portraitFile, portraitBytes);
+        VnAsset portraitAsset = asset(portraitAssetId, p.getId(), "image/png", portraitFile.toString());
+
+        VnBackground bg = new VnBackground();
+        bg.setId(UUID.randomUUID());
+        bg.setSlug("dawn-bg"); bg.setName("Dawn"); bg.setAssetId(bgAssetId);
+
+        VnCharacter hero = new VnCharacter();
+        hero.setId(UUID.randomUUID());
+        hero.setSlug("hero"); hero.setDisplayName("Hero"); hero.setColor("#aabbcc");
+        hero.setDefaultPortraitAssetId(portraitAssetId);
+
+        VnScene opening = scene(act1.getId(), "opening");
+        opening.setBackgroundId(bg.getId());
+        opening.setEntryPoint(true);
+
+        stub(List.of(act1), List.of(opening));
+        when(characters.findByProjectIdOrderByDisplayNameAsc(any())).thenReturn(Flux.just(hero));
+        when(backgrounds.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.just(bg));
+        when(assets.findById(bgAssetId)).thenReturn(Mono.just(bgAsset));
+        when(assets.findById(portraitAssetId)).thenReturn(Mono.just(portraitAsset));
+
+        renderer("").render(p, work).block();
+
+        Path root = work.resolve("godot-src");
+
+        // (a) bytes actually landed at the expected stable res:// path
+        Path stagedBg = root.resolve("assets").resolve(bgAssetId + ".svg");
+        Path stagedPortrait = root.resolve("assets").resolve(portraitAssetId + ".png");
+        assertThat(Files.readAllBytes(stagedBg)).isEqualTo(bgBytes);
+        assertThat(Files.readAllBytes(stagedPortrait)).isEqualTo(portraitBytes);
+
+        // (b) scenes_data.json carries the RESOLVABLE res:// path, not just the UUID
+        JsonNode data = JSON.readTree(root.resolve("acts/act1/scenes_data.json").toFile());
+        JsonNode bgNode = data.get("backgrounds").get(bg.getId().toString());
+        assertThat(bgNode.get("asset_id").asText()).isEqualTo(bgAssetId.toString());
+        assertThat(bgNode.get("asset_path").asText()).isEqualTo("res://assets/" + bgAssetId + ".svg");
+
+        JsonNode charNode = data.get("characters").get(hero.getId().toString());
+        assertThat(charNode.get("portrait_asset_id").asText()).isEqualTo(portraitAssetId.toString());
+        assertThat(charNode.get("portrait_path").asText()).isEqualTo("res://assets/" + portraitAssetId + ".png");
+    }
+
+    /**
+     * Graceful degradation for gap (1): a background that references an asset
+     * whose row/bytes are gone must NOT crash the render — the tree stages with
+     * a null asset_path and no assets/ file for that id.
+     */
+    @Test
+    void missingReferencedAssetDegradesGracefully(@TempDir Path work) throws IOException {
+        VnProject p = project();
+        VnAct act1 = act("act1");
+        UUID danglingId = UUID.randomUUID();
+
+        VnBackground bg = new VnBackground();
+        bg.setId(UUID.randomUUID());
+        bg.setSlug("ghost-bg"); bg.setName("Ghost"); bg.setAssetId(danglingId);
+
+        VnScene opening = scene(act1.getId(), "opening");
+        opening.setBackgroundId(bg.getId());
+        opening.setEntryPoint(true);
+
+        stub(List.of(act1), List.of(opening));
+        when(backgrounds.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.just(bg));
+        when(assets.findById(danglingId)).thenReturn(Mono.empty()); // no row
+
+        renderer("").render(p, work).block();
+
+        Path root = work.resolve("godot-src");
+        assertThat(Files.exists(root.resolve("assets").resolve(danglingId + ".svg"))).isFalse();
+
+        JsonNode data = JSON.readTree(root.resolve("acts/act1/scenes_data.json").toFile());
+        JsonNode bgNode = data.get("backgrounds").get(bg.getId().toString());
+        assertThat(bgNode.get("asset_id").asText()).isEqualTo(danglingId.toString());
+        assertThat(bgNode.get("asset_path").isNull()).isTrue();
+    }
+
+    /**
+     * IDOR guard for gap (1): a background/character that references an asset
+     * UUID owned by ANOTHER project must NOT have that foreign project's bytes
+     * copied into this bundle. The renderer treats a project-scope mismatch
+     * exactly like a missing row — no assets/ file, null asset_path — so a
+     * crafted cross-project reference leaks nothing.
+     */
+    @Test
+    void foreignProjectAssetIsNotMaterialized(@TempDir Path work, @TempDir Path store) throws IOException {
+        VnProject p = project();
+        VnAct act1 = act("act1");
+
+        // An asset that physically exists on disk but is owned by a DIFFERENT project.
+        UUID foreignAssetId = UUID.randomUUID();
+        UUID foreignProjectId = UUID.randomUUID();
+        byte[] secretBytes = "<svg>another-tenant-secret</svg>".getBytes(StandardCharsets.UTF_8);
+        Path foreignFile = store.resolve(foreignAssetId.toString());
+        Files.write(foreignFile, secretBytes);
+        VnAsset foreignAsset = asset(foreignAssetId, foreignProjectId, "image/svg+xml", foreignFile.toString());
+
+        // This project's background references the foreign asset's UUID.
+        VnBackground bg = new VnBackground();
+        bg.setId(UUID.randomUUID());
+        bg.setSlug("stolen-bg"); bg.setName("Stolen"); bg.setAssetId(foreignAssetId);
+
+        VnScene opening = scene(act1.getId(), "opening");
+        opening.setBackgroundId(bg.getId());
+        opening.setEntryPoint(true);
+
+        stub(List.of(act1), List.of(opening));
+        when(backgrounds.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.just(bg));
+        when(assets.findById(foreignAssetId)).thenReturn(Mono.just(foreignAsset));
+
+        renderer("").render(p, work).block();
+
+        Path root = work.resolve("godot-src");
+
+        // (a) the foreign bytes were NOT staged into this bundle under any extension
+        assertThat(Files.exists(root.resolve("assets").resolve(foreignAssetId + ".svg"))).isFalse();
+
+        // (b) scenes_data.json carries no resolvable path for the foreign asset
+        JsonNode data = JSON.readTree(root.resolve("acts/act1/scenes_data.json").toFile());
+        JsonNode bgNode = data.get("backgrounds").get(bg.getId().toString());
+        assertThat(bgNode.get("asset_id").asText()).isEqualTo(foreignAssetId.toString());
+        assertThat(bgNode.get("asset_path").isNull()).isTrue();
+    }
+
+    private static VnAsset asset(UUID id, UUID projectId, String mime, String storagePath) {
+        VnAsset a = new VnAsset();
+        a.setId(id);
+        a.setProjectId(projectId);
+        a.setSlug("asset-" + id);
+        a.setKind(mime.contains("svg") ? "background" : "portrait");
+        a.setMimeType(mime);
+        a.setStoragePath(storagePath);
+        return a;
     }
 }

@@ -44,7 +44,7 @@ class GodotCompileWorkerTest {
         FakeRenderer() {
             super(mock(VnActRepository.class), mock(VnSceneRepository.class), mock(VnLineRepository.class),
                   mock(VnChoiceRepository.class), mock(VnCharacterRepository.class),
-                  mock(VnBackgroundRepository.class), "");
+                  mock(VnBackgroundRepository.class), mock(VnAssetRepository.class), "");
         }
         @Override
         public Mono<RenderedProject> render(VnProject project, Path workdir) {

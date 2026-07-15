@@ -15,8 +15,12 @@ type    VnLineKind     = 'SAY' | 'PAUSE' | 'RESUME';
 interface VnLine       { id: string; sceneId: string; lineIndex: number; characterId?: string; text: string; kind?: VnLineKind; }
 interface VnChoice     { id: string; lineId: string; label: string; targetSceneId: string; sortOrder: number; }
 interface VnBuildJob   { id: string; status: string; progressPct: number; logTail: string; targetSlug: string; errorMessage?: string; }
+interface VnAsset      { id: string; projectId: string; slug: string; kind: string; mimeType: string; byteSize: number; storagePath?: string; uploadedBy?: string; uploadedAt?: string; }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const ASSET_KINDS = ['background', 'portrait'] as const;
+const ASSET_THEMES = ['dawn', 'dusk', 'interior', 'forest', 'void'] as const;
+const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
 
 /**
  * Visual-novel editor remote, shaped after godot-2d-visual-novel.
@@ -104,8 +108,40 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
               @if (newChar.color && !colorOk(newChar.color)) {
                 <p class="field-error" role="alert">colour must look like #rgb / #rrggbb.</p>
               }
+              <label>Portrait
+                <select name="newCharPortrait" [(ngModel)]="newChar.defaultPortraitAssetId">
+                  <option value="">— none —</option>
+                  @for (a of assets; track a.id) { <option [value]="a.id">{{ a.slug }} ({{ a.kind }})</option> }
+                </select>
+              </label>
               <button type="button" class="primary-btn" (click)="createCharacter()"
                       [disabled]="!slugOk(newChar.slug) || !newChar.displayName?.trim() || (!!newChar.color && !colorOk(newChar.color))">Add</button>
+            </fieldset>
+
+            <h3>Backgrounds</h3>
+            <ul class="row-list">
+              @for (b of backgrounds; track b.id) {
+                <li>{{ b.name }} <small>({{ b.slug }}{{ b.assetId ? ', art' : '' }})</small></li>
+              }
+            </ul>
+            <fieldset>
+              <legend>New background</legend>
+              <label>Slug<input name="newBgSlug" [(ngModel)]="newBackground.slug" placeholder="dawn-street" /></label>
+              @if (newBackground.slug && !slugOk(newBackground.slug)) {
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+              }
+              <label>Name<input name="newBgName" [(ngModel)]="newBackground.name" /></label>
+              @if (submitted.background && !newBackground.name?.trim()) {
+                <p class="field-error" role="alert">background name is required.</p>
+              }
+              <label>Art asset
+                <select name="newBgAsset" [(ngModel)]="newBackground.assetId">
+                  <option value="">— none —</option>
+                  @for (a of assets; track a.id) { <option [value]="a.id">{{ a.slug }} ({{ a.kind }})</option> }
+                </select>
+              </label>
+              <button type="button" class="primary-btn" (click)="createBackground()"
+                      [disabled]="!slugOk(newBackground.slug) || !newBackground.name?.trim()">Add background</button>
             </fieldset>
           }
         </section>
@@ -161,6 +197,12 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
                 @if (submitted.scene && !newScene.name?.trim()) {
                   <p class="field-error" role="alert">scene name is required.</p>
                 }
+                <label>Background
+                  <select name="newSceneBg" [(ngModel)]="newScene.backgroundId">
+                    <option value="">— none —</option>
+                    @for (b of backgrounds; track b.id) { <option [value]="b.id">{{ b.name }}</option> }
+                  </select>
+                </label>
                 <label><input type="checkbox" name="newSceneEntry" [(ngModel)]="newScene.entryPoint" /> Entry point of this act</label>
                 <label><input type="checkbox" name="newScenePause" [(ngModel)]="newScene.pausesOnEnter" /> Pause session when this scene becomes active</label>
                 <button type="button" class="primary-btn" (click)="createScene()"
@@ -261,6 +303,85 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
             </fieldset>
           }
         </section>
+
+        <!-- Art assets -->
+        <section class="pane">
+          <h2>Art assets</h2>
+          @if (selectedProject) {
+            <fieldset>
+              <legend>Upload asset</legend>
+              <label>Slug
+                <input name="newAssetSlug" [(ngModel)]="newAsset.slug" placeholder="dawn-street" />
+              </label>
+              @if (newAsset.slug && !slugOk(newAsset.slug)) {
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+              }
+              <label>Kind
+                <select name="newAssetKind" [(ngModel)]="newAsset.kind">
+                  <option value="">— pick —</option>
+                  @for (k of assetKinds; track k) { <option [value]="k">{{ k }}</option> }
+                </select>
+              </label>
+              @if (submitted.asset && !newAsset.kind?.trim()) {
+                <p class="field-error" role="alert">kind is required.</p>
+              }
+              <label>File
+                <input type="file" name="newAssetFile"
+                       accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                       (change)="assetFile = ($any($event.target).files?.[0]) ?? null" />
+              </label>
+              @if (submitted.asset && !assetFile) {
+                <p class="field-error" role="alert">a file is required.</p>
+              }
+              <p class="hint">images must be png / jpeg / webp / svg, max 4 MB.</p>
+              <button type="button" class="primary-btn" (click)="uploadAsset()"
+                      [disabled]="!slugOk(newAsset.slug) || !newAsset.kind?.trim() || !assetFile">Upload asset</button>
+            </fieldset>
+
+            <fieldset>
+              <legend>Generate art</legend>
+              <p class="hint">Make house-style placeholder SVG art without leaving the studio.</p>
+              <label>Slug
+                <input name="genAssetSlug" [(ngModel)]="genAsset.slug" placeholder="dusk-plaza" />
+              </label>
+              @if (genAsset.slug && !slugOk(genAsset.slug)) {
+                <p class="field-error" role="alert">slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>
+              }
+              <label>Kind
+                <select name="genAssetKind" [(ngModel)]="genAsset.kind">
+                  @for (k of assetKinds; track k) { <option [value]="k">{{ k }}</option> }
+                </select>
+              </label>
+              <label>Theme / seed (optional)
+                <input name="genAssetTheme" [(ngModel)]="genAsset.theme"
+                       list="vnGenThemes"
+                       placeholder="dawn / dusk / interior / forest / void, or #rrggbb" />
+              </label>
+              <datalist id="vnGenThemes">
+                @for (t of assetThemes; track t) { <option [value]="t"></option> }
+              </datalist>
+              <p class="hint">Backgrounds theme by name; portraits tint from a #rrggbb colour (or the slug).</p>
+              <button type="button" class="primary-btn" (click)="generateAsset()"
+                      [disabled]="!slugOk(genAsset.slug) || !genAsset.kind || generating">
+                @if (generating) { Generating &hellip; } @else { Generate art }
+              </button>
+            </fieldset>
+
+            <h3>Gallery <small>(this project's assets)</small></h3>
+            <ul class="row-list asset-grid">
+              @for (a of assets; track a.id) {
+                <li class="asset-card">
+                  @if (isImageAsset(a) && assetUrls[a.id]) {
+                    <img class="asset-thumb" [src]="assetUrls[a.id]" [alt]="a.slug" />
+                  }
+                  <strong>{{ a.slug }}</strong>
+                  <small>{{ a.kind }} &middot; {{ a.mimeType }}</small>
+                  <button type="button" class="link-btn" (click)="copySlug(a.slug)">copy slug</button>
+                </li>
+              }
+            </ul>
+          }
+        </section>
       </div>
 
       @if (previewing && selectedProject) {
@@ -293,11 +414,17 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
     .success-banner { background: #d5f9e0; color: #1f6b3a; padding: 0.6rem 1rem; border-radius: 4px; margin-top: 0.6rem; }
     .build-progress progress { width: 100%; height: 0.6rem; }
     .build-progress pre { background: #2c1140; color: #e8d8ff; padding: 0.4rem; border-radius: 3px; font-size: 0.7rem; max-height: 8rem; overflow: auto; }
+    .hint { font-size: 0.75rem; color: #5a2090; margin: 0.2rem 0 0.4rem; }
+    .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: 0.5rem; }
+    .asset-card { display: flex; flex-direction: column; gap: 0.15rem; background: #fff; border: 1px solid #c8a4e0; border-radius: 4px; padding: 0.4rem; font-size: 0.8rem; }
+    .asset-thumb { width: 100%; height: 4rem; object-fit: contain; border-radius: 3px; }
   `],
 })
 export class VnMakerRemoteComponent implements OnInit {
   private http = inject(HttpClient);
   private destroy$ = new Subject<void>();
+  readonly assetKinds = ASSET_KINDS;
+  readonly assetThemes = ASSET_THEMES;
 
   errorBanner = '';
   successBanner = '';
@@ -306,18 +433,26 @@ export class VnMakerRemoteComponent implements OnInit {
   acts: VnAct[] = [];
   selectedAct: VnAct | null = null;
   characters: VnCharacter[] = [];
+  backgrounds: VnBackground[] = [];
   scenes: VnScene[] = [];
   selectedScene: VnScene | null = null;
   lines: VnLine[] = [];
+  assets: VnAsset[] = [];
+  assetUrls: Record<string, string> = {};
+  assetFile: File | null = null;
   newProj: Partial<VnProject> = {};
   newChar: Partial<VnCharacter> = { color: '#ffffff' };
+  newBackground: Partial<VnBackground> = {};
   newAct: Partial<VnAct> = {};
   newScene: Partial<VnScene> = { entryPoint: false };
   newLine: Partial<VnLine> = { lineIndex: 0 };
   newChoice: Partial<VnChoice> = {};
-  submitted = { project: false, character: false, act: false, scene: false, line: false, choice: false };
+  newAsset: Partial<VnAsset> = {};
+  genAsset: { slug?: string; kind?: string; theme?: string } = { kind: 'background' };
+  submitted = { project: false, character: false, background: false, act: false, scene: false, line: false, choice: false, asset: false };
   buildTargetSlug = '';
   buildInFlight = false;
+  generating = false;
   currentBuild: VnBuildJob | null = null;
   /** When true the in-studio web VN player overlays the editor for the selected project. */
   previewing = false;
@@ -354,14 +489,22 @@ export class VnMakerRemoteComponent implements OnInit {
     this.selectedProject = p; this.selectedAct = null; this.selectedScene = null;
     this.previewing = false;
     this.buildTargetSlug = p.slug;
+    this.backgrounds = []; this.assets = []; this.assetUrls = {};
     this.http.get<VnAct[]>(`/api/vn/projects/${p.id}/acts`).subscribe({
       next: r => this.acts = r, error: e => this.errorBanner = this.fmt(e, 'load acts'),
     });
     this.http.get<VnCharacter[]>(`/api/vn/projects/${p.id}/characters`).subscribe({
       next: r => this.characters = r, error: e => this.errorBanner = this.fmt(e, 'load characters'),
     });
+    this.http.get<VnBackground[]>(`/api/vn/projects/${p.id}/backgrounds`).subscribe({
+      next: r => this.backgrounds = r, error: e => this.errorBanner = this.fmt(e, 'load backgrounds'),
+    });
     this.http.get<VnScene[]>(`/api/vn/projects/${p.id}/scenes`).subscribe({
       next: r => this.scenes = r, error: e => this.errorBanner = this.fmt(e, 'load scenes'),
+    });
+    this.http.get<VnAsset[]>(`/api/vn/projects/${p.id}/assets`).subscribe({
+      next: a => { this.assets = a; a.forEach(x => this.loadAssetPreview(x)); },
+      error: e => this.errorBanner = this.fmt(e, 'load assets'),
     });
   }
 
@@ -388,6 +531,72 @@ export class VnMakerRemoteComponent implements OnInit {
     this.http.post<VnCharacter>(`/api/vn/projects/${this.selectedProject.id}/characters`, this.newChar).subscribe({
       next: c => { this.characters = [...this.characters, c]; this.newChar = { color: '#ffffff' }; this.submitted.character = false; this.successBanner = 'Character added.'; },
       error: e => this.errorBanner = this.fmt(e, 'create character'),
+    });
+  }
+
+  createBackground(): void {
+    if (!this.selectedProject) return;
+    this.submitted.background = true;
+    if (!this.slugOk(this.newBackground.slug) || !this.newBackground.name?.trim()) return;
+    this.http.post<VnBackground>(`/api/vn/projects/${this.selectedProject.id}/backgrounds`, this.newBackground).subscribe({
+      next: b => { this.backgrounds = [...this.backgrounds, b]; this.newBackground = {}; this.submitted.background = false; this.successBanner = 'Background added.'; },
+      error: e => this.errorBanner = this.fmt(e, 'create background'),
+    });
+  }
+
+  uploadAsset(): void {
+    if (!this.selectedProject || !this.assetFile) return;
+    this.submitted.asset = true;
+    if (!this.slugOk(this.newAsset.slug) || !this.newAsset.kind?.trim()) return;
+    const fd = new FormData();
+    fd.append('slug', this.newAsset.slug!);
+    fd.append('kind', this.newAsset.kind!);
+    fd.append('file', this.assetFile);
+    this.http.post<VnAsset>(`/api/vn/projects/${this.selectedProject.id}/assets`, fd).subscribe({
+      next: a => {
+        this.assets = [a, ...this.assets];
+        this.loadAssetPreview(a);
+        this.newAsset = {}; this.assetFile = null; this.submitted.asset = false;
+        this.successBanner = 'Asset uploaded.';
+      },
+      error: e => this.errorBanner = this.fmt(e, 'upload asset'),
+    });
+  }
+
+  generateAsset(): void {
+    if (!this.selectedProject) return;
+    if (!this.slugOk(this.genAsset.slug) || !this.genAsset.kind) return;
+    this.generating = true;
+    const body = { slug: this.genAsset.slug, kind: this.genAsset.kind, theme: this.genAsset.theme || null };
+    this.http.post<VnAsset>(`/api/vn/projects/${this.selectedProject.id}/assets/generate`, body).subscribe({
+      next: a => {
+        this.assets = [a, ...this.assets];
+        this.loadAssetPreview(a);
+        this.genAsset = { kind: this.genAsset.kind }; this.generating = false;
+        this.successBanner = 'Art generated.';
+      },
+      error: e => { this.generating = false; this.errorBanner = this.fmt(e, 'generate art'); },
+    });
+  }
+
+  isImageAsset(a: VnAsset): boolean { return IMAGE_MIMES.includes(a.mimeType); }
+
+  copySlug(slug: string): void {
+    navigator.clipboard?.writeText(slug);
+    this.successBanner = `Copied slug "${slug}".`;
+  }
+
+  /**
+   * Fetch a single asset's bytes and stash an object URL keyed by asset id
+   * so the gallery <img> (and, indirectly, the picker labels) can preview
+   * image-kind assets. Mirrors the rpg-maker gallery preview.
+   */
+  private loadAssetPreview(a: VnAsset): void {
+    if (!this.selectedProject || !this.isImageAsset(a)) return;
+    this.http.get(`/api/vn/projects/${this.selectedProject.id}/assets/${a.id}`,
+                  { responseType: 'blob' }).subscribe({
+      next: (blob: Blob) => { this.assetUrls = { ...this.assetUrls, [a.id]: URL.createObjectURL(blob) }; },
+      error: e => this.errorBanner = this.fmt(e, 'load asset'),
     });
   }
 

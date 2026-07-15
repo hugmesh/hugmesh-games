@@ -6,12 +6,13 @@
 ; The VN bundle's root is a Node3D — even a "2D" visual novel ships
 ; as a 3D scene so snapdragon-bridge's MultiplayerLobby + per-player
 ; view channel can render avatars in the same space the dialogue
-; plays out in. The visible VN surface is a flat PlaneMesh layered
-; against simple 3D-primitive backdrops (BoxMesh / CylinderMesh /
-; SphereMesh) so the background can carry depth without pulling in
-; bitmap-only assets. SVG-friendly: any portrait or background
-; uploaded as image/svg+xml is rendered into a SubViewport texture
-; and applied to the Foreground mesh at runtime.
+; plays out in. The visible VN surface is a flat QuadMesh layered
+; against a simple 3D-primitive backdrop (BoxMesh). BackgroundCube and
+; Foreground start mesh-less; scene_player.gd assigns a mesh + an
+; unshaded ImageTexture material at load time when the active scene's
+; background / speaking character carries a materialized asset (see
+; scene_player.gd `_load_texture`). SVG assets are decoded via
+; Image.load_svg_from_buffer so they stay resolution-independent.
 
 [node name="ScenePlayer" type="Node3D"]
 script = ExtResource("1")

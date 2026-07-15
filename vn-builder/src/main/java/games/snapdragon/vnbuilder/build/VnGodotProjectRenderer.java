@@ -28,6 +28,18 @@ import java.util.*;
  * <p>Per-Act export: each Act becomes a Chapter in the BFF, with its
  * own bundle/index.html. The runtime picks the {@code is_entry_point}
  * scene of the act on first load.
+ *
+ * <p><b>Asset materialization.</b> Backgrounds and character portraits
+ * reference an uploaded/generated {@link VnAsset} by UUID. The renderer
+ * copies each referenced asset's actual bytes out of the AssetStorage
+ * layout (the asset row's absolute {@code storage_path}) into a shared
+ * {@code res://assets/<asset-id>.<ext>} inside the staged tree, and
+ * writes that <i>resolvable</i> {@code res://} path (not just the raw
+ * UUID) into every act's {@code scenes_data.json} so the runtime can
+ * load the texture. A referenced asset that is missing (no row / bytes
+ * gone from disk) is skipped: no path is emitted and the scene simply
+ * renders art-less. Assets are project-scoped (shared across acts) so
+ * they are materialized once into a single {@code res://assets/} dir.
  */
 @Component
 public class VnGodotProjectRenderer {
@@ -41,6 +53,7 @@ public class VnGodotProjectRenderer {
     private final VnChoiceRepository choices;
     private final VnCharacterRepository characters;
     private final VnBackgroundRepository backgrounds;
+    private final VnAssetRepository assets;
 
     /** Directory holding the compiled snapdragon-bridge binaries to bake into the
      *  rendered project's {@code bin/} (see the RPG renderer for the rationale). Empty
@@ -49,11 +62,12 @@ public class VnGodotProjectRenderer {
 
     public VnGodotProjectRenderer(VnActRepository acts, VnSceneRepository scenes, VnLineRepository lines,
                                   VnChoiceRepository choices, VnCharacterRepository characters,
-                                  VnBackgroundRepository backgrounds,
+                                  VnBackgroundRepository backgrounds, VnAssetRepository assets,
                                   @org.springframework.beans.factory.annotation.Value("${app.build.bridge-dir:}")
                                   String bridgeDir) {
         this.acts = acts; this.scenes = scenes; this.lines = lines;
         this.choices = choices; this.characters = characters; this.backgrounds = backgrounds;
+        this.assets = assets;
         this.bridgeDir = bridgeDir;
     }
 
@@ -87,6 +101,12 @@ public class VnGodotProjectRenderer {
                .replace("{{displayName}}", project.getDisplayName());
         Files.writeString(projectGodot, pg);
 
+        // Copy the actual bytes for every referenced background/portrait
+        // asset into a shared res://assets/ dir once (assets are project-
+        // scoped, not per-act) and remember each asset's resolvable
+        // res:// path so scenes_data.json can carry it.
+        Map<UUID, String> assetPaths = materializeAssets(project.getId(), root, chars, bgs);
+
         // Per-act scenes_data.json (one per chapter), inlining the
         // act's scenes + lines + choices so the runtime can drive the
         // VN without a separate database round-trip.
@@ -96,8 +116,8 @@ public class VnGodotProjectRenderer {
             dataset.put("project_slug", project.getSlug());
             dataset.put("act_slug", act.getSlug());
             dataset.put("act_name", act.getName());
-            dataset.put("characters", toCharactersMap(chars));
-            dataset.put("backgrounds", toBackgroundsMap(bgs));
+            dataset.put("characters", toCharactersMap(chars, assetPaths));
+            dataset.put("backgrounds", toBackgroundsMap(bgs, assetPaths));
             dataset.put("scenes", toScenesList(actScenes));
             Path actDir = root.resolve("acts").resolve(act.getSlug());
             Files.createDirectories(actDir);
@@ -147,27 +167,108 @@ public class VnGodotProjectRenderer {
         return out;
     }
 
-    private Map<String, Object> toCharactersMap(List<VnCharacter> cs) {
+    private Map<String, Object> toCharactersMap(List<VnCharacter> cs, Map<UUID, String> assetPaths) {
         Map<String, Object> out = new LinkedHashMap<>();
         for (VnCharacter c : cs) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("display_name", c.getDisplayName());
             m.put("color", c.getColor());
-            m.put("portrait_asset_id", c.getDefaultPortraitAssetId() == null ? null : c.getDefaultPortraitAssetId().toString());
+            UUID aid = c.getDefaultPortraitAssetId();
+            m.put("portrait_asset_id", aid == null ? null : aid.toString());
+            // Resolvable res:// path the runtime loads the portrait from;
+            // null when the asset is unset or could not be materialized.
+            m.put("portrait_path", aid == null ? null : assetPaths.get(aid));
             out.put(c.getId().toString(), m);
         }
         return out;
     }
 
-    private Map<String, Object> toBackgroundsMap(List<VnBackground> bs) {
+    private Map<String, Object> toBackgroundsMap(List<VnBackground> bs, Map<UUID, String> assetPaths) {
         Map<String, Object> out = new LinkedHashMap<>();
         for (VnBackground b : bs) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("name", b.getName());
-            m.put("asset_id", b.getAssetId() == null ? null : b.getAssetId().toString());
+            UUID aid = b.getAssetId();
+            m.put("asset_id", aid == null ? null : aid.toString());
+            // Resolvable res:// path the runtime loads the background from;
+            // null when the asset is unset or could not be materialized.
+            m.put("asset_path", aid == null ? null : assetPaths.get(aid));
             out.put(b.getId().toString(), m);
         }
         return out;
+    }
+
+    /**
+     * Copy the raw bytes of every referenced background/portrait asset
+     * out of AssetStorage (the asset row's absolute {@code storage_path})
+     * into {@code <root>/assets/<asset-id>.<ext>} and return a map of
+     * asset id → resolvable {@code res://assets/<asset-id>.<ext>} path.
+     *
+     * <p>Blocking reads are fine here: {@code writeTree} already runs on a
+     * bounded-elastic worker (see {@link #render}) and the existing
+     * {@code toScenesList} lookups block the same way.
+     *
+     * <p>Graceful degradation: a referenced asset whose row is gone, or
+     * whose bytes are missing on disk, is logged and skipped — it simply
+     * gets no {@code res://} path so the runtime renders that scene art-less.
+     *
+     * <p><b>Project-scope guard (IDOR defence):</b> a referenced asset row
+     * whose {@code projectId} does not match {@code projectId} being rendered
+     * is treated exactly like a missing row — logged and skipped — so a
+     * background/character that references another project's asset UUID can
+     * never pull that project's bytes into this bundle.
+     */
+    private Map<UUID, String> materializeAssets(UUID projectId, Path root, List<VnCharacter> chars, List<VnBackground> bgs)
+            throws IOException {
+        // Dedupe: one background + many characters may share an asset id.
+        Set<UUID> referenced = new LinkedHashSet<>();
+        for (VnBackground b : bgs) if (b.getAssetId() != null) referenced.add(b.getAssetId());
+        for (VnCharacter c : chars) if (c.getDefaultPortraitAssetId() != null) referenced.add(c.getDefaultPortraitAssetId());
+        if (referenced.isEmpty()) return Map.of();
+
+        Path assetsDir = root.resolve("assets");
+        Files.createDirectories(assetsDir);
+        Map<UUID, String> out = new LinkedHashMap<>();
+        for (UUID id : referenced) {
+            VnAsset asset = assets.findById(id).block();
+            if (asset == null) {
+                log.warn("[render] referenced asset {} has no row; scene will render art-less", id);
+                continue;
+            }
+            if (!projectId.equals(asset.getProjectId())) {
+                // IDOR guard: never materialize an asset owned by a different
+                // project into this project's bundle. Same graceful skip the
+                // missing-row branch uses so the scene just renders art-less.
+                log.warn("[render] referenced asset {} belongs to project {} not {}; "
+                        + "skipping (cross-project reference)", id, asset.getProjectId(), projectId);
+                continue;
+            }
+            byte[] bytes;
+            try {
+                bytes = Files.readAllBytes(Path.of(asset.getStoragePath()));
+            } catch (IOException e) {
+                log.warn("[render] asset {} bytes missing at {} ({}); skipping",
+                        id, asset.getStoragePath(), e.getMessage());
+                continue;
+            }
+            String filename = id + "." + extForMime(asset.getMimeType());
+            Files.write(assetsDir.resolve(filename), bytes);
+            out.put(id, "res://assets/" + filename);
+        }
+        return out;
+    }
+
+    /** Map a stored asset mime to the file extension the runtime decoder
+     *  keys off (see scene_player.gd's buffer-decode switch). */
+    private static String extForMime(String mime) {
+        if (mime == null) return "bin";
+        return switch (mime) {
+            case "image/png" -> "png";
+            case "image/jpeg" -> "jpg";
+            case "image/webp" -> "webp";
+            case "image/svg+xml" -> "svg";
+            default -> "bin";
+        };
     }
 
     private void copyTemplateTree(Path dst) throws IOException {
