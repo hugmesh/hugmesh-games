@@ -3,6 +3,7 @@ package games.snapdragon.bff.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import games.snapdragon.bff.model.InputEvent;
+import games.snapdragon.bff.model.SessionMember;
 import games.snapdragon.bff.repository.InputEventRepository;
 import games.snapdragon.bff.repository.InputEventRepository.InputEventRow;
 import games.snapdragon.bff.repository.InputEventTypeRepository;
@@ -106,8 +107,24 @@ public class InputEventController {
         // session's host (the relay fans out to that session only). 403 on miss.
         // Mirrors ControlController's multiplayer authz exactly. No session id ⇒
         // legacy single-player ingestion, no ownership concept to check.
+        //
+        // Gate 0b (authority-spoofing defence): a session-scoped kind:'world'
+        // event is the AUTHORITATIVE relay — it carries the host's canonical
+        // engine state (e.g. chess FEN) that every guest re-applies verbatim. Only
+        // the session CREATOR runs the authoritative wasm engine, so only the
+        // creator may post kind:'world'. Without this gate any ordinary member
+        // (a guest) could POST a forged kind:'world' payload and rewrite every
+        // other player's world — a full authority spoof. We KEEP the SessionMember
+        // authorizeControl returns (not .then() it away) precisely so isCreator()
+        // is available here. Non-world kinds are unaffected; global (no-session)
+        // posts have no creator concept and stay unchanged.
         Mono<Void> authz = (body.sessionId() != null && !body.sessionId().isBlank())
-                ? sessions.authorizeControl(jwt.getSubject(), characterId, body.sessionId()).then()
+                ? sessions.authorizeControl(jwt.getSubject(), characterId, body.sessionId())
+                        .flatMap(member -> "world".equals(body.kind()) && !member.isCreator()
+                                ? Mono.<SessionMember>error(new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                        "only the session creator may submit authoritative world events"))
+                                : Mono.just(member))
+                        .then()
                 : Mono.empty();
 
         // Gate 1: (kind, type) must be a known reference row.
@@ -132,11 +149,20 @@ public class InputEventController {
                             .flatMap(payloadJson -> events.insert(ev, payloadJson)
                                     .doOnNext(state::emitInput));
                 }));
-        // TODO: gates 2 (features.<kind>) and 3 (game_event_support) are not
-        // yet implemented. They require a not-yet-existing
-        // GameRepository.findFeatures helper — deferred to a follow-up
-        // commit so this one stays focused on the schema + ingestion path
-        // and is reviewable independently. See the class Javadoc above.
+        // TODO(PR #116 follow-up, blocker 2): per-game event-support gate —
+        // gates 2 (features.<kind>) and 3 (game_event_support) are not yet
+        // implemented. They require a not-yet-existing GameRepository.findFeatures
+        // helper and a design pass on how the games.features JSONB maps to event
+        // kinds — deferred to a follow-up so this one stays focused on the schema +
+        // ingestion + authority-spoofing gates and is reviewable independently.
+        // See the class Javadoc above.
+        //
+        // TODO(PR #116 follow-up, blocker 3): Kafka cross-pod world-relay parity —
+        // emitInput() fans the authoritative kind:'world' payload only onto this
+        // pod's in-process per-session sink, so a guest whose SSE subscription
+        // landed on a DIFFERENT pod never receives it. Achieving cross-pod parity
+        // needs the Kafka session-topic subscriber (decision 021) to re-emit
+        // relayed world events on the local sink; deferred pending that design.
     }
 
     @Operation(summary = "Recent events for a character (newest first).")

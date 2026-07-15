@@ -690,6 +690,20 @@ public class GameStateService {
     public Flux<WorldState>      worldStream(String sessionId)     { return sessionSinksFor(sessionId).world.asFlux(); }
 
     /**
+     * Per-session WEB-NATIVE world passthrough — the host-authoritative
+     * {@code sendWorld()} payload from a web-native game (an arbitrary
+     * game-specific JSON blob). Surfaced to subscribers under the same
+     * {@code world} SSE event as {@link #worldStream(String)} (see
+     * {@code GameStreamController}) so the guest bridge, which listens only to
+     * the {@code world} channel, receives it with no change. See
+     * {@link SessionSinks#worldNative} for why this is a distinct sink.
+     *
+     * @param sessionId the session to scope the stream to
+     * @return a {@link Flux} of raw web-native world payloads for this session
+     */
+    public Flux<Object>          worldNativeStream(String sessionId) { return sessionSinksFor(sessionId).worldNative.asFlux(); }
+
+    /**
      * Per-session character-stat stream — only events from {@code sessionId}.
      *
      * @param sessionId the session to scope the stream to
@@ -796,6 +810,17 @@ public class GameStateService {
         // Session-scoped fan-out when the event is tied to a session.
         if (sid != null && !sid.isBlank()) {
             sessionSinksFor(sid).input.tryEmitNext(ev);
+            // Host-authoritative WEB-NATIVE relay: a kind:'world' event is a
+            // sendWorld() payload the host broadcasts for the guest to re-apply.
+            // The guest bridge listens to the `world` SSE channel (never `input`),
+            // so route the raw world payload onto the session's worldNative sink,
+            // which GameStreamController merges into the `world` SSE event. Without
+            // this the host's authoritative state never reaches the guest — the
+            // whole web-native multiplayer relay is a no-op guest-side. The typed
+            // WorldState `world` sink (Godot roster path) is left untouched.
+            if (InputEventKinds.WORLD.equals(ev.kind()) && ev.payload() != null) {
+                sessionSinksFor(sid).worldNative.tryEmitNext(ev.payload());
+            }
         }
         // Audio events additionally go to the dedicated audio channel.
         if (InputEventKinds.AUDIO.equals(ev.kind())) {

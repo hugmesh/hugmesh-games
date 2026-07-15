@@ -90,8 +90,17 @@ public class GameStreamController {
                         : gameStateService.movementStream())
                 .map(m -> sse(sseId, "movement", m));
 
+        // The `world` SSE event carries BOTH the typed Godot roster WorldState
+        // (movement path) AND — for a session-scoped subscriber — the web-native
+        // host-authoritative sendWorld() passthrough (worldNativeStream). A
+        // session is either a Godot game or a web-native game, never both, so the
+        // two shapes never collide on one stream in practice; merging them under
+        // one event name means the guest bridge (which listens only to `world`)
+        // needs no change. Without the worldNative leg, a web-native game's
+        // sendWorld() reaches only the `input` sink and never the guest.
         Flux<ServerSentEvent<Object>> world = (sessionId != null && !sessionId.isBlank()
-                        ? gameStateService.worldStream(sessionId)
+                        ? Flux.merge(gameStateService.worldStream(sessionId),
+                                     gameStateService.worldNativeStream(sessionId))
                         : gameStateService.worldStream())
                 .map(w -> sse(sseId, "world", w));
 

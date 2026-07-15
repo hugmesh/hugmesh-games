@@ -7,6 +7,8 @@ import games.snapdragon.bff.config.SecurityConfig;
 import games.snapdragon.bff.config.SecurityHeadersFilter;
 import games.snapdragon.bff.controller.support.SecuritySliceSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import games.snapdragon.bff.model.InputEvent;
+import games.snapdragon.bff.model.InputEventType;
 import games.snapdragon.bff.model.SessionMember;
 import games.snapdragon.bff.repository.InputEventRepository;
 import games.snapdragon.bff.repository.InputEventTypeRepository;
@@ -143,5 +145,79 @@ class InputEventControllerHttpAuthzTest {
                 .exchange()
                 .expectStatus().isOk();
         verify(events).findRecentBySessionId(eq("s-1"), anyInt());
+    }
+
+    // ── POST submit : authority-spoofing gate (kind:'world' ⇒ creator-only) ──────
+    //
+    // A session-scoped kind:'world' event is the host-authoritative relay: it
+    // carries the canonical engine state every guest re-applies verbatim. Only the
+    // session CREATOR runs the authoritative wasm engine, so only the creator may
+    // POST kind:'world'. A non-creator member who owns their character in the
+    // session still passes authorizeControl (ownership) but MUST be rejected here.
+    //
+    // FAIL-FIRST: against the unfixed controller authz was `.then()`-away'd, so the
+    // SessionMember (and thus isCreator()) was discarded and a non-creator's forged
+    // kind:'world' POST was accepted (202) and emitted — authority spoof.
+
+    private static final String SUBMIT_URI = "/api/input/1";
+
+    private static SessionMember member(String casdoorId, boolean creator) {
+        SessionMember m = new SessionMember();
+        m.setCasdoorId(casdoorId);
+        m.setSessionId("s-1");
+        m.setCharacterId(1L);
+        m.setCreator(creator);
+        return m;
+    }
+
+    private static String worldBody() {
+        return """
+            {"gameSlug":"chess","sessionId":"s-1","kind":"world","type":"state",
+             "payload":{"fen":"8/8/8/8/8/8/8/8 w - - 0 1","status":"ongoing"}}
+            """;
+    }
+
+    @Test
+    void submitWorld_sessionScopedNonCreator_is403_andNothingEmitted() {
+        // Non-creator member owns the character (authorizeControl succeeds) but is
+        // NOT the session host — the creator-only world gate must 403.
+        when(sessions.authorizeControl(eq("guest"), eq(1L), eq("s-1")))
+                .thenReturn(Mono.just(member("guest", false)));
+        // The (kind,type) lookup Mono is ASSEMBLED eagerly as the `.then(...)`
+        // argument, but the creator gate 403s before it is ever SUBSCRIBED, so no
+        // row is loaded, persisted, or fanned out. Stub leniently to mirror the
+        // real repo (which returns a Mono, never null) during assembly.
+        lenient().when(types.findByKindAndType(anyString(), anyString()))
+                .thenReturn(Mono.just(new InputEventType("world", "state", null, null, null)));
+        web.mutateWith(SecuritySliceSupport.user("guest"))
+                .post().uri(SUBMIT_URI)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(worldBody())
+                .exchange()
+                .expectStatus().isForbidden();
+        // Rejected BEFORE persistence + fan-out: no insert, no SSE emit.
+        verify(events, never()).insert(any(), anyString());
+        verify(state, never()).emitInput(any());
+    }
+
+    @Test
+    void submitWorld_sessionScopedCreator_is202_andEmitted() throws Exception {
+        // The creator runs the authoritative engine — the world submission proceeds
+        // through the (kind,type) gate, persists, and fans out.
+        when(sessions.authorizeControl(eq("host"), eq(1L), eq("s-1")))
+                .thenReturn(Mono.just(member("host", true)));
+        when(types.findByKindAndType(eq("world"), eq("state")))
+                .thenReturn(Mono.just(new InputEventType("world", "state", null, null, null)));
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+        when(events.insert(any(), anyString()))
+                .thenAnswer(inv -> Mono.just(inv.getArgument(0, InputEvent.class)));
+        web.mutateWith(SecuritySliceSupport.user("host"))
+                .post().uri(SUBMIT_URI)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(worldBody())
+                .exchange()
+                .expectStatus().isAccepted();
+        verify(events).insert(any(), anyString());
+        verify(state).emitInput(any());
     }
 }

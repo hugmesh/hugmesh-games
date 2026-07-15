@@ -116,7 +116,32 @@ final class SessionSinks {
     final Sinks.Many<InputEvent>          input;
 
     /**
-     * Allocates all six sinks with the buffer sizes and {@code autoCancel=false}
+     * Per-session WEB-NATIVE world-state relay — the passthrough that carries a
+     * host-authoritative {@code sendWorld()} payload from a web-native game
+     * (chess/tron/connect-four/…) to the guest.  Distinct from {@link #world}
+     * because the two carry incompatible shapes: {@link #world} is a typed
+     * {@link WorldState} full-roster snapshot emitted by the Godot movement path,
+     * whereas a web-native game's world is an arbitrary game-specific JSON blob
+     * ({@code {fen,status,…}} for chess, {@code {board,…}} for connect-four) that
+     * the guest's {@code onRemoteEvent} re-applies against its own WASM engine.
+     *
+     * <p>Both are surfaced to subscribers under the SAME {@code world} SSE event
+     * name (see {@code GameStreamController}) so the guest bridge, which already
+     * listens only to the {@code world} channel, needs no change — a session is
+     * either a Godot game or a web-native game, never both, so the two shapes
+     * never collide on one stream in practice.
+     *
+     * <p>This channel fixes a real relay gap: previously a {@code kind:'world'}
+     * event posted to {@code POST /api/input} landed only on {@link #input}
+     * (which the guest bridge does not subscribe to), so the host's authoritative
+     * state never reached the guest.  Emitting {@code Object} (the raw payload
+     * map) rather than the full {@link InputEvent} avoids leaking the host's
+     * {@code casdoorUserId} to the guest.
+     */
+    final Sinks.Many<Object>              worldNative;
+
+    /**
+     * Allocates all sinks with the buffer sizes and {@code autoCancel=false}
      * flag described in the class-level Javadoc.
      */
     SessionSinks() {
@@ -126,5 +151,6 @@ final class SessionSinks {
         this.view           = Sinks.many().multicast().onBackpressureBuffer(128, false);
         this.sessionControl = Sinks.many().multicast().onBackpressureBuffer(16,  false);
         this.input          = Sinks.many().multicast().onBackpressureBuffer(128, false);
+        this.worldNative    = Sinks.many().multicast().onBackpressureBuffer(64,  false);
     }
 }
