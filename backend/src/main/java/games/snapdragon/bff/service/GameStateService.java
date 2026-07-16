@@ -325,7 +325,10 @@ public class GameStateService {
             sub.registerHandler("input",        (sid, json) -> reemitToSession(sid, "input",        json));
             sub.registerHandler("audio",        (sid, json) -> reemitToSession(sid, "audio",        json));
             sub.registerHandler("wasm-console", (sid, json) -> reemitToSession(sid, "wasm-console", json));
-            log.info("[kafka-sub] handlers registered for 8 channels");
+            // Web-native host-authoritative relay (PR #116 cross-pod parity): re-emit a
+            // relayed sendWorld() blob onto the peer pod's per-session worldNative sink.
+            sub.registerHandler("world-native", (sid, json) -> reemitToSession(sid, "world-native", json));
+            log.info("[kafka-sub] handlers registered for 9 channels");
         });
 
         // Seed the default character on the default chapter so the
@@ -820,6 +823,16 @@ public class GameStateService {
             // WorldState `world` sink (Godot roster path) is left untouched.
             if (InputEventKinds.WORLD.equals(ev.kind()) && ev.payload() != null) {
                 sessionSinksFor(sid).worldNative.tryEmitNext(ev.payload());
+                // Cross-pod parity (PR #116 blocker 3): the in-process emit above only
+                // reaches guests whose SSE subscription landed on THIS pod. Tee the raw
+                // world payload to the dedicated `world-native` Kafka channel so a peer
+                // pod's subscriber re-emits it onto ITS worldNative sink (see the
+                // `world-native` handler in init() + reemitToSession). We publish
+                // ev.payload() — NOT the full InputEvent — so no casdoorUserId reaches
+                // the guest, exactly mirroring the in-pod sink contents. The existing
+                // `input` publish below still ships the full event for the admin firehose.
+                eventPublisher.ifPresent(pub -> pub.publish(
+                        "world-native", null, sid, null, ev.payload()));
             }
         }
         // Audio events additionally go to the dedicated audio channel.
@@ -1151,6 +1164,18 @@ public class GameStateService {
                 case "wasm-console" -> {
                     WasmConsoleLine line = mapper.treeToValue(root, WasmConsoleLine.class);
                     wasmConsoleSink.tryEmitNext(line);
+                }
+                case "world-native" -> {
+                    // Web-native host-authoritative relay: the raw sendWorld() blob
+                    // (an arbitrary game-world Map, e.g. chess {fen,status}) — NOT a
+                    // typed Godot WorldState. Emit onto the per-session worldNative sink
+                    // so the guest's `world` SSE (merged in GameStreamController) receives
+                    // it exactly as it would in-pod. Session-scoped only — there is no
+                    // global worldNative sink (the typed `world` sink is unrelated).
+                    if (sessionId != null && !sessionId.isEmpty()) {
+                        Object payload = mapper.convertValue(root, java.util.Map.class);
+                        sessionSinksFor(sessionId).worldNative.tryEmitNext(payload);
+                    }
                 }
                 default -> log.debug("[kafka-sub] dropped unknown channel={}", channel);
             }

@@ -19,13 +19,32 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import games.snapdragon.bff.model.InputEvent;
+import games.snapdragon.bff.repository.PlayerCharacterRepository;
+import games.snapdragon.bff.repository.PlayerPositionRepository;
+import games.snapdragon.bff.service.GameStateService;
+import games.snapdragon.bff.service.GameTimeService;
+import games.snapdragon.bff.service.PgNotificationService;
+import games.snapdragon.bff.service.PositionCacheService;
+import org.springframework.beans.factory.ObjectProvider;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 
 /**
  * Two-pod cross-pod Kafka integration test (decision-021 follow-up).
@@ -171,7 +190,71 @@ class TwoPodKafkaCrossPodIT {
                 .isEmpty();
     }
 
+    /**
+     * End-to-end web-native world-relay cross-pod parity (PR #116 blocker 3).
+     *
+     * <p>Wires two REAL {@link GameStateService} instances over the embedded
+     * broker: Pod A's {@code GameEventPublisher} ships to {@code game_events};
+     * Pod B's {@link KafkaSessionSubscriber} (already pumped by {@code pumpB})
+     * re-emits relayed rows via the real {@code reemitToSession}. Asserts that a
+     * host-authoritative {@code kind:'world'} {@code emitInput} on Pod A reaches
+     * Pod B's per-session {@code worldNativeStream} — the guest-facing sink the
+     * {@code world} SSE channel merges. This is the composed proof that the whole
+     * assembly (publish → broker → consume → self-filter → dispatch → re-emit)
+     * delivers the host's authoritative state to a guest pinned to another pod.
+     */
+    @Test
+    void worldNativeEvent_fromPodAEmitInput_reachesPodBWorldNativeSink_endToEnd() {
+        // Pod A: publisher ships every tee'd channel row to the embedded broker.
+        GameEventPublisher publisherA = new GameEventPublisher(
+                (key, json) -> { producer.send(new ProducerRecord<>("game_events", key, json)); return CompletableFuture.completedFuture(null); },
+                "pod-A", "game_events");
+        GameStateService stateA = newState(Optional.of(publisherA), Optional.empty());
+
+        // Pod B: real subscriber (podB, pumped by pumpB) + real re-emit handlers.
+        // init() registers the 9 channel handlers onto podB (replaces setUp's movement lambda).
+        GameStateService stateB = newState(Optional.empty(), Optional.of(podB));
+        stateB.init();
+
+        String session = "sess-wn-e2e";
+        Map<String, Object> world = Map.of(
+                "fen", "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+                "status", "ongoing");
+
+        StepVerifier.create(stateB.worldNativeStream(session).next())
+                .then(() -> stateA.emitInput(
+                        InputEvent.inbound("chess", 7L, session, "casdoor-host", "world", "state", world)))
+                .assertNext(payload -> {
+                    assertThat(payload).isInstanceOf(Map.class);
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> m = (Map<String, Object>) payload;
+                    assertThat(m).containsEntry("status", "ongoing");
+                    assertThat((String) m.get("fen")).startsWith("r1bqkbnr");
+                })
+                .expectComplete().verify(Duration.ofSeconds(25));
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
+
+    /** A Postgres-only {@link GameStateService} (Cassandra + ClickHouse absent) for the IT. */
+    private GameStateService newState(Optional<GameEventPublisher> publisher,
+                                      Optional<KafkaSessionSubscriber> subscriber) {
+        PlayerCharacterRepository characterRepo = mock(PlayerCharacterRepository.class);
+        PlayerPositionRepository positionRepo = mock(PlayerPositionRepository.class);
+        GameTimeService gameTimeService = mock(GameTimeService.class);
+        PgNotificationService pgNotify = mock(PgNotificationService.class);
+        PositionCacheService positionCache = mock(PositionCacheService.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<PositionCacheService> cacheProvider = mock(ObjectProvider.class);
+        lenient().when(cacheProvider.getIfAvailable()).thenReturn(positionCache);
+        lenient().when(characterRepo.findById((Long) any())).thenReturn(Mono.empty());
+        lenient().when(positionRepo.findByCharacterIdAndChapterId(any(), any())).thenReturn(Mono.empty());
+        lenient().when(pgNotify.publish(anyString(), anyString())).thenReturn(Mono.empty());
+        lenient().when(positionCache.findOne(anyLong(), anyLong())).thenReturn(Mono.empty());
+        lenient().when(positionCache.charactersInChapter(anyLong())).thenReturn(Flux.empty());
+        return new GameStateService(characterRepo, positionRepo, gameTimeService, pgNotify, cacheProvider,
+                publisher, subscriber, Optional.empty());
+    }
 
     private Properties producerProps() {
         Properties p = new Properties();
