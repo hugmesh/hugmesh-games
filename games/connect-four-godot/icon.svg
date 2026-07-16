@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Connect Four">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f3d8f"/>
+      <stop offset="1" stop-color="#12296b"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="8" width="52" height="48" rx="6" fill="url(#bg)"/>
+  <g>
+    <circle cx="16" cy="18" r="5" fill="#0c1220"/>
+    <circle cx="28" cy="18" r="5" fill="#0c1220"/>
+    <circle cx="40" cy="18" r="5" fill="#0c1220"/>
+    <circle cx="52" cy="18" r="5" fill="#f5c93f"/>
+    <circle cx="16" cy="30" r="5" fill="#0c1220"/>
+    <circle cx="28" cy="30" r="5" fill="#e03d3d"/>
+    <circle cx="40" cy="30" r="5" fill="#f5c93f"/>
+    <circle cx="52" cy="30" r="5" fill="#e03d3d"/>
+    <circle cx="16" cy="42" r="5" fill="#e03d3d"/>
+    <circle cx="28" cy="42" r="5" fill="#f5c93f"/>
+    <circle cx="40" cy="42" r="5" fill="#e03d3d"/>
+    <circle cx="52" cy="42" r="5" fill="#f5c93f"/>
+  </g>
+</svg>

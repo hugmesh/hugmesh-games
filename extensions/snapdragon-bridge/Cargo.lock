@@ -177,11 +177,16 @@ name = "snapdragon-chess"
 version = "0.1.0"
 
 [[package]]
+name = "snapdragon-connect-four"
+version = "0.1.0"
+
+[[package]]
 name = "snapdragon_bridge"
 version = "0.1.0"
 dependencies = [
  "godot",
  "snapdragon-chess",
+ "snapdragon-connect-four",
 ]
 
 [[package]]

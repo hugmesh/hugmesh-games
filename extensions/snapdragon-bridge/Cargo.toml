@@ -41,6 +41,12 @@ godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
 # A core is reused by exposing a GDExtension node here (see src/chess_engine.rs)
 # that the game's GDScript calls; game rules are NEVER reimplemented in GDScript.
 snapdragon-chess = { path = "../snapdragon-chess" }
+# Connect Four — the first turn-based port after chess. Same reuse shape: the
+# pure `snapdragon-connect-four` rules engine (rlib) is linked here and wrapped
+# by the ConnectFourEngine GDExtension node (src/connect_four_engine.rs). No
+# GDScript reimplements the rules; the web-native bundle keeps driving the SAME
+# core through its wasm C-ABI shim (snapdragon-connect-four-wasm).
+snapdragon-connect-four = { path = "../snapdragon-connect-four" }
 
 [profile.release]
 opt-level = 3

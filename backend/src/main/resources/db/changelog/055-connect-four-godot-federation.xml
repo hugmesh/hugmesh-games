@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Connect Four (Godot) — the FIRST turn-based port after chess (wave A).
+
+      games/connect-four-godot/ is a real Godot 4 project that REUSES the
+      deterministic `snapdragon-connect-four` Rust core via the ConnectFourEngine
+      GDExtension node in snapdragon_bridge (NO GDScript rules). `make build-godot`
+      exports it to a Web WASM bundle served by the wasm-fragment nginx at
+      /_remotes/wasm-fragment/connect-four-godot/index.html — exactly the launch
+      shape the 14 web-native games use (kind='wasm-game'), so the host launches
+      it as a parametrised iframe with no frontend change.
+
+      Mirrors 053 (chess-godot) exactly; only the game-specific slug/labels differ.
+
+      CUTOVER POLICY (deliberate, reversible):
+        * The existing web-native 'connect-four' game + its 045/051 rows are KEPT
+          UNTOUCHED as the fallback. The original tile still serves
+          /_remotes/wasm-fragment/connect-four/index.html.
+        * This changeset adds 'connect-four-godot' ALONGSIDE as a distinct,
+          clearly labelled catalog entry ("Connect Four (Godot)") + its own
+          wasm-game row, so the two run side by side and the Godot path can be
+          proven in prod without risking the working web bundle.
+        * To complete the cutover once proven: repoint the original
+          'connect-four' chapter.asset_url + the games-connect-four federation
+          remote_entry_url at the connect-four-godot bundle (or simply disable
+          the games-connect-four-godot row to roll back). Both directions are one
+          UPDATE.
+
+      scene_type 'connect-four' deliberately REUSES the existing web-native
+      Connect Four multiplayer wiring (relay event types seeded in 052:
+      connect-four control/drop + control/reset), so a Godot guest is
+      interchangeable with the web guest and NO new relay rows are needed.
+
+      Mirrors 051/053 idempotency (ON CONFLICT / NOT EXISTS + tableExists
+      preconditions) so re-runs on partial state are no-ops.
+    -->
+
+    <!-- 1. Catalog game row ("Connect Four (Godot)"). Explicit id like 053-1. -->
+    <changeSet id="055-1-connect-four-godot-game" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Connect Four (Godot)',
+       'Two-player Connect Four rendered in Godot. Reuses the SAME deterministic Rust rules engine as the web-native connect-four (via the ConnectFourEngine GDExtension bridge) — host-authoritative, the guest re-applies every drop. Ported from the chess-godot reference.',
+       'connect-four-godot',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'connect-four-godot');
+        </sql>
+    </changeSet>
+
+    <!-- 2. The board chapter. scene_type 'connect-four' reuses the existing
+         Connect Four multiplayer wiring; asset_url points at the Godot bundle. -->
+    <changeSet id="055-2-connect-four-godot-chapter" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="chapters"/>
+        </preConditions>
+        <sql>
+INSERT INTO chapters
+    (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT
+    'Connect Four Board (Godot)',
+    'A 7x6 Connect Four grid in a Godot WASM bundle. Red and Yellow join one session; the host ConnectFourEngine (Rust core) is authoritative and the guest re-applies every drop.',
+    'connect-four-godot',
+    'connect-four',
+    1,
+    '/_remotes/wasm-fragment/connect-four-godot/index.html',
+    '{}',
+    (SELECT id FROM games WHERE slug = 'connect-four-godot'),
+    NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'connect-four-godot');
+        </sql>
+    </changeSet>
+
+    <!-- 3. Federation row (kind='wasm-game'), mirroring 051/053. The host's
+         home.component.ts isWebNative/webNativeSlug reads this off
+         GET /api/federation/manifest and launches it as a parametrised iframe. -->
+    <changeSet id="055-3-connect-four-godot-federation-row" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="federation_modules"/>
+        </preConditions>
+        <sql>
+INSERT INTO federation_modules
+    (slug, display_name, kind, remote_entry_url, exposed_module, game_slug, version, enabled, metadata)
+VALUES
+    ('games-connect-four-godot', 'Connect Four (Godot)', 'wasm-game',
+     '/_remotes/wasm-fragment/connect-four-godot/index.html', NULL, 'connect-four-godot', '0.1.0', true,
+     '{"sse":true,"hostAuthoritative":true,"engine":"godot","core":"snapdragon-connect-four"}'::jsonb)
+ON CONFLICT (slug) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <!-- 4. Default all-users access, mirroring 053-4 so the tile is visible +
+         launchable for seeded player roles (no game_access row => hidden). -->
+    <changeSet id="055-4-connect-four-godot-default-access" author="snapdragon">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="game_access"/>
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO game_access (game_id, scope, scope_value, granted_by, granted_at)
+SELECT g.id, 'all', NULL, 'system:migration-055', NOW()
+  FROM games g
+ WHERE g.slug = 'connect-four-godot'
+   AND NOT EXISTS (
+        SELECT 1 FROM game_access ga
+         WHERE ga.game_id = g.id AND ga.scope = 'all' AND ga.scope_value IS NULL
+ );
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
