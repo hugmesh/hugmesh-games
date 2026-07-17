@@ -292,12 +292,13 @@ Quest catalog (full) and per-character started-quest list.
 
 ### `InputEventController` — `/api/input`
 
-Generalised input ingestion — gamepad / mouse / keyboard / touch / audio / world / control. Three-gate validation (see [04 — Data model](04-data-model.md#generalised-input-event-surface)).
+Generalised input ingestion — gamepad / mouse / keyboard / touch / audio / world / control. Documented three-gate validation, only gate 1 of which is wired in today (see [04 — Data model](04-data-model.md#generalised-input-event-surface) and [README § Known gaps / TODO](../../../README.md#known-gaps--todo)).
 
 | Status | When |
 |---|---|
+| *403* | Session-scoped submit where the caller isn't the active `session_member` owning `characterId`; OR a non-creator submitting `kind:'world'` (authority-spoof defence — only the session creator may post the authoritative world relay). |
 | *400* | `(kind, type)` not in `input_event_types`. The upload-time validator should have caught this. |
-| *405* | `games.features.<kind>=false` OR `(slug, kind, type)` not in `game_event_support`. |
+| *405* | *Not yet implemented* — the documented `games.features.<kind>=false` / `(slug, kind, type)` not in `game_event_support` gates don't run yet; any registered `(kind, type)` currently passes regardless of the game's feature flags. |
 
 ### `GameLaunchController` — `/api/games/{slug}/launch` + `/api/admin/launches`
 
@@ -393,11 +394,11 @@ Heartbeat (every 15 s) writes a `pod_heartbeats` row with TTL 30 s into Cassandr
 
 ### `GameAuditPublisher` / `GameEventPublisher` / `GameKpiPublisher`
 
-Kafka producers introduced by decision 021. `GameAuditPublisher` emits state-transition rows to `state_audit`; `GameEventPublisher` tees all 8 SSE channels to `game_events` from `GameStateService.tryEmitNext`; `GameKpiPublisher` ships federated-game KPI samples from `TelemetryController` to `game_kpi`. Gated by `app.kafka.enabled`; no-op when disabled.
+Kafka producers introduced by decision 021. `GameAuditPublisher` emits state-transition rows to `state_audit`; `GameEventPublisher` tees all 9 SSE channels to `game_events` from `GameStateService.tryEmitNext`/`emitInput`; `GameKpiPublisher` ships federated-game KPI samples from `TelemetryController` to `game_kpi`. Gated by `app.kafka.enabled`; no-op when disabled.
 
 ### `KafkaSessionSubscriber`
 
-Cross-pod consumer for `game_events`. Filters self-published events via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. Covers all 8 channels (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only).
+Cross-pod consumer for `game_events`. Filters self-published events via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. Covers all 9 channels (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only; world-native → per-session only, no global sink — see decision 021).
 
 ### `SessionTopicManager`
 

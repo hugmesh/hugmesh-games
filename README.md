@@ -1,10 +1,10 @@
 # Snapdragon Game Studio
 
-A self-hosted multi-game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy a 17-title catalog through an **Angular** shell with live SSE multiplayer sessions, and the **Snapdragon Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
+A self-hosted multi-game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy an 18-title catalog through an **Angular** shell with live SSE multiplayer sessions, and the **Snapdragon Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
 
 The catalog ships titles in **two technical families** (see [Two game technologies](#two-game-technologies)):
 
-- **Godot 4 WASM titles** — the flagship *Three Wizards In A Trenchcoat* (a JRPG romp across cave depths and open fields), a *Spinning Dodecahedron* tech demo showing off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items), and *Chess (Godot)* — a Godot reference game that reuses the same deterministic Rust chess rules engine as the web-native chess via the bridge (changelog [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)).
+- **Godot 4 WASM titles** — the flagship *Three Wizards In A Trenchcoat* (a JRPG romp across cave depths and open fields), a *Spinning Dodecahedron* tech demo showing off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items), *Chess (Godot)* — a Godot reference game that reuses the same deterministic Rust chess rules engine as the web-native chess via the bridge (changelog [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)) — and *Connect Four (Godot)*, the second title ported with the same reference recipe (changelog [`055-connect-four-godot-federation.xml`](backend/src/main/resources/db/changelog/055-connect-four-godot-federation.xml)); merged with its own Godot export still flagged export-unverified in its own PR title, so treat the live bundle as unproven until someone confirms a real `make build-godot` run.
 - **Web-native Rust→wasm32 titles** — 14 board / puzzle / duel games (chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three) whose pure-Rust engines compile to `wasm32-unknown-unknown` and drive a canvas frontend through the host-authoritative SSE relay (see [`games/_shared/`](games/_shared/README.md)).
 
 > **State convention.** ✅ shipped = merged to `main`; 🚧 in-flight = code on an open branch/PR, not yet merged; 🔭 planned = design-complete, no code. The [Roadmap](#roadmap) gathers the 🚧 / 🔭 items.
@@ -32,13 +32,29 @@ The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with 
 
 ---
 
+## Status
+
+At-a-glance summary of what's real on `main` today, evidenced by the code, tests, and merged PR history in this repo — full detail lives in [Roadmap](#roadmap) and [Known gaps / TODO](#known-gaps--todo).
+
+**Shipped and working:**
+- 18-title catalog (Godot 4 WASM + web-native Rust→wasm32), all launchable through Module Federation; see [Two game technologies](#two-game-technologies).
+- Multiplayer sessions with per-session SSE sink isolation, enforced at three independent layers (unit + two e2e specs).
+- The host-authoritative web-native relay is proven end-to-end on `main`: the guest-side gap and the cross-pod Kafka leg are both merged and mutation-tested (full backend suite green). 9 of the 10 relay-capable web-native games have full two-browser UI-level e2e coverage (`e2e/tests/web-games-multiplayer.spec.ts`); battleship is deliberately excluded (documented in-file) pending a two-sided driver. That relay e2e suite itself has not yet been confirmed green against a live two-browser stack.
+- RPG + VN makers compile authored projects to real Godot WASM bundles when `app.build.godot-enabled=true`, including byte-copied asset materialization and deterministic procedural-SVG asset generation — see [decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
+- Kafka → ClickHouse streaming/audit pipeline, object-storage uploads, Postgres read-replica routing, and the per-brand `DOMAIN_` tenancy foundation — decisions [021](docs/wiki/decisions/021-kafka-clickhouse-streaming-pipeline.md), [020](docs/wiki/decisions/020-object-storage-uploads.md), [022](docs/wiki/decisions/022-postgres-read-replica.md), [025](docs/wiki/decisions/025-bff-domain-guard.md)/[026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
+- A recent OWASP-driven security pass closed several IDOR/BOLA/fail-open findings across the games BFF (see recent history on [Pull Requests](https://github.com/Snapdragon-Systems/snapdragon.games/pulls?q=is%3Apr)).
+
+**Known gaps** (see [Known gaps / TODO](#known-gaps--todo) for full detail): `InputEventController` enforces only 1 of its 3 documented validation gates; server-authoritative FPS/RTS engines exist and are tested in-JVM but have no catalog title yet; strict CSP isn't done; `CassandraSyncService` is superseded but not yet retired; *Connect Four (Godot)* is catalog-registered but its own merge commit flags the WASM export as unverified.
+
+---
+
 ## Two game technologies
 
-The 17-title catalog (✅ shipped on `main`) splits into two delivery models. They share the same SSE session transport, role gating, and launch-UID minting, but differ in how the game runs in the browser:
+The 18-title catalog (✅ shipped on `main`) splits into two delivery models. They share the same SSE session transport, role gating, and launch-UID minting, but differ in how the game runs in the browser:
 
 | Family | Titles | Engine | Delivery | Authority |
 |---|---|---|---|---|
-| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)* | Godot 4.6 project under [`games/<slug>/`](games/) exported to a self-contained WASM bundle | per-game `remote-game` Angular Web Component (or the legacy iframe path) loading the bundle from `wasm-fragment`; *Chess (Godot)* federates via a `wasm-game` row straight at the `wasm-fragment` bundle (changelog [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)) | server (BFF) holds canonical game state (*Chess (Godot)* is host-authoritative, reusing the chess Rust core via the bridge — the guest re-validates) |
+| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)*, *Connect Four (Godot)* | Godot 4.6 project under [`games/<slug>/`](games/) exported to a self-contained WASM bundle | per-game `remote-game` Angular Web Component (or the legacy iframe path) loading the bundle from `wasm-fragment`; *Chess (Godot)* / *Connect Four (Godot)* federate via a `wasm-game` row straight at the `wasm-fragment` bundle (changelogs [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml), [`055-connect-four-godot-federation.xml`](backend/src/main/resources/db/changelog/055-connect-four-godot-federation.xml)) | server (BFF) holds canonical game state (*Chess (Godot)* / *Connect Four (Godot)* are host-authoritative, reusing the matching Rust core via the bridge — the guest re-validates) |
 | **Web-native Rust→wasm32** | chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three | pure-Rust engine under [`extensions/snapdragon-<game>/`](extensions/) + a `-wasm` shim crate compiled to `wasm32-unknown-unknown` (zero host imports), driving a vanilla-JS canvas frontend under [`games/<slug>/`](games/) | **no per-game Angular remote** — a `federation_modules` row of `kind='wasm-game'` points the host straight at the `wasm-fragment` bundle (changelog [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml)) | **host-authoritative** — the host browser runs the engine, the BFF only relays `control`/`world` over the per-session SSE stream, the guest re-applies and re-validates |
 
 Each web-native engine runs identically in three environments — the browser (`WebAssembly.instantiateStreaming`), the JVM test harness (Chicory), and a Node functional test — so the same `.wasm` binary is verified end-to-end without environment-specific shims. See [`games/_shared/README.md`](games/_shared/README.md) for the shared shell contract, [`docs/multiplayer-chess-design.md`](docs/multiplayer-chess-design.md) for the host-authoritative relay model, and the "Web-native games" section of [CLAUDE.md](CLAUDE.md) for the add-a-game recipe.
@@ -85,6 +101,7 @@ Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-fede
 - **JWT roles + per-game access policy + mod/publisher RBAC.** Done. `game_access` scopes, `RoleProxyController`, per-game `mod_game_scopes` / `publisher_game_scopes`. Decisions [009](docs/wiki/decisions/009-game-access-scopes.md), [011](docs/wiki/decisions/011-mod-publisher-rbac.md).
 - **The makers (RPG + VN editors).** Done. `/rpg-maker` and `/vn-maker` federated remotes backed by the `rpg-builder/` + `vn-builder/` Spring services compile authored projects to upload-ready Godot bundles. [Decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
 - **Chess (Godot) — Godot pivot pilot title.** Done (migration [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)). A `games/chess-godot/` Godot 4 project reuses the same deterministic `snapdragon-chess` Rust rules engine as the web-native `chess` title via the `ChessEngine` GDExtension node (no GDScript rules), federated as its own `kind='wasm-game'` row alongside — not replacing — the original web-native `chess` tile. `games/_godot-template/` documents it as the reference recipe for porting the remaining web-native titles to Godot. Reversible: disabling the `games-chess-godot` federation row rolls back to web-native-only with one UPDATE.
+- **Connect Four (Godot) — second Godot port, catalog-registered but export-unverified.** Catalog rows done (migration [`055-connect-four-godot-federation.xml`](backend/src/main/resources/db/changelog/055-connect-four-godot-federation.xml)): mirrors the chess-godot pattern exactly — `games/connect-four-godot/` reuses `snapdragon-connect-four` via a `ConnectFourEngine` GDExtension node, federated as its own `kind='wasm-game'` row alongside — not replacing — the web-native `connect-four` tile. The merge commit's own title flags the actual `make build-godot` WASM export as not yet verified in this repo's history — the game is discoverable/launchable per the catalog data, but nobody has confirmed the produced bundle boots. Treat as 🚧 until a real export is confirmed.
 - **Per-brand domain foundation (the `DOMAIN_` authority).** Done (merged via PR #65). The games BFF now derives a tenant the way snapdragon-gateway does — `DomainRegistry` (issuer → brand), `CasdoorAuthorities` stamping exactly one issuer-derived `DOMAIN_<x>` per token with a reserved-prefix anti-forgery guard, and `Roles.isSuperadmin` / fail-closed `Roles.domainOf`. *Note:* PR #65 stamped the authority and added the converter hardening; the **enforcement** layer that consumes it (the BFF-side guard and catalog partitioning below) has since merged to `main` as well.
 - **BFF-side `DOMAIN_` guard.** Done. `DomainGuardFilter` — a reactive `WebFilter` re-running the gateway's per-instance domain hard-deny as defence-in-depth for callers that reach the BFF without traversing the gateway. Gated on `app.tenancy.domain`; a complete no-op when unset (single-tenant today). [Decision 025](docs/wiki/decisions/025-bff-domain-guard.md), 16-spec `DomainGuardFilterTest`.
 - **Per-brand games-catalog domain partitioning.** Done. `games.domain` column (migration 043, defaults `'default'` = unscoped), `Roles.domainApplies` predicate, `DomainScopeService.requireGameDomain`, server-controlled first-writer-wins upload stamping (untrusted-`register.sql`-proof), and the `GameAccessController` list/grant/revoke enforcement surface. [Decision 026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
@@ -115,10 +132,12 @@ Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-fede
 
 Specific unfinished spots verified in the current source, beyond the roadmap items above:
 
-- **`InputEventController` only enforces gate 1 of 3.** The class Javadoc documents three validation gates for `POST /api/input/{characterId}`; only gate 1 (the `(kind, type)` pair exists in `input_event_types`) is wired in. Gate 2 (reject a kind the active game's `games.features` doesn't accept) and gate 3 (reject an `(game_slug, event_kind, event_type)` triple not present in `game_event_support`) are explicitly marked "Not yet implemented" in the class doc, with a `// TODO` at the end of `submit()` (`InputEventController.java:136`) pointing at the missing `GameRepository.findFeatures`-shaped helper. Net effect: any registered `(kind, type)` pair is currently accepted for any game regardless of that game's declared feature flags or per-game opt-in table.
+- **`InputEventController` only enforces gate 1 of 3.** The class Javadoc documents three validation gates for `POST /api/input/{characterId}`; only gate 1 (the `(kind, type)` pair exists in `input_event_types`) is wired in. Gate 2 (reject a kind the active game's `games.features` doesn't accept) and gate 3 (reject an `(game_slug, event_kind, event_type)` triple not present in `game_event_support`) are explicitly marked "Not yet implemented" in the class doc, with a `// TODO` at the end of `submit()` (`InputEventController.java:152`) pointing at the missing `GameRepository.findFeatures`-shaped helper. Net effect: any registered `(kind, type)` pair is currently accepted for any game regardless of that game's declared feature flags or per-game opt-in table.
 - **Server-authoritative FPS/RTS engines have no catalog title yet.** `snapdragon-fps-core` / `snapdragon-rts-core`, the `RealtimeController` / `AdminRealtimeController` REST surface, and the Cassandra-truth tick loop all exist and are verified in-JVM via Chicory, but no FPS/RTS game is registered in the `games` catalog or federation manifest — see [Roadmap](#roadmap).
 - **Strict CSP not done.** Both nginx confs still ship `'unsafe-eval'`/`'unsafe-inline'` in `script-src` and `'unsafe-inline'` in `style-src` — load-bearing for es-module-shims and Angular's runtime style injection today. Dropping them is a documented follow-up, not started ([decision 023](docs/wiki/decisions/023-content-security-policy.md)).
 - **`CassandraSyncService` not yet retired.** Superseded in intent by the Kafka → ClickHouse streaming pipeline (`decision 021`), but still in the codebase pending a production soak period before removal.
+- **`docs/GODOT_DEVELOPER_GUIDE.md` still uses pre-rename "level" terminology in most of its prose and code samples** (`levels`/`level_id`/`level_assets`/`level_prerequisites`), even though the platform renamed these to `chapters`/`chapter_id`/`chapter_assets`/`chapter_prerequisites` (see the "Naming" section of [`CLAUDE.md`](CLAUDE.md)) and the bridge classes it documents (`BridgeApiClient`, `BridgeGlue`, the multiplayer lobby) moved from GDScript to Rust GodotClasses (decision 014). The guide's `/api/levels/...` examples still work today (a back-compat alias keeps them resolving), so nothing is broken, just non-canonical; the file table, transition-event, and bridge-usage snippets were corrected during this pass, but a full level→chapter terminology sweep of the rest of the guide's prose is still open.
+- **No CI test-invocation stage.** `.gitlab-ci.yml` never runs `./mvnw test` / `npx ng test` / `cargo test` / `make e2e` — `build:image` only compiles far enough to produce a runnable image, so a red unit/integration suite on `main` would not fail CI today (flagged in-file).
 
 ---
 
@@ -193,7 +212,7 @@ The **Godot 4 WASM** family is organised in three tiers (below). Web-native Rust
 
 ```mermaid
 flowchart TB
-    Game["<b>Game</b> — a title in the catalog<br/>Godot 4 WASM: Three Wizards In A Trenchcoat, Dodecahedron Demo, Chess (Godot)<br/>… plus 14 web-native titles: chess, go, tetris, tron, …"]
+    Game["<b>Game</b> — a title in the catalog<br/>Godot 4 WASM: Three Wizards In A Trenchcoat, Dodecahedron Demo, Chess (Godot), Connect Four (Godot)<br/>… plus 14 web-native titles: chess, go, tetris, tron, …"]
     Chapter["<b>Chapter</b> — one Godot WASM bundle<br/>e.g. The Enchanted Cave, Spinning Dodecahedron"]
     Scene["<b>Scene elements</b><br/>fairies · lights · geometry · NPCs"]
     Assets["<b>Chapter assets</b><br/>custom textures · plugins · sounds"]
@@ -205,14 +224,15 @@ flowchart TB
 ```
 
 - A **Game** is one row in the `games` table — it appears as a card on the Snapdragon
-  Games portal home page. The catalog ships 17 titles in two families (see
+  Games portal home page. The catalog ships 18 titles in two families (see
   [Two game technologies](#two-game-technologies)): the Godot 4 WASM titles
   *Three Wizards In A Trenchcoat* (a JRPG with quests, HUD, and movement controls),
   the *Dodecahedron Demo* (a chrome-less single-scene tech demo with no HUD, no
-  quests, no items), and *Chess (Godot)* (a Godot reference game reusing the chess
-  Rust core via the bridge); plus 14 web-native Rust→wasm32 board / puzzle / duel
-  titles. Web-native games are delivered as a single canvas bundle and do not use
-  the Chapter → Scene-element tier described below.
+  quests, no items), *Chess (Godot)* and *Connect Four (Godot)* (Godot reference
+  games each reusing their matching Rust rules engine via the bridge); plus 14
+  web-native Rust→wasm32 board / puzzle / duel titles. Web-native games are
+  delivered as a single canvas bundle and do not use the Chapter → Scene-element
+  tier described below.
 - Each **Chapter** inside a game is its own compiled Godot WASM bundle, served from
   `/api/assets/levels/{slug}/` (filesystem path kept for back-compat). Chapter transitions
   unload the current WASM and mount the next one in the Angular iframe (see "Chapter transitions" below).
@@ -1616,7 +1636,7 @@ make e2e-native                  # full Playwright suite against the native imag
   without rebuilding the native image; the init container applies them on next boot.
 
 Implementation notes — gotchas surfaced and fixed during initial
-verification, all visible in [SnapdragonRuntimeHints.java](backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java) +
+verification, all visible in [SnapdragonRuntimeHints.java](backend/src/main/java/games/snapdragon/bff/aot/SnapdragonRuntimeHints.java) +
 [backend/pom.xml](backend/pom.xml) `native` profile:
 
 - **Liquibase moves to a separate init container** ([docker-compose.native.yml](docker-compose.native.yml)).
@@ -1634,7 +1654,7 @@ verification, all visible in [SnapdragonRuntimeHints.java](backend/src/main/java
   `Instant`. Spring auto-registers a converter on the JVM but the
   reflection-based discovery skips it under native-image. Fixed by
   registering an explicit `R2dbcCustomConversions` bean in
-  [R2dbcConvertersConfig.java](backend/src/main/java/com/threewizards/config/R2dbcConvertersConfig.java).
+  [R2dbcConvertersConfig.java](backend/src/main/java/games/snapdragon/bff/config/R2dbcConvertersConfig.java).
 - **Per-level WASM bundles** ship as classpath resources under
   `assets/levels/<slug>/`. native-image strips classpath resources by default;
   added `-H:IncludeResources=assets/.*` to the `native` profile build args.
@@ -1769,10 +1789,13 @@ snapdragon.games/                         # Snapdragon Game Studio repo
 │   ├── snapdragon-bridge/               # Reusable Rust GDExtension (HostBridge)
 │   │   ├── Cargo.toml                   # crate-type cdylib (native + WASM target)
 │   │   ├── src/
-│   │   │   ├── lib.rs                   # Crate entry, registers HostBridge
-│   │   │   └── host_bridge.rs           # HostBridge node: typed signals + Standalone mode
+│   │   │   ├── lib.rs                   # Crate entry, registers HostBridge/BridgeGlue/BridgeApiClient/…
+│   │   │   ├── host_bridge.rs           # HostBridge node: typed signals + Standalone mode
+│   │   │   ├── bridge_glue.rs           # BridgeGlue node: JavaScriptBridge <-> HostBridge (decision 014)
+│   │   │   └── bridge_api_client.rs     # BridgeApiClient node: Callable-based HTTP surface for game scripts
 │   │   ├── addons/snapdragon_export/    # Editor → upload-zip export plugin
-│   │   └── example/bridge_glue.gd       # Reference glue script for new game projects
+│   │   ├── addons/snapdragon_bridge/    # plugin.gd + the one remaining GDScript UI piece (lobby menu)
+│   │   └── example/bridge_glue.gd       # Superseded reference (pre-dates BridgeGlue's Rust rewrite)
 │   ├── snapdragon-fps-core/, snapdragon-rts-core/  # 🚧 server-authoritative sim cores (no catalog title yet)
 │   └── snapdragon-<game>/ + snapdragon-<game>-wasm/  # 14 pure-Rust engines → wasm32-unknown-unknown
 ├── games/                               # Per-game Godot 4.6 projects + web-native canvas frontends

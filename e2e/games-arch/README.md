@@ -84,8 +84,15 @@ events and `sendWorld` for world-state broadcasts).
 
 **Authorization gates in `InputEventController`**:
 - Gate 0: the caller must be a session member who owns `characterId`.
+- Gate 0b: a session-scoped `kind:'world'` event is the authoritative relay —
+  only the session **creator** (the host running the wasm engine) may submit
+  one. A guest posting `kind:'world'` is rejected with **403** (closes an
+  authority-spoof: without this gate any member could forge the host's
+  broadcast state).
 - Gate 1: the `(kind, type)` pair must exist in `input_event_types`. An
   unrecognised pair is rejected with **400**.
+- Gates 2/3 (per-game `features` + `game_event_support` opt-in) are not yet
+  implemented — see the README's "Known gaps / TODO" section.
 
 ## Run it
 

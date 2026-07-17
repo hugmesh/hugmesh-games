@@ -6,7 +6,15 @@ traffic and real-time events must pass through a JavaScript message
 channel rather than through the browser's `fetch`/`XMLHttpRequest`
 APIs directly. This addon implements that channel and exposes a clean
 GDScript surface so game code never has to handle raw JavaScript
-interop. It provides five components:
+interop. It provides five components. **`HostBridge`, `BridgeGlue`,
+`BridgeApiClient`, and `SnapdragonMultiplayerLobby` are all native Rust
+GodotClasses** registered by the `snapdragon-bridge` GDExtension
+(`extensions/snapdragon-bridge/src/*.rs`) — an earlier revision of this
+addon implemented them as GDScript (`bridge_glue.gd`,
+`BridgeApiClient.gd`, `MultiplayerLobby.gd`); they were rewritten in
+Rust and the old `.gd` files no longer exist. Game code still consumes
+them exactly like any other Godot node/class — only `MultiplayerLobbyMenu`
+and the plugin bootstrap remain GDScript.
 
 - **HostBridge** — a Rust GDExtension class that is the central hub.
   It emits typed GDScript signals when the host shell pushes SSE events
@@ -14,25 +22,26 @@ interop. It provides five components:
   methods for sending input, camera view, console output, and API
   requests outward to the shell. It also maintains the list of
   multiplayer player slots.
-- **`bridge_glue.gd`** — the `JavaScriptBridge` ↔ HostBridge adapter.
-  It translates outbound GDScript calls (`input_egress`, `view_egress`,
+- **`BridgeGlue`** (`bridge_glue.rs`) — the `JavaScriptBridge` ↔ HostBridge adapter.
+  It translates outbound signals (`input_egress`, `view_egress`,
   `api_request_egress`) into `postMessage` calls to the parent Angular
   host, and it delivers inbound `postMessage` replies (including API
-  responses) back into HostBridge so signals fire on the GDScript side.
-- **`BridgeApiClient.gd`** — a Callable-based HTTP client built on top
+  responses) back into HostBridge so signals fire on the receiving side.
+- **`BridgeApiClient`** (`bridge_api_client.rs`) — a Callable-based HTTP client built on top
   of `HostBridge.request_api` and the `api_response_received` signal.
-  Game code calls `get`, `post`, `put`, or `delete` with a completion
-  callback; the client correlates requests to responses by request ID
-  internally. Because every call routes through the bridge, the host
+  Game code calls `http_get`, `http_post`, `http_put`, or `http_delete`
+  (not `get`/`post`/… — `get` collides with `Node.get(property)`) with
+  a completion callback; the client correlates requests to responses by
+  request ID internally. Because every call routes through the bridge, the host
   shell's `HttpClient` interceptor automatically attaches the
   `Authorization` header and `X-Session-Id` to every request.
-- **`MultiplayerLobby.gd`** — slot orchestration. Listens for
+- **`SnapdragonMultiplayerLobby`** (`multiplayer_lobby.rs`) — slot orchestration. Listens for
   `slot_registered` and `slot_released` signals from HostBridge,
   fetches the current session members from `/api/sessions/{id}` via the
   bridge, and spawns or despawns one `CharacterBody3D` per slot.
-- **`MultiplayerLobbyMenu.tscn`** + `MultiplayerLobbyMenu.gd` — a
-  drop-in pre-game lobby UI: lists open sessions, lets the player pick
-  a slot, and launches the game.
+- **`MultiplayerLobbyMenu.tscn`** + `MultiplayerLobbyMenu.gd` — the one
+  remaining GDScript component: a drop-in pre-game lobby UI that lists
+  open sessions, lets the player pick a slot, and launches the game.
 
 ## API call flow
 
@@ -41,14 +50,14 @@ to the BFF and how the response finds its way back.
 
 ```mermaid
 sequenceDiagram
-    participant Game as Game code
-    participant BAC as BridgeApiClient.gd
+    participant Game as Game code (GDScript)
+    participant BAC as BridgeApiClient (Rust)
     participant HB as HostBridge (Rust)
-    participant BG as bridge_glue.gd
+    participant BG as BridgeGlue (Rust)
     participant Shell as Angular host shell
     participant BFF as Spring Boot BFF
 
-    Game->>BAC: get("/api/sessions/42", on_done)
+    Game->>BAC: http_get("/api/sessions/42", on_done)
     BAC->>HB: request_api("GET", "/api/sessions/42", "")
     Note right of HB: returns request_id (int)
     HB->>BG: api_request_egress signal
@@ -73,14 +82,19 @@ In a game project's `project.godot`, enable the plugin:
 enabled=PackedStringArray("res://addons/snapdragon_bridge/plugin.cfg")
 ```
 
-Add three sibling nodes directly under your scene root. The expected
-scene tree looks like this:
+Add a node of type `HostBridge` named exactly `"HostBridge"` — every
+other bridge node finds it by walking up to its own parent (or, failing
+that, the current scene root) and looking for a child named
+`"HostBridge"`, so the name match is load-bearing, not just a
+convention. The shipped games (`chess-godot`, `connect-four-godot`,
+`three-wizards-in-a-trenchcoat`) all follow the same real scene tree:
 
 ```
-SceneRoot (Node3D or similar)
-├── HostBridge          ← Rust GDExtension class; do not rename
-├── BridgeGlue          ← script: res://addons/snapdragon_bridge/bridge_glue.gd
-└── MultiplayerLobby    ← script: res://addons/snapdragon_bridge/multiplayer_lobby.gd
+SceneRoot (Node2D / Node3D)
+├── GameBridge (plain Node — a grouping node, any name)
+│   └── BridgeGlue        ← type: BridgeGlue (Rust GodotClass)
+├── HostBridge             ← type: HostBridge (Rust GodotClass); node name must be "HostBridge"
+└── MultiplayerLobby       ← type: SnapdragonMultiplayerLobby (Rust GodotClass); only for multiplayer games
 ```
 
 Reference them in your root script with:
@@ -88,12 +102,11 @@ Reference them in your root script with:
 ```gdscript
 # scene_loader.gd or scene root
 @onready var host_bridge = $HostBridge
-@onready var glue        = $BridgeGlue
+@onready var glue        = $GameBridge/BridgeGlue
 @onready var lobby       = $MultiplayerLobby
 ```
 
-`BridgeGlue` finds `HostBridge` by name, so the node name must match
-exactly. Alternatively, instantiate `MultiplayerLobbyMenu.tscn` as a
+Alternatively, instantiate `MultiplayerLobbyMenu.tscn` as a
 `Control` overlay on your scene to get the canonical session picker
 without writing lobby code yourself.
 
@@ -105,15 +118,16 @@ Use `BridgeApiClient` for all BFF calls. Pass a `Callable` that receives
 `(status: int, body: Dictionary)` when the response arrives:
 
 ```gdscript
-var api := BridgeApiClient.new(host_bridge)
+var api := BridgeApiClient.new()
 
 func _ready() -> void:
-    api.get("/api/sessions/42", func(status, body):
+    add_child(api)  # api's own ready() auto-discovers the "HostBridge" node
+    api.http_get("/api/sessions/42", func(status, body):
         if status == 200:
             print("members: ", body.members)
     )
 
-    api.post("/api/controls", {"action": "move", "dir": "north"}, func(status, body):
+    api.http_post("/api/controls", {"action": "move", "dir": "north"}, func(status, body):
         if status != 200:
             push_error("control rejected: %d" % status)
     )
@@ -138,8 +152,8 @@ the raw signal.
 **Slot and view reporting**
 
 - `HostBridge.register_player_slot(slot, character_id, is_local)` —
-  declares a slot to HostBridge. When using `MultiplayerLobby` end-to-end
-  the lobby script calls this for you; only call it directly when
+  declares a slot to HostBridge. When using `SnapdragonMultiplayerLobby`
+  end-to-end it calls this for you; only call it directly when
   managing slots manually.
 - `HostBridge.report_view(slot, x, y, z, yaw, pitch, fov)` — call at
   approximately 10 Hz from the local player's camera. This feeds the

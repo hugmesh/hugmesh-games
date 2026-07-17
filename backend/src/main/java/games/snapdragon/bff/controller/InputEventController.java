@@ -157,12 +157,10 @@ public class InputEventController {
         // ingestion + authority-spoofing gates and is reviewable independently.
         // See the class Javadoc above.
         //
-        // TODO(PR #116 follow-up, blocker 3): Kafka cross-pod world-relay parity —
-        // emitInput() fans the authoritative kind:'world' payload only onto this
-        // pod's in-process per-session sink, so a guest whose SSE subscription
-        // landed on a DIFFERENT pod never receives it. Achieving cross-pod parity
-        // needs the Kafka session-topic subscriber (decision 021) to re-emit
-        // relayed world events on the local sink; deferred pending that design.
+        // (Blocker 3, Kafka cross-pod world-relay parity, shipped in PR #117 —
+        // GameStateService.emitInput tees kind:'world' onto the dedicated
+        // `world-native` Kafka channel and reemitToSession's "world-native" case
+        // re-emits it on the peer pod's worldNative sink. No longer a gap here.)
     }
 
     @Operation(summary = "Recent events for a character (newest first).")

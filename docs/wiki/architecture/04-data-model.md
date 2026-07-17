@@ -97,8 +97,9 @@ Migrations 001–017 are pre-federation. The federation work landed in:
 - `051-web-game-federation.xml` — one `federation_modules` row per web-native game with the new `kind='wasm-game'` (plus the matching `game_access` + `games` rows where needed). Idempotent (`ON CONFLICT (slug) DO NOTHING`). This is what flips the host off the legacy `<app-game-canvas>` for the 14 web-native titles — no frontend change needed for future web-native games.
 - `052-web-game-relay-event-types.xml` — `input_event_types` + `game_event_support` rows for the generic web-native control/world relay channels.
 - `053-chess-godot-federation.xml` — registers the optional `chess-godot` Godot front-end variant (`games`/`chapters`/`federation_modules`/`game_access` rows) alongside the web-native chess title.
+- `055-connect-four-godot-federation.xml` — same pattern as 053, for a `connect-four-godot` variant alongside the web-native connect-four title. The merge commit's own title flags the WASM export as not yet verified — the catalog/federation rows are real, but nobody has confirmed the produced bundle boots.
 
-The catalog now spans **17 games** (3 Godot — incl. the `chess-godot` front-end variant registered by changelog 053 — + 14 web-native). The `realtime_matches` work (049) adds engines and a match surface, not a launchable catalog title.
+The catalog now spans **18 games** (4 Godot — incl. the `chess-godot` and `connect-four-godot` front-end variants registered by changelogs 053/055 — + 14 web-native). The `realtime_matches` work (049) adds engines and a match surface, not a launchable catalog title.
 
 **Never edit a previously-merged changeset.** When something is missed, append a new changeset with `<preConditions onFail="MARK_RAN">` so re-runs are idempotent.
 
@@ -157,7 +158,7 @@ Four Kafka topics:
 | Topic | Producer | Purpose |
 |---|---|---|
 | `state_audit` | `GameAuditPublisher` | Every state transition emitted by `GameStateService` — durable replacement for the Cassandra audit log. |
-| `game_events` | `GameEventPublisher` | All 8 SSE channels (movement / world / character / scene / input / audio / view / wasm-console) tee'd from `GameStateService.tryEmitNext`. The cross-pod consumer `KafkaSessionSubscriber` filters self-published via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. |
+| `game_events` | `GameEventPublisher` | All 9 SSE channels (movement / world / character / scene / input / audio / view / wasm-console / world-native) tee'd from `GameStateService.tryEmitNext`/`emitInput`. The cross-pod consumer `KafkaSessionSubscriber` filters self-published via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. `world-native` is the PR #117 addition — the raw web-native `sendWorld()` payload, teed separately from the typed Godot `world`/`WorldState` channel so a peer pod can re-emit it onto its own `worldNative` sink (merged client-side into the same `world` SSE event name). |
 | `game_kpi` | `GameKpiPublisher` | Per-game KPIs posted by federated game remotes via `POST /api/telemetry/game/{slug}`. Iframes hit the BFF directly under existing `WebConfig` CORS allowlist. |
 | `session.<id>.events` | `SessionTopicManager` | Per-session topics created on session-create so a cross-pod subscriber can hydrate only the sessions it cares about. |
 
@@ -224,11 +225,13 @@ Three reference tables anchor the schema; an append-only audit table writes agai
 | `input_events` | Append-only audit log. FK on `(event_kind, event_type)` into `input_event_types` so a row can never reference an unknown type. Indexed on `(character_id, occurred_at)`, `(session_id, occurred_at)`, and `(event_kind, occurred_at)` for replay + analytics. |
 | `games.features` | New `jsonb` column. Per-game feature flags: `instant_loadout`, `quests`, `items`, `char_progression` (the JRPG subsystems — non-JRPG games turn these off and the matching endpoints return `405`); `audio`, `gamepad`, `mouse`, `keyboard`, `touch` (input-kind gates). |
 
-The validation flow on every input emit is three gates:
+The validation flow on every input emit is documented (class Javadoc) as three gates, but only gate 1 is actually wired into `InputEventController.submit()` today — see [README § Known gaps / TODO](../../../README.md#known-gaps--todo):
 
-1. `(kind, type)` must exist in `input_event_types` (400 if not).
-2. `games.features.<kind>` must be true for the active game (405 if not).
-3. `(game_slug, kind, type)` must be present in `game_event_support` (405 if not).
+1. `(kind, type)` must exist in `input_event_types` (400 if not). **Implemented.**
+2. `games.features.<kind>` must be true for the active game (405 if not). **Not yet implemented** — any registered `(kind, type)` is accepted regardless of the game's feature flags.
+3. `(game_slug, kind, type)` must be present in `game_event_support` (405 if not). **Not yet implemented**, same gap.
+
+Ahead of these three, a separate authorization pass runs first (403, not 400/405): session-membership + character-ownership (a caller may only submit for a `characterId` it owns in the target session), plus an authority-spoof gate specific to `kind:'world'` — only the session **creator** (the host running the wasm engine) may submit an authoritative `world` event; any other member gets 403.
 
 Same surface persists every browser-tier gamepad poll, every WASM-iframe console line forwarded by the host shell, every audio cue the Godot bundle emits. The Rust GDExtension's `HostBridge` ships matching typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`, plus outbound `audio_egress` and `console_egress`) so a Godot developer wires gameplay to named signals without caring whether the source was a player's USB Pro Controller, a `<kbd>W</kbd>` keypress, or an SSE emit from a cross-tab subscriber.
 

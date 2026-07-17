@@ -4,6 +4,8 @@ This guide is for anyone working inside `games/<slug>/` and needs their work to 
 
 > **Layout note.** The Godot tree was split into per-game projects in section G of the federation plan. Every game is a self-contained Godot project under `games/<game-slug>/`, opens standalone in the Godot editor, and produces one or more Web export bundles. The legacy single `godot-project/` directory is gone.
 
+> **Terminology note.** This guide predates two platform-wide reworks and still says "level" in most places where current source says "chapter" (see the "Naming" section of [`CLAUDE.md`](../CLAUDE.md) — `levels` → `chapters`, `level_id` → `chapter_id`, `level_assets` → `chapter_assets`, `level_prerequisites` → `chapter_prerequisites`). The `/api/levels/...` paths below still resolve via a back-compat alias (`@RequestMapping({"/api/chapters", "/api/levels"})`), so the snippets aren't broken, just non-canonical — prefer `/api/chapters/...` in new code. The bridge classes (`BridgeApiClient`, `BridgeGlue`, the multiplayer lobby) were also rewritten from GDScript to Rust GodotClasses — see [decision 014](wiki/decisions/014-bridge-routed-networking.md) — the file table and code samples below have been updated to reflect that, but a full level→chapter pass on this guide's prose is still open (tracked in [Known gaps / TODO](../README.md#known-gaps--todo)).
+
 ```
 games/
 ├── three-wizards-in-a-trenchcoat/   # slug: three-wizards (parent game)
@@ -96,14 +98,12 @@ If the editor can't reach the API, the `BridgeApiClient` (running in standalone 
 `snapdragon_bridge` addon's `BridgeApiClient`:
 
 ```gdscript
-const _BridgeApiClient = preload("res://addons/snapdragon_bridge/bridge_api_client.gd")
-
 var _api: Node = null
 
 func _ready() -> void:
-    _api = _BridgeApiClient.new()
+    _api = ClassDB.instantiate("BridgeApiClient")  # native Rust GodotClass, no preload
     add_child(_api)
-    _api.get("/api/chapters/1/scene", func(status, body):
+    _api.http_get("/api/chapters/1/scene", func(status, body):
         if status == 200: _apply_scene(body))
 ```
 
@@ -125,7 +125,7 @@ The legacy three-wizards `api_client.gd` is now a thin wrapper around
 callers keep working without code changes. New games should use
 `BridgeApiClient` directly.
 
-See [decision 014](publishing/architecture/build/architecture.pdf) for
+See [decision 014](wiki/decisions/014-bridge-routed-networking.md) for
 the full design rationale, or the addon's
 [`README.md`](../extensions/snapdragon-bridge/addons/snapdragon_bridge/README.md)
 for usage notes.
@@ -135,20 +135,26 @@ for usage notes.
 The addon ships every reusable multiplayer + bridge primitive any
 Snapdragon-hosted game needs:
 
-| File | Purpose |
+| File / class | Purpose |
 |---|---|
-| `plugin.cfg` + `plugin.gd` | Editor plugin manifest. Enable in `project.godot`'s `[editor_plugins]`. |
-| `bridge_glue.gd` | `JavaScriptBridge` ↔ `HostBridge` plumbing. Forwards `input_egress` / `view_egress` / `api_request_egress`; pumps `SD_API_RESPONSE` back into `dispatch_api_response`. |
-| `bridge_api_client.gd` | Callable-based wrapper around the bridge's API surface. The preferred surface for any Godot → BFF call. |
-| `multiplayer_lobby.gd` | Slot orchestration: subscribes to `slot_registered` / `slot_released` / `movement_received`, fetches `/api/sessions/{id}` *via the bridge*, spawns one programmatic `CharacterBody3D` per registered slot. Subclass + override `spawn_avatar()` to swap in your own player scene. |
-| `multiplayer_lobby_menu.tscn` + `multiplayer_lobby_menu.gd` | Drop-in pre-game lobby UI: list open sessions for `game_slug`, *Join* per row, create-new form. Emits `session_joined(session_id, slot_index)`. |
+| `plugin.cfg` + `plugin.gd` | Editor plugin manifest (GDScript). Enable in `project.godot`'s `[editor_plugins]`. |
+| `BridgeGlue` (Rust GodotClass, `bridge_glue.rs`) | `JavaScriptBridge` ↔ `HostBridge` plumbing. Forwards `input_egress` / `view_egress` / `api_request_egress`; pumps `SD_API_RESPONSE` back into `dispatch_api_response`. |
+| `BridgeApiClient` (Rust GodotClass, `bridge_api_client.rs`) | Callable-based wrapper around the bridge's API surface (`http_get`/`http_post`/`http_put`/`http_delete`). The preferred surface for any Godot → BFF call. |
+| `SnapdragonMultiplayerLobby` (Rust GodotClass, `multiplayer_lobby.rs`) | Slot orchestration: subscribes to `slot_registered` / `slot_released` / `movement_received`, fetches `/api/sessions/{id}` *via the bridge*, spawns one programmatic `CharacterBody3D` per registered slot. |
+| `multiplayer_lobby_menu.tscn` + `multiplayer_lobby_menu.gd` | The one remaining GDScript UI piece — a drop-in pre-game lobby: list open sessions for `game_slug`, *Join* per row, create-new form. Emits `session_joined(session_id, slot_index)`. |
 
-Source of truth lives in
+`BridgeGlue`, `BridgeApiClient`, and `SnapdragonMultiplayerLobby` used to
+be GDScript files in this addon; they were rewritten as native Rust
+GodotClasses (source of truth: `extensions/snapdragon-bridge/src/*.rs`)
+registered by the `snapdragon_bridge.gdextension` file — see
+[decision 014](wiki/decisions/014-bridge-routed-networking.md) for the
+full rationale. The remaining GDScript pieces
+(`plugin.gd`, `multiplayer_lobby_menu.gd`) still live under
 `extensions/snapdragon-bridge/addons/snapdragon_bridge/`. `make build-rust`
-syncs the canonical copy into every game project's
-`addons/snapdragon_bridge/` (this dir is gitignored per-game; never
-hand-edit). Any game that enables the plugin in `project.godot` picks
-up future updates automatically on the next sync.
+syncs the canonical addon copy + the compiled GDExtension binary into
+every game project's `addons/snapdragon_bridge/` / `bin/` (both
+gitignored per-game; never hand-edit). Any game that enables the plugin
+in `project.godot` picks up future updates automatically on the next sync.
 
 ---
 
@@ -312,21 +318,21 @@ api.fetch_level_assets(level_id, func(assets):
 
 ---
 
-## Mid-game level transitions
+## Mid-game chapter transitions
 
-When something in-game (a portal, a cutscene, a quest completion) should unload the current WASM and mount the next level's bundle, call:
+When something in-game (a portal, a cutscene, a quest completion) should unload the current WASM and mount the next chapter's bundle, call:
 
 ```gdscript
-$GameBridge.request_level_transition("forest-glade", 3)
+$GameBridge.request_chapter_transition("forest-glade", 3)
 ```
 
 What happens:
 
-1. Godot posts `window.parent.postMessage({type:"TW_LEVEL_TRANSITION", slug:"forest-glade", levelId:3}, "*")`.
-2. Angular's `HomeComponent.onWindowMessage` (host-level — moved out of `game-canvas.component.ts` in section H) catches it, hits `GET /api/levels/3` to read the fresh `asset_url`, mints a new `launch_uid` via `POST /api/games/{slug}/launch` if the target is federated, and either swaps the iframe `src` (host fragment) or threads the new inputs into the active remote component.
-3. The new level's Godot bundle loads cold; its `scene_loader.gd` fetches `/api/levels/3/scene` and spawns.
+1. Godot posts `window.parent.postMessage({type:"TW_CHAPTER_TRANSITION", slug:"forest-glade", chapterId:3}, "*")`.
+2. Angular's `HomeComponent.onWindowMessage` (host-level — moved out of `game-canvas.component.ts` in section H) catches it, hits `GET /api/chapters/3` to read the fresh `asset_url`, mints a new `launch_uid` via `POST /api/games/{slug}/launch` if the target is federated, and either swaps the iframe `src` (host fragment) or threads the new inputs into the active remote component.
+3. The new chapter's Godot bundle loads cold; its `scene_loader.gd` fetches the chapter's scene config and spawns.
 
-**Important:** the current WASM is fully destroyed. Anything in memory is lost. Persist to the DB via `PUT /api/characters/{id}` (stats, HP) or `POST /api/controls/{id}` (movement) before calling `request_level_transition`.
+**Important:** the current WASM is fully destroyed. Anything in memory is lost. Persist to the DB via `PUT /api/characters/{id}` (stats, HP) or `POST /api/controls/{id}` (movement) before calling `request_chapter_transition`.
 
 ---
 

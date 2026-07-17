@@ -21,7 +21,7 @@ Doing each in isolation produces three different storage surfaces. Doing them to
 | Topic | Producer | Purpose |
 |---|---|---|
 | `state_audit` | `GameAuditPublisher` | Session lifecycle (created / joined / left / closed). Replaces the analytics half of `CassandraSyncService`. |
-| `game_events` | `GameEventPublisher` | Every SSE-channel emission (movement / world / character / scene / input / audio / view / wasm-console). Tee from `GameStateService`'s `Sinks.Many.tryEmitNext` sites. |
+| `game_events` | `GameEventPublisher` | Every SSE-channel emission (movement / world / character / scene / input / audio / view / wasm-console / world-native). Tee from `GameStateService`'s `Sinks.Many.tryEmitNext` sites (`world-native` tees from `emitInput`, added in the PR #117 cross-pod web-native relay fix). |
 | `game_kpi` | (F2, follow-up) | Per-game KPIs emitted by federated game remotes. Schema ready; producer lands in Phase 7. |
 | `session.<sessionId>.events` | per-session writes | One topic per multiplayer session; cross-pod consumers subscribe only to the sessions they serve. Created by `SessionTopicManager` on session-create, deleted on session-close. |
 
@@ -81,8 +81,9 @@ Every publisher is injected as `Optional<...>` so the in-process gameplay path k
 
 ## Follow-ups
 
-- ~~Tee the remaining `GameStateService.tryEmitNext` sites (world / character / scene / input / audio / view / wasm-console) into the event publisher.~~ — done in the Phase-7 PR. All 8 channels now tee to the `game_events` topic.
+- ~~Tee the remaining `GameStateService.tryEmitNext` sites (world / character / scene / input / audio / view / wasm-console) into the event publisher.~~ — done in the Phase-7 PR. All 8 channels tee to the `game_events` topic.
 - ~~F2 — federated game telemetry producer.~~ — done in the Phase-7 PR. `GameKpiPublisher` + `POST /api/telemetry/game/{slug}` ingest. Iframes call directly; existing `WebConfig` CORS allowlist covers the federated origins.
 - ~~Cross-pod subscriber — read from the per-session topic into another pod's `SessionSinks`.~~ — done in the Phase-8a PR. `KafkaSessionSubscriber` consumes `game_events`, filters self-published via `pod_id`, dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. All 8 channels covered (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only).
+- ~~Cross-pod parity for the web-native `sendWorld()` relay.~~ — done in games PR #117. A 9th channel, `world-native`, carries the raw web-native world payload (distinct from the typed Godot `WorldState` `world` channel) so a peer pod's `KafkaSessionSubscriber` re-emits it onto that pod's `worldNative` sink; `GameStreamController` merges `worldNative` into the same client-facing `world` SSE event name, so the guest bridge needs no change. See [`InputEventController`](../../../backend/src/main/java/games/snapdragon/bff/controller/InputEventController.java) and [`GameStateService.emitInput`](../../../backend/src/main/java/games/snapdragon/bff/service/GameStateService.java).
 - ~~BFF read-path against `player_state_current` for session-reconnect recovery.~~ — done in the Phase-8b PR. `PlayerStateRecoveryService` queries `snapdragon.player_state_current FINAL` via the ClickHouse HTTP interface (WebClient). New `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` consults the recovery service before the legacy Cassandra → Postgres → defaults chain. `Mono.empty()` is the expected miss path; SSE / gameplay never blocks on this.
 - Retire `CassandraSyncService` once the streaming pipeline has demonstrated production stability.

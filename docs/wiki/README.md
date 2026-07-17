@@ -8,7 +8,7 @@ When this wiki disagrees with the source tree, the source tree wins. Each page l
 
 ## Architecture reference
 
-Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, key diagrams inlined as Mermaid. The catalog ships **17 games in two delivery models** — Godot 4 WASM (3 titles, incl. *Chess (Godot)* federated via changelog 053) and web-native Rust→wasm32 (14 titles, host-authoritative over the SSE relay); the chapters below cover both.
+Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, key diagrams inlined as Mermaid. The catalog ships **18 games in two delivery models** — Godot 4 WASM (4 titles, incl. *Chess (Godot)* federated via changelog 053 and *Connect Four (Godot)* via changelog 055) and web-native Rust→wasm32 (14 titles, host-authoritative over the SSE relay); the chapters below cover both.
 
 | # | Page | Contents |
 |---|---|---|

@@ -19,6 +19,12 @@
 # credential (Casdoor admin / the throwaway TEST-realm password / NVD key) is a
 # masked CI variable read at runtime.
 #
+# TODO: there is NO test-invocation stage here — `./mvnw test` / `npx ng test` /
+# `cargo test` / `make e2e` never run in this pipeline. `build:image` only
+# compiles far enough to produce a runnable image; a red unit/integration suite
+# on `main` would not fail CI today. Worth a `test` stage ahead of `build` (or a
+# gate on it) before relying on a green pipeline as a merge signal.
+#
 # ─────────────────────────────────────────────────────────────────────────────
 # Centralized OWASP pen-test stage (ONE source of truth, org-wide).
 # Pulls the generator's reusable hidden jobs (.pentest-sca / .pentest-dast-baseline

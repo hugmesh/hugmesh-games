@@ -140,13 +140,28 @@ restart.
   flow. Per-step PNG screenshots via the AfterStep hook in
   `features/support/fixtures.ts`.
 
+## Since this decision was written
+
+- **Real Godot export.** No longer stubbed-only. `GodotExporter.exportWeb`
+  runs `godot --headless --export-release "Web"` for real and fails the
+  build loudly on a non-zero exit / timeout / empty bundle when
+  `app.build.godot-enabled=true` (default `false`, which keeps the dev
+  stub-bundle path so the rest of the pipeline runs without the multi-GB
+  Godot image). `make godot-export-tools` + `make build-with-godot` wire a
+  real Godot binary in via the `docker-compose.godot.yml` overlay. See the
+  "Twin maker side services" section of [`CLAUDE.md`](../../../CLAUDE.md).
+- **Asset materialization + procedural generation.** Both renderers now
+  copy the actual asset bytes into the staged Godot tree (previously they
+  serialized asset UUIDs into the export JSON without shipping the bytes,
+  so exports referenced art that wasn't there) and the runtime GDScript
+  loads the shipped texture instead of falling back to primitives-only.
+  A new `ProceduralAssetService` (deterministic FNV-1a/SplitMix64 SVG
+  generator, no wall-clock/random/UUID in its output) backs
+  `POST /api/{rpg|vn}/projects/{pid}/assets/generate` in both services,
+  gated by the same ownership check as manual upload.
+
 ## What this doesn't solve
 
-- **Real Godot export.** The CLI invocation is stubbed behind a flag
-  because export templates are 4-6 GB and the docker socket bind
-  varies per host. Plumbing the sibling-container pattern is a
-  follow-up; the rest of the pipeline (data model, REST, build queue,
-  zip shape, BFF upload, register.sql) is fully wired and tested.
 - **Asset preview in the editor.** The asset upload endpoint stores
   bytes on disk and serves them back via `GET /projects/{id}/assets/{aid}`,
   but the editor only references icons by id; preview thumbnails are

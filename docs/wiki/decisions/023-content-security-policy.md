@@ -10,7 +10,7 @@ The `CLAUDE.md` "Known gaps" entry called out CSP as needing "an inventory of th
 
 | Surface | Need | Why |
 |---|---|---|
-| `es-module-shims` in shimMode | `script-src 'unsafe-eval'` | Forced via `<script type="esms-options">{ "shimMode": true }</script>` in [`src/index.html`](frontend/src/index.html). The shim rewrites bare ESM specifiers (`@angular/core`, `rxjs`, …) against the federation import map using `new Function(...)`. Dropping `'unsafe-eval'` breaks the host boot entirely. |
+| `es-module-shims` in shimMode | `script-src 'unsafe-eval'` | Forced via `<script type="esms-options">{ "shimMode": true }</script>` in [`src/index.html`](../../../frontend/src/index.html). The shim rewrites bare ESM specifiers (`@angular/core`, `rxjs`, …) against the federation import map using `new Function(...)`. Dropping `'unsafe-eval'` breaks the host boot entirely. |
 | The `esms-options` inline block | `script-src 'unsafe-inline'` | The federation runtime reads its options from that inline script tag. Could be moved to a separate JSON file (see follow-up below) to drop this token. |
 | Angular runtime style injection | `style-src 'unsafe-inline'` | Angular's component-encapsulation strategy injects per-component `<style>` elements at runtime. Strict CSP requires `ngCspNonce` wired on every dynamically-bootstrapped module — federated remotes complicate that. Defer to a follow-up. |
 | WASM workers + blob URLs | `worker-src 'self' blob:` | Godot's web build occasionally spawns blob-URL workers for threading. |

@@ -26,7 +26,7 @@ import java.util.function.BiFunction;
  *
  * <p>SSE remains the gameplay-driving path — the existing web pattern stays untouched. This
  * publisher is purely additive: Kafka receives a copy of every movement / world / character /
- * scene / input / audio / view / wasm-console emission so that:
+ * scene / input / audio / view / wasm-console / world-native emission so that:
  * <ul>
  *   <li>ClickHouse can aggregate per-channel volume and latency without scraping SSE traffic.</li>
  *   <li>Cross-pod replay (decision 010) has a durable log to recover from when a pod restart
@@ -149,7 +149,7 @@ public class GameEventPublisher {
      *   pod_id       — this pod's identifier; used by {@link KafkaSessionSubscriber}
      *                  to skip self-produced messages and prevent loop-back double-fire
      *   channel      — SSE channel name (movement | world | character | scene |
-     *                  input | audio | view | wasm-console)
+     *                  input | audio | view | wasm-console | world-native)
      *   game_slug    — game the event belongs to (empty string if null)
      *   session_id   — per-session id; empty for the global / admin firehose
      *   casdoor_id   — player's Casdoor subject; empty for non-player events
@@ -161,8 +161,8 @@ public class GameEventPublisher {
      * is preserved.
      *
      * @param channel   one of {@code movement | world | character | scene |
-     *                  input | audio | view | wasm-console}; {@code null} is coerced to
-     *                  empty string
+     *                  input | audio | view | wasm-console | world-native}; {@code null}
+     *                  is coerced to empty string
      * @param gameSlug  game the event belongs to; {@code null} is coerced to empty string
      * @param sessionId per-session id; empty for the global / admin firehose
      * @param casdoorId player's Casdoor subject; {@code null} for non-player events

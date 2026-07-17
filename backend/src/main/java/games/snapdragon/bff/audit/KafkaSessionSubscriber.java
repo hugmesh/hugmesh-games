@@ -135,7 +135,7 @@ public class KafkaSessionSubscriber {
      * Registers a dispatch handler for the named SSE channel. Called at boot by
      * {@code GameStateService} — one call per channel ({@code movement}, {@code world},
      * {@code character}, {@code scene}, {@code view}, {@code input}, {@code audio},
-     * {@code wasm-console}).
+     * {@code wasm-console}, {@code world-native}).
      *
      * <p>Re-registering the same channel name replaces the previous handler atomically
      * in the underlying {@code ConcurrentHashMap}.

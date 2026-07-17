@@ -7,19 +7,21 @@
 Game-side GDScript never calls `HTTPRequest` to talk to the BFF. Every API call goes through:
 
 ```
-GDScript (BridgeApiClient)
-  → HostBridge.request_api(method, path, body_json)            // Rust
-  → api_request_egress signal                                  // Rust → GDScript glue
-  → window.parent.postMessage('SD_API_REQUEST', payload)       // glue → host
+Game script → BridgeApiClient.http_get/post/put/delete(...)     // Rust GodotClass
+  → HostBridge.request_api(method, path, body_json)            // Rust GodotClass
+  → api_request_egress signal                                  // HostBridge → BridgeGlue
+  → window.parent.postMessage('SD_API_REQUEST', payload)       // BridgeGlue → host (JavaScriptBridge)
   → host shell ApiBridgeService                                // Angular
   → HttpClient.request(...)                                    // auth interceptor
   → BFF                                                        // /api/...
   ← HttpResponse
   ← event.source.postMessage('SD_API_RESPONSE', payload)       // host → iframe
-  ← HostBridge.dispatch_api_response                           // GDScript → Rust
-  ← api_response_received signal                               // Rust → GDScript
-  ← BridgeApiClient.on_done callback                           // game code
+  ← HostBridge.dispatch_api_response                           // BridgeGlue → HostBridge
+  ← api_response_received signal                               // HostBridge → BridgeApiClient
+  ← BridgeApiClient's pending-callback map fires on_done        // back into game script
 ```
+
+`BridgeApiClient`, `BridgeGlue`, and `HostBridge` are all native Rust GodotClasses registered by the `snapdragon-bridge` GDExtension (`extensions/snapdragon-bridge/src/`) — none of this is GDScript; game code (`.gd` scripts) only ever calls the `BridgeApiClient` node's methods. This used to be a GDScript addon layer; it was rewritten in Rust (see [`bridge_api_client.rs`](../../../extensions/snapdragon-bridge/src/bridge_api_client.rs)'s own "Architecture (corrected)" doc comment) and the class names carried over unchanged, so game-script call sites didn't need to change.
 
 In editor / native mode (`HostBridge.is_streaming() == false`), `BridgeApiClient` falls back to a direct `HTTPRequest` against `http://localhost:8080`. The contract is the same; only the transport layer changes.
 
@@ -33,15 +35,15 @@ Three reasons.
 
 ## How to apply
 
-- **Game scripts:** use `BridgeApiClient` from the snapdragon_bridge addon. Never `HTTPRequest`.
+- **Game scripts:** use `BridgeApiClient` (a Rust GodotClass from the `snapdragon-bridge` GDExtension, findable via `ClassDB.instantiate("BridgeApiClient")` or the addon's typed reference). Never `HTTPRequest`. Method names are `http_get`/`http_post`/`http_put`/`http_delete` (not `get`/`post`/… — `get` collides with `Node.get(property)`):
   ```gdscript
   var api := BridgeApiClient.new()
-  add_child(api)
-  api.get("/api/chapters/1/scene", func(status, body):
+  add_child(api)  # ready() auto-discovers the sibling/scene-root node named "HostBridge"
+  api.http_get("/api/chapters/1/scene", func(status, body):
       if status == 200: _apply_scene(body))
   ```
 - **Rust HostBridge:** `request_api(method, path, body_json) -> int` + `dispatch_api_response(payload_json)` with a single `api_response_received` signal carrying the JSON payload. Request ids correlate response → callback.
-- **GDScript glue (`bridge_glue.gd`):** subscribes to `api_request_egress` and forwards via `window.parent.postMessage('SD_API_REQUEST', ...)`. Installs a `message` listener that catches `SD_API_RESPONSE` and pumps it back into `HostBridge.dispatch_api_response`.
+- **BridgeGlue (Rust GodotClass, `bridge_glue.rs`):** subscribes to `api_request_egress` and forwards via `window.parent.postMessage('SD_API_REQUEST', ...)`. Installs a `message` listener that catches `SD_API_RESPONSE` and pumps it back into `HostBridge.dispatch_api_response`.
 - **Host shell (`ApiBridgeService`):** listens for `SD_API_REQUEST` postMessages, performs the `HttpClient.request(...)` call (auth interceptor + `X-Session-Id` from the payload), and posts `SD_API_RESPONSE` back to the iframe's content window.
 
 ## Trade-offs accepted
@@ -53,6 +55,7 @@ Three reasons.
 ## Reference
 
 - [Snapdragon Bridge addon README](../../../extensions/snapdragon-bridge/addons/snapdragon_bridge/README.md)
-- [`bridge_api_client.gd`](../../../extensions/snapdragon-bridge/addons/snapdragon_bridge/bridge_api_client.gd)
+- [`bridge_api_client.rs`](../../../extensions/snapdragon-bridge/src/bridge_api_client.rs)
+- [`bridge_glue.rs`](../../../extensions/snapdragon-bridge/src/bridge_glue.rs)
 - [`api-bridge.service.ts`](../../../frontend/src/app/services/api-bridge.service.ts)
 - [`SessionIsolationTest`](../../../backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) — locks the per-session SSE isolation that this routing enables.
