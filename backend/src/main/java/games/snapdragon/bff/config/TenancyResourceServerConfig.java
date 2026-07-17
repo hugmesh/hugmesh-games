@@ -23,6 +23,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -96,16 +97,66 @@ public class TenancyResourceServerConfig {
 
         // Per-issuer resolver: ONLY trusted issuers (registry keys) get a manager; an
         // unknown iss yields Mono.empty() -> 401 (fail-closed).
-        ReactiveAuthenticationManagerResolver<String> byIssuerResolver = issuer -> {
-            if (issuer == null || !domainRegistry.isTrusted(issuer)) {
-                return Mono.empty();
-            }
-            return Mono.just(byIssuer.computeIfAbsent(issuer, this::managerForIssuer));
-        };
+        ReactiveAuthenticationManagerResolver<String> byIssuerResolver =
+                byIssuerResolver(byIssuer);
 
         JwtIssuerReactiveAuthenticationManagerResolver delegate =
                 new JwtIssuerReactiveAuthenticationManagerResolver(byIssuerResolver);
         return delegate::resolve;
+    }
+
+    /** Per-issuer resolver: maps a token's {@code iss} to its cached manager, or
+     *  {@code Mono.empty()} (-> 401) when the issuer is not on the allowlist.
+     *  Package-private rather than inlined so the fail-closed contract is unit
+     *  testable without a Spring context or a synthetic exchange. */
+    ReactiveAuthenticationManagerResolver<String> byIssuerResolver(
+            Map<String, ReactiveAuthenticationManager> byIssuer) {
+        return issuer -> {
+            String iss = trustedIssuerOrNull(issuer);
+            if (iss == null) {
+                return Mono.empty();
+            }
+            return Mono.just(byIssuer.computeIfAbsent(iss, this::managerForIssuer));
+        };
+    }
+
+    /**
+     * Resolve {@code issuer} to its canonical entry in the trusted-issuer allowlist,
+     * or {@code null} when it is not trusted.
+     *
+     * <p>Deliberately strict membership of a NON-EMPTY {@link DomainRegistry#trustedIssuers()}
+     * rather than {@link DomainRegistry#isTrusted}: the latter delegates to
+     * {@code domainOf}, which short-circuits to the legacy single-tenant "default"
+     * WITHOUT inspecting its argument on an empty registry — i.e. it answers "trusted"
+     * for any string at all, including an attacker-chosen issuer. Reaching
+     * {@code decoderForIssuer} with an attacker-chosen {@code iss} would mean OIDC
+     * discovery against an attacker-controlled URL.
+     *
+     * <p>That empty-registry state is REACHABLE: {@code app.tenancy.issuers=&#61;brand}
+     * satisfies this class's {@code @ConditionalOnExpression} {@code .contains('=')}
+     * guard (bean ACTIVE) yet parses to zero valid pairs (the {@code eq <= 0} skip),
+     * and with no {@code jwt.issuer-uri} to seed the back-compat entry the map stays
+     * empty. Today the SecurityConfig swap-in is gated on
+     * {@link DomainRegistry#isMultiIssuer()} (false for an empty map), so this is
+     * latent — but that gate is a caller's discipline, not this class's guarantee.
+     * Fail closed here instead.
+     *
+     * <p>Does NOT change {@code domainOf}'s legacy fail-open, which stays load-bearing
+     * for legacy single-tenant clusters.
+     */
+    private String trustedIssuerOrNull(String issuer) {
+        if (issuer == null) return null;
+        Set<String> trusted = domainRegistry.trustedIssuers();
+        // Empty (or absent) allowlist: deny. Never fall back to a default.
+        if (trusted == null || trusted.isEmpty()) return null;
+        String candidate = trimSlash(issuer);
+        if (candidate.isEmpty()) return null;
+        for (String t : trusted) {
+            // Return the SET's element so the cache key is canonical: "https://x" and
+            // "https://x/" share one manager instead of a duplicate per variant.
+            if (t != null && t.equals(candidate)) return t;
+        }
+        return null;
     }
 
     /** Build the per-issuer manager wired to the SAME Casdoor authorities converter the
