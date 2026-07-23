@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Snapdragon Games — OpenAPI spec build pipeline.
+# HugMesh Games — OpenAPI spec build pipeline.
 #
 # Produces three spec files at docs/publishing/openapi/build/:
 #   openapi.json      — BFF (curl /v3/api-docs from the api service)
 #                       merged with the editorial sidecar metadata.json
-#                       so x-snapdragon extensions decorate every tag/op.
+#                       so x-hugmesh extensions decorate every tag/op.
 #   openapi-rpg.json  — rpg-builder side service (/api/rpg/*).
 #   openapi-vn.json   — vn-builder  side service (/api/vn/*).
 #
@@ -28,16 +28,16 @@ OUT="$HERE/build"
 META="$HERE/metadata.json"
 FALLBACK="$HERE/openapi.fallback.json"
 PUBLISHED="$OUT/openapi.json"
-PYTHON="${PYTHON:-$HOME/.venvs/snapdragon-publishing/bin/python}"
+PYTHON="${PYTHON:-$HOME/.venvs/hugmesh-publishing/bin/python}"
 
-# Endpoint URLs — override via SNAPDRAGON_*_URL when running outside compose.
+# Endpoint URLs — override via HUGMESH_*_URL when running outside compose.
 # Default to localhost:8080 because docs-openapi-spec is normally invoked
 # while a dev stack is up; the host nginx proxies /api/rpg/ -> rpg-builder
 # and /api/vn/ -> vn-builder, so /api/rpg/v3/api-docs and /api/vn/v3/api-docs
 # reach the right side service without per-service ports.
-BFF_LIVE="${SNAPDRAGON_BFF_URL:-${SNAPDRAGON_BASE_URL:-http://localhost:8080}}/v3/api-docs"
-RPG_LIVE="${SNAPDRAGON_RPG_BUILDER_URL:-${SNAPDRAGON_BASE_URL:-http://localhost:8080}}/api/rpg/v3/api-docs"
-VN_LIVE="${SNAPDRAGON_VN_BUILDER_URL:-${SNAPDRAGON_BASE_URL:-http://localhost:8080}}/api/vn/v3/api-docs"
+BFF_LIVE="${HUGMESH_BFF_URL:-${HUGMESH_BASE_URL:-http://localhost:8080}}/v3/api-docs"
+RPG_LIVE="${HUGMESH_RPG_BUILDER_URL:-${HUGMESH_BASE_URL:-http://localhost:8080}}/api/rpg/v3/api-docs"
+VN_LIVE="${HUGMESH_VN_BUILDER_URL:-${HUGMESH_BASE_URL:-http://localhost:8080}}/api/vn/v3/api-docs"
 
 mkdir -p "$OUT"
 

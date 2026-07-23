@@ -11,7 +11,7 @@
 //       context; render() of the START state issues the EXPECTED draw-call
 //       counts — the board background fillRect, the 20 grid lines (10 vertical +
 //       10 horizontal strokes), and one fillText per filled (given) cell.
-//   (b) the real snapdragon_sudoku_wasm.wasm is driven through the shared WasmHost
+//   (b) the real hugmesh_sudoku_wasm.wasm is driven through the shared WasmHost
 //       (the shell's marshalling), and a LOCAL input is applied THROUGH the
 //       game's onLocalInput path: select an empty cell, place its correct
 //       solution digit, and the engine state changes (the cell fills, the filled
@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const SUDOKU_DIR = join(here, '..');
-const WASM_PATH = join(SUDOKU_DIR, 'wasm', 'snapdragon_sudoku_wasm.wasm');
+const WASM_PATH = join(SUDOKU_DIR, 'wasm', 'hugmesh_sudoku_wasm.wasm');
 
 const KNOWN_PUZZLE =
   '53..7....' +
@@ -223,7 +223,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.sudoku_place === 'function',
-    'WasmHost bound the real snapdragon_sudoku_wasm.wasm (sudoku_place export present)',
+    'WasmHost bound the real hugmesh_sudoku_wasm.wasm (sudoku_place export present)',
   );
 
   // ── build the GAME and mount it WITHOUT the network (single-player) ─────────

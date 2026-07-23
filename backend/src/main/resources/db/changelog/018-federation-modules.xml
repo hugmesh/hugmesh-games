@@ -8,7 +8,7 @@
     <!--
         Federation manifest, DB-backed.
 
-        The Snapdragon Games portal is moving from a monolithic Angular SPA
+        The HugMesh Games portal is moving from a monolithic Angular SPA
         to a Module Federation host that loads remote modules at runtime.
         Replacing a static `federation.manifest.json` with this table lets:
 
@@ -101,7 +101,7 @@
 INSERT INTO federation_modules
     (slug, display_name, kind, remote_entry_url, exposed_module, game_slug, version, enabled, metadata)
 VALUES
-    ('host',                'Snapdragon Games — Portal Host', 'host',
+    ('host',                'HugMesh Games — Portal Host', 'host',
      '/',                                              NULL,             NULL,
      '0.1.0', true,
      '{"role":"shell","note":"the federation host itself; pointer kept for self-reference"}'::jsonb),

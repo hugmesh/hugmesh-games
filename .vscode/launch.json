@@ -8,7 +8,7 @@
       "request": "launch",
       "name": "API: Spring Boot (Debug)",
       "mainClass": "com.threewizards.ThreeWizardsApplication",
-      "projectName": "snapdragon-gaming-bff",
+      "projectName": "hugmesh-gaming-bff",
       "cwd": "${workspaceFolder}/backend",
       "args": "",
       "vmArgs": "-Dspring.profiles.active=dev",
@@ -21,7 +21,7 @@
       "name": "API: Attach to mvnw (5005)",
       "hostName": "localhost",
       "port": 5005,
-      "projectName": "snapdragon-gaming-bff"
+      "projectName": "hugmesh-gaming-bff"
     },
 
     // ── Angular Frontend ──────────────────────────────────────────────────
@@ -63,15 +63,15 @@
           "test",
           "--no-run",
           "--manifest-path",
-          "${workspaceFolder}/extensions/snapdragon-bridge/Cargo.toml"
+          "${workspaceFolder}/extensions/hugmesh-bridge/Cargo.toml"
         ],
         "filter": {
-          "name": "snapdragon_bridge",
+          "name": "hugmesh_bridge",
           "kind": "lib"
         }
       },
       "args": [],
-      "cwd": "${workspaceFolder}/extensions/snapdragon-bridge",
+      "cwd": "${workspaceFolder}/extensions/hugmesh-bridge",
       "sourceMap": {
         "/rustc/*": "${env:HOME}/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust"
       }
@@ -84,12 +84,12 @@
         "args": [
           "build",
           "--manifest-path",
-          "${workspaceFolder}/extensions/snapdragon-bridge/Cargo.toml"
+          "${workspaceFolder}/extensions/hugmesh-bridge/Cargo.toml"
         ]
       },
-      "program": "${workspaceFolder}/extensions/snapdragon-bridge/target/debug/snapdragon_bridge",
+      "program": "${workspaceFolder}/extensions/hugmesh-bridge/target/debug/hugmesh_bridge",
       "args": [],
-      "cwd": "${workspaceFolder}/extensions/snapdragon-bridge"
+      "cwd": "${workspaceFolder}/extensions/hugmesh-bridge"
     },
 
     // ── Godot ────────────────────────────────────────────────────────────

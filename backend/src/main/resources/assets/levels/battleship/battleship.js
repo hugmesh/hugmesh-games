@@ -33,14 +33,14 @@
 //     board owner who resolved it.
 // A malicious peer can therefore never learn an unfired cell: the owner only ever
 // reveals the single coordinate it was asked about. See the shim
-// extensions/snapdragon-battleship-wasm/src/lib.rs for the resolve/record split.
+// extensions/hugmesh-battleship-wasm/src/lib.rs for the resolve/record split.
 //
 // In a multiplayer session the HOST is Player One (fires first), the guest is
 // Player Two. With no session_id it is a local hot-seat: ONE engine holds BOTH
 // fleets, placement alternates, and each shot is resolved immediately on the same
 // engine (no relay).
 //
-// We drive the verified snapdragon_battleship_wasm.wasm through the shared
+// We drive the verified hugmesh_battleship_wasm.wasm through the shared
 // WasmHost with the EXACT call pattern proven in
 // games/_shared/test/battleship-wasm.test.mjs:
 //   host.callStatus('battleship_new')                          -> 1

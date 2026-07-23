@@ -1,7 +1,7 @@
 # Per-remote Dockerfile for the federated api-docs explorer.
 #
 #   docker build -f frontend/projects/api-docs/Dockerfile \
-#                -t snapdragon-api-docs ./frontend
+#                -t hugmesh-api-docs ./frontend
 
 FROM node:20-alpine AS build
 WORKDIR /app

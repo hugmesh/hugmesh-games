@@ -1,6 +1,6 @@
-# Multiplayer chess — a first-party Rust engine over the Snapdragon event bus
+# Multiplayer chess — a first-party Rust engine over the HugMesh event bus
 
-Design record for adding **multiplayer chess** to snapdragon.games. Consolidates
+Design record for adding **multiplayer chess** to hugmesh.games. Consolidates
 the full request; the keystone decision is to **reimplement the chess engine in
 Rust as a project component** (not depend on GNU Chess at runtime) and drive it
 through the **existing event/session architecture**.
@@ -12,7 +12,7 @@ through the **existing event/session architecture**.
 2. Modeled on [`The-Wizard-Coder/Godot-4---Chess-2D`](https://github.com/The-Wizard-Coder/Godot-4---Chess-2D)
    (scenes/ + scripts/ + a `pieces.png` sprite sheet; PvP and a basic AI).
 3. Engine: originally "use GNU Chess" → **decision: reimplement as a first-party
-   Rust crate** `snapdragon-chess`, alongside the existing Rust Godot extension,
+   Rust crate** `hugmesh-chess`, alongside the existing Rust Godot extension,
    so chess logic is part of the project (no GPL runtime dep; compiles native +
    WASM; one engine shared by client and server).
 4. Run it **over the existing event architecture** — SSE channels + control/input
@@ -30,7 +30,7 @@ streams" — the chess engine is **100% client-side WASM**; the server never run
 chess logic (see Authority model). Two acceptable ways to produce that WASM,
 **both in the browser, never on the server**:
 
-- **(preferred) a pure-Rust `snapdragon-chess` crate** → `wasm32-unknown-unknown`
+- **(preferred) a pure-Rust `hugmesh-chess` crate** → `wasm32-unknown-unknown`
   via the existing bridge toolchain. Small, deterministic, no C toolchain, easy
   to share with `cargo test`.
 - **(allowed) wrap GNU Chess** — compile gnuchess (C) to WASM (Emscripten) +
@@ -43,7 +43,7 @@ test oracle**: `cargo test` (native) replays each move through the engine AND
 gnuchess force-mode and asserts they agree on legality + terminal result. The
 native build exists ONLY for tests/oracle — production is the browser wasm.
 
-## The crate: `extensions/snapdragon-chess/` (sibling to `snapdragon-bridge`)
+## The crate: `extensions/hugmesh-chess/` (sibling to `hugmesh-bridge`)
 
 Pure rules core; public API the BFF, the WASM client, and the tests all use:
 
@@ -85,7 +85,7 @@ Targets: production is **`wasm32-unknown-unknown`** for the Godot/browser client
 ## Authority model — host-in-browser, server relays events (req 4 & 6)
 
 Whoever **creates** the game is the **host**: their browser runs the entire
-`snapdragon-chess` WASM engine and is authoritative for board state and rule
+`hugmesh-chess` WASM engine and is authoritative for board state and rule
 enforcement. **The server is a pure event relay** — it never runs the engine,
 never interprets a move; it only fans events out to the session's two members,
 which is exactly what `GameStateService.reemitToSession(sessionId, channel,
@@ -124,7 +124,7 @@ Modeled on the reference repo (a `Board` scene, 8×8 grid, piece sprites from a
 sheet, click/drag, legal-move highlight, turn indicator, captured tray,
 check/mate banners). **Driven over events**, not local rules: local input →
 `input_egress` (the UCI move) → render the authoritative board from
-`world_received`. The **WASM `snapdragon-chess`** gives instant local
+`world_received`. The **WASM `hugmesh-chess`** gives instant local
 legal-move highlighting + optimistic preview; the **host's** browser is authoritative, the guest re-validates locally.
 Ships as a federated remote `frontend/projects/games-chess` + a WASM bundle via
 the existing pipeline, registered by a Liquibase changeset (game + chapter +
@@ -153,7 +153,7 @@ Plus negatives: illegal-move rejection, **wrong-turn** rejection (turn
 ownership), **cross-session isolation** (a move in session A never appears in B).
 
 Three test layers:
-1. **`cargo test`** — replay each game's UCI list through `snapdragon-chess`,
+1. **`cargo test`** — replay each game's UCI list through `hugmesh-chess`,
    assert every move legal + the exact terminal `GameStatus`; **differential vs
    `gnuchess`** force-mode as oracle.
 2. **JUnit relay/isolation** — the server is a dumb stream relay, so its tests
@@ -175,7 +175,7 @@ there is nothing to bind, because the server never touches a move's meaning.
 
 ## Phased plan
 
-- **P1 — `snapdragon-chess` crate:** full rules + the famous-games `cargo test`
+- **P1 — `hugmesh-chess` crate:** full rules + the famous-games `cargo test`
   matrix + the gnuchess differential oracle. Pure logic, no BFF/Godot deps.
 - **P2 — relay wiring (streams only):** the `chess` payloads ride the existing
   `input`/`world` session channels end-to-end (create/join/relay) + the JUnit

@@ -1,5 +1,5 @@
 """
-Snapdragon Games — Enterprise data architect summary & overview.
+HugMesh Games — Enterprise data architect summary & overview.
 
 A 14-slide deck written for a data architect arriving at a steering
 committee or design review. The lens is data: where it lives, why,
@@ -9,7 +9,7 @@ the system takes.
 from pathlib import Path
 import argparse, sys
 sys.path.insert(0, str(Path(__file__).parent))
-from _snapdragon_deck import make_deck   # noqa: E402
+from _hugmesh_deck import make_deck   # noqa: E402
 
 
 SECTIONS = [
@@ -219,7 +219,7 @@ SECTIONS = [
             "Casdoor → managed identity (Auth0 / Cognito / Entra): change /.well-known/jwks URL + Casdoor-specific role mapping.",
             "Object storage for uploads: app.uploads.storage=s3 + the four APP_UPLOADS_S3_* knobs. UploadStorage strategy works with AWS, R2, B2, MinIO.",
             "Streaming audit / telemetry: app.kafka.enabled=true + Kafka + ClickHouse bootstrap URLs. Gated producers + consumer; no code change.",
-            "BFF perimeter: snapdragon-gateway routes /api/* + carries primary rate-limit + revocation list. BFF mirrors as defence-in-depth.",
+            "BFF perimeter: hugmesh-gateway routes /api/* + carries primary rate-limit + revocation list. BFF mirrors as defence-in-depth.",
             "Federation manifest URL — already DB-backed, no changes needed across hosts.",
         ],
     },
@@ -263,7 +263,7 @@ CLOSING = {
         "Cloud relocation requires no code change today — only configuration. That is the strongest design property of the BFF.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
+        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
         "Schema reference: backend/src/main/resources/db/changelog/",
     ],
@@ -275,7 +275,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     make_deck(
-        title="Snapdragon Games — Data architect overview",
+        title="HugMesh Games — Data architect overview",
         subtitle="Where data lives, how it flows, and how it stays consistent",
         kicker="Enterprise data architect overview",
         audience="Data architects, technology committee members, integration leads.",

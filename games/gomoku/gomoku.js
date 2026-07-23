@@ -24,7 +24,7 @@
 // gomoku_from_moves so the board can never drift from the rules engine.
 //
 // Stones are canvas-drawn discs (no image assets). The engine is the verified
-// snapdragon_gomoku.wasm; we drive it through the shared WasmHost with the EXACT
+// hugmesh_gomoku.wasm; we drive it through the shared WasmHost with the EXACT
 // call pattern proven in games/_shared/test/gomoku-wasm.test.mjs:
 //   host.callStatus('gomoku_new')              -> 1
 //   host.callPacked('gomoku_state')            -> { type:'gomoku.board', board, turn, status, moves }

@@ -51,7 +51,7 @@
 // every state transition flows through asteroids_tick so the field can never
 // drift from the simulation.
 //
-// The engine is the verified snapdragon_asteroids_duel_wasm.wasm; we drive it
+// The engine is the verified hugmesh_asteroids_duel_wasm.wasm; we drive it
 // through the shared WasmHost with the EXACT call pattern proven in
 // games/_shared/test/asteroids-duel-wasm.test.mjs:
 //   host.callStatus('asteroids_new', null, [seedLo, seedHi, players]) -> 1

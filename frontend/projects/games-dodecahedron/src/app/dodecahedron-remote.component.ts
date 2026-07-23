@@ -13,7 +13,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
  * without dual-bootstrapping Angular.
  *
  * Window controls (fullscreen / open in new tab / open in new window)
- * mirror the three-wizards remote so every game on snapdragon.games
+ * mirror the three-wizards remote so every game on hugmesh.games
  * has the same toolbar, regardless of which federated remote rendered
  * it.
  */

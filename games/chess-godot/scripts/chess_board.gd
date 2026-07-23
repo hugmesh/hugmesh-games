@@ -2,8 +2,8 @@ extends Node2D
 
 # Chess (Godot) — board rendering + input, ALL rules delegated to the Rust core.
 #
-# Source of truth: the `ChessEngine` GDExtension node (snapdragon_bridge),
-# which wraps the existing, validated `snapdragon-chess` Rust crate — the SAME
+# Source of truth: the `ChessEngine` GDExtension node (hugmesh_bridge),
+# which wraps the existing, validated `hugmesh-chess` Rust crate — the SAME
 # engine the web-native bundle drives through its wasm C-ABI shim. This script
 # NEVER decides chess legality itself:
 #
@@ -53,7 +53,7 @@ func _ready() -> void:
 	_host_bridge = get_parent().get_node_or_null("HostBridge")
 
 	# The chess rules engine — the WHOLE point of the pivot. Instantiated from
-	# the GDExtension class registered by snapdragon_bridge. If the class is
+	# the GDExtension class registered by hugmesh_bridge. If the class is
 	# missing (extension failed to load) we surface it loudly rather than
 	# silently reimplementing rules.
 	if ClassDB.class_exists("ChessEngine"):
@@ -64,7 +64,7 @@ func _ready() -> void:
 		push_error("[chess-godot] ChessEngine GDExtension class not found — build the bridge (make build-rust).")
 
 	# Bridge-routed API client (addon) for relaying moves to the BFF.
-	var api_script := load("res://addons/snapdragon_bridge/bridge_api_client.gd")
+	var api_script := load("res://addons/hugmesh_bridge/bridge_api_client.gd")
 	if api_script == null and ClassDB.class_exists("BridgeApiClient"):
 		_api = ClassDB.instantiate("BridgeApiClient")
 		add_child(_api)

@@ -89,7 +89,7 @@ export function passwordFor(user: SeedUser): string {
  * fragility surfaces:
  *
  *   1. `domcontentloaded` fires before the federation runtime has
- *      finished initialising — `__SNAPDRAGON_LOAD_REMOTE_MODULE__`
+ *      finished initialising — `__HUGMESH_LOAD_REMOTE_MODULE__`
  *      isn't on `globalThis` yet, so any route trying to lazy-load
  *      a federated remote rejects → NavigationError → "Couldn't
  *      reach Login" banner.
@@ -103,7 +103,7 @@ export async function ensureLoginFormReady(page: Page): Promise<void> {
   // smoother start.
   await page.waitForFunction(
     () => Boolean((globalThis as unknown as Record<string, unknown>)
-        .__SNAPDRAGON_FEDERATION_MANIFEST__),
+        .__HUGMESH_FEDERATION_MANIFEST__),
     undefined,
     { timeout: 5_000 },
   ).catch(() => { /* fall through to the retry loop */ });

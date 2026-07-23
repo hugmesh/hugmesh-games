@@ -21,7 +21,7 @@ Game script → BridgeApiClient.http_get/post/put/delete(...)     // Rust GodotC
   ← BridgeApiClient's pending-callback map fires on_done        // back into game script
 ```
 
-`BridgeApiClient`, `BridgeGlue`, and `HostBridge` are all native Rust GodotClasses registered by the `snapdragon-bridge` GDExtension (`extensions/snapdragon-bridge/src/`) — none of this is GDScript; game code (`.gd` scripts) only ever calls the `BridgeApiClient` node's methods. This used to be a GDScript addon layer; it was rewritten in Rust (see [`bridge_api_client.rs`](../../../extensions/snapdragon-bridge/src/bridge_api_client.rs)'s own "Architecture (corrected)" doc comment) and the class names carried over unchanged, so game-script call sites didn't need to change.
+`BridgeApiClient`, `BridgeGlue`, and `HostBridge` are all native Rust GodotClasses registered by the `hugmesh-bridge` GDExtension (`extensions/hugmesh-bridge/src/`) — none of this is GDScript; game code (`.gd` scripts) only ever calls the `BridgeApiClient` node's methods. This used to be a GDScript addon layer; it was rewritten in Rust (see [`bridge_api_client.rs`](../../../extensions/hugmesh-bridge/src/bridge_api_client.rs)'s own "Architecture (corrected)" doc comment) and the class names carried over unchanged, so game-script call sites didn't need to change.
 
 In editor / native mode (`HostBridge.is_streaming() == false`), `BridgeApiClient` falls back to a direct `HTTPRequest` against `http://localhost:8080`. The contract is the same; only the transport layer changes.
 
@@ -35,7 +35,7 @@ Three reasons.
 
 ## How to apply
 
-- **Game scripts:** use `BridgeApiClient` (a Rust GodotClass from the `snapdragon-bridge` GDExtension, findable via `ClassDB.instantiate("BridgeApiClient")` or the addon's typed reference). Never `HTTPRequest`. Method names are `http_get`/`http_post`/`http_put`/`http_delete` (not `get`/`post`/… — `get` collides with `Node.get(property)`):
+- **Game scripts:** use `BridgeApiClient` (a Rust GodotClass from the `hugmesh-bridge` GDExtension, findable via `ClassDB.instantiate("BridgeApiClient")` or the addon's typed reference). Never `HTTPRequest`. Method names are `http_get`/`http_post`/`http_put`/`http_delete` (not `get`/`post`/… — `get` collides with `Node.get(property)`):
   ```gdscript
   var api := BridgeApiClient.new()
   add_child(api)  # ready() auto-discovers the sibling/scene-root node named "HostBridge"
@@ -54,8 +54,8 @@ Three reasons.
 
 ## Reference
 
-- [Snapdragon Bridge addon README](../../../extensions/snapdragon-bridge/addons/snapdragon_bridge/README.md)
-- [`bridge_api_client.rs`](../../../extensions/snapdragon-bridge/src/bridge_api_client.rs)
-- [`bridge_glue.rs`](../../../extensions/snapdragon-bridge/src/bridge_glue.rs)
+- [HugMesh Bridge addon README](../../../extensions/hugmesh-bridge/addons/hugmesh_bridge/README.md)
+- [`bridge_api_client.rs`](../../../extensions/hugmesh-bridge/src/bridge_api_client.rs)
+- [`bridge_glue.rs`](../../../extensions/hugmesh-bridge/src/bridge_glue.rs)
 - [`api-bridge.service.ts`](../../../frontend/src/app/services/api-bridge.service.ts)
-- [`SessionIsolationTest`](../../../backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) — locks the per-session SSE isolation that this routing enables.
+- [`SessionIsolationTest`](../../../backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java) — locks the per-session SSE isolation that this routing enables.

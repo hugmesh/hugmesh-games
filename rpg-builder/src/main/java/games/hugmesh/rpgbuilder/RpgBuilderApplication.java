@@ -1,0 +1,13 @@
+package games.hugmesh.rpgbuilder;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@SpringBootApplication
+@EnableScheduling
+public class RpgBuilderApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(RpgBuilderApplication.class, args);
+    }
+}

@@ -12,7 +12,7 @@
 # The cert is self-signed (CN=localhost, SAN includes the local LAN IPs
 # scripts/gen-certs.sh saw at generation time). Browsers prompt once;
 # accept the warning to land on the portal. For a "real" cert on
-# snapdragon.games, use compose.prod.yml — that path expects an upstream
+# hugmesh.games, use compose.prod.yml — that path expects an upstream
 # LB / ACME terminator and keeps this nginx behind it on plain HTTP.
 
 services:

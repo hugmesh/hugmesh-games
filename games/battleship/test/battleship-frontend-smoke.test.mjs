@@ -14,7 +14,7 @@
 //       contexts; render() of the initial (placement) state issues the EXPECTED
 //       draw-call counts — 100 sea fillRect on EACH of the two 10x10 boards (200
 //       total) and zero ship/shot markers on an empty board.
-//   (b) the real snapdragon_battleship_wasm.wasm is driven through the shared
+//   (b) the real hugmesh_battleship_wasm.wasm is driven through the shared
 //       WasmHost (the shell's marshalling), and inputs are applied THROUGH the
 //       game's onLocalInput path: placing a ship marks the OWN grid + the engine
 //       snapshot advances placement progress; after readying (single-player
@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const BATTLESHIP_DIR = join(here, '..');
-const WASM_PATH = join(BATTLESHIP_DIR, 'wasm', 'snapdragon_battleship_wasm.wasm');
+const WASM_PATH = join(BATTLESHIP_DIR, 'wasm', 'hugmesh_battleship_wasm.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -157,7 +157,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.battleship_resolve === 'function',
-    'WasmHost bound the real snapdragon_battleship_wasm.wasm (battleship_resolve export present)',
+    'WasmHost bound the real hugmesh_battleship_wasm.wasm (battleship_resolve export present)',
   );
   assert(host.callStatus('battleship_new') === 1, 'WasmHost.callStatus(battleship_new) === 1');
   const openSnap = host.callPacked('battleship_snapshot');

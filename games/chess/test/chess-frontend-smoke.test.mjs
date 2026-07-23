@@ -15,7 +15,7 @@
 //   (a) chess.js is loaded as a real ES module against a mocked canvas 2D
 //       context; render() of the start position issues the EXPECTED draw-call
 //       counts — 64 board fillRect + 32 piece fillText (one per starting piece).
-//   (b) the real snapdragon_chess.wasm is driven through the shared WasmHost
+//   (b) the real hugmesh_chess.wasm is driven through the shared WasmHost
 //       (the shell's marshalling), and a move (e2e4) is applied THROUGH the
 //       game's onLocalInput two-click path: the board canvas is repainted, the
 //       FEN changes, and the side-to-move flips white→black — exactly the
@@ -30,7 +30,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const CHESS_DIR = join(here, '..');
-const WASM_PATH = join(CHESS_DIR, 'wasm', 'snapdragon_chess.wasm');
+const WASM_PATH = join(CHESS_DIR, 'wasm', 'hugmesh_chess.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -197,7 +197,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.chess_apply_uci === 'function',
-    'WasmHost bound the real snapdragon_chess.wasm (chess_apply_uci export present)',
+    'WasmHost bound the real hugmesh_chess.wasm (chess_apply_uci export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost (proves the shell

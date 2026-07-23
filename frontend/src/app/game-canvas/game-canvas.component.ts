@@ -16,7 +16,7 @@ import { FocusTrapDirective } from '../directives/focus-trap.directive';
  * federated remotes so a host-shell game and a popout's federated game
  * both speak the same protocol.
  */
-const PRESENCE_CHANNEL = 'snapdragon-game-presence';
+const PRESENCE_CHANNEL = 'hugmesh-game-presence';
 
 /** Minimal shape the canvas needs — satisfied by both GameListing and AvailableChapter. */
 export interface PlayableGame {
@@ -127,7 +127,7 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
 
   /** Lazy presence-channel — created on init, closed on destroy. The
    *  BroadcastChannel is a same-origin singleton owned by the user
-   *  agent so multiple tabs / windows of snapdragon.games share one. */
+   *  agent so multiple tabs / windows of hugmesh.games share one. */
   private _presence: BroadcastChannel | null = null;
 
   private readonly sessionControl = inject(SessionControlService);

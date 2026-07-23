@@ -58,7 +58,7 @@
       changeset is skipped rather than erroring should a non-PG dialect ever be
       introduced — matching how a PG-specific changeset SHOULD be guarded.
     -->
-    <changeSet id="054-1-advance-games-id-seq" author="snapdragon" dbms="postgresql">
+    <changeSet id="054-1-advance-games-id-seq" author="hugmesh" dbms="postgresql">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="games"/>
         </preConditions>

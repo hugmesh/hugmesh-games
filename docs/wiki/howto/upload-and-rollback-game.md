@@ -5,7 +5,7 @@ The portal's hot-upload pipeline lets an admin ship a new game (or a new version
 ## Prerequisites
 
 - `ROLE_ADMIN` in Casdoor.
-- A Snapdragon Export zip from the game developer (see [Godot developer guide](../guides/godot-developer.md), Step 5b) or from your own Godot editor session.
+- A HugMesh Export zip from the game developer (see [Godot developer guide](../guides/godot-developer.md), Step 5b) or from your own Godot editor session.
 
 The zip must contain:
 

@@ -1,6 +1,6 @@
 // games/_shared/wasm-host.js
 //
-// WasmHost — the ONE place every web-native Snapdragon game frontend marshals
+// WasmHost — the ONE place every web-native HugMesh game frontend marshals
 // JSON across the wasm boundary. It loads a game's freestanding
 // `wasm32-unknown-unknown` engine (zero host imports) and wraps the
 // alloc/dealloc + packed-(ptr<<32|len) JSON contract into an ergonomic
@@ -8,7 +8,7 @@
 //
 // THE CONTRACT (must agree byte-for-byte with the JVM driver
 // backend/.../realtime/wasm/WasmSimCore.java AND the Rust shim documented in
-// extensions/snapdragon-fps-core-wasm/src/lib.rs):
+// extensions/hugmesh-fps-core-wasm/src/lib.rs):
 //
 //   Passing bytes IN  (host → module):
 //     1. ptr = alloc(len)            — module hands back a writable region
@@ -105,7 +105,7 @@ export class WasmHost {
     this.exports = instance.exports;
     this.memory = this.exports.memory;
     if (!this.memory) {
-      throw new Error('WasmHost: module exports no `memory` — not a freestanding Snapdragon engine');
+      throw new Error('WasmHost: module exports no `memory` — not a freestanding HugMesh engine');
     }
     if (typeof this.exports.alloc !== 'function' || typeof this.exports.dealloc !== 'function') {
       throw new Error('WasmHost: module is missing the alloc/dealloc contract exports');

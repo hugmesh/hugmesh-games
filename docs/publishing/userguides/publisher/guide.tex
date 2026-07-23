@@ -1,6 +1,6 @@
 \documentclass[11pt,a4paper,openany]{book}
 \input{userguide-preamble}
-\hypersetup{pdftitle={Snapdragon Games --- Publisher guide}}
+\hypersetup{pdftitle={HugMesh Games --- Publisher guide}}
 \begin{document}
 
 \begin{titlepage}\thispagestyle{empty}
@@ -11,7 +11,7 @@
 \end{tikzpicture}
 \vspace*{4cm}\noindent
 {\sffamily\bfseries
-  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont HUGMESH GAMES}\\[3mm]
   {\color{white}\fontsize{42}{50}\selectfont Publisher\\guide}\par}
 \vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
 \vspace{0.8cm}\noindent
@@ -65,7 +65,7 @@ banner.
 \chapter{What you can do}
 \begin{itemize}
   \item \textbf{Upload a new bundle} for a game in your scope.
-        \texttt{POST /api/games/\{slug\}/uploads} with the Snapdragon
+        \texttt{POST /api/games/\{slug\}/uploads} with the HugMesh
         Export zip. The BFF validates manifest schema v2, hashes the
         bundle, atomically moves to
         \texttt{<gamesDir>/<slug>/<sha-prefix>}, and runs
@@ -104,7 +104,7 @@ banner.
         your scope. The ``current version'' column should match the
         bundle on disk under \texttt{<gamesDir>/<slug>/}.
   \item To ship a new build: open the game's \emph{Uploads} tab ---
-        \emph{Upload new bundle} --- choose a Snapdragon Export zip.
+        \emph{Upload new bundle} --- choose a HugMesh Export zip.
         The form posts to \texttt{POST /api/games/\{slug\}/uploads}.
         Wait for the success toast (10--30\,s for a typical bundle).
   \item Verify by visiting \texttt{/} and clicking the game's card ---
@@ -145,7 +145,7 @@ direction exits, plus items, NPCs, and scripts.
         \texttt{QUEUED $\rightarrow$ RENDERING $\rightarrow$
         EXPORTING $\rightarrow$ UPLOADING $\rightarrow$ DONE}; the
         worker renders a Godot 4 source tree with
-        \snapfile{snapdragon\_bridge.gdextension} baked in (multiplayer-
+        \snapfile{hugmesh\_bridge.gdextension} baked in (multiplayer-
         aware out of the box), invokes the Godot CLI per area, zips
         the result, and POSTs to \texttt{/api/admin/games/upload}
         \emph{with your bearer token} --- so the BFF's
@@ -236,7 +236,7 @@ runs first.
         \texttt{publisher\_game\_scopes} row. Ask an admin to grant
         scope.
   \item \textbf{Upload returns 400 ``manifest schema mismatch''.}
-        Bundle exported with a stale Snapdragon Export plugin.
+        Bundle exported with a stale HugMesh Export plugin.
         Update the plugin in Godot, re-export.
   \item \textbf{Upload returns 409.} Same SHA already on disk under
         that slug. The bundle is byte-identical to a prior version;

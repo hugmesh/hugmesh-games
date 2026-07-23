@@ -13,7 +13,7 @@
 //       counts — 1 board-background fillRect + one fillRect & one strokeRect per
 //       cell (81 on the 9x9 beginner board) and ZERO glyph fillText on the
 //       all-hidden start board, with the HUD mine counter / timer / status seeded.
-//   (b) the real snapdragon_minesweeper_wasm.wasm is driven through the shared
+//   (b) the real hugmesh_minesweeper_wasm.wasm is driven through the shared
 //       WasmHost (the shell's marshalling), and a LOCAL input (a click) is
 //       applied THROUGH the game's onLocalInput reveal path: the board canvas is
 //       repainted, the engine board string changes (the seeded first click
@@ -35,7 +35,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const MINE_DIR = join(here, '..');
-const WASM_PATH = join(MINE_DIR, 'wasm', 'snapdragon_minesweeper_wasm.wasm');
+const WASM_PATH = join(MINE_DIR, 'wasm', 'hugmesh_minesweeper_wasm.wasm');
 
 // The default beginner board the GAME seeds with no URL params (9x9 / 10 mines /
 // seed 0). The seeded first reveal at (0,0) flood-fills a region deterministically.
@@ -223,7 +223,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.mine_reveal === 'function',
-    'WasmHost bound the real snapdragon_minesweeper_wasm.wasm (mine_reveal export present)',
+    'WasmHost bound the real hugmesh_minesweeper_wasm.wasm (mine_reveal export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost.

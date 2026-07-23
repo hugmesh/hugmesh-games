@@ -1,6 +1,6 @@
 extends Node
 ## Three-Wizards-specific API helpers — typed wrappers around the
-## generic `BridgeApiClient` from the snapdragon_bridge addon.
+## generic `BridgeApiClient` from the hugmesh_bridge addon.
 ##
 ## All networking flows through HostBridge → host shell → BFF; this
 ## class never calls HTTPRequest directly. The wrappers exist so
@@ -10,7 +10,7 @@ extends Node
 
 class_name ApiClient
 
-# BridgeApiClient is a Rust class registered by the snapdragon_bridge
+# BridgeApiClient is a Rust class registered by the hugmesh_bridge
 # GDExtension; instantiated by name (no preload needed).
 
 signal scene_received(scene: Dictionary)

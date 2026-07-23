@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the Mudlet-shaped RPG maker remote.
 //
 // `name` matches federation_modules.slug = 'games-rpg-maker'.
@@ -7,7 +7,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'games-rpg-maker',
   exposes: {
     './RpgMakerShell': './projects/games-rpg-maker/src/app/rpg-maker-remote.component.ts',

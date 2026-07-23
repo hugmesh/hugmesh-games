@@ -40,7 +40,7 @@
 // from the rules engine. The guest's render of a `world` snapshot is a re-seat,
 // not a fork.
 //
-// We drive the verified snapdragon_tron_wasm.wasm through the shared WasmHost with
+// We drive the verified hugmesh_tron_wasm.wasm through the shared WasmHost with
 // the EXACT call pattern proven in games/_shared/test/tron-wasm.test.mjs:
 //   host.callStatus('tron_new', null, [seed])              -> 1
 //   host.callStatus('tron_new_sized', null, [seed, w, h])  -> 1

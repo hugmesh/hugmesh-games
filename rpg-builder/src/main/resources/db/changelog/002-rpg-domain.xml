@@ -14,7 +14,7 @@
     chapter's WASM.
   -->
 
-  <changeSet id="002-rpg-projects" author="snapdragon-rpg-builder">
+  <changeSet id="002-rpg-projects" author="hugmesh-rpg-builder">
     <createTable tableName="rpg_projects">
       <column name="id"                  type="uuid"        defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="slug"                type="varchar(64)"><constraints nullable="false" unique="true"/></column>
@@ -29,7 +29,7 @@
     </createIndex>
   </changeSet>
 
-  <changeSet id="002-rpg-areas" author="snapdragon-rpg-builder">
+  <changeSet id="002-rpg-areas" author="hugmesh-rpg-builder">
     <!-- Mudlet's TArea: a region containing rooms. -->
     <createTable tableName="rpg_areas">
       <column name="id"          type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
@@ -44,7 +44,7 @@
                          constraintName="uq_rpg_areas_project_slug"/>
   </changeSet>
 
-  <changeSet id="002-rpg-rooms" author="snapdragon-rpg-builder">
+  <changeSet id="002-rpg-rooms" author="hugmesh-rpg-builder">
     <!-- Mudlet's TRoom: a single location. (x,y,z) is the editor grid
          coordinate; environment is a Mudlet-style integer color hint. -->
     <createTable tableName="rpg_rooms">
@@ -69,7 +69,7 @@
     </createIndex>
   </changeSet>
 
-  <changeSet id="002-rpg-exits" author="snapdragon-rpg-builder">
+  <changeSet id="002-rpg-exits" author="hugmesh-rpg-builder">
     <!-- Mudlet's exit list, one row per direction. The `direction`
          column carries the named compass + vertical + teleport set;
          a CHECK keeps callers honest. -->
@@ -95,7 +95,7 @@
     </createIndex>
   </changeSet>
 
-  <changeSet id="002-rpg-items" author="snapdragon-rpg-builder">
+  <changeSet id="002-rpg-items" author="hugmesh-rpg-builder">
     <createTable tableName="rpg_items">
       <column name="id"           type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="project_id"   type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_items_project" references="rpg_projects(id)" deleteCascade="true"/></column>
@@ -110,7 +110,7 @@
                          constraintName="uq_rpg_items_project_slug"/>
   </changeSet>
 
-  <changeSet id="002-rpg-npcs" author="snapdragon-rpg-builder">
+  <changeSet id="002-rpg-npcs" author="hugmesh-rpg-builder">
     <createTable tableName="rpg_npcs">
       <column name="id"               type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="project_id"       type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_npcs_project" references="rpg_projects(id)" deleteCascade="true"/></column>
@@ -126,7 +126,7 @@
                          constraintName="uq_rpg_npcs_project_slug"/>
   </changeSet>
 
-  <changeSet id="002-rpg-scripts" author="snapdragon-rpg-builder">
+  <changeSet id="002-rpg-scripts" author="hugmesh-rpg-builder">
     <!-- Mudlet's TScript / TTrigger / TAlias / TKey are all generic
          "code attached to a hook" rows. We keep the kind discriminator
          so the editor can tab them separately. -->

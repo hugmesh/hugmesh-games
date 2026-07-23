@@ -1,4 +1,4 @@
-% Snapdragon Games — Architecture Reference
+% HugMesh Games — Architecture Reference
 %
 % Build:
 %   make -C docs/publishing pdf
@@ -9,7 +9,7 @@
 
 \documentclass[11pt,a4paper,openany]{book}
 
-\usepackage{snapdragon-theme}
+\usepackage{hugmesh-theme}
 \usepackage{microtype}
 \usepackage[hidelinks]{hyperref}
 \usepackage{tabularx}
@@ -28,18 +28,18 @@
 \usepackage{afterpage}
 
 \hypersetup{
-  pdftitle={Snapdragon Games — Architecture Reference},
-  pdfauthor={Snapdragon Systems},
+  pdftitle={HugMesh Games — Architecture Reference},
+  pdfauthor={HugMesh Systems},
   pdfsubject={Architecture, build pipeline, and API reference for the
-              Snapdragon Games portal (snapdragon.games)},
+              HugMesh Games portal (hugmesh.games)},
   pdfkeywords={Angular, Spring Boot, Godot, WebAssembly, Module Federation,
                GraalVM, Casdoor, JWT, R2DBC, PostgreSQL, Cassandra,
-               docker-compose, Snapdragon Games},
+               docker-compose, HugMesh Games},
 }
 
 \begin{document}
 
-% \sloppy + \emergencystretch (declared in snapdragon-theme.sty) let
+% \sloppy + \emergencystretch (declared in hugmesh-theme.sty) let
 % LaTeX stretch interword spaces a bit more than the strict default so
 % paragraphs that contain long unbreakable tokens (URLs, file paths,
 % camelCase identifiers) lay out without overflowing the right margin.
@@ -70,7 +70,7 @@
 \vspace*{4cm}
 \noindent
 {\sffamily\bfseries
-  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont HUGMESH GAMES}\\[3mm]
   {\color{white}\fontsize{42}{50}\selectfont Architecture}\\[2mm]
   {\color{white}\fontsize{42}{50}\selectfont Reference}\par}
 
@@ -87,7 +87,7 @@ pipeline that links them.}
 \vfill
 \noindent
 {\sffamily\color{white!70}\small
-\snapprojectname{} portal --- snapdragon.games\\
+\snapprojectname{} portal --- hugmesh.games\\
 Generated: \snapbuilddate{} \snapbuildtime}
 
 \end{titlepage}
@@ -99,9 +99,9 @@ Generated: \snapbuilddate{} \snapbuildtime}
 \noindent
 \begin{snapnote}[title={About this document}]
 This is a typeset companion to the canonical
-\href{https://github.com/Snapdragon-Systems/snapdragon.games}{repository
+\href{https://github.com/Snapdragon-Systems/hugmesh-games}{repository
 \texttt{README.md}} and the
-\href{https://github.com/Snapdragon-Systems/snapdragon.games/blob/main/docs/PLAN-module-federation-and-native.md}{post-federation
+\href{https://github.com/Snapdragon-Systems/hugmesh-games/blob/main/docs/PLAN-module-federation-and-native.md}{post-federation
 \texttt{PLAN}} document. Where it disagrees with the source tree, the source
 tree wins — every diagram, table, and snippet here is generated from a
 specific commit and may drift between rebuilds.
@@ -159,6 +159,6 @@ This reference covers the system as it exists at the head of the
 
 \noindent
 The shortest path back to live code is
-\href{https://github.com/Snapdragon-Systems/snapdragon.games}{github.com/Snapdragon-Systems/snapdragon.games}.
+\href{https://github.com/Snapdragon-Systems/hugmesh-games}{github.com/Snapdragon-Systems/hugmesh-games}.
 
 \end{document}

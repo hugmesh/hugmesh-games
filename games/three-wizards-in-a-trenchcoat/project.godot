@@ -24,7 +24,7 @@ window/stretch/aspect="expand"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/snapdragon_export/plugin.cfg", "res://addons/snapdragon_bridge/plugin.cfg")
+enabled=PackedStringArray("res://addons/hugmesh_export/plugin.cfg", "res://addons/hugmesh_bridge/plugin.cfg")
 
 [rendering]
 

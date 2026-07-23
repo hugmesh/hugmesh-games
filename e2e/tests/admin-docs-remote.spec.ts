@@ -60,7 +60,7 @@ test.describe('admin → api-docs federated remote', () => {
     await expect(page.locator('aside.nav h2')).toHaveText(/API navigator/i);
 
     // 4. Right-pane header is non-empty — DocsShell mounted its main
-    //    pane (the title falls back to "Snapdragon Gaming BFF" when
+    //    pane (the title falls back to "HugMesh Gaming BFF" when
     //    the spec hasn't loaded).
     const headerText = (await page.locator('.pane .header h1').textContent())?.trim() ?? '';
     expect(headerText.length).toBeGreaterThan(0);

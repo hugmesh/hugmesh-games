@@ -34,7 +34,7 @@
 #   PGDATABASE      default: threewizards
 #   PGUSER          default: threewizards
 #   PGPASSWORD      default: threewizards
-#   APP_UPLOADS_GAMES_DIR   default: /var/snapdragon/games
+#   APP_UPLOADS_GAMES_DIR   default: /var/hugmesh/games
 #   APP_UPLOADS_S3_BUCKET   default: snapdragon-uploads
 #   APP_UPLOADS_S3_ENDPOINT default: http://localhost:9000
 #   APP_UPLOADS_S3_ACCESS_KEY     (required)
@@ -63,7 +63,7 @@ fi
 : "${PGDATABASE:=threewizards}"
 : "${PGUSER:=threewizards}"
 : "${PGPASSWORD:=threewizards}"
-: "${APP_UPLOADS_GAMES_DIR:=/var/snapdragon/games}"
+: "${APP_UPLOADS_GAMES_DIR:=/var/hugmesh/games}"
 : "${APP_UPLOADS_S3_BUCKET:=snapdragon-uploads}"
 : "${APP_UPLOADS_S3_ENDPOINT:=http://localhost:9000}"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Snapdragon Games — git hook installer for the publishing pipeline.
+# HugMesh Games — git hook installer for the publishing pipeline.
 #
 # Installs a pre-push hook that re-runs `make docs-pdf` whenever the push
 # touches docs/publishing/ or docs/PLAN-module-federation-and-native.md.
@@ -14,7 +14,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 HOOK_PATH="$REPO_ROOT/.git/hooks/pre-push"
 
 if [[ -e "$HOOK_PATH" ]]; then
-  if grep -q "snapdragon-publishing" "$HOOK_PATH"; then
+  if grep -q "hugmesh-publishing" "$HOOK_PATH"; then
     echo "[publishing] pre-push hook already installed at $HOOK_PATH"
     exit 0
   fi
@@ -27,7 +27,7 @@ fi
 
 cat > "$HOOK_PATH" <<'EOF'
 #!/usr/bin/env bash
-# snapdragon-publishing pre-push hook (installed by docs/publishing/scripts/install-hooks.sh)
+# hugmesh-publishing pre-push hook (installed by docs/publishing/scripts/install-hooks.sh)
 #
 # Rebuilds the architecture PDF whenever the push touches publishing
 # sources. Aborts the push on a non-zero build exit.

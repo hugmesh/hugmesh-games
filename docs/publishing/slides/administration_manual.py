@@ -1,5 +1,5 @@
 """
-Snapdragon Games — Administration manual.
+HugMesh Games — Administration manual.
 
 A 14-slide deck for whoever runs the live stack: how to deploy, what the
 admin UI exposes, how to grant role access, how to roll back a bad
@@ -12,7 +12,7 @@ Edit the SECTIONS list below and re-run:
 from pathlib import Path
 import argparse, sys
 sys.path.insert(0, str(Path(__file__).parent))
-from _snapdragon_deck import make_deck   # noqa: E402
+from _hugmesh_deck import make_deck   # noqa: E402
 
 
 SECTIONS = [
@@ -98,7 +98,7 @@ SECTIONS = [
         "title": "Step-by-step: upload a game",
         "body": [
             "Navigate to /admin/games.",
-            "Drop a Snapdragon Export zip into the upload card (or file-pick).",
+            "Drop a HugMesh Export zip into the upload card (or file-pick).",
             "BFF: validate manifest_json schema_v=2 + zip-slip-safe paths.",
             "BFF: SHA-256 the bundle/, atomic move to <gamesDir>/<slug>/<sha-prefix>.",
             "BFF: ONE R2DBC tx — insert game_uploads, run register.sql, UPDATE games.current_version_dir, supersede prior.",
@@ -120,7 +120,7 @@ SECTIONS = [
     {
         "title": "Hot-uploading a game",
         "body": [
-            "1. Snapdragon Export zip from the game developer.",
+            "1. HugMesh Export zip from the game developer.",
             "2. /admin/games → Upload bundle → Upload.",
             "3. Install tx validates schema v2, hashes, moves to versioned dir, runs register.sql atomically.",
             "4. Federation manifest discovers the new game on next refresh (within 60 s).",
@@ -248,7 +248,7 @@ SECTIONS = [
             "Postgres        — pg_dump from inside the postgres container; volumes/postgres-data is the canonical source.",
             "Cassandra       — nodetool snapshot; cassandra is a cache, but the audit log is durable.",
             "Casdoor         — postgres-backed; included in the pg_dump above.",
-            "Game uploads    — `app.uploads.games-dir` (default /var/snapdragon/games) is on the host and not bind-mounted unless you ask. Snapshot it on the same schedule as Postgres.",
+            "Game uploads    — `app.uploads.games-dir` (default /var/hugmesh/games) is on the host and not bind-mounted unless you ask. Snapshot it on the same schedule as Postgres.",
         ],
         "dark": True,
     },
@@ -282,7 +282,7 @@ CLOSING = {
         "When something breaks, read the BFF logs first — most paths emit a single descriptive line on failure.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
+        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
         "Architecture PDF: make docs-pdf",
         "Javadoc: make docs-javadocs",
     ],
@@ -294,7 +294,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     make_deck(
-        title="Snapdragon Games — Administration",
+        title="HugMesh Games — Administration",
         subtitle="Day-2 operations for ROLE_ADMIN holders",
         kicker="Administration manual",
         audience="Operators, on-call, ROLE_ADMIN holders.",

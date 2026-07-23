@@ -9,8 +9,8 @@
       Chess (Godot) — the FIRST reference game of the Godot pivot.
 
       games/chess-godot/ is a real Godot 4 project that REUSES the deterministic
-      `snapdragon-chess` Rust core via the ChessEngine GDExtension node in
-      snapdragon_bridge (NO GDScript rules). `make build-godot` exports it to a
+      `hugmesh-chess` Rust core via the ChessEngine GDExtension node in
+      hugmesh_bridge (NO GDScript rules). `make build-godot` exports it to a
       real Web WASM bundle served by the wasm-fragment nginx at
       /_remotes/wasm-fragment/chess-godot/index.html — exactly the launch shape
       the 14 web-native games use (kind='wasm-game'), so the host launches it as
@@ -34,7 +34,7 @@
     -->
 
     <!-- 1. Catalog game row ("Chess (Godot)"). Collision-safe ids like 044-1. -->
-    <changeSet id="053-1-chess-godot-game" author="snapdragon">
+    <changeSet id="053-1-chess-godot-game" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="games"/>
         </preConditions>
@@ -52,7 +52,7 @@ WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'chess-godot');
 
     <!-- 2. The board chapter. scene_type 'chess' reuses the existing chess
          multiplayer wiring; asset_url points at the Godot bundle. -->
-    <changeSet id="053-2-chess-godot-chapter" author="snapdragon">
+    <changeSet id="053-2-chess-godot-chapter" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="chapters"/>
         </preConditions>
@@ -76,7 +76,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'chess-godot');
     <!-- 3. Federation row (kind='wasm-game'), mirroring the 051 web-native rows.
          The host's home.component.ts isWebNative/webNativeSlug reads this off
          GET /api/federation/manifest and launches it as a parametrised iframe. -->
-    <changeSet id="053-3-chess-godot-federation-row" author="snapdragon">
+    <changeSet id="053-3-chess-godot-federation-row" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="federation_modules"/>
         </preConditions>
@@ -86,14 +86,14 @@ INSERT INTO federation_modules
 VALUES
     ('games-chess-godot', 'Chess (Godot)', 'wasm-game',
      '/_remotes/wasm-fragment/chess-godot/index.html', NULL, 'chess-godot', '0.1.0', true,
-     '{"sse":true,"hostAuthoritative":true,"engine":"godot","core":"snapdragon-chess"}'::jsonb)
+     '{"sse":true,"hostAuthoritative":true,"engine":"godot","core":"hugmesh-chess"}'::jsonb)
 ON CONFLICT (slug) DO NOTHING;
         </sql>
     </changeSet>
 
     <!-- 4. Default all-users access, mirroring 051-2 so the tile is visible +
          launchable for seeded player roles (no game_access row => hidden). -->
-    <changeSet id="053-4-chess-godot-default-access" author="snapdragon">
+    <changeSet id="053-4-chess-godot-default-access" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="game_access"/>
             <tableExists tableName="games"/>

@@ -21,7 +21,7 @@ Only `games` carries the column. `chapters` derive their brand through the `game
 
 ### 2. `Roles.domainApplies(rowDomain, callerDomain, isSuperadmin)` — the predicate
 
-Copied (logic) from snapdragon-gateway `GatewayRouteAccessService.domainApplies`, with the gateway's SUPERADMIN short-circuit folded in:
+Copied (logic) from hugmesh-gateway `GatewayRouteAccessService.domainApplies`, with the gateway's SUPERADMIN short-circuit folded in:
 
 ```
 isSuperadmin                                   -> true   (cross-domain infra plane)

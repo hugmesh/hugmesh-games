@@ -1,6 +1,6 @@
 spring:
   application:
-    name: snapdragon-vn-builder
+    name: hugmesh-vn-builder
   r2dbc:
     url: r2dbc:postgresql://${DB_HOST:postgres-vn-builder}:${DB_PORT:5432}/${DB_NAME:vn_builder}
     username: ${DB_USER:vn_builder}
@@ -37,14 +37,14 @@ app:
     godot-bin: ${APP_BUILD_GODOT_BIN:godot}
     godot-preset: ${APP_BUILD_GODOT_PRESET:Web}
     godot-timeout: ${APP_BUILD_GODOT_TIMEOUT:PT10M}
-    # Compiled snapdragon-bridge binaries baked into each rendered project's
+    # Compiled hugmesh-bridge binaries baked into each rendered project's
     # bin/ so the WASM carries the multiplayer HostBridge. Empty → skipped.
     bridge-dir: ${APP_BUILD_BRIDGE_DIR:}
-    workdir: ${APP_BUILD_WORKDIR:/var/snapdragon/vn-builds}
-    assets-dir: ${APP_BUILD_ASSETS_DIR:/var/snapdragon/vn-assets}
+    workdir: ${APP_BUILD_WORKDIR:/var/hugmesh/vn-builds}
+    assets-dir: ${APP_BUILD_ASSETS_DIR:/var/hugmesh/vn-assets}
     max-bundle-bytes: ${APP_BUILD_MAX_BUNDLE_BYTES:209715200}
 
 logging:
   level:
-    games.snapdragon.vnbuilder: INFO
+    games.hugmesh.vnbuilder: INFO
     org.springframework.r2dbc: WARN

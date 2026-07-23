@@ -12,7 +12,7 @@
 //       2D context; render() of the start position issues the EXPECTED draw-call
 //       counts — 1 board fillRect + 42 cell arcs/fills (one per hole) and ZERO
 //       disc strokes on the empty board.
-//   (b) the real snapdragon_connect_four.wasm is driven through the shared
+//   (b) the real hugmesh_connect_four.wasm is driven through the shared
 //       WasmHost (the shell's marshalling), and a drop is applied THROUGH the
 //       game's onLocalInput click path: the board canvas is repainted, the board
 //       string changes, and the side-to-move flips red→yellow — exactly the
@@ -27,7 +27,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const C4_DIR = join(here, '..');
-const WASM_PATH = join(C4_DIR, 'wasm', 'snapdragon_connect_four.wasm');
+const WASM_PATH = join(C4_DIR, 'wasm', 'hugmesh_connect_four.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -192,7 +192,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.c4_apply_drop === 'function',
-    'WasmHost bound the real snapdragon_connect_four.wasm (c4_apply_drop export present)',
+    'WasmHost bound the real hugmesh_connect_four.wasm (c4_apply_drop export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost.

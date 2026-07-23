@@ -1,4 +1,4 @@
-; Generated Godot 4 project for snapdragon-vn-builder.
+; Generated Godot 4 project for hugmesh-vn-builder.
 ;
 ; Build worker writes this once per build with {{slug}} and
 ; {{displayName}} interpolated.
@@ -13,7 +13,7 @@ config/features=PackedStringArray("4.6", "GL Compatibility")
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/snapdragon_bridge/plugin.cfg")
+enabled=PackedStringArray("res://addons/hugmesh_bridge/plugin.cfg")
 
 [gdextension]
 

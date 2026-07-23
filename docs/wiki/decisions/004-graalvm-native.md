@@ -16,7 +16,7 @@ But native-image builds are slow (~6 minutes), need ~6–8 GB RAM, and have know
 
 - **Default: JVM build.** `make build-backend` produces the fat JAR. CI runs this on every PR.
 - **Opt-in: native build.** `make build-backend-native` invokes the `native` Maven profile in [`backend/pom.xml`](../../../backend/pom.xml). Gate this behind `[native]` in commit message OR a separate workflow that runs on `main`.
-- **Reflection hints in one place.** [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/R2dbcConvertersConfig.java) registers every R2DBC entity for native-image reflection. Adding a new entity touches one file.
+- **Reflection hints in one place.** [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) registers every R2DBC entity for native-image reflection. Adding a new entity touches one file.
 - **DTOs across JSON.** Use `@RegisterReflectionForBinding` on every DTO that crosses the JSON boundary (`CharacterDto`, `GameWithLevelsDto`, `SceneDto`, all SSE event records).
 - **Dockerfile is parallel, not replacing.** [`backend/Dockerfile.native`](../../../backend/Dockerfile.native) is its own multi-stage. The non-native [`backend/Dockerfile`](../../../backend/Dockerfile) is unchanged.
 - **Compose overlay.** `make e2e-native` runs against `compose.yml + compose.native.yml`. The overlay swaps `api` → `api-native`.

@@ -19,9 +19,9 @@ Paths A and B add a **Godot** game; Path C adds a **web-native (Rust→wasm)** g
 
 ### Path A — upload at runtime
 
-Every supported game ships an editor plugin (`addons/snapdragon_export/`) under [`games/three-wizards-in-a-trenchcoat/`](../../../games/three-wizards-in-a-trenchcoat/) that produces a deploy-ready zip with a v2 `manifest.json`, a `register.sql` insert script, and the `bundle/` contents:
+Every supported game ships an editor plugin (`addons/hugmesh_export/`) under [`games/three-wizards-in-a-trenchcoat/`](../../../games/three-wizards-in-a-trenchcoat/) that produces a deploy-ready zip with a v2 `manifest.json`, a `register.sql` insert script, and the `bundle/` contents:
 
-1. In the Godot editor, *Project → Tools → Snapdragon → Export…*
+1. In the Godot editor, *Project → Tools → HugMesh → Export…*
 2. Fill in slug, display name, description, scene type. The plugin defaults the federation `remote_entry_url` to `/_remotes/games-<slug>/remoteEntry.json`; if you don't plan to ship a per-game frontend remote, change it to `/_remotes/wasm-fragment/remoteEntry.json` so the host loads the bundle through the shared fragment.
 3. Click *Export*. The plugin writes a zip to your chosen path.
 4. Hit `POST /api/admin/games/upload` with the zip — the admin UI's *Upload game bundle* card does this for you. The install transaction validates, hashes, atomically moves the bundle, and runs `register.sql` which inserts into `games`, `federation_modules`, and `game_access` all in one Postgres transaction.
@@ -32,7 +32,7 @@ The host shell discovers the new game on the next federation manifest fetch (cur
 
 For a game you want to ship in the repository:
 
-1. Drop the Godot project under `games/<game-dir>/project.godot`, with its own `export_presets.cfg` and `addons/snapdragon_export/`.
+1. Drop the Godot project under `games/<game-dir>/project.godot`, with its own `export_presets.cfg` and `addons/hugmesh_export/`.
 2. Add the directory to `GAME_PROJECTS` and define `PRESETS_<dir>` in the root [`Makefile`](../../../Makefile).
 3. Add a Liquibase changeset that inserts the `games` + `federation_modules` + `game_access` rows. See [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) for the canonical pattern.
 4. Optionally add a `games-<slug>` service to [`docker-compose.yml`](../../../docker-compose.yml) if the game ships its own Module Federation remote (separate Angular project under `frontend/projects/games-<slug>/`).
@@ -42,7 +42,7 @@ For a game you want to ship in the repository:
 
 The web-native family (chess + 13 more) uses a different recipe — **no Godot, no per-game Angular remote**. The engine is pure Rust compiled to `wasm32-unknown-unknown` and the frontend is a vanilla-JS canvas implementing the [`games/_shared/`](../../../games/_shared/README.md) `GAME` interface (`{init, render, onLocalInput, onRemoteEvent}`), run **host-authoritative** (host browser runs the engine, the BFF only relays `control`/`world` over the per-session SSE channels, the guest re-applies + re-validates). Four steps, mirroring the chess / Wave-1 PRs:
 
-1. **The engine + the bundle.** Add the pure-Rust engine under `extensions/snapdragon-<game>/` and a thin C-ABI/JSON-shim crate `extensions/snapdragon-<game>-wasm/` (zero host imports — loads via `WebAssembly.instantiateStreaming` in the browser, via Chicory in-JVM, and under Node; mirror `snapdragon-chess-wasm`). Add the `games/<slug>/` canvas project, then copy a self-contained bundle into `backend/src/main/resources/assets/levels/<slug>/` (index.html + `<slug>.js` + css + icon + a **copy** of `games/_shared/*.js` under `_shared/` + the `.wasm` under `wasm/`). Keep the deployed copy byte-identical to source.
+1. **The engine + the bundle.** Add the pure-Rust engine under `extensions/hugmesh-<game>/` and a thin C-ABI/JSON-shim crate `extensions/hugmesh-<game>-wasm/` (zero host imports — loads via `WebAssembly.instantiateStreaming` in the browser, via Chicory in-JVM, and under Node; mirror `hugmesh-chess-wasm`). Add the `games/<slug>/` canvas project, then copy a self-contained bundle into `backend/src/main/resources/assets/levels/<slug>/` (index.html + `<slug>.js` + css + icon + a **copy** of `games/_shared/*.js` under `_shared/` + the `.wasm` under `wasm/`). Keep the deployed copy byte-identical to source.
 2. **Catalog rows.** Add a Liquibase changeset inserting the `games` + `chapters` rows (mirror `044-chess-game.xml` / the Wave-1 changesets).
 3. **Federation row.** Add a `federation_modules` row with **`kind='wasm-game'`** (`remote_entry_url=/_remotes/wasm-fragment/<slug>/index.html`, `exposed_module=NULL`, `game_slug=<slug>`). This is what flips the host off the legacy `<app-game-canvas>` — `home.component` reads it off `GET /api/federation/manifest` (`isWebNative` / `FederationService.webNativeByGameSlug`). No frontend change. `main.ts` deliberately excludes `wasm-game` from `initFederation`. Mirror [`051-web-game-federation.xml`](../../../backend/src/main/resources/db/changelog/051-web-game-federation.xml).
 4. **Relay event types.** Add `input_event_types` + `game_event_support` rows for the control/world relay channels the game uses (mirror `050` / `052`).
@@ -83,9 +83,9 @@ The admin dashboard's *Grant role* dropdown reads the live Casdoor catalog throu
 
 ## Adding a new SSE channel
 
-1. Add a `Sinks.Many` field to [`GameStateService`](../../../backend/src/main/java/games/snapdragon/bff/service/GameStateService.java) with `autoCancel=false` (see [decision 003](../decisions/003-autocancel-false.md)).
+1. Add a `Sinks.Many` field to [`GameStateService`](../../../backend/src/main/java/games/hugmesh/bff/service/GameStateService.java) with `autoCancel=false` (see [decision 003](../decisions/003-autocancel-false.md)).
 2. Add a `ServerSentEvent`-builder method that wraps the sink as a typed `Flux` with an `event:` field.
-3. Merge it into the `Flux.merge(...)` call inside [`GameStreamController`](../../../backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java) alongside the existing channels and the keepalive.
+3. Merge it into the `Flux.merge(...)` call inside [`GameStreamController`](../../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java) alongside the existing channels and the keepalive.
 4. Register a per-type listener on the frontend by calling `eventSource.addEventListener('<event-name>', cb)`.
 
 ## Adding a new database column

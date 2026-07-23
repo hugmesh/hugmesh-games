@@ -13,7 +13,7 @@
     TextBox; Choices branch to other Scenes.
   -->
 
-  <changeSet id="002-vn-projects" author="snapdragon-vn-builder">
+  <changeSet id="002-vn-projects" author="hugmesh-vn-builder">
     <createTable tableName="vn_projects">
       <column name="id"               type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="slug"             type="varchar(64)"><constraints nullable="false" unique="true"/></column>
@@ -26,7 +26,7 @@
     <createIndex tableName="vn_projects" indexName="idx_vn_projects_owner"><column name="owner_casdoor_id"/></createIndex>
   </changeSet>
 
-  <changeSet id="002-vn-acts" author="snapdragon-vn-builder">
+  <changeSet id="002-vn-acts" author="hugmesh-vn-builder">
     <createTable tableName="vn_acts">
       <column name="id"          type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="project_id"  type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_acts_project" references="vn_projects(id)" deleteCascade="true"/></column>
@@ -37,7 +37,7 @@
     <addUniqueConstraint tableName="vn_acts" columnNames="project_id, slug" constraintName="uq_vn_acts_project_slug"/>
   </changeSet>
 
-  <changeSet id="002-vn-characters" author="snapdragon-vn-builder">
+  <changeSet id="002-vn-characters" author="hugmesh-vn-builder">
     <!-- Mirrors godot-2d-visual-novel's Character.gd Resource. -->
     <createTable tableName="vn_characters">
       <column name="id"                       type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
@@ -50,7 +50,7 @@
     <addUniqueConstraint tableName="vn_characters" columnNames="project_id, slug" constraintName="uq_vn_characters_project_slug"/>
   </changeSet>
 
-  <changeSet id="002-vn-backgrounds" author="snapdragon-vn-builder">
+  <changeSet id="002-vn-backgrounds" author="hugmesh-vn-builder">
     <createTable tableName="vn_backgrounds">
       <column name="id"        type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="project_id" type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_backgrounds_project" references="vn_projects(id)" deleteCascade="true"/></column>
@@ -61,7 +61,7 @@
     <addUniqueConstraint tableName="vn_backgrounds" columnNames="project_id, slug" constraintName="uq_vn_backgrounds_project_slug"/>
   </changeSet>
 
-  <changeSet id="002-vn-scenes" author="snapdragon-vn-builder">
+  <changeSet id="002-vn-scenes" author="hugmesh-vn-builder">
     <createTable tableName="vn_scenes">
       <column name="id"             type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="project_id"     type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_scenes_project" references="vn_projects(id)" deleteCascade="true"/></column>
@@ -75,7 +75,7 @@
     <addUniqueConstraint tableName="vn_scenes" columnNames="project_id, slug" constraintName="uq_vn_scenes_project_slug"/>
   </changeSet>
 
-  <changeSet id="002-vn-lines" author="snapdragon-vn-builder">
+  <changeSet id="002-vn-lines" author="hugmesh-vn-builder">
     <createTable tableName="vn_lines">
       <column name="id"            type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="scene_id"      type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_lines_scene" references="vn_scenes(id)" deleteCascade="true"/></column>
@@ -86,7 +86,7 @@
     <addUniqueConstraint tableName="vn_lines" columnNames="scene_id, line_index" constraintName="uq_vn_lines_scene_index"/>
   </changeSet>
 
-  <changeSet id="002-vn-choices" author="snapdragon-vn-builder">
+  <changeSet id="002-vn-choices" author="hugmesh-vn-builder">
     <createTable tableName="vn_choices">
       <column name="id"             type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="line_id"        type="uuid"><constraints nullable="false" foreignKeyName="fk_vn_choices_line" references="vn_lines(id)" deleteCascade="true"/></column>

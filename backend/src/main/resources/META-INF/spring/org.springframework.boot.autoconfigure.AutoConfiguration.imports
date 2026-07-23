@@ -1,1 +1,1 @@
-games.snapdragon.autoconfigure.CassandraBackedServicesAutoConfiguration
+games.hugmesh.autoconfigure.CassandraBackedServicesAutoConfiguration

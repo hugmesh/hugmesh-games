@@ -1,5 +1,5 @@
 """
-Snapdragon Games — Moderator deck.
+HugMesh Games — Moderator deck.
 
 A 12-slide deck for ROLE_MOD holders: what the role lets you do, where
 the per-game scope check lives, and the day-to-day playbook for keeping
@@ -8,7 +8,7 @@ a session healthy.
 from pathlib import Path
 import argparse, sys
 sys.path.insert(0, str(Path(__file__).parent))
-from _snapdragon_deck import make_deck   # noqa: E402
+from _hugmesh_deck import make_deck   # noqa: E402
 
 
 SECTIONS = [
@@ -151,7 +151,7 @@ CLOSING = {
         "Use the session log liberally; pattern-matching on participation history is more reliable than memory.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
+        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
         "Admin deck: docs/publishing/slides/build/administration-manual.pptx",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
     ],
@@ -163,7 +163,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     make_deck(
-        title="Snapdragon Games — Moderator guide",
+        title="HugMesh Games — Moderator guide",
         subtitle="Observe, kick, log. Scope is per-game.",
         kicker="Moderator guide",
         audience="Mods (ROLE_MOD with mod_game_scopes rows).",

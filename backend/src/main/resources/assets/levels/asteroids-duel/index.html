@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Asteroids Duel — Snapdragon</title>
+    <title>Asteroids Duel — HugMesh</title>
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="stylesheet" href="./asteroids-duel.css" />
   </head>
@@ -28,7 +28,7 @@
 
       const GAME = createAsteroidsGame();
 
-      mountGame(GAME, { wasmUrl: './wasm/snapdragon_asteroids_duel_wasm.wasm' })
+      mountGame(GAME, { wasmUrl: './wasm/hugmesh_asteroids_duel_wasm.wasm' })
         .then((ctx) => {
           window.__asteroidsReady = true; // smoke-test boot signal
           window.__asteroidsCtx = ctx; // expose for the headless smoke test

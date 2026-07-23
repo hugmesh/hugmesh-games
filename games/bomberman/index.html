@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Bomberman — Snapdragon</title>
+    <title>Bomberman — HugMesh</title>
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="stylesheet" href="./bomberman.css" />
   </head>
@@ -28,7 +28,7 @@
 
       const GAME = createBombermanGame();
 
-      mountGame(GAME, { wasmUrl: './wasm/snapdragon_bomberman_wasm.wasm' })
+      mountGame(GAME, { wasmUrl: './wasm/hugmesh_bomberman_wasm.wasm' })
         .then((ctx) => {
           window.__bombermanReady = true; // smoke-test boot signal
           window.__bombermanCtx = ctx; // expose for the headless smoke test

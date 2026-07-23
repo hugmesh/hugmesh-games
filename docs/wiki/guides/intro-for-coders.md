@@ -4,7 +4,7 @@
 
 A 12-section orientation for someone who has shipped some code in some language and is brand new to this codebase. Assumes nothing about Spring, Angular, Godot, or federation; points at where to read more.
 
-## What is Snapdragon Games?
+## What is HugMesh Games?
 
 A browser-native portal that hosts multiple Godot 4 games on one page. The Angular shell wraps each game with HUD, login, admin; a Spring Boot BFF streams game state and controls over Server-Sent Events. PostgreSQL holds the catalog and player state, Cassandra is the cross-pod movement cache and audit log, and Casdoor handles OAuth2 / OIDC behind a federated login remote.
 
@@ -31,7 +31,7 @@ See the diagram in [02 — Runtime architecture](../architecture/02-runtime.md#t
 | [`wasm-fragment/`](../../../wasm-fragment/) | Asset-tier nginx that serves Godot bundles. |
 | [`backend/`](../../../backend/) | Spring Boot BFF (WebFlux + R2DBC). |
 | [`games/<slug>/`](../../../games/) | One Godot project per game. |
-| [`extensions/snapdragon-bridge/`](../../../extensions/snapdragon-bridge/) | Reusable Rust GDExtension (native + WASM). |
+| [`extensions/hugmesh-bridge/`](../../../extensions/hugmesh-bridge/) | Reusable Rust GDExtension (native + WASM). |
 | [`docker/`](../../../docker/), [`casdoor/`](../../../casdoor/), [`e2e/`](../../../e2e/) | Init containers, identity config, end-to-end tests. |
 
 ## How a player click reaches a frame
@@ -40,7 +40,7 @@ See the sequence diagram in [02 — Runtime architecture](../architecture/02-run
 
 1. The host's `HomeComponent` reads `SCENE_TYPE_TO_GAME_SLUG` and forks the renderer based on the active chapter's scene type.
 2. Federated games `POST /api/games/{slug}/launch` to mint a 256-bit URL-safe `launch_uid`.
-3. `RemoteLoaderService` loads the matching per-game remote through `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`.
+3. `RemoteLoaderService` loads the matching per-game remote through `globalThis.__HUGMESH_LOAD_REMOTE_MODULE__`.
 4. The remote mounts a Web Component that builds the iframe URL.
 5. `wasm-fragment` serves `index.html` with the COOP / COEP / CORP headers WASM bundles need.
 6. Godot pulls scene JSON from `GET /api/chapters/{id}/scene` and renders.

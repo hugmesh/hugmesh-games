@@ -157,7 +157,7 @@ Anonymous CSP violation report sink for the `Content-Security-Policy` policy shi
 
 ### `AppealContactController` — `/api/security/appeal-contact`
 
-Anonymous resolver for the appeal email address shown to revoked users by the federated `banned` remote. Reads `accounts.mods` (primary on-call → secondary on-call), falling back to `app.security.appeal-contact-fallback` (default `support@snapdragon.games`). Returns `{ "email": "<address>" }`. Anonymous because a revoked user has no JWT.
+Anonymous resolver for the appeal email address shown to revoked users by the federated `banned` remote. Reads `accounts.mods` (primary on-call → secondary on-call), falling back to `app.security.appeal-contact-fallback` (default `support@hugmesh.games`). Returns `{ "email": "<address>" }`. Anonymous because a revoked user has no JWT.
 
 ### `ProducerContactController` — `/api/producer-contacts` + admin variants
 
@@ -410,7 +410,7 @@ Queries the ClickHouse `player_state_current FINAL` table via the ClickHouse HTT
 
 ### `DistributedRateLimitService`
 
-Cassandra-backed cluster-wide rate-limit augment to the local in-process `RateLimitFilter` bucket. Append-row log on the `rate_limit_events` table with a 90 s TTL; window-bounded `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`. Disable with `app.rate-limit.distributed.enabled=false`; falls back to local-only when Cassandra is unreachable. The `snapdragon-gateway` is the primary rate-limit enforcement point — this is defence-in-depth for the BFF.
+Cassandra-backed cluster-wide rate-limit augment to the local in-process `RateLimitFilter` bucket. Append-row log on the `rate_limit_events` table with a 90 s TTL; window-bounded `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`. Disable with `app.rate-limit.distributed.enabled=false`; falls back to local-only when Cassandra is unreachable. The `hugmesh-gateway` is the primary rate-limit enforcement point — this is defence-in-depth for the BFF.
 
 ### `UploadStorage` strategy (decision 020)
 

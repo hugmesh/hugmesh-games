@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Dots and Boxes — Snapdragon</title>
+    <title>Dots and Boxes — HugMesh</title>
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="stylesheet" href="./dots-and-boxes.css" />
   </head>
@@ -28,7 +28,7 @@
 
       const GAME = createDotsAndBoxesGame();
 
-      mountGame(GAME, { wasmUrl: './wasm/snapdragon_dots_and_boxes.wasm' })
+      mountGame(GAME, { wasmUrl: './wasm/hugmesh_dots_and_boxes.wasm' })
         .then((ctx) => {
           window.__dabReady = true; // smoke-test boot signal
           window.__dabCtx = ctx; // expose for the headless smoke test

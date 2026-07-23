@@ -1,12 +1,12 @@
-# Builder image for the Snapdragon Bridge Rust GDExtension targeting
+# Builder image for the HugMesh Bridge Rust GDExtension targeting
 # wasm32-unknown-emscripten. Combines the official rust toolchain with
 # emscripten so the build is reproducible and doesn't depend on
 # host-installed emscripten / emsdk.
 #
-# Build:    docker build -t snapdragon-rust-wasm tools/build-rust-wasm/
-# Run:      docker run --rm -v "$PWD:/work" snapdragon-rust-wasm \
+# Build:    docker build -t hugmesh-rust-wasm tools/build-rust-wasm/
+# Run:      docker run --rm -v "$PWD:/work" hugmesh-rust-wasm \
 #               cargo build --release --target wasm32-unknown-emscripten \
-#               --manifest-path /work/extensions/snapdragon-bridge/Cargo.toml
+#               --manifest-path /work/extensions/hugmesh-bridge/Cargo.toml
 FROM rust:1-bookworm
 
 # Emscripten via the official emsdk script. Pinned at a known-good

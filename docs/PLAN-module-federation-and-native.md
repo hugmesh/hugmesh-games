@@ -1,6 +1,6 @@
 # Phase 2 plan — Module Federation, Godot plugin, hot upload, native AOT
 
-> **Branch:** `feature/module-federation-and-native` (forked from `feature/game-foundation` after PR #9 merged the Snapdragon rebrand)
+> **Branch:** `feature/module-federation-and-native` (forked from `feature/game-foundation` after PR #9 merged the HugMesh rebrand)
 >
 > **Audience:** future-me / a fresh agent picking this up after a context reset. Skim this top-to-bottom — every section ends with a "left off at" line that can be flipped to "done" as work lands.
 
@@ -9,17 +9,17 @@
 | Section | State | Notes |
 |---|---|---|
 | A. Module Federation | **Done** | All routes (`/login`, `/admin`, `/admin/games`) federated; cave + field via `<app-three-wizards-remote>`; dodecahedron via `<app-dodecahedron-remote>`; wasm-fragment direct-serves Godot bundles. |
-| B. Godot editor plugin | **Done** | `Project → Tools → Snapdragon → Export…` produces a v2 manifest + register.sql + bundle zip. |
+| B. Godot editor plugin | **Done** | `Project → Tools → HugMesh → Export…` produces a v2 manifest + register.sql + bundle zip. |
 | C. Hot upload API + admin UI | **Done** | Backend + admin UI live + active-version pinning + disk-pressure cap + integration test (`GameUploadIntegrationTest`, 1/1, exercises Postgres-backed install pipeline end-to-end). |
 | D. GraalVM native-image | **Done** | Build profile + Dockerfile + native-overlay compose + e2e-native target + README docs. |
 | E. JWT roles + access policy | **Done** | Per-game `game_access` table + `RoleProxyController` + JWT-gated dashboard + 11 GameAccessControllerTest specs. |
 | F. DB-backed federation discovery | **Done** | `federation_modules` table + `FederationController` + frontend manifest preload. |
-| G. Per-game project layout | **Done** | `extensions/snapdragon-bridge/` + per-game projects + HostBridge migration; WASM cargo target (`wasm32-unknown-emscripten`) builds with emscripten 5.0.6 via `cargo build --release --target wasm32-unknown-emscripten` (3.3 MB `snapdragon_bridge.wasm`). |
+| G. Per-game project layout | **Done** | `extensions/hugmesh-bridge/` + per-game projects + HostBridge migration; WASM cargo target (`wasm32-unknown-emscripten`) builds with emscripten 5.0.6 via `cargo build --release --target wasm32-unknown-emscripten` (3.3 MB `hugmesh_bridge.wasm`). |
 | H. Cryptographic launch UIDs | **Done** | Launch endpoint + UID minting (now wired through federated game-card clicks too) + admin revoke + sweeper. The `app.assets.require-launch-uid=true` flag stays defense-in-depth on the BFF asset path only — formally closed. |
 
 All eight sections now reach a deliberate end state. The three originally-deferred items resolved as:
 - **C.1** (upload integration test): **Done** — `GameUploadIntegrationTest` runs against a Postgres Testcontainer and verifies the four downstream tables (`games_uploads`, `games`, `federation_modules`, `game_access`) all land. The test surfaced three latent production-code bugs the unit suite never caught (no real upload had been attempted end-to-end): @PostConstruct race against Liquibase (fixed via `@DependsOn("liquibase")` on `GameTimeService` + `GameStateService`), `manifest_json` jsonb-vs-varchar mismatch (fixed via migration 024-1 ALTER to text), and `games_id_seq` out of sync after the explicit-id seed in 017-1 (fixed via migration 024-2 `setval(MAX(id))`). Run with `./mvnw test -Dapi.version=1.44` (Docker 29.x's API minimum is newer than the docker-java client in the Testcontainers BOM).
-- **G.2** (Rust bridge WASM target): **Done** — emscripten 5.0.6 installed via emsdk to `~/Tools/emsdk/`, the wasm32-unknown-emscripten target added via rustup (system Gentoo Rust at `/usr/bin/cargo` doesn't ship it; rustup provides a parallel toolchain at `~/.cargo/bin/cargo` without disturbing system Rust), and `extensions/snapdragon-bridge/Cargo.toml` updated with a default `wasm-opt-in` feature that forwards `godot/experimental-wasm` so a plain `cargo build --target wasm32-unknown-emscripten` Just Works for the Makefile and CI. Build produces a 3.3 MB `target/wasm32-unknown-emscripten/release/snapdragon_bridge.wasm` matching the Makefile's `RUST_TARGET_WASM` variable.
+- **G.2** (Rust bridge WASM target): **Done** — emscripten 5.0.6 installed via emsdk to `~/Tools/emsdk/`, the wasm32-unknown-emscripten target added via rustup (system Gentoo Rust at `/usr/bin/cargo` doesn't ship it; rustup provides a parallel toolchain at `~/.cargo/bin/cargo` without disturbing system Rust), and `extensions/hugmesh-bridge/Cargo.toml` updated with a default `wasm-opt-in` feature that forwards `godot/experimental-wasm` so a plain `cargo build --target wasm32-unknown-emscripten` Just Works for the Makefile and CI. Build produces a 3.3 MB `target/wasm32-unknown-emscripten/release/hugmesh_bridge.wasm` matching the Makefile's `RUST_TARGET_WASM` variable.
 - **H.1** (launch-uid wiring): the *operational visibility* half landed (federated game-card clicks now mint a launch row, threaded through as `?launch_uid=…` for traceability + admin revoke + sweeper coverage). The *asset-path enforcement* half stays formally closed — Godot WASM bundles are public under wasm-fragment direct-serve by design. **Verified end-to-end after a host-tooling unblock**: Docker 29.x silently hangs `compose build` without `docker-buildx`; user-local install of the v0.18 binary into `~/.docker/cli-plugins/` (no sudo needed) restored the build pipeline and `make e2e` passed in 6.7s with the rebuilt federated remote bundles.
 
 ---
@@ -29,7 +29,7 @@ All eight sections now reach a deliberate end state. The three originally-deferr
 The current portal mounts each Godot WASM bundle inside an Angular `<iframe>`, ships a single Spring Boot fat-JAR, hand-edits per-game export presets, and has no in-product way to upload a new title. We're moving to:
 
 1. **Three-tier federated topology** — host shell → per-game remote modules (each its own nginx container, holding HUD + SSE) → shared parametrised WASM fragment (separate nginx, takes `?slug=` query string).
-2. **Godot editor plugin** — one-click "Export to Snapdragon" that produces a deploy-ready zip + `register.sql`.
+2. **Godot editor plugin** — one-click "Export to HugMesh" that produces a deploy-ready zip + `register.sql`.
 3. **Hot upload API + admin UI** — drag a zip, get a new game (or in-place replacement) without disturbing live sessions.
 4. **GraalVM native-image build** of the BFF — sub-second cold start, smaller container.
 5. **JWT roles + per-game access policy** — Casdoor stores role assignments + permissions; Postgres stores which game is visible to whom (all / role / individual user). Admin console flips visibility.
@@ -120,8 +120,8 @@ Target: each game ships as an **Angular remote module** (built by Webpack 5 / na
    - Each game module exposes a single `GameRootComponent` that does this. The component takes the slug as an input, owns the canvas lifecycle, cleans up on `ngOnDestroy` (`Engine.destroy()` / canvas removal).
 
 4. **Per-game module boundary.**
-   - Move TWiaT-specific code (game_bridge eval, control overlay, HUD) into a `@snapdragon/games-three-wizards` remote.
-   - Dodecahedron demo becomes `@snapdragon/games-dodecahedron` — minimal, no bridge.
+   - Move TWiaT-specific code (game_bridge eval, control overlay, HUD) into a `@hugmesh/games-three-wizards` remote.
+   - Dodecahedron demo becomes `@hugmesh/games-dodecahedron` — minimal, no bridge.
    - Host shell only renders the card grid + the dynamically-loaded `GameRootComponent`.
 
 5. **Kill the iframe.** Delete `app-game-canvas`, `nginx-tls.conf` X-Frame-Options relaxation, the `_twMovementQueue` JavaScriptBridge eval path. Move SSE consumption into a service injected into both host and remote.
@@ -160,7 +160,7 @@ Done in this branch:
   bundle.
 - Manifest preload: `main.ts` fetches `GET /api/federation/manifest`
   BEFORE Angular bootstrap, parks the result on
-  `window.__SNAPDRAGON_FEDERATION_MANIFEST__`, and feeds the slug→URL
+  `window.__HUGMESH_FEDERATION_MANIFEST__`, and feeds the slug→URL
   map into `initFederation(...)`. `FederationService` reads from the
   global if present, else lazy-fetches.
 - Host bootstrap under `@angular-architects/native-federation:build`:
@@ -168,7 +168,7 @@ Done in this branch:
   `module-shim` in `frontend/Dockerfile`; main.ts/bootstrap.ts split
   so static `@angular/*` imports only fire AFTER `initFederation()`
   hydrates the import map. (Solves the chicken-and-egg blocker.)
-- `loadRemoteModule` exposed via `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`
+- `loadRemoteModule` exposed via `globalThis.__HUGMESH_LOAD_REMOTE_MODULE__`
   so `RemoteLoaderService` can pick it up without statically importing
   `@angular-architects/native-federation` (karma's webpack parser
   can't read the package's ESM index.js).
@@ -198,7 +198,7 @@ Done in this branch:
 Now done in this branch:
 - `/login` route lazy-loads `LoginRemoteComponent` from the federated
   `login` remote via `loadComponent` + a `loadRemote(...)` helper that
-  pulls `loadRemoteModule` from `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`.
+  pulls `loadRemoteModule` from `globalThis.__HUGMESH_LOAD_REMOTE_MODULE__`.
   The federated remote owns the full login UI (host's branding ported
   over) and the inline `/api/auth/token` call; storage shape mirrors
   `AuthService.StoredAuth` byte-for-byte so the host's interceptor +
@@ -299,23 +299,23 @@ Optional future cleanup, not blocking anything:
 
 ---
 
-## B. Godot editor plugin — "Export to Snapdragon"
+## B. Godot editor plugin — "Export to HugMesh"
 
 ### What changes
 Today: each new game requires hand-editing `godot-project/export_presets.cfg`, adding a level to `Makefile.GODOT_LEVELS`, writing a Liquibase migration, and rebuilding the API.
 
-Target: a Godot editor plugin (in `godot-project/addons/snapdragon_export/`) that adds a "Snapdragon → Export…" menu item. Click it → choose preset → output is a deploy-ready zip the upload endpoint accepts.
+Target: a Godot editor plugin (in `godot-project/addons/hugmesh_export/`) that adds a "HugMesh → Export…" menu item. Click it → choose preset → output is a deploy-ready zip the upload endpoint accepts.
 
 ### Approach
 
 1. **Scaffold the plugin.**
-   - `addons/snapdragon_export/plugin.cfg` — Godot 4.6 plugin manifest
-   - `addons/snapdragon_export/plugin.gd` — `EditorPlugin` subclass; registers a tool menu entry
-   - `addons/snapdragon_export/export_dialog.gd` — modal: pick preset, enter slug + display name + description, choose chrome-less yes/no, hit Export
+   - `addons/hugmesh_export/plugin.cfg` — Godot 4.6 plugin manifest
+   - `addons/hugmesh_export/plugin.gd` — `EditorPlugin` subclass; registers a tool menu entry
+   - `addons/hugmesh_export/export_dialog.gd` — modal: pick preset, enter slug + display name + description, choose chrome-less yes/no, hit Export
 
 2. **Bundle layout the plugin produces.**
    ```
-   <slug>-snapdragon-bundle.zip
+   <slug>-hugmesh-bundle.zip
    ├── manifest.json              # Game/level/scene metadata (schema below)
    ├── bundle/
    │   ├── index.html             # Godot's exported HTML (kept for fallback)
@@ -369,16 +369,16 @@ Target: a Godot editor plugin (in `godot-project/addons/snapdragon_export/`) tha
 
 ### Files this touches
 
-- `godot-project/addons/snapdragon_export/plugin.cfg` — new
-- `godot-project/addons/snapdragon_export/plugin.gd` — new
-- `godot-project/addons/snapdragon_export/export_dialog.gd` — new
-- `godot-project/addons/snapdragon_export/manifest_builder.gd` — new
+- `godot-project/addons/hugmesh_export/plugin.cfg` — new
+- `godot-project/addons/hugmesh_export/plugin.gd` — new
+- `godot-project/addons/hugmesh_export/export_dialog.gd` — new
+- `godot-project/addons/hugmesh_export/manifest_builder.gd` — new
 - `godot-project/project.godot` — enable plugin under `[editor_plugins]`
 - `Makefile` — add `make test-godot-plugin` (optional; could be deferred)
 
 ### Left off at
 **Done in this branch (extended for v2).** Plugin scaffolds Project → Tools →
-Snapdragon menu, gathers metadata via the dialog, shells out to
+HugMesh menu, gathers metadata via the dialog, shells out to
 `OS.get_executable_path()` with `--export-release` to drive the chosen Web
 preset, and packs `manifest.json` + `bundle/` + **`register.sql`** into a zip
 via `ZIPPacker`.
@@ -416,7 +416,7 @@ Target: an admin uploads a zip from the browser → BFF unpacks, validates, regi
 
 1. **Storage layout (key insight: versioning).** Each upload writes to a NEW directory keyed by content hash, never overwriting in place:
    ```
-   /var/snapdragon/games/<slug>/
+   /var/hugmesh/games/<slug>/
      ├── current -> v3                  (atomic symlink swap)
      ├── v1/                            (old — still served to active sessions)
      ├── v2/
@@ -424,21 +424,21 @@ Target: an admin uploads a zip from the browser → BFF unpacks, validates, regi
          ├── manifest.json
          └── bundle/
    ```
-   Move the games dir OUT of the API jar's classpath into a host-mounted volume (`/var/snapdragon/games`). Update `AssetController` to read from the filesystem instead of `ClassPathResource`.
+   Move the games dir OUT of the API jar's classpath into a host-mounted volume (`/var/hugmesh/games`). Update `AssetController` to read from the filesystem instead of `ClassPathResource`.
 
 2. **Upload pipeline (atomic, session-safe):**
    ```mermaid
    flowchart TB
-       R(["POST /api/admin/games/upload — multipart zip"]) --> Stage["stage: write to /var/snapdragon/staging/(random)/"]
+       R(["POST /api/admin/games/upload — multipart zip"]) --> Stage["stage: write to /var/hugmesh/staging/(random)/"]
        Stage --> Validate["validate: schema_version · manifest.json well-formed<br/>expected files present · slug regex ^[a-z0-9-]+$"]
        Validate --> Hash["hash: SHA-256 of bundle/ tree → version dir name"]
-       Hash --> Install["install: rename(staging → /var/snapdragon/games/(slug)/(version))"]
+       Hash --> Install["install: rename(staging → /var/hugmesh/games/(slug)/(version))"]
        Install --> Register["register: txn — INSERT/UPDATE games + levels + level_assets<br/>set current_version_dir on the level row"]
        Register --> Flip["flip: rename(current → .current.tmp) → rename((version) → current)<br/>active sessions keep reading their pinned version dir<br/>(asset_url resolution captures the dir at session start)"]
-       Flip --> Cache["cache: publish snapdragon.catalog.invalidated on Cassandra<br/>every BFF pod refreshes its catalog cache"]
+       Flip --> Cache["cache: publish hugmesh.catalog.invalidated on Cassandra<br/>every BFF pod refreshes its catalog cache"]
    ```
 
-3. **Session-safety contract.** When a player starts a game, the SSE session captures the `version_dir` path (e.g. `/var/snapdragon/games/cave/v3`) and uses THAT path until the session ends. New sessions started after the swap pick up `current` (now pointing at v4). No active stream sees a half-replaced bundle.
+3. **Session-safety contract.** When a player starts a game, the SSE session captures the `version_dir` path (e.g. `/var/hugmesh/games/cave/v3`) and uses THAT path until the session ends. New sessions started after the swap pick up `current` (now pointing at v4). No active stream sees a half-replaced bundle.
 
 4. **DB schema changes.**
    ```sql
@@ -469,7 +469,7 @@ Target: an admin uploads a zip from the browser → BFF unpacks, validates, regi
 
 ### Watch for
 
-- **Filesystem permissions** — the API container runs as root by default in eclipse-temurin; if we drop privileges later, ensure `/var/snapdragon/games` is writable.
+- **Filesystem permissions** — the API container runs as root by default in eclipse-temurin; if we drop privileges later, ensure `/var/hugmesh/games` is writable.
 - **Disk pressure** — keep last N versions per slug, prune older ones (cron job in `CassandraSyncService`).
 - **Zip slip** — when extracting, reject any entry whose normalized path escapes the staging dir. Use `java.nio.file.Path.normalize()` and `startsWith()` checks; never `new File(parent, entryName)` blindly.
 - **Streaming the upload** — `multipart/form-data` with WebFlux uses `FilePart`; pipe it through `transferTo(Path)` instead of buffering in memory.
@@ -483,7 +483,7 @@ Target: an admin uploads a zip from the browser → BFF unpacks, validates, regi
 - `backend/src/main/java/com/threewizards/service/AssetController.java` — refactor to filesystem-resolved version dir
 - `backend/src/main/java/com/threewizards/service/SessionService.java` — capture `version_dir` on session start
 - `backend/src/main/resources/db/changelog/018-game-uploads.xml` — new (`game_uploads` table + `levels.current_version_dir`)
-- `docker-compose.yml` — mount `/var/snapdragon/games` volume on api
+- `docker-compose.yml` — mount `/var/hugmesh/games` volume on api
 - `frontend/src/app/admin/game-upload.component.{ts,html,scss}` — new admin UI
 - `frontend/src/app/admin/admin.component.html` — link to game-upload route
 
@@ -599,7 +599,7 @@ Target: native binary built by Spring Boot's `native` profile, cold start <100 m
 
    FROM debian:bookworm-slim
    WORKDIR /app
-   COPY --from=build /app/target/snapdragon-gaming-bff app.bin
+   COPY --from=build /app/target/hugmesh-gaming-bff app.bin
    ENTRYPOINT ["/app/app.bin"]
    ```
 
@@ -618,7 +618,7 @@ Target: native binary built by Spring Boot's `native` profile, cold start <100 m
 ### Files this touches
 
 - `backend/pom.xml` — add `native` profile
-- `backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java` — new (custom hints registrar)
+- `backend/src/main/java/com/threewizards/aot/HugMeshRuntimeHints.java` — new (custom hints registrar)
 - `backend/src/main/java/com/threewizards/model/*.java` — add `@RegisterReflectionForBinding` on DTOs that cross JSON
 - `backend/Dockerfile.native` — new (parallel to existing)
 - `Makefile` — add `build-backend-native` target
@@ -630,7 +630,7 @@ Target: native binary built by Spring Boot's `native` profile, cold start <100 m
 - `pom.xml` has the `native` profile (spring-boot-maven-plugin `process-aot` +
   `org.graalvm.buildtools:native-maven-plugin`, plus a tiny `--initialize-at-run-time`
   list for jansi to suppress the AnsiConsole startup-init failure).
-- `SnapdragonRuntimeHints` registers reflection for the 13 JSON-boundary record DTOs
+- `HugMeshRuntimeHints` registers reflection for the 13 JSON-boundary record DTOs
   (`MemberCategory.INVOKE_DECLARED_CONSTRUCTORS|METHODS` + `DECLARED_FIELDS`) plus
   the `db/changelog/*.xml` resource pattern. Wired via `@ImportRuntimeHints` on
   `ThreeWizardsApplication`.
@@ -644,7 +644,7 @@ Target: native binary built by Spring Boot's `native` profile, cold start <100 m
    offsets, R2DBC ↔ `OffsetDateTime` converter, classpath-resource
    inclusion for `assets/levels/`) all landed and are documented in the
    README's native-image section. Future hint additions go in
-   `SnapdragonRuntimeHints` as they appear.
+   `HugMeshRuntimeHints` as they appear.
 2. ✓ **Done in this branch:** `docker-compose.native.yml` overlay swaps the
    JVM api service for the native binary (`docker compose -f docker-compose.yml
    -f docker-compose.native.yml up`). `make e2e-native` runs the full
@@ -739,7 +739,7 @@ classes — two of which (`CaveScene`, `PlayerController`) were placeholders
 duplicating GDScript work. The Rust crate was named `three_wizards`.
 
 Target reached this branch:
-- `extensions/snapdragon-bridge/` — reusable Rust bridge crate. Just one
+- `extensions/hugmesh-bridge/` — reusable Rust bridge crate. Just one
   class (`HostBridge`) that emits typed signals (`movement_received`,
   `world_received`, `character_received`, `time_received`,
   `scene_received`, `scene_ready`, `input_egress`) carrying stringly-typed
@@ -756,16 +756,16 @@ Target reached this branch:
   `dodecahedron.tscn` + `dodecahedron_spinner.gd` + a single `Dodecahedron`
   export preset.
 - Each game project carries its own copy of the bridge `.gdextension`
-  manifest, the `addons/snapdragon_export/` plugin, and a `bin/` dir the
+  manifest, the `addons/hugmesh_export/` plugin, and a `bin/` dir the
   Makefile populates with the freshly-built bridge binary at every
   `make build-rust`. That keeps each project openable standalone in the
   Godot editor, so a level designer can clone, open, hit F5, and drive
   the player without spinning up the rest of the stack.
 
 ### Files this touches
-- `extensions/snapdragon-bridge/{Cargo.toml,Cargo.lock,src/{lib,host_bridge}.rs,bin/.gitkeep,snapdragon_bridge.gdextension}`
-- `games/three-wizards-in-a-trenchcoat/{project.godot,export_presets.cfg,scenes/,scripts/,addons/,bin/,snapdragon_bridge.gdextension}`
-- `games/dodecahedron-demo/{project.godot,export_presets.cfg,scenes/,scripts/,addons/,bin/,snapdragon_bridge.gdextension}`
+- `extensions/hugmesh-bridge/{Cargo.toml,Cargo.lock,src/{lib,host_bridge}.rs,bin/.gitkeep,hugmesh_bridge.gdextension}`
+- `games/three-wizards-in-a-trenchcoat/{project.godot,export_presets.cfg,scenes/,scripts/,addons/,bin/,hugmesh_bridge.gdextension}`
+- `games/dodecahedron-demo/{project.godot,export_presets.cfg,scenes/,scripts/,addons/,bin/,hugmesh_bridge.gdextension}`
 - `Makefile` — per-project iteration via shell `case` (bash variable names
   can't have dashes, so the original `$(PRESETS_$(GAME))` lookup didn't
   resolve); `make build-rust` now copies the binary into every game's
@@ -782,7 +782,7 @@ Target reached this branch:
   `state_updated`. The player controller consumes the same signals
   it always did, so editor F5 drives the wizard from the keyboard
   without spinning up the BFF / Casdoor / Postgres / Cassandra.
-- `extensions/snapdragon-bridge/example/bridge_glue.gd` is a
+- `extensions/hugmesh-bridge/example/bridge_glue.gd` is a
   reference template for new games that want to use the Rust
   `HostBridge` directly instead of the legacy GDScript bridge. Drop
   a copy into `scripts/bridge_glue.gd`, attach to a `HostBridge` node,

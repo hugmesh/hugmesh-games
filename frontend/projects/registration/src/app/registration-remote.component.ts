@@ -17,11 +17,11 @@ import { Router } from '@angular/router';
  *   <li>Casdoor lands back at /login/oauth2/code/casdoor with an
  *       access_token + the user's external identityProvider claims.</li>
  *   <li>This component's resumed-load handler POSTs
- *       {githubAccessToken, snapdragonUsername} to
+ *       {githubAccessToken, hugmeshUsername} to
  *       <code>/api/registration/github-org-admin/evaluate</code>
- *       (snapdragon-actions service, proxied by the gateway).</li>
+ *       (hugmesh-actions service, proxied by the gateway).</li>
  *   <li>On 200 → navigate to the catalog. On 403 → render the
- *       "no Snapdragon org admin" message in-page (the user is
+ *       "no HugMesh org admin" message in-page (the user is
  *       still registered as a regular player; only the admin
  *       auto-grant was denied).</li>
  * </ol>
@@ -39,7 +39,7 @@ import { Router } from '@angular/router';
   template: `
     <div class="reg-page">
       <div class="reg-card">
-        <h1>Snapdragon <span>Sign up</span></h1>
+        <h1>HugMesh <span>Sign up</span></h1>
         <p class="subtitle">Register for the portal with an existing
           provider account — we read your basic profile, never the
           private bits.</p>
@@ -52,7 +52,7 @@ import { Router } from '@angular/router';
             Continue with GitHub
           </button>
           <p class="hint">
-            If you administer a repo in any Snapdragon GitHub
+            If you administer a repo in any HugMesh GitHub
             organisation you'll be auto-granted admin in
             snapdragon.systems — otherwise you'll land as a regular
             player with no extra fuss.
@@ -65,7 +65,7 @@ import { Router } from '@angular/router';
           <p class="success">Welcome — you've been granted admin access.</p>
         }
         @else if (status() === 'denied') {
-          <p class="info">You're registered. No Snapdragon admin
+          <p class="info">You're registered. No HugMesh admin
             permissions detected — that's fine, you can play
             everything as a regular user.</p>
           <button class="provider-btn"
@@ -151,12 +151,12 @@ export class RegistrationRemoteComponent {
     this.router.navigateByUrl('/');
   }
 
-  private evaluateGitHubAdmin(githubAccessToken: string, snapdragonUsername: string): void {
+  private evaluateGitHubAdmin(githubAccessToken: string, hugmeshUsername: string): void {
     this.status.set('evaluating');
     this.http
       .post<{ memberId: string }>(
         '/api/registration/github-org-admin/evaluate',
-        { githubAccessToken, snapdragonUsername })
+        { githubAccessToken, hugmeshUsername })
       .subscribe({
         next: () => this.status.set('granted'),
         error: (err) => {

@@ -74,7 +74,7 @@ export class AppComponent implements OnInit {
     //     postMessages from any Godot iframe, performs the matching
     //     HttpClient call (so the auth interceptor + X-Session-Id
     //     header flow uniformly), and posts SD_API_RESPONSE back.
-    //     This is the host-side seam for the snapdragon_bridge addon's
+    //     This is the host-side seam for the hugmesh_bridge addon's
     //     BridgeApiClient.
     this.apiBridge.start();
     // AdminActionsListener subscribes to the per-user SSE stream and

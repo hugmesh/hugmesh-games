@@ -13,7 +13,7 @@
 //   (a) bomberman.js is loaded as a real ES module against a mocked canvas 2D
 //       context; render() of the initial arena issues the EXPECTED draw-call counts
 //       — one fillRect per cell (143 terrain tiles) + one arc per live player (2).
-//   (b) the real snapdragon_bomberman_wasm.wasm is driven through the shared
+//   (b) the real hugmesh_bomberman_wasm.wasm is driven through the shared
 //       WasmHost (the shell's marshalling), and an INPUT (P1 presses ArrowRight)
 //       applied THROUGH the game's onLocalInput keydown path is recorded into the
 //       engine, then the host-authoritative tick (_tickOnce) advances the sim: the
@@ -34,7 +34,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const BOMBERMAN_DIR = join(here, '..');
-const WASM_PATH = join(BOMBERMAN_DIR, 'wasm', 'snapdragon_bomberman_wasm.wasm');
+const WASM_PATH = join(BOMBERMAN_DIR, 'wasm', 'hugmesh_bomberman_wasm.wasm');
 
 const WIDTH = 13;
 const HEIGHT = 11;
@@ -218,7 +218,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.bomberman_tick === 'function',
-    'WasmHost bound the real snapdragon_bomberman_wasm.wasm (bomberman_tick export present)',
+    'WasmHost bound the real hugmesh_bomberman_wasm.wasm (bomberman_tick export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost (proves the shell

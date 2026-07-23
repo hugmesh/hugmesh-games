@@ -15,10 +15,10 @@
       chapter (ids/sort_order via MAX+1, guarded by WHERE NOT EXISTS, into the
       current `chapters` table). Playable Godot/WASM bundles + federation
       remotes ship per-game later (chess P3 pattern). Engines:
-      extensions/snapdragon-{connect-four,reversi,gomoku,dots-and-boxes}.
+      extensions/hugmesh-{connect-four,reversi,gomoku,dots-and-boxes}.
     -->
 
-    <changeSet id="045-1-connect-four" author="snapdragon">
+    <changeSet id="045-1-connect-four" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -37,7 +37,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'connect-four');
         </sql>
     </changeSet>
 
-    <changeSet id="045-2-reversi" author="snapdragon">
+    <changeSet id="045-2-reversi" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -56,7 +56,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'reversi');
         </sql>
     </changeSet>
 
-    <changeSet id="045-3-gomoku" author="snapdragon">
+    <changeSet id="045-3-gomoku" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -75,7 +75,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'gomoku');
         </sql>
     </changeSet>
 
-    <changeSet id="045-4-dots-and-boxes" author="snapdragon">
+    <changeSet id="045-4-dots-and-boxes" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),

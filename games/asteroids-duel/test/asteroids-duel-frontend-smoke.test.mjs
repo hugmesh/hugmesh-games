@@ -14,7 +14,7 @@
 //       context; render() of the INITIAL snapshot issues the EXPECTED vector
 //       draw calls — the star-field, one closed polygon per seeded asteroid (4),
 //       and one ship triangle (survival) — i.e. the field is drawn as vectors.
-//   (b) the real snapdragon_asteroids_duel_wasm.wasm is driven through the shared
+//   (b) the real hugmesh_asteroids_duel_wasm.wasm is driven through the shared
 //       WasmHost (the shell's marshalling), and an INPUT (hold thrust) applied
 //       through the game's onLocalInput keydown path THEN advanced one host tick
 //       (_tickOnce — the loop's body, called directly so the test is deterministic
@@ -34,7 +34,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const GAME_DIR = join(here, '..');
-const WASM_PATH = join(GAME_DIR, 'wasm', 'snapdragon_asteroids_duel_wasm.wasm');
+const WASM_PATH = join(GAME_DIR, 'wasm', 'hugmesh_asteroids_duel_wasm.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -193,7 +193,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.asteroids_tick === 'function',
-    'WasmHost bound the real snapdragon_asteroids_duel_wasm.wasm (asteroids_tick export present)',
+    'WasmHost bound the real hugmesh_asteroids_duel_wasm.wasm (asteroids_tick export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost (proves the shell

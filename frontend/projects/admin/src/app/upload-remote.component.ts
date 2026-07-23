@@ -57,8 +57,8 @@ interface AccessGrantRequest { scope: AccessScope; value?: string; }
     <section class="upload-page">
       <h2>Upload a game bundle</h2>
       <p class="hint">
-        Drag a <code>&lt;slug&gt;-snapdragon-bundle.zip</code> produced by
-        <em>Project → Tools → Snapdragon → Export to Snapdragon…</em> in the
+        Drag a <code>&lt;slug&gt;-hugmesh-bundle.zip</code> produced by
+        <em>Project → Tools → HugMesh → Export to HugMesh…</em> in the
         Godot editor. The BFF validates <code>manifest.json</code> (schema_version 2),
         runs <code>register.sql</code> in a transaction, and atomically swaps the
         asset version dir without disturbing live sessions.
@@ -77,7 +77,7 @@ interface AccessGrantRequest { scope: AccessScope; value?: string; }
           <p>Drop a bundle zip here or</p>
         }
         <input type="file" accept=".zip"
-               aria-label="Upload Snapdragon bundle zip"
+               aria-label="Upload HugMesh bundle zip"
                (change)="onFilePicked($event)">
       </div>
 

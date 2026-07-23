@@ -12,7 +12,7 @@
           • registration — external OAuth signup flow (GitHub today;
             same surface accommodates Google / other Casdoor providers).
             Posts to /api/registration/github-org-admin/evaluate at the
-            snapdragon-actions service after the OAuth callback.
+            hugmesh-actions service after the OAuth callback.
 
           • banned — the ONLY route a revoked user can reach (besides
             /login + /registration). The host's auth-error interceptor
@@ -22,7 +22,7 @@
         Both are reachable to unauthenticated traffic by design —
         SecurityConfig's PUBLIC_PATHS allowlist permits
         /_remotes/registration/** + /_remotes/banned/** (set on the
-        gateway side in feature/snapdragon-games-gateway-alignment).
+        gateway side in feature/hugmesh-games-gateway-alignment).
     -->
 
     <changeSet id="030-1-registration-federation-row" author="nin">

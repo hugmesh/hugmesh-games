@@ -51,20 +51,20 @@ interface WebGame {
 }
 
 const WEB_GAMES: WebGame[] = [
-  { slug: 'chess',          name: 'Chess',          wasmFile: 'snapdragon_chess.wasm',               bootFlag: '__chessReady'      },
-  { slug: 'connect-four',   name: 'Connect Four',   wasmFile: 'snapdragon_connect_four.wasm',        bootFlag: '__connectFourReady' },
-  { slug: 'reversi',        name: 'Reversi',        wasmFile: 'snapdragon_reversi_wasm.wasm',        bootFlag: '__reversiReady'    },
-  { slug: 'gomoku',         name: 'Gomoku',         wasmFile: 'snapdragon_gomoku.wasm',              bootFlag: '__gomokuReady'     },
-  { slug: 'dots-and-boxes', name: 'Dots and Boxes', wasmFile: 'snapdragon_dots_and_boxes.wasm',      bootFlag: '__dabReady'        },
-  { slug: 'go',             name: 'Go',             wasmFile: 'snapdragon_go.wasm',                  bootFlag: '__goReady'         },
-  { slug: 'battleship',     name: 'Battleship',     wasmFile: 'snapdragon_battleship_wasm.wasm',     bootFlag: '__battleshipReady' },
-  { slug: 'tetris',         name: 'Tetris',         wasmFile: 'snapdragon_tetris_wasm.wasm',         bootFlag: '__tetrisReady'     },
-  { slug: 'minesweeper',    name: 'Minesweeper',    wasmFile: 'snapdragon_minesweeper_wasm.wasm',    bootFlag: '__minesweeperReady' },
-  { slug: 'sudoku',         name: 'Sudoku',         wasmFile: 'snapdragon_sudoku_wasm.wasm',         bootFlag: '__sudokuReady'     },
-  { slug: 'match-three',    name: 'Match Three',    wasmFile: 'snapdragon_match_three_wasm.wasm',    bootFlag: '__matchThreeReady' },
-  { slug: 'tron',           name: 'Tron',           wasmFile: 'snapdragon_tron_wasm.wasm',           bootFlag: '__tronReady'       },
-  { slug: 'bomberman',      name: 'Bomberman',      wasmFile: 'snapdragon_bomberman_wasm.wasm',      bootFlag: '__bombermanReady'  },
-  { slug: 'asteroids-duel', name: 'Asteroids',      wasmFile: 'snapdragon_asteroids_duel_wasm.wasm', bootFlag: '__asteroidsReady'  },
+  { slug: 'chess',          name: 'Chess',          wasmFile: 'hugmesh_chess.wasm',               bootFlag: '__chessReady'      },
+  { slug: 'connect-four',   name: 'Connect Four',   wasmFile: 'hugmesh_connect_four.wasm',        bootFlag: '__connectFourReady' },
+  { slug: 'reversi',        name: 'Reversi',        wasmFile: 'hugmesh_reversi_wasm.wasm',        bootFlag: '__reversiReady'    },
+  { slug: 'gomoku',         name: 'Gomoku',         wasmFile: 'hugmesh_gomoku.wasm',              bootFlag: '__gomokuReady'     },
+  { slug: 'dots-and-boxes', name: 'Dots and Boxes', wasmFile: 'hugmesh_dots_and_boxes.wasm',      bootFlag: '__dabReady'        },
+  { slug: 'go',             name: 'Go',             wasmFile: 'hugmesh_go.wasm',                  bootFlag: '__goReady'         },
+  { slug: 'battleship',     name: 'Battleship',     wasmFile: 'hugmesh_battleship_wasm.wasm',     bootFlag: '__battleshipReady' },
+  { slug: 'tetris',         name: 'Tetris',         wasmFile: 'hugmesh_tetris_wasm.wasm',         bootFlag: '__tetrisReady'     },
+  { slug: 'minesweeper',    name: 'Minesweeper',    wasmFile: 'hugmesh_minesweeper_wasm.wasm',    bootFlag: '__minesweeperReady' },
+  { slug: 'sudoku',         name: 'Sudoku',         wasmFile: 'hugmesh_sudoku_wasm.wasm',         bootFlag: '__sudokuReady'     },
+  { slug: 'match-three',    name: 'Match Three',    wasmFile: 'hugmesh_match_three_wasm.wasm',    bootFlag: '__matchThreeReady' },
+  { slug: 'tron',           name: 'Tron',           wasmFile: 'hugmesh_tron_wasm.wasm',           bootFlag: '__tronReady'       },
+  { slug: 'bomberman',      name: 'Bomberman',      wasmFile: 'hugmesh_bomberman_wasm.wasm',      bootFlag: '__bombermanReady'  },
+  { slug: 'asteroids-duel', name: 'Asteroids',      wasmFile: 'hugmesh_asteroids_duel_wasm.wasm', bootFlag: '__asteroidsReady'  },
 ];
 
 test.describe('web-native games — launch + WASM render', () => {

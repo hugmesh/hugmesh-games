@@ -1,4 +1,4 @@
-# Runtime art loader for a produced RPG bundle (snapdragon-rpg-builder).
+# Runtime art loader for a produced RPG bundle (hugmesh-rpg-builder).
 #
 # Gives a room its floor/background art so an exported RPG is not a blank
 # primitive. Kept in the template (not per-room-generated) so every generated
@@ -46,10 +46,10 @@ static func _load_texture(texture_path: String) -> Texture2D:
     if texture_path == "":
         return null
     if not ResourceLoader.exists(texture_path):
-        push_warning("[snapdragon-rpg] art missing from bundle: %s" % texture_path)
+        push_warning("[hugmesh-rpg] art missing from bundle: %s" % texture_path)
         return null
     var res: Resource = load(texture_path)
     if res is Texture2D:
         return res as Texture2D
-    push_warning("[snapdragon-rpg] art did not import as a texture: %s" % texture_path)
+    push_warning("[hugmesh-rpg] art did not import as a texture: %s" % texture_path)
     return null

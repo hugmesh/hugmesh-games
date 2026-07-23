@@ -8,7 +8,7 @@ Outputs into docs/publishing/openapi/build/:
   per-tag/<slug>.tex           — one fragment per tag with full
                                  long-form prose + samples + flags.
 
-LaTeX is written using the snapdragon-theme macros (\snapfile,
+LaTeX is written using the hugmesh-theme macros (\snapfile,
 \snapcommand, snapnote/snapcaution boxes, lstlisting JSON style)
 so the fragments drop into existing chapters with no extra setup.
 
@@ -107,7 +107,7 @@ def render_tag_fragment(tag_name: str, tag_meta: dict,
         "",
         f"\\subsection*{{{tex(tag_name)}}}",
     ]
-    snap = tag_meta.get("x-snapdragon", {}) if isinstance(tag_meta, dict) else {}
+    snap = tag_meta.get("x-hugmesh", {}) if isinstance(tag_meta, dict) else {}
     blurb = snap.get("blurb") or tag_meta.get("description")
     if blurb:
         out.append(tex(blurb))
@@ -183,7 +183,7 @@ def collect_operations(spec: dict) -> list[dict]:
                 "path":    path,
                 "summary": op.get("summary", ""),
                 "description": op.get("description", ""),
-                "snap":    op.get("x-snapdragon", {}),
+                "snap":    op.get("x-hugmesh", {}),
                 "responses": op.get("responses", {}),
             })
     rows.sort(key=lambda r: (r["tag"], r["path"], r["method"]))

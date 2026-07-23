@@ -14,7 +14,7 @@
 //       context; render() of the seed-1 opening issues the EXPECTED draw-call
 //       counts — 200 well fillRects (the 10x20 grid) PLUS the 4 active-piece
 //       blocks (4 more fillRects), plus the next/hold preview repaints.
-//   (b) the real snapdragon_tetris_wasm.wasm is driven through the shared
+//   (b) the real hugmesh_tetris_wasm.wasm is driven through the shared
 //       WasmHost (the shell's marshalling), and inputs applied THROUGH the
 //       game's onLocalInput action path mutate the engine exactly: a left nudge
 //       shifts the active piece (x 3 -> 2), a hard drop LOCKS four cells into the
@@ -33,7 +33,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const TETRIS_DIR = join(here, '..');
-const WASM_PATH = join(TETRIS_DIR, 'wasm', 'snapdragon_tetris_wasm.wasm');
+const WASM_PATH = join(TETRIS_DIR, 'wasm', 'hugmesh_tetris_wasm.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -243,7 +243,7 @@ async function main() {
   const host = new WasmHost(WASM_PATH);
   await host.loadBytes(bytes);
   assert(typeof host.exports.tetris_new === 'function',
-    'WasmHost bound the real snapdragon_tetris_wasm.wasm (tetris_new export present)');
+    'WasmHost bound the real hugmesh_tetris_wasm.wasm (tetris_new export present)');
   // Sanity: the marshalling contract works through WasmHost (seed passed as a
   // leading u64 arg via callRaw/callStatus leadingArgs — the documented path).
   assert(host.callStatus('tetris_new', null, [1n]) === 1, 'WasmHost.callStatus(tetris_new, [1n]) === 1');

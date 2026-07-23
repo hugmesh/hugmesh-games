@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the api-docs remote-shell.
 //
 // `name`     — federation_modules.slug = 'api-docs'.
@@ -12,7 +12,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 // shareAll + skip list comes from federation-base.js.
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'api-docs',
   exposes: {
     './DocsShell':    './projects/api-docs/src/app/docs-shell.component.ts',

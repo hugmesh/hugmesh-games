@@ -3,7 +3,7 @@
 # node_modules cache reach the container.
 #
 #   docker build -f frontend/projects/login/Dockerfile \
-#                -t snapdragon-login ./frontend
+#                -t hugmesh-login ./frontend
 #
 # The compose service `login` pulls this and serves the output on its
 # private :8080. The host shell discovers it via /api/federation/manifest

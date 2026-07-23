@@ -62,8 +62,8 @@ script = ExtResource("1_bridge")
 
 [node name="BridgeGlue" type="BridgeGlue" parent="GameBridge"]
 
-; Wizards parent: avatar hierarchy host for SnapdragonMultiplayerLobby.
-; The Rust SnapdragonMultiplayerLobby class spawns one CharacterBody3D
+; Wizards parent: avatar hierarchy host for HugMeshMultiplayerLobby.
+; The Rust HugMeshMultiplayerLobby class spawns one CharacterBody3D
 ; per registered slot under this node (its avatar_parent_path defaults
 ; to "../Wizards"). Empty by default — the existing solo `Player` node
 ; is preserved for the legacy cave single-player scene flow.
@@ -73,7 +73,7 @@ script = ExtResource("1_bridge")
 ; Sibling of HostBridge / Wizards. Subscribes to slot_registered
 ; / slot_released and routes remote movement events to the matching
 ; CharacterBody3D under Wizards.
-[node name="MultiplayerLobby" type="SnapdragonMultiplayerLobby" parent="."]
+[node name="MultiplayerLobby" type="HugMeshMultiplayerLobby" parent="."]
 
 [node name="SceneLoader" type="Node" parent="."]
 script = ExtResource("4_loader")

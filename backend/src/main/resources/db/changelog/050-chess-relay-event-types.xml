@@ -24,7 +24,7 @@
       All inserts are ON CONFLICT DO NOTHING so re-runs on partial state are
       no-ops (idempotent per the repo's migration protocol).
     -->
-    <changeSet id="050-1-world-state-event-type" author="snapdragon">
+    <changeSet id="050-1-world-state-event-type" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="input_event_types"/>
         </preConditions>
@@ -37,7 +37,7 @@
         </sql>
     </changeSet>
 
-    <changeSet id="050-2-chess-game-event-support" author="snapdragon">
+    <changeSet id="050-2-chess-game-event-support" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="game_event_support"/>
         </preConditions>

@@ -4,12 +4,12 @@ This is the **canonical recipe** for the Godot pivot:
 
 > a web-native game (HTML/canvas + a deterministic Rust core compiled to wasm32)
 > → a real **Godot 4 project outline** that **reuses the SAME Rust core** via the
-> `snapdragon_bridge` GDExtension → a **Web WASM** export → a **federated app**
+> `hugmesh_bridge` GDExtension → a **Web WASM** export → a **federated app**
 > the host launches like any other game.
 
 The reference implementation is [`games/chess-godot/`](../chess-godot). It is a
 complete, exportable Godot project that delegates **all chess rules** to the
-existing `extensions/snapdragon-chess` Rust crate — there is **no GDScript
+existing `extensions/hugmesh-chess` Rust crate — there is **no GDScript
 reimplementation** of the rules. Study it alongside this README; the two stock
 games [`games/three-wizards-in-a-trenchcoat/`](../three-wizards-in-a-trenchcoat)
 and [`games/dodecahedron-demo/`](../dodecahedron-demo) show the bridge transport
@@ -28,20 +28,20 @@ file is specifically about reusing a Rust core from Godot.**
   Godot scene (.tscn + .gd)        ← rendering, input, board UI, animations
         │  calls (never reimplements rules)
         ▼
-  ChessEngine  (GDExtension node)  ← thin wrapper, in snapdragon_bridge
+  ChessEngine  (GDExtension node)  ← thin wrapper, in hugmesh_bridge
         │  links as an rlib dependency
         ▼
-  snapdragon-chess  (Rust crate)   ← THE rules engine: legal_moves / apply_uci /
+  hugmesh-chess  (Rust crate)   ← THE rules engine: legal_moves / apply_uci /
                                       status / fen — the single source of truth,
                                       identical native (.so) and in the browser
-                                      (compiled into snapdragon_bridge.wasm)
+                                      (compiled into hugmesh_bridge.wasm)
 
-  HostBridge / BridgeGlue / BridgeApiClient  (snapdragon_bridge)
-        ← session SSE relay + control egress, same as every Snapdragon Godot game
+  HostBridge / BridgeGlue / BridgeApiClient  (hugmesh_bridge)
+        ← session SSE relay + control egress, same as every HugMesh Godot game
 ```
 
 The web-native bundle drives the same crate through a wasm C-ABI shim
-(`extensions/snapdragon-chess-wasm`). The Godot port drives it through a Rust
+(`extensions/hugmesh-chess-wasm`). The Godot port drives it through a Rust
 **GDExtension node** instead. Both consume one validated engine, so a Godot
 guest re-validating a relayed move is interchangeable with a web guest — the
 `world`-channel JSON (`{"type":"chess.state","fen":..,"status":..}`) is
@@ -50,8 +50,8 @@ identical in both cases.
 ```mermaid
 flowchart TB
     subgraph Web["Web-native path (existing)"]
-        WB["HTML/canvas frontend"] -->|"calls C-ABI shim"| WS["snapdragon-chess-wasm\n(wasm32-unknown-unknown)"]
-        WS -->|"links"| CORE["snapdragon-chess\n(Rust rlib)"]
+        WB["HTML/canvas frontend"] -->|"calls C-ABI shim"| WS["hugmesh-chess-wasm\n(wasm32-unknown-unknown)"]
+        WS -->|"links"| CORE["hugmesh-chess\n(Rust rlib)"]
     end
 
     subgraph Godot["Godot 4 path (this recipe)"]
@@ -67,20 +67,20 @@ flowchart TB
 
 ## Recipe (what `chess-godot` did — do this per game)
 
-### 1. Expose the Rust core as a GDExtension node in `snapdragon_bridge`
+### 1. Expose the Rust core as a GDExtension node in `hugmesh_bridge`
 
 The cores are **pure, dependency-free `rlib` crates** that already compile for
 both native and `wasm32-unknown-emscripten`. Reuse one by linking it into the
 bridge and wrapping it in a `#[derive(GodotClass)]` node:
 
-* `extensions/snapdragon-bridge/Cargo.toml` — add the core as a path dep:
+* `extensions/hugmesh-bridge/Cargo.toml` — add the core as a path dep:
 
   ```toml
   [dependencies]
-  snapdragon-chess = { path = "../snapdragon-chess" }
+  hugmesh-chess = { path = "../hugmesh-chess" }
   ```
 
-* `extensions/snapdragon-bridge/src/<game>_engine.rs` — a `Node`-based
+* `extensions/hugmesh-bridge/src/<game>_engine.rs` — a `Node`-based
   `GodotClass` that holds one core game instance and exposes a small, JSON/string
   `#[func]` API. Using plain strings rather than typed Dictionaries keeps the
   binding compatible across every gdext version. See `chess_engine.rs` for the
@@ -88,7 +88,7 @@ bridge and wrapping it in a `#[derive(GodotClass)]` node:
   `legal_moves` / `legal_moves_from`, `apply_uci`, `status`, `is_terminal`,
   `resign`. **Every method delegates to the core; none implements rules.**
 
-* `extensions/snapdragon-bridge/src/lib.rs` — add `mod <game>_engine;` and
+* `extensions/hugmesh-bridge/src/lib.rs` — add `mod <game>_engine;` and
   `pub use <game>_engine::<Game>Engine;`. The `#[gdextension]` macro
   auto-registers every `GodotClass` in the crate, so no manual registry entry
   is needed.
@@ -97,8 +97,8 @@ bridge and wrapping it in a `#[derive(GodotClass)]` node:
   assert the core produces the wire shapes the web bundle relies on. See the
   `chess_engine::tests` module.
 
-`make build-rust` then compiles the core into both `libsnapdragon_bridge.so`
-(native — used by the editor and tests) and `snapdragon_bridge.wasm` (produced
+`make build-rust` then compiles the core into both `libhugmesh_bridge.so`
+(native — used by the editor and tests) and `hugmesh_bridge.wasm` (produced
 by the dockerised emscripten build and shipped inside the Web export). One
 validated core, used in every context.
 
@@ -109,9 +109,9 @@ Mirror `games/chess-godot/`:
 * `project.godot` — set `config/name`, `run/main_scene`, and enable both addon
   plugins so the editor opens standalone:
   ```
-  enabled=PackedStringArray("res://addons/snapdragon_export/plugin.cfg", "res://addons/snapdragon_bridge/plugin.cfg")
+  enabled=PackedStringArray("res://addons/hugmesh_export/plugin.cfg", "res://addons/hugmesh_bridge/plugin.cfg")
   ```
-* `snapdragon_bridge.gdextension` (+ `.uid`) — copy verbatim from any existing
+* `hugmesh_bridge.gdextension` (+ `.uid`) — copy verbatim from any existing
   game; paths are `res://bin/...`.
 * `.gitignore` / `.gitattributes` / `.editorconfig` — copy from `dodecahedron-demo`.
   These ignore `bin/*.so|*.wasm` and the synced `addons/` directory (the root
@@ -177,9 +177,9 @@ back, disable the new row — the original entry is untouched.
 ### 6. Build + verify
 
 ```sh
-make build-rust     # core → .so + (dockerised) snapdragon_bridge.wasm
+make build-rust     # core → .so + (dockerised) hugmesh_bridge.wasm
 make build-godot    # headless Web export → backend/.../assets/levels/<slug>/
-cargo test -p snapdragon_bridge --lib            # reuse-path tests
+cargo test -p hugmesh_bridge --lib            # reuse-path tests
 ```
 
 Confirm the export produced a real, non-empty `index.wasm` + `index.pck` +
@@ -231,8 +231,8 @@ and the guest re-validates from the authoritative state, identical to chess.
 path — they are grouped into Wave C and done together so the realtime bridge
 surface is proven once.
 
-Every game already has a dependency-free `snapdragon-<slug>` core crate, plus a
-`snapdragon-<slug>-wasm` C-ABI shim that the current web bundle uses. The port
+Every game already has a dependency-free `hugmesh-<slug>` core crate, plus a
+`hugmesh-<slug>-wasm` C-ABI shim that the current web bundle uses. The port
 reuses the **core** crate as a bridge `rlib` dependency. The `-wasm` shim is
 left untouched as the web-native fallback.
 
@@ -253,19 +253,19 @@ flowchart LR
 
 | Game | Slug | Rust core to reuse | Cadence | Notes for the port |
 |------|------|--------------------|---------|--------------------|
-| Connect Four | `connect-four` | `extensions/snapdragon-connect-four` | turn-based (host-auth) | trivial 7×6 grid; mirror chess board input |
-| Reversi/Othello | `reversi` | `extensions/snapdragon-reversi` | turn-based (host-auth) | flip animation is presentation-only |
-| Gomoku | `gomoku` | `extensions/snapdragon-gomoku` | turn-based (host-auth) | large board; same click→`apply_move` shape |
-| Dots and Boxes | `dots-and-boxes` | `extensions/snapdragon-dots-and-boxes` | turn-based (host-auth) | edges as click targets, not cells |
-| Go | `go` | `extensions/snapdragon-go` | turn-based (host-auth) | scoring/ko handled by the core; UI shows territory |
-| Battleship | `battleship` | `extensions/snapdragon-battleship` | turn-based (host-auth) | hidden state per slot; core owns reveal logic |
-| Minesweeper | `minesweeper` | `extensions/snapdragon-minesweeper` | turn-based / single | co-op or solo; core owns mine layout + reveal |
-| Sudoku | `sudoku` | `extensions/snapdragon-sudoku` | single-player | no relay needed; pure local core + persistence |
-| Match Three | `match-three` | `extensions/snapdragon-match-three` | single / score-relay | cascades are core-driven; UI animates the deltas |
-| Tetris | `tetris` | `extensions/snapdragon-tetris` | **real-time** | tick-loop; relay piece/lock events, not whole board |
-| Tron | `tron` | `extensions/snapdragon-tron` | **real-time** | continuous input; realtime relay; trail in UI |
-| Bomberman | `bomberman` | `extensions/snapdragon-bomberman` | **real-time** | grid + timers in core; realtime relay |
-| Asteroids Duel | `asteroids-duel` | `extensions/snapdragon-asteroids-duel` | **real-time** | physics in core; realtime relay; 2-player duel |
+| Connect Four | `connect-four` | `extensions/hugmesh-connect-four` | turn-based (host-auth) | trivial 7×6 grid; mirror chess board input |
+| Reversi/Othello | `reversi` | `extensions/hugmesh-reversi` | turn-based (host-auth) | flip animation is presentation-only |
+| Gomoku | `gomoku` | `extensions/hugmesh-gomoku` | turn-based (host-auth) | large board; same click→`apply_move` shape |
+| Dots and Boxes | `dots-and-boxes` | `extensions/hugmesh-dots-and-boxes` | turn-based (host-auth) | edges as click targets, not cells |
+| Go | `go` | `extensions/hugmesh-go` | turn-based (host-auth) | scoring/ko handled by the core; UI shows territory |
+| Battleship | `battleship` | `extensions/hugmesh-battleship` | turn-based (host-auth) | hidden state per slot; core owns reveal logic |
+| Minesweeper | `minesweeper` | `extensions/hugmesh-minesweeper` | turn-based / single | co-op or solo; core owns mine layout + reveal |
+| Sudoku | `sudoku` | `extensions/hugmesh-sudoku` | single-player | no relay needed; pure local core + persistence |
+| Match Three | `match-three` | `extensions/hugmesh-match-three` | single / score-relay | cascades are core-driven; UI animates the deltas |
+| Tetris | `tetris` | `extensions/hugmesh-tetris` | **real-time** | tick-loop; relay piece/lock events, not whole board |
+| Tron | `tron` | `extensions/hugmesh-tron` | **real-time** | continuous input; realtime relay; trail in UI |
+| Bomberman | `bomberman` | `extensions/hugmesh-bomberman` | **real-time** | grid + timers in core; realtime relay |
+| Asteroids Duel | `asteroids-duel` | `extensions/hugmesh-asteroids-duel` | **real-time** | physics in core; realtime relay; 2-player duel |
 
 Suggested wave order:
 1. **Wave A (turn-based, simplest):** connect-four, reversi, gomoku, dots-and-boxes —
@@ -277,5 +277,5 @@ Suggested wave order:
 > Before starting each wave, confirm the target core is a dependency-free `rlib`.
 > Most cores already declare `crate-type = ["rlib","cdylib"]`. If a core is
 > wasm-only today (cdylib only), adding `rlib` to its `crate-type` is the only
-> change needed to enable native/Godot reuse — exactly as `snapdragon-chess` was
+> change needed to enable native/Godot reuse — exactly as `hugmesh-chess` was
 > already set up.

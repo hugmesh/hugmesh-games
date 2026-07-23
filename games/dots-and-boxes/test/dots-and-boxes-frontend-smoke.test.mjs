@@ -13,7 +13,7 @@
 //       2D context; render() of the START position issues the EXPECTED draw-call
 //       counts — 24 edge strokes (all edges open) + 16 dots (arc+fill) and ZERO
 //       owned-box fills.
-//   (b) the real snapdragon_dots_and_boxes.wasm is driven through the shared
+//   (b) the real hugmesh_dots_and_boxes.wasm is driven through the shared
 //       WasmHost; a click near an edge, fed through the game's onLocalInput,
 //       claims that edge AUTHORITATIVELY: the board edge flips to claimed, the
 //       turn flips player one→two, and the relay payloads (control claim +
@@ -28,7 +28,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const GAME_DIR = join(here, '..');
-const WASM_PATH = join(GAME_DIR, 'wasm', 'snapdragon_dots_and_boxes.wasm');
+const WASM_PATH = join(GAME_DIR, 'wasm', 'hugmesh_dots_and_boxes.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -160,7 +160,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.dab_apply === 'function',
-    'WasmHost bound the real snapdragon_dots_and_boxes.wasm (dab_apply export present)',
+    'WasmHost bound the real hugmesh_dots_and_boxes.wasm (dab_apply export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost.

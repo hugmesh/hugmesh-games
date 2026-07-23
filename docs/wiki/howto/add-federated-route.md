@@ -11,13 +11,13 @@ mkdir -p frontend/projects/<remote-name>/src/app
 Author the standalone component you want exposed (e.g. `FooComponent`). Add a `federation.config.js` that extends [`frontend/federation-base.js`](../../../frontend/federation-base.js):
 
 ```js
-const { snapdragonRemote } = require('../../federation-base.js');
+const { hugmeshRemote } = require('../../federation-base.js');
 module.exports = {
   name: '<remote-name>',
   exposes: {
     './FooComponent': './projects/<remote-name>/src/app/foo.component.ts',
   },
-  shared: snapdragonRemote(),
+  shared: hugmeshRemote(),
 };
 ```
 
@@ -77,7 +77,7 @@ foo:
   build:
     context: ./frontend
     dockerfile: projects/foo/Dockerfile
-  networks: [snapdragon]
+  networks: [hugmesh]
 ```
 
 ## 6. Build and verify

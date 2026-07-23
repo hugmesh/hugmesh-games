@@ -1,6 +1,6 @@
 # `games/_shared/` — the reusable web-native game shell
 
-Every **web-native** Snapdragon game frontend (chess first, then 13 more) reuses
+Every **web-native** HugMesh game frontend (chess first, then 13 more) reuses
 the three ES modules in this directory. They are **vanilla JS, no build step** —
 served as static files straight out of the bundle. Adding a new game requires
 implementing one `GAME` object and adding four files.
@@ -38,9 +38,9 @@ sequenceDiagram
 ### `WasmHost` — the wasm marshalling contract
 
 The marshalling contract is the **exact inverse** of the freestanding Rust shim
-([`extensions/snapdragon-fps-core-wasm/src/lib.rs`](../../extensions/snapdragon-fps-core-wasm/src/lib.rs))
+([`extensions/hugmesh-fps-core-wasm/src/lib.rs`](../../extensions/hugmesh-fps-core-wasm/src/lib.rs))
 and **agrees byte-for-byte** with the JVM driver
-([`WasmSimCore.java`](../../backend/src/test/java/games/snapdragon/bff/service/realtime/wasm/WasmSimCore.java)).
+([`WasmSimCore.java`](../../backend/src/test/java/games/hugmesh/bff/service/realtime/wasm/WasmSimCore.java)).
 Because all three callers (browser JS, tests, JVM) implement the same protocol,
 any `.wasm` built against the Rust shim works identically in all three contexts.
 
@@ -61,7 +61,7 @@ The protocol in both directions:
 ```js
 import { WasmHost } from '../_shared/wasm-host.js';
 
-const host = new WasmHost('./wasm/snapdragon_chess.wasm');
+const host = new WasmHost('./wasm/hugmesh_chess.wasm');
 await host.load();                              // instantiateStreaming, empty imports
 
 host.callStatus('chess_new');                   // -> 1  (plain status int)
@@ -105,7 +105,7 @@ It auto-selects its transport based on context:
   `SD_SSE_SUBSCRIBE` postMessage and receives events as `SD_SSE_EVENT`; it sends
   via `SD_API_REQUEST`. This reuses the existing
   [`ApiBridgeService`](../../frontend/src/app/services/api-bridge.service.ts) /
-  [`snapdragon-shim.js`](../../wasm-fragment/snapdragon-shim.js) transport, so
+  [`hugmesh-shim.js`](../../wasm-fragment/hugmesh-shim.js) transport, so
   the JWT and `X-Session-Id` header are attached uniformly by the host shell
   without any knowledge of them in the game iframe.
 - **Standalone** (no distinct parent window — local dev or tests): opens its own
@@ -114,7 +114,7 @@ It auto-selects its transport based on context:
 
 Relay channels (`CHANNELS`): `movement, world, character, time, scene, input,
 audio, wasm-console, session-control` — the exact set that
-[`GameStreamController`](../../backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java)
+[`GameStreamController`](../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java)
 fans out to session subscribers.
 
 ## The `GAME` interface a new game implements
@@ -172,7 +172,7 @@ all served as static files:
 |---|---|
 | `index.html` | Imports `../_shared/game-frame.js`, defines the `GAME` object, calls `mountGame(GAME, { wasmUrl: './wasm/<engine>.wasm' })`, and routes DOM events to `ctx.handleLocalInput`. |
 | `<game>.js` | The `GAME` implementation: board or scene rendering plus the wasm call logic. For small games this can be inlined directly in `index.html`. |
-| `wasm/<engine>.wasm` | The freestanding `wasm32-unknown-unknown` engine binary (zero host imports). For example: `chess/wasm/snapdragon_chess.wasm`. |
+| `wasm/<engine>.wasm` | The freestanding `wasm32-unknown-unknown` engine binary (zero host imports). For example: `chess/wasm/hugmesh_chess.wasm`. |
 | `icon.svg` (or `.png`) | The catalog and launcher icon. |
 
 To wire the game into the catalog, add two database rows via a Liquibase changeset
@@ -197,7 +197,7 @@ flowchart TB
 ## Tests
 
 `games/_shared/test/chess-wasm.test.mjs` drives the real
-`chess/wasm/snapdragon_chess.wasm` through the marshalling contract using `node`
+`chess/wasm/hugmesh_chess.wasm` through the marshalling contract using `node`
 — no browser required. Run it with:
 
 ```bash

@@ -8,7 +8,7 @@ For a game that will be uploaded by an admin from the portal UI without a host r
 
 ### 1. In the Godot editor
 
-*Project → Tools → Snapdragon → Export…*
+*Project → Tools → HugMesh → Export…*
 
 Fill in:
 
@@ -50,7 +50,7 @@ For a game you want to ship in the repository (visible without an admin upload).
 
 ```bash
 mkdir games/<game-dir>
-# Copy snapdragon_bridge.gdextension and addons/snapdragon_export/
+# Copy hugmesh_bridge.gdextension and addons/hugmesh_export/
 # from games/three-wizards-in-a-trenchcoat/
 ```
 

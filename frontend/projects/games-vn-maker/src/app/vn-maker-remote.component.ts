@@ -277,7 +277,7 @@ const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
           @if (selectedProject) {
             <h3>Build &amp; publish</h3>
             <fieldset>
-              <legend>Compile to a Snapdragon-bridge bundle</legend>
+              <legend>Compile to a HugMesh-bridge bundle</legend>
               <label>Target slug<input name="vnTarget" [(ngModel)]="buildTargetSlug" /></label>
               @if (buildTargetSlug && !slugOk(buildTargetSlug)) {
                 <p class="field-error" role="alert">target slug must match ^[a-z0-9][a-z0-9-]{{ '{0,63}' }}$.</p>

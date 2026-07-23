@@ -19,7 +19,7 @@ template.
         therefore fail to resolve.
   \item \textbf{Remote-loader access through \texttt{globalThis}.}
         Route handlers reach the federation runtime through
-        \texttt{globalThis.\_\_SNAPDRAGON\_LOAD\_REMOTE\_MODULE\_\_}, set
+        \texttt{globalThis.\_\_HUGMESH\_LOAD\_REMOTE\_MODULE\_\_}, set
         by \texttt{main.ts} once \texttt{initFederation} resolves. This
         keeps \texttt{@angular-architects/native-federation} out of
         karma's static graph and out of every route-handler bundle.
@@ -73,8 +73,8 @@ const STD_SHARED = ['@angular/core','@angular/common','@angular/forms',
 const STD_SKIP   = ['@angular/compiler','@angular-architects/native-federation'];
 
 module.exports = {
-  snapdragonHost:   () => snapdragonShared({singleton:true,strictVersion:true}),
-  snapdragonRemote: () => snapdragonShared({singleton:true,requiredVersion:'auto'}),
+  hugmeshHost:   () => hugmeshShared({singleton:true,strictVersion:true}),
+  hugmeshRemote: () => hugmeshShared({singleton:true,requiredVersion:'auto'}),
 };
 \end{lstlisting}
 
@@ -96,7 +96,7 @@ export function loadRemote<T>(
 ): () => Promise<T> {
   return async () => {
     const loadRemoteModule = (globalThis as any)
-      .__SNAPDRAGON_LOAD_REMOTE_MODULE__;
+      .__HUGMESH_LOAD_REMOTE_MODULE__;
     if (!loadRemoteModule) throw new Error('federation runtime missing');
     const m = await loadRemoteModule({ remoteName, exposedModule });
     return m[exportName];

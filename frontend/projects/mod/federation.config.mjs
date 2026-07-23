@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the mod console remote-shell.
 //
 // `name`     — federation_modules.slug = 'mod'.
@@ -8,7 +8,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'mod',
   exposes: {
     './ModShell': './projects/mod/src/app/mod-remote.component.ts',

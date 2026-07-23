@@ -1,6 +1,6 @@
 \documentclass[11pt,a4paper,openany]{book}
 \input{userguide-preamble}
-\hypersetup{pdftitle={Snapdragon Games --- Data architect overview}}
+\hypersetup{pdftitle={HugMesh Games --- Data architect overview}}
 \begin{document}
 
 \begin{titlepage}\thispagestyle{empty}
@@ -11,7 +11,7 @@
 \end{tikzpicture}
 \vspace*{4cm}\noindent
 {\sffamily\bfseries
-  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont HUGMESH GAMES}\\[3mm]
   {\color{white}\fontsize{42}{50}\selectfont Data architect\\overview}\par}
 \vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
 \vspace{0.8cm}\noindent
@@ -151,7 +151,7 @@ psql-init seed file).
         godot-2d-visual-novel-shaped.
   \item Each side service's build worker walks its project tree,
         renders a Godot 4 source tree (with
-        \snapfile{snapdragon\_bridge.gdextension} baked in), invokes
+        \snapfile{hugmesh\_bridge.gdextension} baked in), invokes
         the Godot CLI per area / act, zips the result, and POSTs to
         the BFF \texttt{/api/admin/games/upload} endpoint with the
         originating user's bearer token --- so the BFF's existing
@@ -218,7 +218,7 @@ decision document covers the threat model that motivated leaving
         gated producers + consumer.
   \item Federation manifest URL --- already DB-backed; no host
         changes needed.
-  \item BFF perimeter --- the \snapfile{snapdragon-gateway}
+  \item BFF perimeter --- the \snapfile{hugmesh-gateway}
         (Spring Cloud Gateway) routes \texttt{/api/*} to the BFF and
         carries the primary rate-limit + revocation list; the BFF's
         \snapfile{RateLimitFilter} + \snapfile{RevocationListService}

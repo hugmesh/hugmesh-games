@@ -27,7 +27,7 @@
 // render() never mutates it — every transition flows through sudoku_place /
 // sudoku_clear so the board can never drift from the rules engine.
 //
-// The engine is the verified snapdragon_sudoku_wasm.wasm; we drive it through the
+// The engine is the verified hugmesh_sudoku_wasm.wasm; we drive it through the
 // shared WasmHost with the EXACT call pattern proven in
 // games/_shared/test/sudoku-wasm.test.mjs:
 //   host.callStatus('sudoku_new', null, [seedLo, seedHi, clues]) -> 1

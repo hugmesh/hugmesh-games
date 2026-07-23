@@ -12,7 +12,7 @@
 //       render() of the start position issues the EXPECTED draw-call counts —
 //       1 board fillRect + 18 grid-line strokes (9 horizontal + 9 vertical) +
 //       5 hoshi arcs (9x9 star points) and ZERO stone strokes on the empty board.
-//   (b) the real snapdragon_go.wasm is driven through the shared WasmHost (the
+//   (b) the real hugmesh_go.wasm is driven through the shared WasmHost (the
 //       shell's marshalling), and a placement is applied THROUGH the game's
 //       onLocalInput click path: the board canvas is repainted, the board string
 //       changes, the side-to-move flips black→white, and exactly one stone is
@@ -27,7 +27,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const GO_DIR = join(here, '..');
-const WASM_PATH = join(GO_DIR, 'wasm', 'snapdragon_go.wasm');
+const WASM_PATH = join(GO_DIR, 'wasm', 'hugmesh_go.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -168,7 +168,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.go_apply === 'function',
-    'WasmHost bound the real snapdragon_go.wasm (go_apply export present)',
+    'WasmHost bound the real hugmesh_go.wasm (go_apply export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost.

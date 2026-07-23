@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: snapdragon-gaming-bff
+    name: hugmesh-gaming-bff
   webflux:
     base-path: /
     multipart:
@@ -94,7 +94,7 @@ casdoor:
   organization: ${CASDOOR_ORGANIZATION:threewizards}
 
 # Revocation list — polled from the same Cassandra table the
-# snapdragon-gateway writes. Defence-in-depth check inside
+# hugmesh-gateway writes. Defence-in-depth check inside
 # RateLimitFilter; the gateway is the primary enforcement point.
 # Lookups are constant-time hash hits against a cached snapshot;
 # the @Scheduled refresh ticks every 5 s by default.
@@ -109,7 +109,7 @@ app:
     # The brand this BFF INSTANCE serves. When set (e.g. APP_TENANCY_DOMAIN=brandx)
     # the DomainGuardFilter 403s any authenticated token whose issuer-derived
     # DOMAIN_<x> authority does not match — the BFF-side, defence-in-depth mirror of
-    # the snapdragon-gateway domain hard-deny, for requests that reach the BFF on the
+    # the hugmesh-gateway domain hard-deny, for requests that reach the BFF on the
     # compose network bypassing the edge. SUPERADMIN is exempt (cross-domain infra
     # plane). Empty (default) => single-tenant => the guard is a complete no-op.
     domain: ${APP_TENANCY_DOMAIN:}
@@ -125,7 +125,7 @@ app:
   # falls back to this address when no on-call slot has an email
   # on file (e.g. a fresh stack before any mod has been approved).
   security:
-    appeal-contact-fallback: ${APP_SECURITY_APPEAL_CONTACT_FALLBACK:support@snapdragon.games}
+    appeal-contact-fallback: ${APP_SECURITY_APPEAL_CONTACT_FALLBACK:support@hugmesh.games}
     # Fail-fast gate for prod-sensitive credentials (NIST IA-5 / SC-12 /
     # OWASP ASVS 6.2.2). When true, StartupSecretValidator refuses to boot
     # if casdoor.client-secret or the DB password is blank — so a
@@ -152,7 +152,7 @@ app:
   # is the precondition for horizontally scaling the BFF beyond one host.
   uploads:
     storage: ${APP_UPLOADS_STORAGE:filesystem}
-    games-dir: ${APP_UPLOADS_GAMES_DIR:/var/snapdragon/games}
+    games-dir: ${APP_UPLOADS_GAMES_DIR:/var/hugmesh/games}
     versions-to-keep: ${APP_UPLOADS_VERSIONS_TO_KEEP:3}
     # SECURITY (OWASP A03/A04) — least-privilege Postgres role the
     # attacker-controlled bundle register.sql is executed under. Migration 054
@@ -308,6 +308,6 @@ management:
 
 logging:
   level:
-    "[games.snapdragon.bff]": DEBUG
+    "[games.hugmesh.bff]": DEBUG
     "[org.springframework.web]": INFO
     "[org.springframework.security]": INFO

@@ -1,6 +1,6 @@
 // games/_shared/sse-host-client.js
 //
-// SessionClient — the transport seam every web-native Snapdragon game frontend
+// SessionClient — the transport seam every web-native HugMesh game frontend
 // reuses. It connects a game iframe to the BFF's per-session SSE relay and
 // sends controls/inputs back, OR degrades to pure-local single-player when
 // there is no session.
@@ -20,7 +20,7 @@
 //      typed event back as `SD_SSE_EVENT` ({type, payload:{type:<channel>,
 //      payload:<json>}}). Controls go out as `SD_API_REQUEST` so the host
 //      attaches the JWT + X-Session-Id uniformly. This matches the existing
-//      snapdragon-shim.js / game_bridge.gd transport exactly.
+//      hugmesh-shim.js / game_bridge.gd transport exactly.
 //   2. Direct (fallback when opened standalone, i.e. window.parent === window,
 //      e.g. a local dev page or a test). The client opens its own
 //      EventSource('/api/game/stream?sessionId=…') and POSTs controls itself.

@@ -1,5 +1,5 @@
 """
-Snapdragon Games — UI screenshot capture for documentation.
+HugMesh Games — UI screenshot capture for documentation.
 
 Drives a headless Firefox via Selenium against a running compose stack
 (or any base URL). Each capture is a (path, label, settle_ms, action?)
@@ -15,7 +15,7 @@ distinguish.
 
 Usage:
     python3 docs/publishing/screenshots/capture.py
-    SNAPDRAGON_BASE_URL=http://localhost:8080 \\
+    HUGMESH_BASE_URL=http://localhost:8080 \\
         python3 docs/publishing/screenshots/capture.py
 
 Why Selenium (and not Playwright):
@@ -52,23 +52,23 @@ WINDOW_SIZE     = (1366, 800)
 # match the Casdoor seed so a vanilla `docker compose up -d` works
 # without extra config.
 #
-# Per-role overrides: SNAPDRAGON_{ROLE}_USER / SNAPDRAGON_{ROLE}_PASS
+# Per-role overrides: HUGMESH_{ROLE}_USER / HUGMESH_{ROLE}_PASS
 # where ROLE is PLAYER, MOD, PUBLISHER, ADMIN (upper-case). Falls back
-# to SNAPDRAGON_TEST_USER / SNAPDRAGON_TEST_PASS, then to the constants
+# to HUGMESH_TEST_USER / HUGMESH_TEST_PASS, then to the constants
 # below.
-SHARED_PASS   = os.environ.get("SNAPDRAGON_TEST_PASS", "123")
+SHARED_PASS   = os.environ.get("HUGMESH_TEST_PASS", "123")
 ROLE_CREDS: dict[str, tuple[str, str]] = {
-    "admin":     (os.environ.get("SNAPDRAGON_ADMIN_USER",     "admin"),
-                  os.environ.get("SNAPDRAGON_ADMIN_PASS",     SHARED_PASS)),
-    "player":    (os.environ.get("SNAPDRAGON_PLAYER_USER",    "player"),
-                  os.environ.get("SNAPDRAGON_PLAYER_PASS",    SHARED_PASS)),
-    "mod":       (os.environ.get("SNAPDRAGON_MOD_USER",       "mod-three-wizards"),
-                  os.environ.get("SNAPDRAGON_MOD_PASS",       SHARED_PASS)),
-    "publisher": (os.environ.get("SNAPDRAGON_PUBLISHER_USER", "publisher-three-wizards"),
-                  os.environ.get("SNAPDRAGON_PUBLISHER_PASS", SHARED_PASS)),
+    "admin":     (os.environ.get("HUGMESH_ADMIN_USER",     "admin"),
+                  os.environ.get("HUGMESH_ADMIN_PASS",     SHARED_PASS)),
+    "player":    (os.environ.get("HUGMESH_PLAYER_USER",    "player"),
+                  os.environ.get("HUGMESH_PLAYER_PASS",    SHARED_PASS)),
+    "mod":       (os.environ.get("HUGMESH_MOD_USER",       "mod-three-wizards"),
+                  os.environ.get("HUGMESH_MOD_PASS",       SHARED_PASS)),
+    "publisher": (os.environ.get("HUGMESH_PUBLISHER_USER", "publisher-three-wizards"),
+                  os.environ.get("HUGMESH_PUBLISHER_PASS", SHARED_PASS)),
 }
-# Legacy env kept for backwards compat — used as fallback if SNAPDRAGON_ADMIN_USER unset.
-DEFAULT_USER = os.environ.get("SNAPDRAGON_TEST_USER", ROLE_CREDS["admin"][0])
+# Legacy env kept for backwards compat — used as fallback if HUGMESH_ADMIN_USER unset.
+DEFAULT_USER = os.environ.get("HUGMESH_TEST_USER", ROLE_CREDS["admin"][0])
 DEFAULT_PASS = SHARED_PASS
 
 
@@ -148,7 +148,7 @@ CAPTURES: list[Capture] = [
             description="Step 1 — /admin landing. Per-user stats, "
                         "active sessions, recent uploads."),
     Capture("admin-02-uploads",    "/admin/games",      2500,
-            description="Step 2 — /admin/games. Drop a Snapdragon "
+            description="Step 2 — /admin/games. Drop a HugMesh "
                         "Export zip into the upload card; the BFF "
                         "validates manifest schema v2, hashes, "
                         "atomically moves into <gamesDir>/<slug>/<sha>, "
@@ -358,7 +358,7 @@ def write_placeholder(spec: Capture) -> Path:
     except OSError:
         title_font = body_font = small_font = ImageFont.load_default()
 
-    draw.text((60, 90), "SNAPDRAGON GAMES", fill=accent2, font=small_font)
+    draw.text((60, 90), "HUGMESH GAMES", fill=accent2, font=small_font)
     draw.text((60, 120), spec.label.replace("-", " ").title(),
               fill=fg, font=title_font)
     draw.text((60, 180), spec.description, fill=fg, font=body_font)
@@ -376,7 +376,7 @@ def write_placeholder(spec: Capture) -> Path:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url",
-                        default=os.environ.get("SNAPDRAGON_BASE_URL",
+                        default=os.environ.get("HUGMESH_BASE_URL",
                                                "http://localhost:8080"),
                         help="Base URL of the running stack")
     parser.add_argument("--placeholders-only", action="store_true",

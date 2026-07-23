@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Dots-and-Boxes engine WASM module.
 //
-// Loads games/dots-and-boxes/wasm/snapdragon_dots_and_boxes.wasm with
+// Loads games/dots-and-boxes/wasm/hugmesh_dots_and_boxes.wasm with
 // WebAssembly.instantiate and EMPTY imports (proving it runs in a bare browser
 // via instantiateStreaming with no host glue), then drives edges through the
 // C-ABI / JSON-over-linear-memory shim. If this passes, the same .wasm the
@@ -27,7 +27,7 @@ const WASM_PATH = join(
   '..',
   'dots-and-boxes',
   'wasm',
-  'snapdragon_dots_and_boxes.wasm',
+  'hugmesh_dots_and_boxes.wasm',
 );
 
 // ── edge-index helpers (the engine's geometry) ───────────────────────────────

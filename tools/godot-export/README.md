@@ -84,7 +84,7 @@ multi-chapter games automatically.
   If `godot --version` fails inside the container, add an `apt-get install` line for the
   missing packages in the builder Dockerfile, or switch to a Godot image that bundles
   them.
-- **Bridge binary.** The Web export requires `snapdragon_bridge.wasm` (the `web.wasm32`
+- **Bridge binary.** The Web export requires `hugmesh_bridge.wasm` (the `web.wasm32`
   GDExtension library) so the exported bundle is multiplayer-aware. It is bind-mounted
   from `backend/src/main/resources/assets/levels/cave/`. If you modify the Rust
   GDExtension source, run `make build-rust` to rebuild it before triggering an export.
@@ -113,7 +113,7 @@ multi-chapter games automatically.
   godot --headless --path <godot-src> --export-release "Web" <out>/index.html
   ```
   The resulting bundle sizes were: `index.wasm` 1,509,558 B, `index.side.wasm`
-  41,113,842 B, `index.pck` ~18–20 KB, `snapdragon_bridge.wasm` 2,678,048 B. All four
+  41,113,842 B, `index.pck` ~18–20 KB, `hugmesh_bridge.wasm` 2,678,048 B. All four
   files were confirmed as valid WASM via their `\0asm` magic bytes. The maker BDD e2e
   suite (`make e2e-bdd` with the Godot overlay) additionally asserts that each bundle
   file is non-empty before the build is considered passing.

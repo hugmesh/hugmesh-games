@@ -6,7 +6,7 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
 
     <!--
-        Snapdragon Games is a portal: each row in `games` is a separate title.
+        HugMesh Games is a portal: each row in `games` is a separate title.
         Migration 012 already inserted game id=1 (Three Wizards In A Trenchcoat).
         This migration:
           • adds the second title — a chrome-less Dodecahedron Demo (no quests,
@@ -32,7 +32,7 @@ WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'dodecahedron');
     <changeSet id="017-2-rename-twiat" author="nin">
         <sql>
 -- Migration 012 named the umbrella game "Three Wizards Saga". Now that the
--- portal is Snapdragon Games and TWiaT is one of its titles, rename to
+-- portal is HugMesh Games and TWiaT is one of its titles, rename to
 -- match the visible branding. (The slug stays stable so URLs don't break.)
 UPDATE games
    SET name        = 'Three Wizards In A Trenchcoat',

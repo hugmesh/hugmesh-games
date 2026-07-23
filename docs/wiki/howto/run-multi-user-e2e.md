@@ -74,7 +74,7 @@ The two multiplayer specs both pin contracts strictly:
 
 Neither spec has a "soft warn when the iframe lacks a session-scoped subscription" branch any more — the lobby flow + `waitForResponse` make that observable, and a missing subscription should fail loudly.
 
-The `SessionIsolationTest` Junit unit pin under [`backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java`](../../../backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) covers the contract at the BFF layer; the e2e pair is the through-every-hop counterpart (sink fan-out → SSE → Angular wrapper relay → iframe consumer).
+The `SessionIsolationTest` Junit unit pin under [`backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java`](../../../backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java) covers the contract at the BFF layer; the e2e pair is the through-every-hop counterpart (sink fan-out → SSE → Angular wrapper relay → iframe consumer).
 
 ## Adding a new multi-user spec
 

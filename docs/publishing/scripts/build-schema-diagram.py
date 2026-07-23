@@ -251,7 +251,7 @@ def render_single_cluster_dot(tables: dict[str, Table], cluster_name: str) -> st
         return ""
 
     lines: list[str] = [
-        "digraph SnapdragonSchemaSingle {",
+        "digraph HugMeshSchemaSingle {",
         '  rankdir=LR;',
         f'  graph [fontname="Inter, Helvetica, sans-serif", fontsize=18, bgcolor="#FFFFFF", pad=0.4, splines=ortho, nodesep=0.4, ranksep=1.0, label="{label}", labelloc=t, fontcolor="{colour}"];',
         '  node  [fontname="Inter, Helvetica, sans-serif", fontsize=11, shape=plain];',
@@ -288,7 +288,7 @@ def render_single_cluster_dot(tables: dict[str, Table], cluster_name: str) -> st
 
 def render_dot(tables: dict[str, Table]) -> str:
     lines: list[str] = [
-        "digraph SnapdragonSchema {",
+        "digraph HugMeshSchema {",
         '  rankdir=LR;',
         '  graph [fontname="Inter, Helvetica, sans-serif", fontsize=14, bgcolor="#FFFFFF", pad=0.4, splines=ortho, nodesep=0.4, ranksep=1.0];',
         '  node  [fontname="Inter, Helvetica, sans-serif", fontsize=11, shape=plain];',
@@ -296,7 +296,7 @@ def render_dot(tables: dict[str, Table]) -> str:
         "",
         # Title banner
         '  legend [label=<<TABLE BORDER="0" CELLBORDER="0" CELLPADDING="6">'
-        '<TR><TD COLSPAN="2"><B>Snapdragon Games — complete schema</B></TD></TR>'
+        '<TR><TD COLSPAN="2"><B>HugMesh Games — complete schema</B></TD></TR>'
         '<TR><TD ALIGN="LEFT"><B>PK</B></TD><TD ALIGN="LEFT">primary key</TD></TR>'
         '<TR><TD ALIGN="LEFT"><I>FK</I></TD><TD ALIGN="LEFT">foreign-key column (edge shown)</TD></TR>'
         '<TR><TD ALIGN="LEFT" BGCOLOR="#5B3FD9"><FONT COLOR="white">BFF</FONT></TD><TD ALIGN="LEFT">primary Postgres (catalog + identity + sessions)</TD></TR>'

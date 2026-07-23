@@ -2,8 +2,8 @@
 .godot/
 /android/
 
-# Synced from extensions/snapdragon-bridge/addons/{snapdragon_bridge,
-# snapdragon_export}/ by `make sync-bridge-addon` (or `make build-rust`).
+# Synced from extensions/hugmesh-bridge/addons/{hugmesh_bridge,
+# hugmesh_export}/ by `make sync-bridge-addon` (or `make build-rust`).
 # Source of truth is the extension dir; never hand-edit these copies.
-/addons/snapdragon_bridge/
-/addons/snapdragon_export/
+/addons/hugmesh_bridge/
+/addons/hugmesh_export/

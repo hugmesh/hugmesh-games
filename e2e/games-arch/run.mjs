@@ -255,7 +255,7 @@ async function runSoloGame(slug, token) {
 // ── bundle serve check (used by solo + the global serve assertion) ───────────
 //
 // Hits the wasm-fragment directly: GET /<slug>/index.html, parse out the REAL
-// wasm filename (wasm/snapdragon_<...>.wasm), then GET that file. Both must 200.
+// wasm filename (wasm/hugmesh_<...>.wasm), then GET that file. Both must 200.
 
 async function serveBundle(slug) {
   const out = { indexServed: false, wasmFile: null, wasmServed: false, notes: [] };
@@ -318,7 +318,7 @@ async function runGlobal(tokens) {
 // ── main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  log(`\n=== Snapdragon games multi-user architecture e2e ===`);
+  log(`\n=== HugMesh games multi-user architecture e2e ===`);
   log(`API_BASE=${API_BASE}  WASM_FRAGMENT_BASE=${WASM_FRAGMENT_BASE}`);
 
   log(`\n[0] Waiting for API health…`);

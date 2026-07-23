@@ -72,9 +72,9 @@ export class RemoteLoaderService {
     // main.ts pre-stashes the federation runtime's `loadRemoteModule`
     // on the global. If it's missing, the host bundle didn't initialize
     // federation — surface that loudly rather than silently no-op.
-    const loadRemoteModule = (globalThis as { __SNAPDRAGON_LOAD_REMOTE_MODULE__?: LoadRemoteModuleFn }).__SNAPDRAGON_LOAD_REMOTE_MODULE__;
+    const loadRemoteModule = (globalThis as { __HUGMESH_LOAD_REMOTE_MODULE__?: LoadRemoteModuleFn }).__HUGMESH_LOAD_REMOTE_MODULE__;
     if (!loadRemoteModule) {
-      throw new Error('[remote-loader] __SNAPDRAGON_LOAD_REMOTE_MODULE__ missing — main.ts did not call initFederation');
+      throw new Error('[remote-loader] __HUGMESH_LOAD_REMOTE_MODULE__ missing — main.ts did not call initFederation');
     }
 
     // remote.slug is the federation manifest's `name`; remote.exposedModule

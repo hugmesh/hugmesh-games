@@ -204,7 +204,7 @@ const RELAY_GAMES: RelayGame[] = [
     // reversi.js:240-251 requires only that the square is in state.legal).
     // The standard Othello opening has EXACTLY four legal Black placements
     // — c4, d3, e6, f5 — asserted against the real engine by the Rust test
-    // opening_legal_move_set_is_the_four (snapdragon-reversi lib.rs), so
+    // opening_legal_move_set_is_the_four (hugmesh-reversi lib.rs), so
     // clicking c4's cell centre is guaranteed accepted on a fresh session.
     // canvasToSquare (reversi.js:516-535): col = floor(fx*8), rankIdx =
     // 7 - floor(fy*8); c4 = fileIdx 2, rankIdx 3 → rowFromTop 4.
@@ -222,7 +222,7 @@ const RELAY_GAMES: RelayGame[] = [
 // placement → ready → fire round-trip. Placement is intentionally never
 // relayed (fog-of-war — battleship.js:377 and the wasm shim's doc comment),
 // so each browser's engine only ever has its OWN fleet placed; the engine's
-// firing_phase() (extensions/snapdragon-battleship/src/lib.rs:389-391)
+// firing_phase() (extensions/hugmesh-battleship/src/lib.rs:389-391)
 // requires BOTH boards fully_placed() on the SAME Game instance, so the
 // mirrored battleship_ready for the opponent no-ops forever, no client ever
 // reaches status:'firing', and battleship's only sendWorld() call (the

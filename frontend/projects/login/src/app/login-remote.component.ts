@@ -42,7 +42,7 @@ const STORAGE_KEY = 'tw_auth';
         <div class="logo-area">
           <div class="logo-icon">&#9878;</div>
         </div>
-        <h1 class="game-title">Snapdragon<br><span>Games</span></h1>
+        <h1 class="game-title">HugMesh<br><span>Games</span></h1>
         <p class="subtitle">Sign in to enter the portal</p>
 
         <form [formGroup]="form" (ngSubmit)="submit()" class="login-form"

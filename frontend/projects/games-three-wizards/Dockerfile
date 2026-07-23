@@ -1,7 +1,7 @@
 # Per-remote Dockerfile for the games-three-wizards (TWiaT) federated module.
 #
 #   docker build -f frontend/projects/games-three-wizards/Dockerfile \
-#                -t snapdragon-games-three-wizards ./frontend
+#                -t hugmesh-games-three-wizards ./frontend
 
 FROM node:20-alpine AS build
 WORKDIR /app

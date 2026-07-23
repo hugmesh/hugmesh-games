@@ -499,7 +499,7 @@
 				}
 			}
 		},
-		"snapdragon-games-frontend": {
+		"hugmesh-games-frontend": {
 			"projectType": "application",
 			"schematics": {},
 			"root": "",
@@ -509,19 +509,19 @@
 				"build": {
 					"builder": "@angular-architects/native-federation:build",
 					"options": {
-						"target": "snapdragon-games-frontend:esbuild:production",
+						"target": "hugmesh-games-frontend:esbuild:production",
 						"entryPoints": [
 							"src/main.ts"
 						],
-						"projectName": "snapdragon-games-frontend"
+						"projectName": "hugmesh-games-frontend"
 					},
 					"configurations": {
 						"development": {
-							"target": "snapdragon-games-frontend:esbuild:development",
+							"target": "hugmesh-games-frontend:esbuild:development",
 							"dev": true
 						},
 						"production": {
-							"target": "snapdragon-games-frontend:esbuild:production"
+							"target": "hugmesh-games-frontend:esbuild:production"
 						}
 					},
 					"defaultConfiguration": "production"
@@ -529,7 +529,7 @@
 				"esbuild": {
 					"builder": "@angular-devkit/build-angular:application",
 					"options": {
-						"outputPath": "dist/snapdragon-games-frontend",
+						"outputPath": "dist/hugmesh-games-frontend",
 						"index": "src/index.html",
 						"browser": "src/main.ts",
 						"polyfills": [
@@ -582,10 +582,10 @@
 					"builder": "@angular-devkit/build-angular:dev-server",
 					"configurations": {
 						"production": {
-							"buildTarget": "snapdragon-games-frontend:esbuild:production"
+							"buildTarget": "hugmesh-games-frontend:esbuild:production"
 						},
 						"development": {
-							"buildTarget": "snapdragon-games-frontend:esbuild:development"
+							"buildTarget": "hugmesh-games-frontend:esbuild:development"
 						}
 					},
 					"defaultConfiguration": "development",

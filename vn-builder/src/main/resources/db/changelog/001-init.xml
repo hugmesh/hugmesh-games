@@ -4,11 +4,11 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                                        https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
 
-  <changeSet id="001-init-extensions" author="snapdragon-vn-builder">
+  <changeSet id="001-init-extensions" author="hugmesh-vn-builder">
     <sql>CREATE EXTENSION IF NOT EXISTS "uuid-ossp";</sql>
   </changeSet>
 
-  <changeSet id="001-init-assets" author="snapdragon-vn-builder">
+  <changeSet id="001-init-assets" author="hugmesh-vn-builder">
     <createTable tableName="vn_assets">
       <column name="id"           type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
       <column name="project_id"   type="uuid"><constraints nullable="false"/></column>

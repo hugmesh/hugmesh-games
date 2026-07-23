@@ -8,11 +8,11 @@
     <!--
       Wave-1 remainder — Battleship + Go catalog registration. Same
       host-authoritative, server-streams-only model as 044/045 (no server-side
-      game logic). Engines: extensions/snapdragon-{battleship,go}. Playable
+      game logic). Engines: extensions/hugmesh-{battleship,go}. Playable
       Godot/WASM bundles ship per-game later (P3).
     -->
 
-    <changeSet id="046-1-battleship" author="snapdragon">
+    <changeSet id="046-1-battleship" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -31,7 +31,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'battleship');
         </sql>
     </changeSet>
 
-    <changeSet id="046-2-go" author="snapdragon">
+    <changeSet id="046-2-go" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),

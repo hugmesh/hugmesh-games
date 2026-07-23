@@ -8,16 +8,16 @@
 #   ✓ Final image ~150 MB (vs ~430 MB on eclipse-temurin:21-jre)
 #   ✗ Build is slow (~5–10 min) and memory-hungry (~6–8 GB)
 #   ✗ No JIT / class hot-swap; reflection requires explicit hints
-#     (see backend/src/main/java/com/threewizards/aot/SnapdragonRuntimeHints.java)
+#     (see backend/src/main/java/com/threewizards/aot/HugMeshRuntimeHints.java)
 #
 # Validation strategy (separate workflow, not run on every PR):
-#   1. `make build-backend-native` produces snapdragon-gaming-bff:native.
+#   1. `make build-backend-native` produces hugmesh-gaming-bff:native.
 #   2. `docker compose -f docker-compose.yml -f docker-compose.e2e.yml \
 #                      -f docker-compose.native.yml \
 #                      up -d ...` (then make e2e steps).
 #   3. Expect a few rounds of missing-hint discovery (Casdoor JWKS
 #      verification, Springdoc @Operation reflection, Liquibase singleton
-#      scope) — fold each new hint into SnapdragonRuntimeHints.
+#      scope) — fold each new hint into HugMeshRuntimeHints.
 
 services:
   # ── Liquibase migration runner (native-mode only) ───────────────────────────
@@ -55,7 +55,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.native
-    image: snapdragon-gaming-bff:native
+    image: hugmesh-gaming-bff:native
     depends_on:
       liquibase:
         condition: service_completed_successfully

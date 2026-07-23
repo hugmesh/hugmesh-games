@@ -1,6 +1,6 @@
 // games/_shared/game-frame.js
 //
-// GameFrame — the ONE lifecycle file all 14 web-native Snapdragon games share.
+// GameFrame — the ONE lifecycle file all 14 web-native HugMesh games share.
 // A per-game `index.html` imports this, builds its GAME object, and calls
 // `mountGame(GAME, { wasmUrl })`. Everything else — URL-param parsing, wasm
 // boot, session wiring, the host-authoritative input→apply→render→relay loop,

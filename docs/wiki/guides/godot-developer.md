@@ -6,7 +6,7 @@ From `mkdir games/my-game/` to a row on the home page: a step-by-step Godot 4 wa
 
 ## What you'll build
 
-A new Godot 4.6 project under [`games/<game-slug>/`](../../../games/) that opens standalone in the editor. It uses the reusable Rust GDExtension at [`extensions/snapdragon-bridge/`](../../../extensions/snapdragon-bridge/) for HostBridge signals. The Snapdragon Export plugin produces a deploy-ready zip with `manifest.json` (schema v2) + `register.sql` + `bundle/`. You ship it either through `make build-godot` (committed in-repo) or through `/admin/games` (hot upload).
+A new Godot 4.6 project under [`games/<game-slug>/`](../../../games/) that opens standalone in the editor. It uses the reusable Rust GDExtension at [`extensions/hugmesh-bridge/`](../../../extensions/hugmesh-bridge/) for HostBridge signals. The HugMesh Export plugin produces a deploy-ready zip with `manifest.json` (schema v2) + `register.sql` + `bundle/`. You ship it either through `make build-godot` (committed in-repo) or through `/admin/games` (hot upload).
 
 ## Prerequisites
 
@@ -14,13 +14,13 @@ A new Godot 4.6 project under [`games/<game-slug>/`](../../../games/) that opens
 - Rust stable (`cargo --version`).
 - Optional: Emscripten + rustup `wasm32-unknown-emscripten` for the Rust GDExtension WASM target. The dockerised builder at [`tools/build-rust-wasm/Dockerfile`](../../../tools/build-rust-wasm/Dockerfile) handles this without polluting the host.
 
-Run once: `make build-rust` so every `games/<dir>/bin/` gets a fresh `libsnapdragon_bridge.so` and `snapdragon_bridge.wasm`.
+Run once: `make build-rust` so every `games/<dir>/bin/` gets a fresh `libhugmesh_bridge.so` and `hugmesh_bridge.wasm`.
 
 ## Step 1 — Create the project
 
 1. `mkdir games/my-game-slug/`
 2. Open Godot → New Project → set path → Create.
-3. Copy `snapdragon_bridge.gdextension` and `addons/snapdragon_export/` from [`games/three-wizards-in-a-trenchcoat/`](../../../games/three-wizards-in-a-trenchcoat/).
+3. Copy `hugmesh_bridge.gdextension` and `addons/hugmesh_export/` from [`games/three-wizards-in-a-trenchcoat/`](../../../games/three-wizards-in-a-trenchcoat/).
 4. Drop a starter scene at `scenes/main.tscn`.
 
 ## Step 2 — Pick your slugs
@@ -73,7 +73,7 @@ Save the `.cfg`, do not export from the editor. The Makefile drives headless exp
 
 ## Step 5b — Upload through admin
 
-In Godot: *Project → Tools → Snapdragon → Export…*. Fill in slug, display name, description, scene type. The plugin writes a deploy-ready zip with the v2 `manifest.json` + `register.sql` + `bundle/`.
+In Godot: *Project → Tools → HugMesh → Export…*. Fill in slug, display name, description, scene type. The plugin writes a deploy-ready zip with the v2 `manifest.json` + `register.sql` + `bundle/`.
 
 Visit `/admin/games` on the live stack and drag the zip into the upload card. The BFF validates manifest schema v2, hashes the bundle, atomically moves to `<gamesDir>/<slug>/<sha-prefix>`, and runs `register.sql` in one R2DBC transaction.
 
@@ -99,10 +99,10 @@ See [howto/upload-and-rollback-game.md](../howto/upload-and-rollback-game.md).
 
 Symptoms + causes, in order of likelihood:
 
-1. **Rust GDExtension not loaded** — log line `ERROR: Cannot get class 'HostBridge'`. The `bin/snapdragon_bridge.wasm` is missing from the bundle. Check [`extensions/snapdragon-bridge/.cargo/config.toml`](../../../extensions/snapdragon-bridge/.cargo/config.toml) has `-Cpanic=abort` for `wasm32-unknown-emscripten`, and the export presets have `variant/extensions_support=true` + no `*.gdextension` exclude filter. Then `make build-rust && make build-godot`.
+1. **Rust GDExtension not loaded** — log line `ERROR: Cannot get class 'HostBridge'`. The `bin/hugmesh_bridge.wasm` is missing from the bundle. Check [`extensions/hugmesh-bridge/.cargo/config.toml`](../../../extensions/hugmesh-bridge/.cargo/config.toml) has `-Cpanic=abort` for `wasm32-unknown-emscripten`, and the export presets have `variant/extensions_support=true` + no `*.gdextension` exclude filter. Then `make build-rust && make build-godot`.
 2. **Browser cached old wasm** — `wasm-fragment/nginx.conf` adds `Cache-Control: no-cache` on `.wasm`/`.pck`. Hard-refresh (Ctrl+Shift+R) once after a rebuild.
 3. **`/api/chapters/{id}/scene` 404** — the BFF renamed the path. PR #24 added `@RequestMapping({"/api/chapters", "/api/levels"})` for back-compat so already-exported bundles work. If you re-export, the URL flips to chapters.
 4. **403 from `/api/controls/{id}`** — the JWT subject isn't the controller-role holder for the session. Player needs to claim controller via `POST /api/sessions/control`.
-5. **`shimInstalled: false` in iframe** — the `snapdragon-shim.js` script tag's path was absolute (`/snapdragon-shim.js`); it now uses the relative `../snapdragon-shim.js` so it resolves under both the host proxy AND a direct wasm-fragment access.
+5. **`shimInstalled: false` in iframe** — the `hugmesh-shim.js` script tag's path was absolute (`/hugmesh-shim.js`); it now uses the relative `../hugmesh-shim.js` so it resolves under both the host proxy AND a direct wasm-fragment access.
 
 See [CLAUDE.md](../../../CLAUDE.md) for the full failure-mode catalog.

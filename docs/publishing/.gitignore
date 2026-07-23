@@ -23,7 +23,7 @@ javadoc-output/
 
 # Python / venv leftovers if anyone runs the scripts manually instead of
 # via the Makefile (the canonical venv lives outside the tree at
-# ~/.venvs/snapdragon-publishing — see Makefile's `venv` target).
+# ~/.venvs/hugmesh-publishing — see Makefile's `venv` target).
 .venv/
 __pycache__/
 *.pyc

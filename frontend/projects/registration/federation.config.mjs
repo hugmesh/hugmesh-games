@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the registration remote-shell.
 //
 // `name`     — federation_modules.slug. Liquibase 039 seeds this so
@@ -11,7 +11,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'registration',
   exposes: {
     './RegistrationComponent': './projects/registration/src/app/registration-remote.component.ts',

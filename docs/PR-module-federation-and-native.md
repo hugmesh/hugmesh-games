@@ -19,13 +19,13 @@ Phase-2 of the portal: Angular shell becomes a native-federation host, every gam
 Top-line outcomes:
 
 - **Module Federation host** loading four real remotes (`login`, `admin`, `games-three-wizards`, `games-dodecahedron`) plus a `wasm-fragment` asset-tier nginx — every BFF route that used to be in-tree (`/login`, `/admin`, `/admin/games`) and every Godot game (cave, field, dodecahedron) is now served from a separately deployable bundle.
-- **Hot upload pipeline** (`POST /api/admin/games/upload`) — drag a Snapdragon-export zip in, BFF validates manifest_json schema v2 + slug + zip-slip-safe paths, SHA-256s the bundle, atomically moves it to a versioned dir, runs the bundle's `register.sql` inside a single R2DBC transaction that lands `games`/`federation_modules`/`game_access` rows, and supersedes prior uploads. Backed by a `GameUploadPruner` scheduled task (`app.uploads.versions-to-keep=3` default).
+- **Hot upload pipeline** (`POST /api/admin/games/upload`) — drag a HugMesh-export zip in, BFF validates manifest_json schema v2 + slug + zip-slip-safe paths, SHA-256s the bundle, atomically moves it to a versioned dir, runs the bundle's `register.sql` inside a single R2DBC transaction that lands `games`/`federation_modules`/`game_access` rows, and supersedes prior uploads. Backed by a `GameUploadPruner` scheduled task (`app.uploads.versions-to-keep=3` default).
 - **GraalVM native image** of the BFF — `Dockerfile.native` + native compose overlay + `make e2e-native` target; sub-second cold start, smaller container.
 - **JWT roles + per-game access policy** — `game_access` table (`scope: all|role|user`) gates `/api/games` listing; `RoleProxyController` proxies Casdoor's role catalog so the admin UI's "grant role" dropdown stays live; admin dashboard is JWT-gated end to end.
 - **DB-backed federation discovery** — `federation_modules` table + `FederationController.GET /api/federation/manifest`; the host fetches it BEFORE `bootstrapApplication` so a new remote can come online without redeploying the host.
 - **Cryptographic launch UIDs** — `POST /api/games/{slug}/launch` mints a 256-bit URL-safe `launch_uid` per session (with `version_dir` snapshot), threaded through federated game-card clicks for traceability + admin force-revoke + scheduled `GameLaunchSweeper`.
-- **Per-game Godot project layout** — `games/three-wizards-in-a-trenchcoat/` + `games/dodecahedron-demo/` replace the single `godot-project/`; the Rust GDExtension lives in a reusable `extensions/snapdragon-bridge/` and is copied into every game's `bin/`.
-- **WASM Rust target enabled** — `extensions/snapdragon-bridge` builds for `wasm32-unknown-emscripten` (3.3 MB `snapdragon_bridge.wasm`) via emscripten 5.0.6; godot-rust's `experimental-wasm` feature is forwarded by the crate's default `wasm-opt-in` feature so a plain `cargo build --target wasm32-unknown-emscripten` works.
+- **Per-game Godot project layout** — `games/three-wizards-in-a-trenchcoat/` + `games/dodecahedron-demo/` replace the single `godot-project/`; the Rust GDExtension lives in a reusable `extensions/hugmesh-bridge/` and is copied into every game's `bin/`.
+- **WASM Rust target enabled** — `extensions/hugmesh-bridge` builds for `wasm32-unknown-emscripten` (3.3 MB `hugmesh_bridge.wasm`) via emscripten 5.0.6; godot-rust's `experimental-wasm` feature is forwarded by the crate's default `wasm-opt-in` feature so a plain `cargo build --target wasm32-unknown-emscripten` works.
 - **Coverage**: 73 frontend Karma specs (federation surface, NavigationError banner, loadRemote helper, auth guard, federated remote unit specs for login/admin/upload/three-wizards/dodecahedron) + 11 `GameAccessControllerTest` specs + a Postgres-Testcontainer–backed `GameUploadIntegrationTest` (1/1) that exercises the upload install transaction end to end.
 
 ## Plan section status
@@ -33,12 +33,12 @@ Top-line outcomes:
 | Section | Status | Notes |
 |---|---|---|
 | A. Module Federation | **Done** | All routes + all games federated. `wasm-fragment` direct-serves Godot bundles; `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. |
-| B. Godot editor plugin | **Done** | `addons/snapdragon_export/` produces a v2 manifest + register.sql + bundle zip in both stock games. |
+| B. Godot editor plugin | **Done** | `addons/hugmesh_export/` produces a v2 manifest + register.sql + bundle zip in both stock games. |
 | C. Hot upload API + admin UI | **Done** | Pipeline + UI + active-version pinning + disk-pressure cap + Postgres-backed integration test (C.1). |
 | D. GraalVM native-image | **Done** | Build profile + Dockerfile + native compose overlay + `make e2e-native` + README docs. |
 | E. JWT roles + access policy | **Done** | `game_access` table + `RoleProxyController` + JWT-gated dashboard + 11 `GameAccessControllerTest` specs. |
 | F. DB-backed federation discovery | **Done** | `federation_modules` + `FederationController` + frontend manifest preload. |
-| G. Per-game project layout | **Done** | `extensions/snapdragon-bridge/` + per-game projects + HostBridge migration; WASM cargo target builds with emscripten 5.0.6 (G.2 closed). |
+| G. Per-game project layout | **Done** | `extensions/hugmesh-bridge/` + per-game projects + HostBridge migration; WASM cargo target builds with emscripten 5.0.6 (G.2 closed). |
 | H. Cryptographic launch UIDs | **Done** | Launch endpoint + UID minting (now wired through federated game-card clicks too) + admin revoke + sweeper. The `app.assets.require-launch-uid=true` flag stays defense-in-depth on the BFF asset path; federated WASM bundles are public under `wasm-fragment` direct-serve by design. |
 
 ## What landed by component
@@ -46,7 +46,7 @@ Top-line outcomes:
 ### Frontend host (`frontend/`)
 
 - `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (split into `bootstrap.ts` because `@angular/*` static imports can't resolve before the import map exists).
-- `loadRemoteModule` is stashed on `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__` — keeps `@angular-architects/native-federation` out of karma's static graph and out of route-handler bundles.
+- `loadRemoteModule` is stashed on `globalThis.__HUGMESH_LOAD_REMOTE_MODULE__` — keeps `@angular-architects/native-federation` out of karma's static graph and out of route-handler bundles.
 - `app.routes.ts` exports a typed `loadRemote<T>(remoteName, exposedModule, exportName)` helper used for `/login`, `/admin`, and `/admin/games`.
 - `app.component.ts` shows a NavigationError banner with retry when a federated route fails to load (route → human label via longest-prefix-first `FEDERATED_ROUTE_LABELS`).
 - `HomeComponent` is the federation fork point: `SCENE_TYPE_TO_GAME_SLUG` maps cave/field → `three-wizards`, dodecahedron → `dodecahedron`; federated games receive a fresh `launch_uid` per click; `TW_LEVEL_TRANSITION` `postMessage` listener lifted to host level so it fires regardless of which renderer mounts.
@@ -57,7 +57,7 @@ Top-line outcomes:
 - `admin/` — Exposes `./AdminShell` + `./UploadShell` from one remote so `/admin` and `/admin/games` share a build. DTOs (`AdminStats`, `PerUserStats`, `PlayerSession`, `InstalledUpload`, `GameUploadHistory`, `RoleSummary`, `AccessGrantRequest`) redeclared inside the remote (TS types erased at runtime, can't be shared via federation).
 - `games-three-wizards/` — `<app-three-wizards-remote>` Web Component (createCustomElement). `@Input levelSlug + levelId + launchUid` → `/_remotes/wasm-fragment/${slug}/index.html?level_id=…&launch_uid=…&t=…`.
 - `games-dodecahedron/` — Same pattern, single chrome-less scene.
-- `federation-base.js` — shared `snapdragonHost` / `snapdragonRemote` / `STD_SKIP` / `STD_SHARED` helpers used by all 5 federation configs.
+- `federation-base.js` — shared `hugmeshHost` / `hugmeshRemote` / `STD_SKIP` / `STD_SHARED` helpers used by all 5 federation configs.
 
 ### `wasm-fragment/` (new)
 
@@ -80,20 +80,20 @@ New controllers/services:
 
 ### Per-game Godot projects (`games/`)
 
-- Replaces `godot-project/`. `games/three-wizards-in-a-trenchcoat/` (cave + field) and `games/dodecahedron-demo/` (chrome-less single-scene demo); each has its own `project.godot`, `export_presets.cfg`, `scenes/`, `scripts/`, `addons/snapdragon_export/`.
-- Rust GDExtension extracted to `extensions/snapdragon-bridge/`. `make build-rust` builds once + copies `libsnapdragon_bridge.so` into every `games/*/bin/` so each project opens standalone in Godot.
+- Replaces `godot-project/`. `games/three-wizards-in-a-trenchcoat/` (cave + field) and `games/dodecahedron-demo/` (chrome-less single-scene demo); each has its own `project.godot`, `export_presets.cfg`, `scenes/`, `scripts/`, `addons/hugmesh_export/`.
+- Rust GDExtension extracted to `extensions/hugmesh-bridge/`. `make build-rust` builds once + copies `libhugmesh_bridge.so` into every `games/*/bin/` so each project opens standalone in Godot.
 - Makefile uses `GAME_PROJECTS` + `PRESETS_<dir>` to drive per-game per-preset web export.
 - Bridge migration: `game_bridge.gd` dispatches to `HostBridge` directly; legacy GDScript signal fan-out + fallback paths removed; `player_controller.gd` + `scene_loader.gd` subscribe to `HostBridge` directly.
 
 ### WASM Rust target
 
-`extensions/snapdragon-bridge/Cargo.toml` adds a default `wasm-opt-in` feature that forwards `godot/experimental-wasm`. Build chain documented in README §8 (Emscripten + WASM Rust target):
+`extensions/hugmesh-bridge/Cargo.toml` adds a default `wasm-opt-in` feature that forwards `godot/experimental-wasm`. Build chain documented in README §8 (Emscripten + WASM Rust target):
 
 ```
 emsdk install latest && emsdk activate latest      # → ~/Tools/emsdk/
 rustup target add wasm32-unknown-emscripten       # rustup user-local; system Gentoo Rust didn't ship this target
 cargo build --release --target wasm32-unknown-emscripten
-# → 3.3 MB target/wasm32-unknown-emscripten/release/snapdragon_bridge.wasm
+# → 3.3 MB target/wasm32-unknown-emscripten/release/hugmesh_bridge.wasm
 ```
 
 ## Notable bugs uncovered or fixed along the way

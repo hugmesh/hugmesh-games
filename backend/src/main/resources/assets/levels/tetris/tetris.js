@@ -28,7 +28,7 @@
 // the engine; every state transition flows through a wasm op (tetris_left,
 // tetris_hard_drop, tetris_tick, …) so the well can never drift from the rules
 // engine. Blocks are canvas-drawn squares (no image assets). The engine is the
-// verified snapdragon_tetris_wasm.wasm; we drive it through the shared WasmHost
+// verified hugmesh_tetris_wasm.wasm; we drive it through the shared WasmHost
 // with the EXACT call pattern proven in games/_shared/test/tetris-wasm.test.mjs:
 //   host.callStatus('tetris_new', null, [seedBigInt]) -> 1
 //   host.callPacked('tetris_snapshot')  -> { type:'tetris.snapshot', width, height, board, active, held, canHold, next, score, lines, level, status }
@@ -90,7 +90,7 @@ export function parseSeed(search) {
 
 /**
  * Compute the active piece's absolute (col,row) cells from a snapshot's active
- * descriptor. Mirrors snapdragon_tetris::Piece::cells — the SAME geometry the
+ * descriptor. Mirrors hugmesh_tetris::Piece::cells — the SAME geometry the
  * engine locks, so the on-screen falling piece matches the engine exactly.
  * row grows downward (row 0 top), col grows rightward.
  */

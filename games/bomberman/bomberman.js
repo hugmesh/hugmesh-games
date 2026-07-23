@@ -34,7 +34,7 @@
 // engine and is relayed on the 'input' channel. Single-player (no session_id) is a
 // local two-keyset hot-seat — P1 on the arrows, P2 on WASD.
 //
-// We drive the verified snapdragon_bomberman_wasm.wasm through the shared WasmHost
+// We drive the verified hugmesh_bomberman_wasm.wasm through the shared WasmHost
 // with the EXACT call pattern proven in games/_shared/test/bomberman-wasm.test.mjs:
 //   host.callStatus('bomberman_new', null, [BigInt(seed)])  -> 1
 //   host.callPacked('bomberman_snapshot')                   -> { type:'bomberman.snapshot', width, height, board, players, bombs, flames, tick, status }
@@ -44,7 +44,7 @@
 //
 // Vanilla ES module. No build step, no dependencies.
 
-// Board geometry mirrors snapdragon-bomberman/src/lib.rs (WIDTH×HEIGHT cells).
+// Board geometry mirrors hugmesh-bomberman/src/lib.rs (WIDTH×HEIGHT cells).
 const WIDTH = 13;
 const HEIGHT = 11;
 

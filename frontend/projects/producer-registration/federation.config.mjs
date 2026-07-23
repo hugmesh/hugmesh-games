@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the producer-registration remote-shell.
 //
 // `name`     — federation_modules.slug. Liquibase 031 seeds this so
@@ -14,7 +14,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'producer-registration',
   exposes: {
     './ProducerRegistrationComponent':

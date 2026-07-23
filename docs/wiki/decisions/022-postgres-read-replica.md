@@ -8,7 +8,7 @@
 
 The four infrastructure decisions confirmed by the user:
 
-- **Deployment**: Bitnami `postgres-replica` container with streaming replication (same shape as snapdragon-id-gateway).
+- **Deployment**: Bitnami `postgres-replica` container with streaming replication (same shape as hugmesh-id-gateway).
 - **Routing**: Two R2DBC `ConnectionFactory` beans + `@Qualifier` on repos / services. Explicit type-checked at compile time. Same pattern as the existing JDBC + R2DBC coexistence in `JdbcDataSourceConfig`.
 
 ## Decision
@@ -66,9 +66,9 @@ Until then, production sets `APP_R2DBC_REPLICA_URL` env var to point at a manage
 
 | File | Purpose |
 |---|---|
-| [`backend/src/main/java/games/snapdragon/bff/config/R2dbcReadReplicaConfig.java`](../../../backend/src/main/java/games/snapdragon/bff/config/R2dbcReadReplicaConfig.java) | The three qualified beans + fallback-to-primary logic. |
+| [`backend/src/main/java/games/hugmesh/bff/config/R2dbcReadReplicaConfig.java`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcReadReplicaConfig.java) | The three qualified beans + fallback-to-primary logic. |
 | `application.yml` | `app.r2dbc.replica.{url,username,password}` config block. |
-| [`backend/src/test/java/games/snapdragon/bff/config/R2dbcReadReplicaConfigTest.java`](../../../backend/src/test/java/games/snapdragon/bff/config/R2dbcReadReplicaConfigTest.java) | 4 tests covering the alias-to-primary contract. |
+| [`backend/src/test/java/games/hugmesh/bff/config/R2dbcReadReplicaConfigTest.java`](../../../backend/src/test/java/games/hugmesh/bff/config/R2dbcReadReplicaConfigTest.java) | 4 tests covering the alias-to-primary contract. |
 
 ## Migration plan (per repo / service)
 

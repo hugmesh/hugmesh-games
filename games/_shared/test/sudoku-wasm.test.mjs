@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Sudoku engine WASM module.
 //
-// Loads games/sudoku/wasm/snapdragon_sudoku_wasm.wasm with WebAssembly.instantiate and
+// Loads games/sudoku/wasm/hugmesh_sudoku_wasm.wasm with WebAssembly.instantiate and
 // EMPTY imports (proving it runs in a bare browser via instantiateStreaming with
 // no host glue), then drives a FIXED, well-known puzzle through the C-ABI /
 // JSON-over-linear-memory shim. Sudoku is single-player: there is no relay, no
@@ -31,11 +31,11 @@ const WASM_PATH = join(
   '..',
   'sudoku',
   'wasm',
-  'snapdragon_sudoku_wasm.wasm',
+  'hugmesh_sudoku_wasm.wasm',
 );
 
 // The engine's own teaching puzzle + its unique solution (81 chars, '.' empty).
-// Identical to KNOWN_PUZZLE / KNOWN_SOLUTION in extensions/snapdragon-sudoku.
+// Identical to KNOWN_PUZZLE / KNOWN_SOLUTION in extensions/hugmesh-sudoku.
 const KNOWN_PUZZLE =
   '53..7....' +
   '6..195...' +

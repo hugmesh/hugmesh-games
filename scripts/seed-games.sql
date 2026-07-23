@@ -6,10 +6,10 @@
 -- After migration 012 the `games` table is the umbrella tier and the
 -- per-WASM rows (asset_url + scene_type) hold the level/scene data.
 -- Migration 028 renamed that table from `levels` to `chapters`
--- (games/snapdragon/bff/model/Chapter.java maps @Table("chapters")) — this
+-- (games/hugmesh/bff/model/Chapter.java maps @Table("chapters")) — this
 -- script targets `chapters` accordingly.
 
--- Snapdragon Games is a portal: each row in `games` is a separate game
+-- HugMesh Games is a portal: each row in `games` is a separate game
 -- title. "Three Wizards In A Trenchcoat" is just one of the games in the
 -- catalog; the new Dodecahedron Demo is a second, standalone game with
 -- no quests or items (its level is a pure visual demo).

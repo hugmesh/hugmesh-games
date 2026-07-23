@@ -1,4 +1,4 @@
-# Placeholder — snapdragon-rpg-builder overwrites this at render time with the
+# Placeholder — hugmesh-rpg-builder overwrites this at render time with the
 # real asset-UUID → staged res:// path map (RpgGodotProjectRenderer.writeAssetIndex).
 # Kept in the template so a generated room script's
 # `preload("res://scripts/asset_index.gd")` resolves standalone (before a build

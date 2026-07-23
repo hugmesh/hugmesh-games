@@ -23,11 +23,11 @@
 
 logging:
   level:
-    games.snapdragon.bff: DEBUG
-    games.snapdragon.bff.service.GameStateService: TRACE
-    games.snapdragon.bff.service.GameSessionService: TRACE
-    games.snapdragon.bff.controller.MultiplayerSessionController: DEBUG
-    games.snapdragon.bff.controller.GameStreamController: DEBUG
+    games.hugmesh.bff: DEBUG
+    games.hugmesh.bff.service.GameStateService: TRACE
+    games.hugmesh.bff.service.GameSessionService: TRACE
+    games.hugmesh.bff.controller.MultiplayerSessionController: DEBUG
+    games.hugmesh.bff.controller.GameStreamController: DEBUG
 
 springdoc:
   api-docs:

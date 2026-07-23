@@ -23,7 +23,7 @@
 // can never drift from the rules engine.
 //
 // Drawing uses only canvas primitives + Unicode (no image assets). The engine is
-// the verified snapdragon_dots_and_boxes.wasm; we drive it through the shared
+// the verified hugmesh_dots_and_boxes.wasm; we drive it through the shared
 // WasmHost with the EXACT call pattern proven in
 // games/_shared/test/dots-and-boxes-wasm.test.mjs:
 //   host.callStatus('dab_new')               -> 1
@@ -63,7 +63,7 @@ export function edgeCoords(idx) {
 }
 
 // Palette — clears the WCAG-audited non-text contrast bar at 3:1, and reuses the
-// Snapdragon accent tokens the rest of the portal uses.
+// HugMesh accent tokens the rest of the portal uses.
 const COLORS = {
   dot: '#f2eefb',
   edgeOpen: 'rgba(168, 172, 196, 0.30)', // faint hint of a drawable edge

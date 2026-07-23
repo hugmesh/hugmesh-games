@@ -8,7 +8,7 @@
   "spring-boot.ls.java.home": "",
   // ── Rust ─────────────────────────────────────────────────────────────────
   "rust-analyzer.linkedProjects": [
-    "extensions/snapdragon-bridge/Cargo.toml"
+    "extensions/hugmesh-bridge/Cargo.toml"
   ],
   "rust-analyzer.checkOnSave.command": "clippy",
   // ── Godot ─────────────────────────────────────────────────────────────────
@@ -44,14 +44,14 @@
   "files.exclude": {
     "**/node_modules": true,
     "**/target": true,
-    "extensions/snapdragon-bridge/target": true,
+    "extensions/hugmesh-bridge/target": true,
     "**/.godot": true,
     "**/dist": true
   },
   "search.exclude": {
     "**/node_modules": true,
     "**/target": true,
-    "extensions/snapdragon-bridge/target": true,
+    "extensions/hugmesh-bridge/target": true,
     "**/.godot": true,
     "**/dist": true
   },

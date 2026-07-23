@@ -1,6 +1,6 @@
 // Cross-project import — see federated-remotes-three-wizards.spec.ts for why
 // the spec lives in src/ instead of projects/games-vn-maker/. Only the host
-// 'snapdragon-games-frontend' project has a karma test target, and its
+// 'hugmesh-games-frontend' project has a karma test target, and its
 // require.context root is src/app, so engine specs for the maker remotes
 // import the pure engine module via a relative path.
 import {

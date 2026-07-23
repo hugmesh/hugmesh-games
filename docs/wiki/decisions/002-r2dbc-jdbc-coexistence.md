@@ -12,7 +12,7 @@ WebFlux requires non-blocking IO on the dispatcher thread. Liquibase has no reac
 
 ## How to apply
 
-- Spring's auto-config disables `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` is present, so [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/JdbcDataSourceConfig.java) declares an explicit `@Primary HikariDataSource` of pool size 3 just for the migration phase.
+- Spring's auto-config disables `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` is present, so [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java) declares an explicit `@Primary HikariDataSource` of pool size 3 just for the migration phase.
 - R2DBC connects in parallel against the same database via `spring.r2dbc.url`.
 - `@PostConstruct` services that touch the database **must** carry `@DependsOn("liquibase")`. Without it they can run before Liquibase commits, locking their R2DBC connection into a pre-migration MVCC snapshot. `GameStateService` and `GameTimeService` carry this annotation; symptom of forgetting is `BadSqlGrammarException: relation does not exist` from a query the test fixture clearly sets up.
 - Tests need `spring.r2dbc.pool.initial-size=0` so the pool only opens connections after Liquibase finishes.
@@ -25,4 +25,4 @@ WebFlux requires non-blocking IO on the dispatcher thread. Liquibase has no reac
 ## Reference
 
 - [04 — Data model](../architecture/04-data-model.md#r2dbc--jdbc-coexistence)
-- [`backend/src/main/java/games/snapdragon/bff/config/JdbcDataSourceConfig.java`](../../../backend/src/main/java/games/snapdragon/bff/config/JdbcDataSourceConfig.java)
+- [`backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java`](../../../backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java)

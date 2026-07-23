@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the login remote-shell.
 //
 // `name`     — federation_modules.slug for the login remote.
@@ -9,7 +9,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'login',
   exposes: {
     './LoginComponent': './projects/login/src/app/login-remote.component.ts',

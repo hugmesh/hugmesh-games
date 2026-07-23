@@ -16,11 +16,11 @@ The browser hits the host nginx; the host routes to the matching per-remote ngin
 
 | File | Why it's load-bearing |
 |---|---|
-| [`GameStreamController`](../../../backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java) | The SSE merge that drives the live HUD. The `autoCancel=false` rule lives here. |
-| [`GameUploadService`](../../../backend/src/main/java/games/snapdragon/bff/service/GameUploadService.java) | The install transaction. Understanding this gives the whole hot-upload story. |
-| [`FederationController`](../../../backend/src/main/java/games/snapdragon/bff/controller/FederationController.java) | The manifest endpoint that drives the host's import map. Trivial code, foundational consequence. |
-| [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/JdbcDataSourceConfig.java) | The one-line `@Primary HikariDataSource` that explains R2DBC + JDBC coexistence. |
-| [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/R2dbcConvertersConfig.java) | Registers every entity for native-image reflection. Adding a new entity touches one place. |
+| [`GameStreamController`](../../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java) | The SSE merge that drives the live HUD. The `autoCancel=false` rule lives here. |
+| [`GameUploadService`](../../../backend/src/main/java/games/hugmesh/bff/service/GameUploadService.java) | The install transaction. Understanding this gives the whole hot-upload story. |
+| [`FederationController`](../../../backend/src/main/java/games/hugmesh/bff/controller/FederationController.java) | The manifest endpoint that drives the host's import map. Trivial code, foundational consequence. |
+| [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java) | The one-line `@Primary HikariDataSource` that explains R2DBC + JDBC coexistence. |
+| [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) | Registers every entity for native-image reflection. Adding a new entity touches one place. |
 
 ## Reactive vs blocking
 
@@ -33,7 +33,7 @@ Mono.fromCallable(() -> blockingCall())
 
 ### ⚠ `Sinks.many()` must set `autoCancel=false`
 
-The default kills the sink on the first reconnect. Long-lived merges go through `Flux.merge` — see [`GameStreamController`](../../../backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java) for the canonical 8-channel pattern. See [decision 003](../decisions/003-autocancel-false.md).
+The default kills the sink on the first reconnect. Long-lived merges go through `Flux.merge` — see [`GameStreamController`](../../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java) for the canonical 8-channel pattern. See [decision 003](../decisions/003-autocancel-false.md).
 
 ## Adding a federated route
 
@@ -49,7 +49,7 @@ Step-by-step: [howto/add-federated-route.md](../howto/add-federated-route.md).
 
 ## Common code-review patterns
 
-- **New endpoint?** Check that [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/R2dbcConvertersConfig.java) is updated and `make gen-api` ran.
+- **New endpoint?** Check that [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) is updated and `make gen-api` ran.
 - **New SSE channel?** Check `Sinks.many(...).onBackpressureBuffer(N, false)` — the `false` is `autoCancel`.
 - **New federated remote?** Check the host `nginx.conf`'s `/_remotes/` block AND the `federation_modules` row.
 - **New Liquibase changeset?** Next integer prefix and included in [`db.changelog-master.xml`](../../../backend/src/main/resources/db/changelog/db.changelog-master.xml). Never edit a previously-merged changeset.

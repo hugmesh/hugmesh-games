@@ -24,7 +24,7 @@
 // is fully determined by (width, height, colors, seed); two games with the same
 // seed are identical move-for-move.
 //
-// The engine is the verified snapdragon_match_three_wasm.wasm; we drive it through
+// The engine is the verified hugmesh_match_three_wasm.wasm; we drive it through
 // the shared WasmHost with the EXACT call pattern proven in
 // games/_shared/test/match-three-wasm.test.mjs:
 //   host.callStatus('match3_new', '8,8,6,42')   -> 1

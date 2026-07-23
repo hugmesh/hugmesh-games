@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the publisher console remote-shell.
 //
 // `name`     — federation_modules.slug = 'publisher'.
@@ -7,7 +7,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'publisher',
   exposes: {
     './PublisherShell': './projects/publisher/src/app/publisher-remote.component.ts',

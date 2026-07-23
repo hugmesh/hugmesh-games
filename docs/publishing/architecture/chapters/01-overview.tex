@@ -1,6 +1,6 @@
 \chapter{Overview}
 
-\textbf{Snapdragon Games} is a browser-native multi-game portal: a single
+\textbf{HugMesh Games} is a browser-native multi-game portal: a single
 Angular shell loads multiple Godot 4 WebAssembly titles on demand, with a
 Spring Boot BFF streaming game state and controls over Server-Sent Events.
 Authentication runs through Casdoor (OAuth2/OIDC) behind a federated login
@@ -32,7 +32,7 @@ COOP/COEP/CORP headers WASM games need.
   \item \textbf{Per-game Godot projects} (\reposrc{games/}) — currently
         \texttt{three-wizards-in-a-trenchcoat} (cave + field) and
         \texttt{dodecahedron-demo} (chrome-less single-scene tech demo).
-  \item \textbf{Reusable Rust GDExtension} (\reposrc{extensions/snapdragon-bridge/})
+  \item \textbf{Reusable Rust GDExtension} (\reposrc{extensions/hugmesh-bridge/})
         — native \texttt{.so} for the editor, \texttt{wasm32-unknown-emscripten}
         for the web build, with a typed signal bus that any new game can
         consume.

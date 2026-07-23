@@ -1,0 +1,27 @@
+[package]
+name = "hugmesh-tron-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Thin C-ABI / JSON-over-linear-memory WASM shim around hugmesh-tron. Compiles to a tiny freestanding wasm32-unknown-unknown module (NOT emscripten, NOT wasi, NO wasm-bindgen) with ZERO host imports, so the browser can run the authoritative two-player Tron light-cycles tick simulation via WebAssembly.instantiateStreaming AND a JVM WASM runtime (Chicory) can run it with no JS host. Exports a bump allocator (alloc/dealloc) plus the realtime tick ops (tron_new/tron_set_dir/tron_tick/tron_snapshot/tron_status) over a single global Game instance. The core crate is left UNMODIFIED; all JSON marshalling lives here."
+
+[lib]
+# cdylib so the build emits a freestanding .wasm. No rlib needed — this crate is
+# only ever the wasm entrypoint, never linked into another Rust target.
+crate-type = ["cdylib"]
+
+[dependencies]
+# A path dependency on the pure simulation engine and NOTHING else — keeping the
+# wasm module dependency-free (no serde, no wasm-bindgen) so it has no host
+# imports and stays tiny. The engine ALREADY emits its own JSON (Outcome::to_json
+# / Game::snapshot / GameStatus::wire); this shim only marshals bytes across the
+# linear-memory ABI.
+hugmesh-tron = { path = "../hugmesh-tron" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+# A single codegen unit lets LTO strip the most dead code from the freestanding
+# module; panic=abort drops the unwinding tables the host never needs.
+codegen-units = 1
+panic = "abort"

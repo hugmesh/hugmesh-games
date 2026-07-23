@@ -1,4 +1,4 @@
-# Snapdragon CI — build + push the games service images to the in-cluster GitLab
+# HugMesh CI — build + push the games service images to the in-cluster GitLab
 # container registry. Monorepo: one image per deployable component subdir, built
 # in parallel on the privileged x86 runner (e2e is a test image, not built here).
 # Images carry NO keys — KEYS material is supplied from the USB at first boot.
@@ -6,8 +6,8 @@
 # Stages, in order:
 #   build  build + push the per-component images (UNCHANGED).
 #   sca    OWASP Dependency-Check over the games components INCLUDING the Rust
-#          snapdragon-bridge (--enableExperimental, --failOnCVSS 7).
-#   dast   the snapdragon.games OWN continuous OWASP pen-test pipeline — runs the
+#          hugmesh-bridge (--enableExperimental, --failOnCVSS 7).
+#   dast   the hugmesh.games OWN continuous OWASP pen-test pipeline — runs the
 #          vendored harness (tests/pentest/run-pentest.sh --pipeline games) against
 #          the games env-test-build (docker-compose.e2e.yml). Independent of the
 #          main platform pipeline (the TWO-SEPARATE-WORKFLOWS rule).
@@ -43,7 +43,7 @@ stages: [build, sca, dast, load, pentest]
 
 build:image:
   stage: build
-  tags: [snapdragon-x86, privileged]
+  tags: [hugmesh-x86, privileged]
   parallel:
     matrix:
       # Most components build from their own subdir; wasm-fragment's Dockerfile
@@ -70,7 +70,7 @@ build:image:
     # is an optional project CI/CD variable (unset until the mirror below is
     # seeded) pointing at this project's own generic package registry, e.g.
     # "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/godot"
-    # — the SAME convention snapdragon-generator's `deliver:isos` job uses. NOTE:
+    # — the SAME convention hugmesh-generator's `deliver:isos` job uses. NOTE:
     # do NOT include the Godot version segment here — the Dockerfiles' godot
     # stage appends "/${GODOT_VERSION}" themselves (base="${GODOT_RELEASE_BASE_URL}/${GODOT_VERSION}"),
     # so a trailing "/4.6-stable" here would double up and 404 every fetch. Until
@@ -87,8 +87,8 @@ build:image:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # sca — OWASP Dependency-Check over the games components, INCLUDING the Rust
-# snapdragon-bridge GDExtension (--enableExperimental analyses extensions/
-# snapdragon-bridge/Cargo.lock alongside the Java BFF + maker services (Maven) and
+# hugmesh-bridge GDExtension (--enableExperimental analyses extensions/
+# hugmesh-bridge/Cargo.lock alongside the Java BFF + maker services (Maven) and
 # the Angular host + remotes (npm)). Fails the build on a CVSS >= 7 finding.
 #
 # The NVD feed is cached in a persistent per-project cache so re-runs don't
@@ -97,7 +97,7 @@ build:image:
 # ─────────────────────────────────────────────────────────────────────────────
 sca:dependency-check:
   stage: sca
-  tags: [snapdragon-x86, privileged]
+  tags: [hugmesh-x86, privileged]
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
@@ -128,7 +128,7 @@ sca:dependency-check:
     expire_in: 30 days
 
 # ─────────────────────────────────────────────────────────────────────────────
-# dast — the snapdragon.games OWN continuous OWASP pen-test pipeline. Runs the
+# dast — the hugmesh.games OWN continuous OWASP pen-test pipeline. Runs the
 # vendored harness against the games env-test-build (docker-compose.e2e.yml): the
 # games front door + the games BFF + the games Casdoor org, exercising the games
 # personas (player/mod/publisher/admin) across the per-brand games-catalog
@@ -144,7 +144,7 @@ sca:dependency-check:
 # ─────────────────────────────────────────────────────────────────────────────
 .dast:base:
   stage: dast
-  tags: [snapdragon-x86, privileged]
+  tags: [hugmesh-x86, privileged]
   variables:
     # The vendored harness spins the games compose, seeds personas, scans, and
     # always tears down (even on a mid-scan failure). ZAP runs as the host-net
@@ -191,7 +191,7 @@ dast:full:
 # ─────────────────────────────────────────────────────────────────────────────
 load:k6:
   stage: load
-  tags: [snapdragon-x86, privileged]
+  tags: [hugmesh-x86, privileged]
   variables:
     PENTEST_HOST_PORT: "8080"
     # NOTE: PENTEST_LOAD is deliberately NOT defaulted here — it must arrive from

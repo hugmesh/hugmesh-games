@@ -1,5 +1,5 @@
 """
-Snapdragon Games — Intro for entry-level coders.
+HugMesh Games — Intro for entry-level coders.
 
 A 12-slide tour of the hosted architecture written for someone who has
 shipped some code in some language and is brand new to this codebase.
@@ -14,12 +14,12 @@ from pathlib import Path
 import argparse, sys
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _snapdragon_deck import make_deck   # noqa: E402
+from _hugmesh_deck import make_deck   # noqa: E402
 
 
 SECTIONS = [
     {
-        "title": "What is Snapdragon Games?",
+        "title": "What is HugMesh Games?",
         "body": [
             "A browser-native portal that hosts multiple games on one page.",
             "Each game is a Godot 4 export compiled to WebAssembly.",
@@ -59,7 +59,7 @@ SECTIONS = [
             "wasm-fragment/           Asset-tier nginx that serves Godot bundles",
             "backend/                 Spring Boot BFF (WebFlux + R2DBC)",
             "games/<slug>/            One Godot project per game",
-            "extensions/snapdragon-bridge/  Reusable Rust GDExtension (native + WASM)",
+            "extensions/hugmesh-bridge/  Reusable Rust GDExtension (native + WASM)",
         ],
     },
     {
@@ -194,7 +194,7 @@ SECTIONS = [
             "/vn-maker  — godot-2d-visual-novel-shaped editor (acts/scenes/lines/choices). Federated remote.",
             "Backed by rpg-builder + vn-builder side services; each has its own Postgres + Liquibase.",
             "Build pipeline: walks the tree → renders Godot 4 source → runs godot --export-release → POST /api/admin/games/upload.",
-            "Bundles ship snapdragon_bridge.gdextension baked in — multiplayer-aware out of the box.",
+            "Bundles ship hugmesh_bridge.gdextension baked in — multiplayer-aware out of the box.",
             "publisher-flatland seed user opens pre-seeded Flatland projects, ready to build.",
         ],
     },
@@ -230,7 +230,7 @@ CLOSING = {
         "Ask for help in the team channel — every gotcha here cost someone an afternoon already.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
+        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
         "Issues + roadmap: docs/PLAN-module-federation-and-native.md",
         "Build everything locally: make docs-all",
     ],
@@ -242,7 +242,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     make_deck(
-        title="Welcome to Snapdragon Games",
+        title="Welcome to HugMesh Games",
         subtitle="A 12-slide tour of the hosted architecture",
         kicker="Intro for coders",
         audience="Engineers new to this codebase. No assumed framework knowledge.",

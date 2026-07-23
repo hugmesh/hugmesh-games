@@ -3,7 +3,7 @@
 # shared node_modules cache reach the container.
 #
 #   docker build -f frontend/projects/banned/Dockerfile \
-#                -t snapdragon-banned ./frontend
+#                -t hugmesh-banned ./frontend
 #
 # The compose service `banned` pulls this and serves the output on
 # its private :8080. The host shell discovers it via

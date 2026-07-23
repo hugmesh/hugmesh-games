@@ -1,0 +1,27 @@
+; Canonical manifest for the HugMesh Bridge GDExtension. The host
+; project's `make build-rust` target copies this file (and the matching
+; binary from ./bin/) into each `games/<slug>/` project so Godot opens
+; them with the bridge wired up. Paths are relative to the GAME project
+; root, not this folder.
+
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = 4.1
+reloadable = true
+
+[libraries]
+linux.debug.x86_64     = "res://bin/libhugmesh_bridge.so"
+linux.release.x86_64   = "res://bin/libhugmesh_bridge.so"
+windows.debug.x86_64   = "res://bin/hugmesh_bridge.dll"
+windows.release.x86_64 = "res://bin/hugmesh_bridge.dll"
+macos.debug            = "res://bin/libhugmesh_bridge.dylib"
+macos.release          = "res://bin/libhugmesh_bridge.dylib"
+; Web/wasm — needs emscripten + cargo target wasm32-unknown-emscripten.
+; The Makefile's build-rust target attempts this and falls through with a
+; warning if emscripten isn't installed. Without these entries Godot's
+; web export logs "no library matching this platform" every boot when
+; extensions_support=true; the per-preset config currently disables that
+; for the same reason. Keeping these entries means a future emscripten
+; build just works without manifest changes.
+web.debug.wasm32       = "res://bin/hugmesh_bridge.wasm"
+web.release.wasm32     = "res://bin/hugmesh_bridge.wasm"

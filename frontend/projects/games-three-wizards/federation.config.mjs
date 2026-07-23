@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the Three Wizards game remote (TWiaT).
 //
 // `name`     — federation_modules.slug = 'games-three-wizards'.
@@ -12,7 +12,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'games-three-wizards',
   exposes: {
     './GameRoot': './projects/games-three-wizards/src/app/three-wizards-remote.component.ts',

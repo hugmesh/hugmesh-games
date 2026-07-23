@@ -175,7 +175,7 @@ export class ThreeWizardsRemoteComponent implements OnInit, OnDestroy {
    *  mount timestamp announces presence. Channel name matches
    *  GameCanvasComponent so legacy + federated mounts speak the same
    *  protocol. */
-  private static readonly PRESENCE_CHANNEL = 'snapdragon-game-presence';
+  private static readonly PRESENCE_CHANNEL = 'hugmesh-game-presence';
   private readonly _windowId =
       `tw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   private readonly _mountedAt = Date.now();

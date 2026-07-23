@@ -4,7 +4,7 @@ Adding a new typed channel to the merged `/api/game/stream` so subscribers can `
 
 ## 1. Add the sink to `GameStateService`
 
-In [`backend/src/main/java/games/snapdragon/bff/service/GameStateService.java`](../../../backend/src/main/java/games/snapdragon/bff/service/GameStateService.java):
+In [`backend/src/main/java/games/hugmesh/bff/service/GameStateService.java`](../../../backend/src/main/java/games/hugmesh/bff/service/GameStateService.java):
 
 ```java
 private final Sinks.Many<FooEvent> fooSink = Sinks.many()
@@ -29,7 +29,7 @@ public Flux<ServerSentEvent<FooEvent>> fooFlux() {
 
 ## 3. Merge it in `GameStreamController`
 
-In [`backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java`](../../../backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java)'s `Flux.merge(...)` call, add `gameState.fooFlux()` alongside the existing channels and the keepalive.
+In [`backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java`](../../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java)'s `Flux.merge(...)` call, add `gameState.fooFlux()` alongside the existing channels and the keepalive.
 
 ## 4. Add a DTO if needed
 
@@ -40,7 +40,7 @@ If `FooEvent` is a new shape, add the record to `model/` and register it for nat
 public record FooEvent(...) {}
 ```
 
-Add it to [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/R2dbcConvertersConfig.java) only if it's a *persistence* shape (an R2DBC entity); SSE-only shapes don't need that.
+Add it to [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) only if it's a *persistence* shape (an R2DBC entity); SSE-only shapes don't need that.
 
 ## 5. Wire the frontend listener
 

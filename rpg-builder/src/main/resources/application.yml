@@ -1,6 +1,6 @@
 spring:
   application:
-    name: snapdragon-rpg-builder
+    name: hugmesh-rpg-builder
   r2dbc:
     url: r2dbc:postgresql://${DB_HOST:postgres-rpg-builder}:${DB_PORT:5432}/${DB_NAME:rpg_builder}
     username: ${DB_USER:rpg_builder}
@@ -53,20 +53,20 @@ app:
     # Hard cap on a single export (ISO-8601 duration) so a hung Godot
     # process can't wedge the single-flight queue.
     godot-timeout: ${APP_BUILD_GODOT_TIMEOUT:PT10M}
-    # Directory holding the compiled snapdragon-bridge binaries
-    # (snapdragon_bridge.wasm + libsnapdragon_bridge.so) baked into each
+    # Directory holding the compiled hugmesh-bridge binaries
+    # (hugmesh_bridge.wasm + libhugmesh_bridge.so) baked into each
     # rendered project's bin/ so the produced WASM carries the multiplayer
     # HostBridge. Empty (dev default) → skipped (non-multiplayer bundle).
     bridge-dir: ${APP_BUILD_BRIDGE_DIR:}
     # Path to a per-project workdir root on the container's writable
     # FS. Each build gets a sub-directory `<project-id>/<build-id>/`.
-    workdir: ${APP_BUILD_WORKDIR:/var/snapdragon/rpg-builds}
+    workdir: ${APP_BUILD_WORKDIR:/var/hugmesh/rpg-builds}
     # Path to the assets dir (uploaded icons / portraits).
-    assets-dir: ${APP_BUILD_ASSETS_DIR:/var/snapdragon/rpg-assets}
+    assets-dir: ${APP_BUILD_ASSETS_DIR:/var/hugmesh/rpg-assets}
     # Maximum bundle bytes the worker will POST to the BFF.
     max-bundle-bytes: ${APP_BUILD_MAX_BUNDLE_BYTES:209715200}
 
 logging:
   level:
-    games.snapdragon.rpgbuilder: INFO
+    games.hugmesh.rpgbuilder: INFO
     org.springframework.r2dbc: WARN

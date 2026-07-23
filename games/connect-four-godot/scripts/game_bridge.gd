@@ -10,7 +10,7 @@ extends Node
 # It does NOT contain any Connect Four rules — those live in the Rust core,
 # reached from connect_four_board.gd via the ConnectFourEngine GDExtension
 # node. This script only
-# wires transport, exactly like every other Snapdragon Godot game.
+# wires transport, exactly like every other HugMesh Godot game.
 
 var _host_bridge: Node = null
 

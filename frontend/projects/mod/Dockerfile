@@ -1,7 +1,7 @@
 # Per-remote Dockerfile for the federated moderator console.
 #
 #   docker build -f frontend/projects/mod/Dockerfile \
-#                -t snapdragon-mod ./frontend
+#                -t hugmesh-mod ./frontend
 
 FROM node:20-alpine AS build
 WORKDIR /app

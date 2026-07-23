@@ -25,7 +25,7 @@ If a game isn't in your scope, an `ROLE_ADMIN` holder grants you the scope row a
 
 ## What you can do
 
-- **Upload a new bundle** for a game in your scope. `POST /api/games/{slug}/uploads` with the Snapdragon Export zip. The BFF validates manifest schema v2, hashes the bundle, atomically moves to `<gamesDir>/<slug>/<sha-prefix>`, and runs `register.sql` in one Postgres transaction. The rollback history is preserved.
+- **Upload a new bundle** for a game in your scope. `POST /api/games/{slug}/uploads` with the HugMesh Export zip. The BFF validates manifest schema v2, hashes the bundle, atomically moves to `<gamesDir>/<slug>/<sha-prefix>`, and runs `register.sql` in one Postgres transaction. The rollback history is preserved.
 - **Pin a previous version** as the active one. Useful when a fresh upload regresses. `PUT /api/games/{slug}/uploads/{uploadId}/pin`.
 - **Edit per-game access policy.** `POST /api/games/{slug}/access` with `{scope, value}` — three additive scopes: `all`, `role` (e.g. `ROLE_PLAY_THREE_WIZARDS`), `user` (specific Casdoor ID). Idempotent on `uq_game_access_triple`. See [decision 009](../decisions/009-game-access-scopes.md).
 - **List active sessions** for monitoring (read-only — kick is mod-only).
@@ -33,7 +33,7 @@ If a game isn't in your scope, an `ROLE_ADMIN` holder grants you the scope row a
     - **Launch RPG Maker** → `/rpg-maker` (Mudlet-shaped editor: areas / rooms / N/S/E/W/NE/NW/SE/SW/UP/DOWN/TELEPORT exits / items / NPCs / scripts). Backed by the [`rpg-builder/`](../../../rpg-builder/) Spring service.
     - **Launch Visual Novel Maker** → `/vn-maker` (godot-2d-visual-novel-shaped editor: acts / characters / backgrounds / scenes / dialogue lines / branching choices). Backed by the [`vn-builder/`](../../../vn-builder/) Spring service.
 
-  Both makers compile the saved project to a Snapdragon-bridge-aware Godot 4 WASM bundle (one bundle per Area/Act → registered as a Chapter), POST it to `/api/admin/games/upload` with **your** bearer token, and the BFF runs the same `publisher_game_scopes` check it would on a hand-uploaded bundle. The maker shows a live build-progress bar with terminal `DONE` / `FAILED` state. See [decision 018](../decisions/018-rpg-and-vn-makers.md).
+  Both makers compile the saved project to a HugMesh-bridge-aware Godot 4 WASM bundle (one bundle per Area/Act → registered as a Chapter), POST it to `/api/admin/games/upload` with **your** bearer token, and the BFF runs the same `publisher_game_scopes` check it would on a hand-uploaded bundle. The maker shows a live build-progress bar with terminal `DONE` / `FAILED` state. See [decision 018](../decisions/018-rpg-and-vn-makers.md).
 
 ## What you can NOT do
 
@@ -51,7 +51,7 @@ If a game isn't in your scope, an `ROLE_ADMIN` holder grants you the scope row a
 
 1. Log in. Confirm the `/publisher` link appears in the host header.
 2. Open `/publisher`. The catalog lists every game in your scope. The "current version" column should match the bundle on disk under `<gamesDir>/<slug>/`.
-3. To ship a new build: open the game's *Uploads* tab → *Upload new bundle* → choose a Snapdragon Export zip. The form posts to `POST /api/games/{slug}/uploads`. Wait for the success toast (10–30 s for a typical bundle).
+3. To ship a new build: open the game's *Uploads* tab → *Upload new bundle* → choose a HugMesh Export zip. The form posts to `POST /api/games/{slug}/uploads`. Wait for the success toast (10–30 s for a typical bundle).
 4. Verify by visiting `/` and clicking the game's card → the chapter modal should mount the new version. The host's federation manifest refreshes within 60 s of the install transaction committing.
 5. If something is wrong: open *Uploads*, find the previous row, click *Pin*. The active-version pointer flips back atomically. Old superseded versions are kept on disk by [`GameUploadPruner`](../architecture/06-build-and-deploy.md#scheduled-jobs) until the retention cap (default 3 newest).
 6. To gate a new game: *Access policy* tab → choose `scope=role` and a role like `ROLE_PLAY_THREE_WIZARDS` → save. Players without that role hit 403 on the chapter scene fetch.
@@ -61,7 +61,7 @@ If a game isn't in your scope, an `ROLE_ADMIN` holder grants you the scope row a
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `/publisher` shows a 403 banner | Casdoor session has `ROLE_PUBLISHER` but no `publisher_game_scopes` row | Ask an admin to grant scope at `/admin/role-grants` |
-| Upload returns 400 "manifest schema mismatch" | Bundle exported with a stale Snapdragon Export plugin | Update the plugin in Godot, re-export |
+| Upload returns 400 "manifest schema mismatch" | Bundle exported with a stale HugMesh Export plugin | Update the plugin in Godot, re-export |
 | Upload returns 409 | Same SHA already on disk under that slug | The bundle is byte-identical to a prior version; nothing to do |
 | Pin returns 404 | The target uploadId was pruned by `GameUploadPruner` | Pin to the next-most-recent surviving version, OR raise `versions-to-keep` and re-upload |
 | Access policy edit "wins" but the player still 403s | Caller's JWT is stale | Player needs to re-login so the JWT picks up the new role-bearing claim |

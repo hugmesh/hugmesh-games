@@ -66,7 +66,7 @@ func _make_dodecahedron() -> MeshInstance3D:
 	mi.mesh = _build_dodecahedron_mesh()
 
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.95, 0.45, 0.18)  # snapdragon orange
+	mat.albedo_color = Color(0.95, 0.45, 0.18)  # hugmesh orange
 	mat.metallic = 0.5
 	mat.roughness = 0.32
 	mat.emission_enabled = true

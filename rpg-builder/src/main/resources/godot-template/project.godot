@@ -1,8 +1,8 @@
-; Generated Godot 4 project for snapdragon-rpg-builder.
+; Generated Godot 4 project for hugmesh-rpg-builder.
 ;
 ; The build worker writes this file once per build into the working
 ; directory, with {{slug}} and {{displayName}} interpolated. The
-; addon-list pulls in snapdragon_bridge so the produced WASM exposes
+; addon-list pulls in hugmesh_bridge so the produced WASM exposes
 ; the Rust HostBridge / multiplayer lobby / per-player view channel
 ; the host portal expects.
 
@@ -17,7 +17,7 @@ config/icon="res://icon.svg"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/snapdragon_bridge/plugin.cfg")
+enabled=PackedStringArray("res://addons/hugmesh_bridge/plugin.cfg")
 
 [gdextension]
 

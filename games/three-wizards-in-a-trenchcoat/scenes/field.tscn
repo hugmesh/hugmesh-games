@@ -70,13 +70,13 @@ script = ExtResource("1_bridge")
 
 [node name="BridgeGlue" type="BridgeGlue" parent="GameBridge"]
 
-; Wizards parent: avatar hierarchy host for SnapdragonMultiplayerLobby.
+; Wizards parent: avatar hierarchy host for HugMeshMultiplayerLobby.
 ; See cave.tscn for the rationale — same standardised parent + sibling
 ; layout so the Rust lobby's avatar_parent_path default ("../Wizards")
 ; resolves cleanly across both chapter scenes.
 [node name="Wizards" type="Node3D" parent="."]
 
-[node name="MultiplayerLobby" type="SnapdragonMultiplayerLobby" parent="."]
+[node name="MultiplayerLobby" type="HugMeshMultiplayerLobby" parent="."]
 
 [node name="SceneLoader" type="Node" parent="."]
 script = ExtResource("4_loader")

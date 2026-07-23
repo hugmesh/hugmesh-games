@@ -1,8 +1,8 @@
 """
-Snapdragon Games — Godot developer step-by-step.
+HugMesh Games — Godot developer step-by-step.
 
 A 14-slide walkthrough of starting a new game in Godot, wiring it into
-the per-game Snapdragon project layout, and either shipping it via the
+the per-game HugMesh project layout, and either shipping it via the
 Make build chain or uploading it through the admin UI.
 
 Edit the SECTIONS list below and re-run:
@@ -12,7 +12,7 @@ Edit the SECTIONS list below and re-run:
 from pathlib import Path
 import argparse, sys
 sys.path.insert(0, str(Path(__file__).parent))
-from _snapdragon_deck import make_deck   # noqa: E402
+from _hugmesh_deck import make_deck   # noqa: E402
 
 
 SECTIONS = [
@@ -20,8 +20,8 @@ SECTIONS = [
         "title": "What you'll build",
         "body": [
             "A new Godot 4.6 project under games/<game-slug>/ that opens standalone in the editor.",
-            "It uses the reusable Rust GDExtension (extensions/snapdragon-bridge/) for HostBridge signals.",
-            "The Snapdragon Export plugin produces a deploy-ready zip with manifest.json + register.sql + bundle/.",
+            "It uses the reusable Rust GDExtension (extensions/hugmesh-bridge/) for HostBridge signals.",
+            "The HugMesh Export plugin produces a deploy-ready zip with manifest.json + register.sql + bundle/.",
             "You ship it either through `make build-godot` (committed in-repo) or through /admin/games (hot upload).",
         ],
     },
@@ -31,7 +31,7 @@ SECTIONS = [
             "Godot 4.6 in PATH as `godot` (verify: `godot --version`).",
             "Rust stable (`cargo --version`).",
             "Optional: emscripten + rustup wasm32-unknown-emscripten for the Rust GDExtension WASM target.",
-            "Run once: `make build-rust` so games/<slug>/bin/libsnapdragon_bridge.so is populated for every game.",
+            "Run once: `make build-rust` so games/<slug>/bin/libhugmesh_bridge.so is populated for every game.",
         ],
         "code": "make build-rust   →   one .so, copied into every games/<dir>/bin/",
     },
@@ -40,7 +40,7 @@ SECTIONS = [
         "body": [
             "1. mkdir games/my-game-slug/",
             "2. Open Godot → New Project → set path to that directory → Create.",
-            "3. Copy snapdragon_bridge.gdextension and addons/snapdragon_export/ from games/three-wizards-in-a-trenchcoat/ to your new project.",
+            "3. Copy hugmesh_bridge.gdextension and addons/hugmesh_export/ from games/three-wizards-in-a-trenchcoat/ to your new project.",
             "4. Open the project. Verify Project → Settings shows the GDExtension loaded.",
             "5. Drop a starter scene at scenes/main.tscn.",
         ],
@@ -94,7 +94,7 @@ SECTIONS = [
     {
         "title": "Step 5b (option B): Upload through admin",
         "body": [
-            "Godot: Project → Tools → Snapdragon → Export…",
+            "Godot: Project → Tools → HugMesh → Export…",
             "Fill in slug, name, description, scene type.",
             "Export. Plugin writes a zip to your chosen path.",
             "Visit /admin/games, drag zip into Upload card.",
@@ -122,7 +122,7 @@ SECTIONS = [
             "federation: { slug, display_name, kind, remote_entry_url, exposed_module, version, metadata }",
             "The plugin generates the whole shape; you only fill in the editor dialog.",
         ],
-        "code": "addons/snapdragon_export/manifest_builder.gd::build(inputs) → Dictionary",
+        "code": "addons/hugmesh_export/manifest_builder.gd::build(inputs) → Dictionary",
     },
     {
         "title": "register.sql contract",
@@ -194,7 +194,7 @@ SECTIONS = [
         "title": "Reading list",
         "body": [
             "docs/GODOT_DEVELOPER_GUIDE.md — the canonical contract.",
-            "addons/snapdragon_export/manifest_builder.gd — manifest schema reference.",
+            "addons/hugmesh_export/manifest_builder.gd — manifest schema reference.",
             "games/three-wizards-in-a-trenchcoat/ — production-grade reference project.",
             "docs/publishing/architecture/build/architecture.pdf — chapter 7 on extending the portal.",
         ],
@@ -206,11 +206,11 @@ CLOSING = {
     "title": "Ship a level. Ship a game. Either way wins.",
     "body": [
         "The fastest loop is `make build-godot` for a tweak; the slowest is the upload-pipeline test for a brand-new game.",
-        "Lean on the Snapdragon Export plugin — it builds the zip you want.",
+        "Lean on the HugMesh Export plugin — it builds the zip you want.",
         "Every contract here is enforced by tests; if you stay inside the lines, the home page will pick your game up.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
+        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
         "Godot guide: docs/GODOT_DEVELOPER_GUIDE.md",
         "Architecture PDF: make docs-pdf",
     ],
@@ -222,7 +222,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     make_deck(
-        title="Building a game on Snapdragon",
+        title="Building a game on HugMesh",
         subtitle="From `mkdir games/my-game/` to a row on the home page",
         kicker="Godot developer walkthrough",
         audience="Game developers shipping a Godot 4 title onto the portal.",

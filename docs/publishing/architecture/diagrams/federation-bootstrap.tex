@@ -7,7 +7,7 @@
   \node[snapnode,minimum width=30mm]                       (mainTs) {main.ts loads};
   \node[snapnode,minimum width=46mm,right=of mainTs]       (fetch)  {GET /api/federation/manifest};
   \node[snapnode,minimum width=40mm,right=of fetch]        (fed)    {initFederation(manifest)};
-  \node[snapaccent,minimum width=44mm,right=of fed]        (stash)  {globalThis.\_\_SNAPDRAGON\_\\LOAD\_REMOTE\_MODULE\_\_};
+  \node[snapaccent,minimum width=44mm,right=of fed]        (stash)  {globalThis.\_\_HUGMESH\_\\LOAD\_REMOTE\_MODULE\_\_};
 
   \draw[snapedge] (mainTs) -- (fetch);
   \draw[snapedge] (fetch)  -- (fed);

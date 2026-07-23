@@ -1,5 +1,5 @@
 """
-Snapdragon Games — Publisher deck.
+HugMesh Games — Publisher deck.
 
 A 12-slide deck for ROLE_PUBLISHER holders: how to upload, roll back,
 pin versions, edit access policy for games in your scope.
@@ -7,7 +7,7 @@ pin versions, edit access policy for games in your scope.
 from pathlib import Path
 import argparse, sys
 sys.path.insert(0, str(Path(__file__).parent))
-from _snapdragon_deck import make_deck   # noqa: E402
+from _hugmesh_deck import make_deck   # noqa: E402
 
 
 SECTIONS = [
@@ -44,7 +44,7 @@ SECTIONS = [
     {
         "title": "Upload pipeline",
         "body": [
-            "POST /api/games/{slug}/uploads — multipart with the Snapdragon Export zip.",
+            "POST /api/games/{slug}/uploads — multipart with the HugMesh Export zip.",
             "BFF validates manifest schema v2 + hashes the bundle.",
             "Atomically moves to <gamesDir>/<slug>/<sha-prefix>.",
             "Runs register.sql in one Postgres transaction.",
@@ -99,7 +99,7 @@ SECTIONS = [
         "title": "Common fires",
         "body": [
             "/publisher 403 banner → no publisher_game_scopes row. Ask admin.",
-            "Upload 400 manifest schema mismatch → stale Snapdragon Export plugin. Re-export.",
+            "Upload 400 manifest schema mismatch → stale HugMesh Export plugin. Re-export.",
             "Upload 409 → byte-identical bundle already on disk. Nothing to do.",
             "Pin 404 → uploadId pruned. Pin to next-most-recent surviving row.",
             "Access edit succeeds but player still 403s → JWT stale; player needs to re-login.",
@@ -113,7 +113,7 @@ SECTIONS = [
             "Mudlet-shaped data model: project → areas → rooms + 6+1 direction exits + items/NPCs/scripts.",
             "Each area becomes a Chapter in the BFF; multi-area projects ship as multi-chapter games.",
             "Build: QUEUED → RENDERING → EXPORTING → UPLOADING → DONE.",
-            "Worker renders a Godot 4 source tree (snapdragon_bridge.gdextension baked in) → godot CLI → zip → POST /api/admin/games/upload with YOUR bearer.",
+            "Worker renders a Godot 4 source tree (hugmesh_bridge.gdextension baked in) → godot CLI → zip → POST /api/admin/games/upload with YOUR bearer.",
             "publisher_game_scopes check at upload time enforces who can ship which slug.",
             "'Download Godot source' streams the same tree if you want to tweak in the editor.",
             "Pinning: e2e/features/makers/rpg-maker.feature.",
@@ -186,7 +186,7 @@ CLOSING = {
         "Pruner is your friend; raise versions-to-keep before you need to roll back to something old.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
+        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
         "Admin deck: docs/publishing/slides/build/administration-manual.pptx",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
     ],
@@ -198,7 +198,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     make_deck(
-        title="Snapdragon Games — Publisher guide",
+        title="HugMesh Games — Publisher guide",
         subtitle="Upload, pin, gate access. Scope is per-game.",
         kicker="Publisher guide",
         audience="Publishers (ROLE_PUBLISHER with publisher_game_scopes rows).",

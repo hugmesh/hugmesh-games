@@ -1,4 +1,4 @@
-% Shared preamble for the six Snapdragon Games user guide PDFs.
+% Shared preamble for the six HugMesh Games user guide PDFs.
 %
 % Each per-guide guide.tex \input's this file from the guide's working
 % directory. Keeping it in one place means the architecture PDF and the
@@ -6,13 +6,13 @@
 % boxes, and the \snapdiagram / \snapmarble macros — they all look like
 % one product.
 %
-% Path note: the snapdragon-theme.sty lives under
+% Path note: the hugmesh-theme.sty lives under
 % docs/publishing/architecture/. We add that directory to TEXINPUTS via
 % the build script (build-userguides.sh) so \usepackage finds it
 % without copying the file into every guide directory.
 
 \usepackage{datetime}
-\usepackage{snapdragon-theme}
+\usepackage{hugmesh-theme}
 \usepackage{microtype}
 \usepackage[hidelinks]{hyperref}
 % pdfpages: lets the data-architect guide drop the auto-sized DB-diagram

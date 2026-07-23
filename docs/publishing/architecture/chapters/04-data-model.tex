@@ -463,7 +463,7 @@ generator. \\
 
 \texttt{game\_event\_support} & Per-game opt-in. \textbf{Composite}
 primary key \texttt{(game\_slug, event\_kind, event\_type)}, FK to
-\texttt{input\_event\_types(kind, type)}. The Snapdragon Export
+\texttt{input\_event\_types(kind, type)}. The HugMesh Export
 plugin writes one row per declared event during upload; the BFF
 refuses any input emit whose triple isn't enabled here, regardless
 of what the client sends. \\
@@ -550,7 +550,7 @@ Liquibase end-to-end (no JPA \texttt{ddl-auto}, no psql-init seed).
 \end{itemize}
 
 Each side service's build worker walks its project tree, renders a
-Godot 4 source tree (with \snapfile{snapdragon\_bridge.gdextension}
+Godot 4 source tree (with \snapfile{hugmesh\_bridge.gdextension}
 baked in), invokes the Godot CLI per area (RPG) or act (VN), zips the
 result, and POSTs to the BFF \texttt{/api/admin/games/upload}
 endpoint with the originating user's bearer token, so the BFF's

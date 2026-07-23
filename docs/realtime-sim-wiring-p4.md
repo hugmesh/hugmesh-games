@@ -2,8 +2,8 @@
 
 P2 gives the BFF a genre-agnostic `SimCore` / `SimCoreFactory` boundary with a
 deterministic Java reference sim proving the authoritative tick loop. P4 swaps
-the real engines in behind that same boundary: `snapdragon-rts-core` and
-`snapdragon-fps-core` (extensions/, committed 5173c8e — fixed-point,
+the real engines in behind that same boundary: `hugmesh-rts-core` and
+`hugmesh-fps-core` (extensions/, committed 5173c8e — fixed-point,
 bit-exact `replay(seed, log)`).
 
 ## Options considered

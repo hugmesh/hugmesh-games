@@ -84,8 +84,8 @@ the RTS/FPS cores extend that, now run server-side and persisted.
 
 ## Phased plan
 
-- **P1 — sim cores (buildable + testable now):** `snapdragon-rts-core` +
-  `snapdragon-fps-core` — deterministic, fixed-timestep, seeded Rust sims with a
+- **P1 — sim cores (buildable + testable now):** `hugmesh-rts-core` +
+  `hugmesh-fps-core` — deterministic, fixed-timestep, seeded Rust sims with a
   command/input API, an authoritative snapshot/keyframe + replay-from-log, and a
   thorough `cargo test` suite (incl. *determinism*: same seed+inputs ⇒ identical
   state ⇒ server and client agree). The "server truth" engine.

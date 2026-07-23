@@ -78,4 +78,4 @@ curl -X POST \
 
 - [Decision 010 — Per-session SSE sink isolation](../decisions/010-per-session-sse-sinks.md)
 - [05 — API reference § MultiplayerSessionController](../architecture/05-api-reference.md)
-- The integration test that pins the isolation contract: [`SessionIsolationTest`](../../../backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java).
+- The integration test that pins the isolation contract: [`SessionIsolationTest`](../../../backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java).

@@ -28,7 +28,7 @@
         4. game_event_support — a join table on a composite
            (game_slug, event_kind, event_type) primary key telling
            the BFF which events each game declares it consumes /
-           emits. Wrote via register.sql in the Snapdragon Export
+           emits. Wrote via register.sql in the HugMesh Export
            bundle; queried by the BFF on every input emit so a
            non-JRPG game can't accidentally write spell-loadout
            updates against a game whose feature flag says no.

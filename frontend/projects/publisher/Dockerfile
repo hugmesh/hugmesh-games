@@ -1,7 +1,7 @@
 # Per-remote Dockerfile for the federated publisher console.
 #
 #   docker build -f frontend/projects/publisher/Dockerfile \
-#                -t snapdragon-publisher ./frontend
+#                -t hugmesh-publisher ./frontend
 
 FROM node:20-alpine AS build
 WORKDIR /app

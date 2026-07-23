@@ -3,5 +3,5 @@
 
 logging:
   level:
-    games.snapdragon.bff: DEBUG
+    games.hugmesh.bff: DEBUG
     org.springframework.security: DEBUG

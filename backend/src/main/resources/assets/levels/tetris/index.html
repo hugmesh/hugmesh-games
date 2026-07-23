@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Tetris — Snapdragon</title>
+    <title>Tetris — HugMesh</title>
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="stylesheet" href="./tetris.css" />
   </head>
@@ -46,7 +46,7 @@
 
       const GAME = createTetrisGame();
 
-      mountGame(GAME, { wasmUrl: './wasm/snapdragon_tetris_wasm.wasm' })
+      mountGame(GAME, { wasmUrl: './wasm/hugmesh_tetris_wasm.wasm' })
         .then((ctx) => {
           window.__tetrisReady = true; // smoke-test boot signal
           window.__tetrisCtx = ctx; // expose for the headless smoke test

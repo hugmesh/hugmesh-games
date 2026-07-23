@@ -153,7 +153,7 @@ Casdoor is reachable only from inside the compose network. The host BFF proxies 
 
 ## Server-Sent Events — nine channels on one stream
 
-[`GameStreamController`](../../../backend/src/main/java/games/snapdragon/bff/controller/GameStreamController.java) merges **nine** SSE channels onto a single `Flux<ServerSentEvent>`:
+[`GameStreamController`](../../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java) merges **nine** SSE channels onto a single `Flux<ServerSentEvent>`:
 
 - Eight `Sinks.Many` from `GameStateService`: `movement`, `world`, `character`, `scene`, `input`, `audio`, `wasm-console`, `session-control`
 - One from `GameTimeService`: `time`
@@ -174,7 +174,7 @@ Multiplayer sessions add a new layer: `GameStateService` keeps a `ConcurrentHash
 - the **legacy global sink** (so the admin firehose at `/api/admin/stream` still sees everything across the fleet), and
 - the **session-scoped sink** keyed by `sessionId` (so a subscriber to `/api/game/stream?sessionId=A` sees only session A's events).
 
-The isolation contract is locked in by [`SessionIsolationTest`](../../../backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) — emit on session A's sinks, assert session B's per-session subscriber sees nothing. Five specs cover movement, world, view, bidirectional isolation, and the legacy single-player path's non-leakage.
+The isolation contract is locked in by [`SessionIsolationTest`](../../../backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java) — emit on session A's sinks, assert session B's per-session subscriber sees nothing. Five specs cover movement, world, view, bidirectional isolation, and the legacy single-player path's non-leakage.
 
 ```mermaid
 flowchart LR

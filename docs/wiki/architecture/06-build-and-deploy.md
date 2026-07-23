@@ -45,7 +45,7 @@ The base `docker-compose.yml` binds the frontend port to `127.0.0.1` by default 
 | Goal | Knob | How |
 |---|---|---|
 | LAN demo / multi-device playtest | `lan.properties` + `make lan-up` (or `make lan-up-tls` for HTTPS) | Set `FRONTEND_BIND=0.0.0.0:`. Frontend re-binds to all interfaces. `make lan-info` prints reachable URLs. `lan.properties` is a docker-compose env-file — `docker compose --env-file lan.properties up -d` produces the same result without going through make. |
-| Production deploy at `snapdragon.games` | `compose.prod.yml` + `PROD_FRONTEND_BIND` | Defaults to loopback (assumes upstream LB). Set `PROD_FRONTEND_BIND=0.0.0.0:` for single-VM direct-internet deploys. Edge rate limits at the host nginx level are sized for ~10 k concurrent users — see [decision 019](../decisions/019-production-rate-limits.md). |
+| Production deploy at `hugmesh.games` | `compose.prod.yml` + `PROD_FRONTEND_BIND` | Defaults to loopback (assumes upstream LB). Set `PROD_FRONTEND_BIND=0.0.0.0:` for single-VM direct-internet deploys. Edge rate limits at the host nginx level are sized for ~10 k concurrent users — see [decision 019](../decisions/019-production-rate-limits.md). |
 
 ### ⚠ Docker 29.x needs buildx
 
@@ -79,7 +79,7 @@ make build-backend-native     # mvn -Pnative native:compile (~6 minutes on a wor
 make e2e-native               # docker compose -f compose.yml -f compose.native.yml up -d
 ```
 
-The native build needs reflection hints registered for every R2DBC mapping class, every controller DTO, and every Liquibase changelog entity. [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/R2dbcConvertersConfig.java) centralises these so adding a new entity touches one file. See [decision 004](../decisions/004-graalvm-native.md).
+The native build needs reflection hints registered for every R2DBC mapping class, every controller DTO, and every Liquibase changelog entity. [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) centralises these so adding a new entity touches one file. See [decision 004](../decisions/004-graalvm-native.md).
 
 ## The publishing pipeline
 
@@ -90,7 +90,7 @@ make docs-pdf          # docs/publishing/architecture/build/architecture.pdf
 make docs-javadocs     # docs/publishing/javadoc-output/index.html
 make docs-slides       # docs/publishing/slides/build/*.pptx
 make docs-userguides   # docs/publishing/userguides/*/build/guide.pdf
-make docs-bundle       # docs/snapdragon-design-docs-<UTC-TIMESTAMP>.zip
+make docs-bundle       # docs/hugmesh-design-docs-<UTC-TIMESTAMP>.zip
 make docs-all          # all of the above
 make docs-clean        # remove every produced artefact
 ```
@@ -103,7 +103,7 @@ make docs-clean        # remove every produced artefact
 
 ### Javadoc theming
 
-[`backend/pom.xml`](../../../backend/pom.xml) configures the Maven Javadoc plugin to read [`docs/publishing/javadoc-theme/snapdragon.css`](../../publishing/javadoc-theme/snapdragon.css) as the override stylesheet and `header.html` as the page header. The override is purely additive — the standard doclet's default stylesheet still loads first; the Snapdragon CSS layers on top.
+[`backend/pom.xml`](../../../backend/pom.xml) configures the Maven Javadoc plugin to read [`docs/publishing/javadoc-theme/hugmesh.css`](../../publishing/javadoc-theme/hugmesh.css) as the override stylesheet and `header.html` as the page header. The override is purely additive — the standard doclet's default stylesheet still loads first; the HugMesh CSS layers on top.
 
 ### PowerPoint generator
 

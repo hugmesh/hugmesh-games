@@ -8,7 +8,7 @@ parallel section after the controllers. The Javadoc has the
 per-method signatures, parameter descriptions, and full HTTP examples.
 The Javadoc is rebuilt by \snapcommand{make docs-javadocs} and is
 themed to match this document (see
-\snapfile{docs/publishing/javadoc-theme/snapdragon.css}).
+\snapfile{docs/publishing/javadoc-theme/hugmesh.css}).
 
 \bigskip
 
@@ -373,7 +373,7 @@ Anonymous resolver for the appeal email address shown to revoked users
 by the federated \texttt{banned} remote. Reads \texttt{accounts.mods}
 (primary on-call $\rightarrow$ secondary on-call), falling back to
 \texttt{app.security.appeal-contact-fallback} (default
-\texttt{support@snapdragon.games}). Returns
+\texttt{support@hugmesh.games}). Returns
 \texttt{\{ "email": "<address>" \}}. Anonymous because a revoked user
 has no JWT.
 
@@ -930,7 +930,7 @@ in-process \snapfile{RateLimitFilter} bucket. Append-row log on the
 \texttt{event\_id >= minTimeuuid(now $-$ WINDOW)}. Disable with
 \texttt{app.rate-limit.distributed.enabled=false}; falls back to
 local-only when Cassandra is unreachable. The
-\snapfile{snapdragon-gateway} is the primary rate-limit enforcement
+\snapfile{hugmesh-gateway} is the primary rate-limit enforcement
 point — this is defence-in-depth for the BFF.
 
 \subsection{\texttt{UploadStorage} strategy (decision 020)}
@@ -1099,7 +1099,7 @@ when the BFF isn't reachable) merged with the editorial sidecar at
 
 The full Javadoc is published to
 \reposrc{docs/publishing/javadoc-output/} when \snapcommand{make docs-javadocs}
-runs. The CSS at \reposrc{docs/publishing/javadoc-theme/snapdragon.css}
+runs. The CSS at \reposrc{docs/publishing/javadoc-theme/hugmesh.css}
 themes the output to match this document — same accent purple, same
 \texttt{Inter}/\texttt{Segoe UI} type stack, same code-block treatment.
 The Javadoc HTML is git-ignored.

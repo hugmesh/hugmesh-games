@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the Dodecahedron Demo remote module.
 //
 // `name`     — federation_modules.slug for the dodecahedron remote-game.
@@ -9,7 +9,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'games-dodecahedron',
   exposes: {
     './GameRoot': './projects/games-dodecahedron/src/app/dodecahedron-remote.component.ts',

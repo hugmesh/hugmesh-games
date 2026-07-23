@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Connect Four — Snapdragon</title>
+    <title>Connect Four — HugMesh</title>
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="stylesheet" href="./connect-four.css" />
   </head>
@@ -28,7 +28,7 @@
 
       const GAME = createConnectFourGame();
 
-      mountGame(GAME, { wasmUrl: './wasm/snapdragon_connect_four.wasm' })
+      mountGame(GAME, { wasmUrl: './wasm/hugmesh_connect_four.wasm' })
         .then((ctx) => {
           window.__connectFourReady = true; // smoke-test boot signal
           window.__connectFourCtx = ctx; // expose for the headless smoke test

@@ -1,0 +1,27 @@
+[package]
+name = "hugmesh-match-three-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Thin C-ABI / JSON-over-linear-memory WASM shim around hugmesh-match-three. Compiles to a tiny freestanding wasm32-unknown-unknown module (NOT emscripten, NOT wasi, NO wasm-bindgen) with ZERO host imports, so the browser can run the authoritative, SEEDED Match-3 puzzle rules via WebAssembly.instantiateStreaming. This is a SINGLE-PLAYER puzzle - there is NO server, NO relay, NO multiplayer. Exports a bump allocator (alloc/dealloc) plus the Game ops (match3_new/match3_swap/match3_legal/match3_snapshot/match3_status/match3_save/match3_restore) over a single global Game instance. The core crate is left UNMODIFIED; all JSON marshalling lives here."
+
+[lib]
+# cdylib so the build emits a freestanding .wasm. No rlib needed - this crate is
+# only ever the wasm entrypoint, never linked into another Rust target.
+crate-type = ["cdylib"]
+
+[dependencies]
+# A path dependency on the pure puzzle engine and NOTHING else - keeping the wasm
+# module dependency-free (no serde, no wasm-bindgen) so it has no host imports
+# and stays tiny. The engine ALREADY emits its own JSON (Game::to_json /
+# Outcome::to_json / GameStatus::wire / Game::snapshot), so this shim only marshals
+# bytes across the linear-memory ABI.
+hugmesh-match-three = { path = "../hugmesh-match-three" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+# A single codegen unit lets LTO strip the most dead code from the freestanding
+# module; panic=abort drops the unwinding tables the host never needs.
+codegen-units = 1
+panic = "abort"

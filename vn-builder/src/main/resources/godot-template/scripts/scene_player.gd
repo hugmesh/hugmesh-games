@@ -1,8 +1,8 @@
-# Generated entry-point for a VN bundle produced by snapdragon-vn-builder.
+# Generated entry-point for a VN bundle produced by hugmesh-vn-builder.
 #
 # `ScenePlayer` is the root Node3D the WASM iframe loads — even though
 # the dialogue presentation is 2D-style (flat foreground plane + screen-
-# locked TextBox), the bundle stays a 3D scene so snapdragon-bridge's
+# locked TextBox), the bundle stays a 3D scene so hugmesh-bridge's
 # multiplayer lobby + per-player view channel can render avatars in the
 # same space. Backgrounds are 3D primitives (BoxMesh / QuadMesh) the
 # runtime parameterises at load time.
@@ -50,13 +50,13 @@ func _ready() -> void:
     var path := DATA_PATH.replace("{act_slug}", act_slug)
     var fp := FileAccess.open(path, FileAccess.READ)
     if fp == null:
-        push_error("[snapdragon-vn] missing scenes_data at %s" % path)
+        push_error("[hugmesh-vn] missing scenes_data at %s" % path)
         return
     var raw := fp.get_as_text()
     fp.close()
     var data: Dictionary = JSON.parse_string(raw)
     if data == null:
-        push_error("[snapdragon-vn] could not parse scenes_data")
+        push_error("[hugmesh-vn] could not parse scenes_data")
         return
     characters = data.get("characters", {})
     backgrounds = data.get("backgrounds", {})
@@ -69,7 +69,7 @@ func _ready() -> void:
     if entry_id == "" and not scenes_list.is_empty():
         entry_id = scenes_list[0].id
     if entry_id == "":
-        push_error("[snapdragon-vn] no scenes in act %s" % act_slug)
+        push_error("[hugmesh-vn] no scenes in act %s" % act_slug)
         return
     _enter_scene(entry_id)
 
@@ -157,11 +157,11 @@ func _load_texture(res_path: String) -> Texture2D:
     if _texture_cache.has(res_path):
         return _texture_cache[res_path]
     if not FileAccess.file_exists(res_path):
-        push_warning("[snapdragon-vn] asset not packed at %s" % res_path)
+        push_warning("[hugmesh-vn] asset not packed at %s" % res_path)
         return null
     var bytes := FileAccess.get_file_as_bytes(res_path)
     if bytes.is_empty():
-        push_warning("[snapdragon-vn] asset bytes empty at %s" % res_path)
+        push_warning("[hugmesh-vn] asset bytes empty at %s" % res_path)
         return null
     var img := Image.new()
     var err := ERR_UNAVAILABLE
@@ -176,10 +176,10 @@ func _load_texture(res_path: String) -> Texture2D:
         "webp":
             err = img.load_webp_from_buffer(bytes)
         _:
-            push_warning("[snapdragon-vn] unknown asset extension '%s' at %s" % [ext, res_path])
+            push_warning("[hugmesh-vn] unknown asset extension '%s' at %s" % [ext, res_path])
             return null
     if err != OK:
-        push_warning("[snapdragon-vn] failed to decode %s (err %d)" % [res_path, err])
+        push_warning("[hugmesh-vn] failed to decode %s (err %d)" % [res_path, err])
         return null
     var tex := ImageTexture.create_from_image(img)
     _texture_cache[res_path] = tex

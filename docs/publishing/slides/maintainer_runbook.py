@@ -1,5 +1,5 @@
 """
-Snapdragon Games — Maintainer / SRE runbook.
+HugMesh Games — Maintainer / SRE runbook.
 
 A 14-slide deck for whoever owns this stack on call: how to detect, how
 to triage, how to recover. Pairs with the administration deck (which
@@ -8,7 +8,7 @@ covers planned changes); this deck is for unplanned ones.
 from pathlib import Path
 import argparse, sys
 sys.path.insert(0, str(Path(__file__).parent))
-from _snapdragon_deck import make_deck   # noqa: E402
+from _hugmesh_deck import make_deck   # noqa: E402
 
 
 SECTIONS = [
@@ -160,7 +160,7 @@ SECTIONS = [
             "Postgres        — pg_dump from inside the container; `volumes/postgres-data` is the canonical source.",
             "Casdoor         — postgres-backed; included in the Postgres dump above.",
             "Cassandra       — nodetool snapshot; cache + audit log only, recovery is best-effort.",
-            "Game uploads    — `app.uploads.games-dir` (default /var/snapdragon/games) on the host. Snapshot on the same schedule as Postgres.",
+            "Game uploads    — `app.uploads.games-dir` (default /var/hugmesh/games) on the host. Snapshot on the same schedule as Postgres.",
             "Snapshot the whole compose host VM weekly; a restore-from-VM is faster than reconciling the four sources.",
         ],
     },
@@ -216,7 +216,7 @@ CLOSING = {
         "After every fire, propose a code-level fix so the next on-call doesn't see the same symptom.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
+        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
         "Administration deck: docs/publishing/slides/build/administration-manual.pptx",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
     ],
@@ -228,7 +228,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     make_deck(
-        title="Snapdragon Games — Maintainer runbook",
+        title="HugMesh Games — Maintainer runbook",
         subtitle="Detect, triage, mitigate. In that order.",
         kicker="Maintainer / SRE runbook",
         audience="On-call engineers and SREs.",

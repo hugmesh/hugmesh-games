@@ -3,7 +3,7 @@
 # angular.json and shared node_modules cache reach this build).
 #
 #   docker build -f frontend/projects/games-dodecahedron/Dockerfile \
-#                -t snapdragon-games-dodecahedron ./frontend
+#                -t hugmesh-games-dodecahedron ./frontend
 #
 # The compose service `games-dodecahedron` pulls this and serves the
 # output on its private :8080. The host shell discovers it via

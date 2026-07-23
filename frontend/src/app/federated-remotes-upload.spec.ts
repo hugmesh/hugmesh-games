@@ -57,7 +57,7 @@ describe('UploadRemoteComponent', () => {
     });
 
     it('POSTs multipart to /api/admin/games/upload and sets status=success', () => {
-      const file = new File(['zip-bytes'], 'cave-snapdragon-bundle.zip', { type: 'application/zip' });
+      const file = new File(['zip-bytes'], 'cave-hugmesh-bundle.zip', { type: 'application/zip' });
       component.selectedFile = file;
       component.upload();
 
@@ -71,7 +71,7 @@ describe('UploadRemoteComponent', () => {
       expect(form instanceof FormData).toBeTrue();
       const bundle = form.get('bundle') as File;
       expect(bundle).toBeInstanceOf(File);
-      expect(bundle.name).toBe('cave-snapdragon-bundle.zip');
+      expect(bundle.name).toBe('cave-hugmesh-bundle.zip');
 
       req.flush({
         slug: 'cave', contentHash: 'sha256:abc', versionDir: '/v/2026',

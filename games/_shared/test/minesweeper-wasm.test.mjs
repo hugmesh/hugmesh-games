@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Minesweeper engine WASM module.
 //
-// Loads games/minesweeper/wasm/snapdragon_minesweeper_wasm.wasm with
+// Loads games/minesweeper/wasm/hugmesh_minesweeper_wasm.wasm with
 // WebAssembly.instantiate and EMPTY imports (proving it runs in a bare browser
 // via instantiateStreaming with no host glue), then drives a SEEDED, fully
 // DETERMINISTIC board move-by-move through the C-ABI / JSON-over-linear-memory
@@ -29,7 +29,7 @@ const WASM_PATH = join(
   '..',
   'minesweeper',
   'wasm',
-  'snapdragon_minesweeper_wasm.wasm',
+  'hugmesh_minesweeper_wasm.wasm',
 );
 
 // The pinned seeded board.

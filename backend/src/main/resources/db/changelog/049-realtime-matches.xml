@@ -14,7 +14,7 @@
       (app-assigned, so the entity implements Persistable).
     -->
 
-    <changeSet id="049-1-realtime-matches" author="snapdragon">
+    <changeSet id="049-1-realtime-matches" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <not><tableExists tableName="realtime_matches"/></not>
         </preConditions>
@@ -42,7 +42,7 @@
         </createTable>
     </changeSet>
 
-    <changeSet id="049-2-realtime-matches-game-slug-idx" author="snapdragon">
+    <changeSet id="049-2-realtime-matches-game-slug-idx" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <not><indexExists indexName="idx_realtime_matches_game_slug"/></not>
         </preConditions>

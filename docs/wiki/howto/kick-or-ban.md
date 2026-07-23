@@ -35,7 +35,7 @@ What happens server-side:
 Player-side:
 
 1. `AdminActionsListenerService` (frontend) receives the SSE event.
-2. Posts a `BroadcastChannel('snapdragon')` message. Any open game window in another tab receives it and calls `window.close()`.
+2. Posts a `BroadcastChannel('hugmesh')` message. Any open game window in another tab receives it and calls `window.close()`.
 3. The current tab shows a modal with the admin's message.
 
 ## Ban

@@ -1,4 +1,4 @@
-# Snapdragon Games — publishing pipeline
+# HugMesh Games — publishing pipeline
 
 This directory produces three families of artefacts that document and
 introduce the project. Every output is git-ignored — only the sources
@@ -10,12 +10,12 @@ or with the matching `make docs-*` shortcuts at the repo root.
 docs/publishing/
 ├── architecture/              LaTeX architecture reference (~30 pp PDF)
 │   ├── architecture.tex       Main document
-│   ├── snapdragon-theme.sty   Brand colors, fonts, lstlisting styles, callouts
+│   ├── hugmesh-theme.sty   Brand colors, fonts, lstlisting styles, callouts
 │   ├── chapters/              One file per chapter
 │   ├── diagrams/              TikZ figures included by the chapters
 │   └── build/                 ← output (git-ignored)
 ├── slides/                    Six python-pptx decks
-│   ├── _snapdragon_deck.py    Shared deck builder (cover, section, closing layouts)
+│   ├── _hugmesh_deck.py    Shared deck builder (cover, section, closing layouts)
 │   ├── intro_for_coders.py    Entry-level coder tour
 │   ├── administration_manual.py
 │   ├── godot_developer.py
@@ -24,7 +24,7 @@ docs/publishing/
 │   ├── data_architect_overview.py
 │   └── build/                 ← output (git-ignored)
 ├── javadoc-theme/             Custom CSS + header/footer for Maven Javadoc
-│   ├── snapdragon.css
+│   ├── hugmesh.css
 │   ├── header.html
 │   └── footer.html
 ├── javadoc-output/            ← output (git-ignored)
@@ -43,8 +43,8 @@ pipeline and where each artefact lands.
 flowchart TB
     subgraph sources["Source files (committed)"]
         tex["architecture/*.tex\nchapters/ · diagrams/"]
-        py["slides/*.py\n_snapdragon_deck.py"]
-        css["javadoc-theme/\nsnapdragon.css · header.html"]
+        py["slides/*.py\n_hugmesh_deck.py"]
+        css["javadoc-theme/\nhugmesh.css · header.html"]
         pom["backend/pom.xml\njavadoc plugin config"]
     end
 
@@ -59,7 +59,7 @@ flowchart TB
         pdfout["architecture/build/\narchitecture.pdf"]
         pptxout["slides/build/\n*.pptx  (×6)"]
         javadocout["javadoc-output/\n*.html"]
-        zip["<repo-root>/\nsnapdragon-docs-YYYY-MM-DD.zip"]
+        zip["<repo-root>/\nhugmesh-docs-YYYY-MM-DD.zip"]
     end
 
     tex --> pdf --> pdfout
@@ -90,15 +90,15 @@ Every produced artefact — the architecture PDF, the six slide decks,
 the themed Javadoc HTML, and the zip bundle's `MANIFEST.txt` — embeds
 the same project name and UTC build timestamp. This lets a printed or
 emailed page be traced back to an exact build. The Makefile writes
-`Snapdragon Games · YYYY-MM-DD HH:MM UTC` on every cover slide and in
+`HugMesh Games · YYYY-MM-DD HH:MM UTC` on every cover slide and in
 every PDF page footer. Override the project label at build time:
 
 ```
-make docs-all SNAPDRAGON_PROJECT_NAME='Snapdragon Games (RC1)'
+make docs-all HUGMESH_PROJECT_NAME='HugMesh Games (RC1)'
 ```
 
-The bundle target writes to `<repo-root>/snapdragon-docs-<YYYY-MM-DD>.zip`.
-The zip has a top-level `snapdragon-docs-<YYYY-MM-DD>/` prefix and a
+The bundle target writes to `<repo-root>/hugmesh-docs-<YYYY-MM-DD>.zip`.
+The zip has a top-level `hugmesh-docs-<YYYY-MM-DD>/` prefix and a
 `MANIFEST.txt` that lists every included file. The zip itself is git-ignored.
 
 Every target is idempotent, so re-running a target is always safe. The
@@ -111,7 +111,7 @@ equivalent.
 | Artefact | Tool | Notes |
 |---|---|---|
 | Architecture PDF | `pdflatex` (TeX Live 2024+), `tikz`, `tcolorbox`, `titlesec`, `csquotes`, `enumitem`, `inconsolata`, `fontawesome` | On Debian/Ubuntu: `apt install texlive-latex-extra texlive-fonts-extra texlive-pictures`. On Gentoo: `dev-tex/tex-live` with USE `extra`. |
-| PowerPoints | `python3.12` + `python-pptx` | The Make target creates a venv at `~/.venvs/snapdragon-publishing` on first run. |
+| PowerPoints | `python3.12` + `python-pptx` | The Make target creates a venv at `~/.venvs/hugmesh-publishing` on first run. |
 | Javadoc | `mvn` (Maven 3.9+), Java 21 | Plugin config lives in `backend/pom.xml`. |
 
 The Make `venv` target probes for `python3.12` specifically because
@@ -157,8 +157,8 @@ regenerate all six decks.
 The `javadoc:javadoc` Maven goal, configured in `backend/pom.xml`,
 reads the three assets in this directory:
 
-- `snapdragon.css` — replaces the doclet's default stylesheet with
-  Snapdragon brand colours, typeface choices, and header/footer chrome.
+- `hugmesh.css` — replaces the doclet's default stylesheet with
+  HugMesh brand colours, typeface choices, and header/footer chrome.
 - `header.html` — a gradient brand strip injected at the top of every
   generated page.
 - `footer.html` — links back to the repository, the architecture PDF,
@@ -195,7 +195,7 @@ artefacts on every release, the setup is straightforward:
    - `docs/publishing/slides/build/*.pptx` (six files)
    - All files under `docs/publishing/javadoc-output/`
 3. Optionally deploy the Javadoc HTML to GitHub Pages. The
-   `snapdragon.css` brand stylesheet is fully self-contained and
+   `hugmesh.css` brand stylesheet is fully self-contained and
    requires no changes to work in a Pages environment.
 
 A minimal GitHub Actions job skeleton:

@@ -1,0 +1,14 @@
+[configuration]
+
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = 4.4
+reloadable = false
+
+[libraries]
+
+linux.x86_64 = "res://bin/libhugmesh_bridge.so"
+windows.x86_64 = "res://bin/hugmesh_bridge.dll"
+macos = "res://bin/libhugmesh_bridge.dylib"
+web.wasm32 = "res://bin/hugmesh_bridge.wasm"
+
+[icons]

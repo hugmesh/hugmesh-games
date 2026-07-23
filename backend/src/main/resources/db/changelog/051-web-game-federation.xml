@@ -43,7 +43,7 @@
       Idempotent: ON CONFLICT (slug) DO NOTHING and a tableExists precondition,
       matching the 050 pattern. Re-runs on partial state are no-ops.
     -->
-    <changeSet id="051-1-web-game-federation-rows" author="snapdragon">
+    <changeSet id="051-1-web-game-federation-rows" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="federation_modules"/>
         </preConditions>
@@ -96,7 +96,7 @@ ON CONFLICT (slug) DO NOTHING;
       no-op if a slug isn't present yet. Re-runs on partial state insert only the
       missing rows.
     -->
-    <changeSet id="051-2-web-game-default-access" author="snapdragon">
+    <changeSet id="051-2-web-game-default-access" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="game_access"/>
             <tableExists tableName="games"/>

@@ -3,7 +3,7 @@
 # node_modules cache reach the container.
 #
 #   docker build -f frontend/projects/registration/Dockerfile \
-#                -t snapdragon-registration ./frontend
+#                -t hugmesh-registration ./frontend
 #
 # The compose service `registration` pulls this and serves the output
 # on its private :8080. The host shell discovers it via

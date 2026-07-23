@@ -3,7 +3,7 @@
  * from the merged OpenAPI spec. Shown on the "Reference" tab of
  * DocsShellComponent.
  *
- * Layout: brief tag blurb (from the merged x-snapdragon.blurb), then
+ * Layout: brief tag blurb (from the merged x-hugmesh.blurb), then
  * the operation summary, long description, parameters, request body,
  * responses. No interactive controls.
  *
@@ -159,7 +159,7 @@ export class ApiReferenceComponent {
   @Input() active: any = null;
 
   snap(): any {
-    return this.active?.op?.['x-snapdragon'] || {};
+    return this.active?.op?.['x-hugmesh'] || {};
   }
 
   longDesc(): string {
@@ -168,7 +168,7 @@ export class ApiReferenceComponent {
 
   tagBlurb(): string {
     const tag = this.spec?.tags?.find?.((t: any) => t.name === this.active?.tag);
-    return tag?.['x-snapdragon']?.blurb || tag?.description || '';
+    return tag?.['x-hugmesh']?.blurb || tag?.description || '';
   }
 
   parameters(): any[] {

@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the admin console remote-shell.
 //
 // `name`     — federation_modules.slug = 'admin'.
@@ -10,7 +10,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'admin',
   exposes: {
     './AdminShell':    './projects/admin/src/app/admin-remote.component.ts',

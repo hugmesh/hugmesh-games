@@ -25,7 +25,7 @@
 // drift from the rules engine.
 //
 // Discs are canvas primitives (filled circles), NO image assets. The engine is
-// the verified snapdragon_connect_four.wasm; we drive it through the shared
+// the verified hugmesh_connect_four.wasm; we drive it through the shared
 // WasmHost with the EXACT call pattern proven in
 // games/_shared/test/connect-four-wasm.test.mjs:
 //   host.callStatus('c4_new')                 -> 1

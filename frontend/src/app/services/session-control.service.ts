@@ -33,7 +33,7 @@ interface TakeoverMessage {
 /**
  * Two coordination surfaces in one service:
  *
- *  1. Cross-tab takeover via the same-origin `BroadcastChannel('snapdragon
+ *  1. Cross-tab takeover via the same-origin `BroadcastChannel('hugmesh
  *     -player-takeover')`. When a tab finishes a `POST
  *     /api/games/{slug}/launch` it broadcasts a `takeover-claim` with the
  *     new launch UID; sibling tabs of the same player listen and, if they
@@ -61,7 +61,7 @@ interface TakeoverMessage {
  */
 @Injectable({ providedIn: 'root' })
 export class SessionControlService implements OnDestroy {
-  private static readonly TAKEOVER_CHANNEL = 'snapdragon-player-takeover';
+  private static readonly TAKEOVER_CHANNEL = 'hugmesh-player-takeover';
 
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);

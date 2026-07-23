@@ -23,16 +23,16 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$OUT"
 
 # Each rendered figure gets a tiny standalone wrapper that loads the
-# Snapdragon theme so colours, marble shapes, and \snapdiagram all work
+# HugMesh theme so colours, marble shapes, and \snapdiagram all work
 # the same as in the architecture PDF.
 WRAPPER() {
-  # Standalone class + snapdragon-theme. We deliberately DO NOT load
+  # Standalone class + hugmesh-theme. We deliberately DO NOT load
   # hyperref — it's incompatible with standalone-class quirks and the
   # PNG render doesn't need clickable links anyway. The theme gates its
   # \hypersetup call on hyperref being loaded so this is a clean skip.
   cat <<EOF
 \documentclass[border=4pt,varwidth=176mm]{standalone}
-\usepackage{snapdragon-theme}
+\usepackage{hugmesh-theme}
 \begin{document}
 \input{$1}
 \end{document}
@@ -45,7 +45,7 @@ render_one() {
   stem="$(basename "$src" .tex)"
   local job="$TMP/$stem"
   mkdir -p "$job"
-  cp "$ARCH/snapdragon-theme.sty" "$job/"
+  cp "$ARCH/hugmesh-theme.sty" "$job/"
   WRAPPER "$src" > "$job/$stem.tex"
   echo "  $stem"
   ( cd "$job" && pdflatex -halt-on-error -interaction=nonstopmode \

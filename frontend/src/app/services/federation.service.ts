@@ -45,11 +45,11 @@ export class FederationService {
 
   /**
    * Cached manifest stream. If `main.ts` preloaded the manifest into
-   * `window.__SNAPDRAGON_FEDERATION_MANIFEST__`, use that — saves a
+   * `window.__HUGMESH_FEDERATION_MANIFEST__`, use that — saves a
    * duplicate HTTP roundtrip on first paint. Otherwise lazy-fetch.
    */
   private readonly manifest$: Observable<FederationManifest> = (() => {
-    const preloaded = (globalThis as any).__SNAPDRAGON_FEDERATION_MANIFEST__;
+    const preloaded = (globalThis as any).__HUGMESH_FEDERATION_MANIFEST__;
     if (preloaded && Array.isArray(preloaded.remotes)) {
       return of<FederationManifest>(preloaded).pipe(shareReplay(1));
     }

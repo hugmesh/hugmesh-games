@@ -1,4 +1,4 @@
--- Snapdragon analytics warehouse bootstrap (decision-021).
+-- HugMesh analytics warehouse bootstrap (decision-021).
 --
 -- The architecture: BFF (and any other producer) → Kafka topic →
 -- ClickHouse `Kafka` engine table (auto-pulls) → MaterializedView →

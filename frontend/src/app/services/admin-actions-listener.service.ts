@@ -9,7 +9,7 @@ import { AuthService } from './auth.service';
  * <ul>
  *   <li><b>kick</b> — closes the active game window in this tab and
  *       redirects to /banned. Other tabs are notified via the
- *       {@code snapdragon-admin-actions} BroadcastChannel.</li>
+ *       {@code hugmesh-admin-actions} BroadcastChannel.</li>
  *   <li><b>ban</b> — same as kick, but the redirect is sticky: the
  *       auth guard's ban-status check will keep the user on /banned
  *       until an unban arrives.</li>
@@ -31,7 +31,7 @@ export class AdminActionsListenerService {
   private source: EventSource | null = null;
   private channel: BroadcastChannel | null = null;
 
-  private static readonly CHANNEL = 'snapdragon-admin-actions';
+  private static readonly CHANNEL = 'hugmesh-admin-actions';
 
   /**
    * Wire the SSE stream + cross-tab channel. Idempotent. Called once

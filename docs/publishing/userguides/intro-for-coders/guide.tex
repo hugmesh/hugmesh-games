@@ -2,9 +2,9 @@
 \input{userguide-preamble}
 
 \hypersetup{
-  pdftitle={Snapdragon Games — Intro for coders},
-  pdfauthor={Snapdragon Systems},
-  pdfsubject={Entry-level orientation for the Snapdragon Games portal},
+  pdftitle={HugMesh Games — Intro for coders},
+  pdfauthor={HugMesh Systems},
+  pdfsubject={Entry-level orientation for the HugMesh Games portal},
 }
 
 \begin{document}
@@ -19,7 +19,7 @@
 \end{tikzpicture}
 \vspace*{4cm}\noindent
 {\sffamily\bfseries
-  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont HUGMESH GAMES}\\[3mm]
   {\color{white}\fontsize{42}{50}\selectfont Intro for coders}\par}
 \vspace{1.5cm}
 \noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
@@ -43,7 +43,7 @@ Generated: \snapbuilddate{} \snapbuildtime}
 \pagestyle{fancy}
 
 % ── Chapter 1 ─────────────────────────────────────────────────────────────
-\chapter{What is Snapdragon Games?}
+\chapter{What is HugMesh Games?}
 A browser-native portal that hosts multiple Godot 4 games on one page.
 The Angular shell wraps each game with HUD, login, admin; a Spring Boot
 BFF streams game state and controls over Server-Sent Events. PostgreSQL
@@ -82,7 +82,7 @@ headers WASM games need.
         bundles.
   \item \snapfile{backend/} — Spring Boot BFF (WebFlux + R2DBC).
   \item \snapfile{games/<slug>/} — one Godot project per game.
-  \item \snapfile{extensions/snapdragon-bridge/} — reusable Rust
+  \item \snapfile{extensions/hugmesh-bridge/} — reusable Rust
         GDExtension (native + WASM).
   \item \snapfile{infra/}, \snapfile{casdoor/}, \snapfile{e2e/} — init
         containers, identity config, end-to-end tests.
@@ -98,7 +98,7 @@ headers WASM games need.
   \item Federated games \texttt{POST /api/games/\{slug\}/launch} to
         mint a 256-bit URL-safe \texttt{launch\_uid}.
   \item \texttt{RemoteLoaderService} loads the matching per-game remote
-        through \texttt{globalThis.\_\_SNAPDRAGON\_LOAD\_REMOTE\_MODULE\_\_}.
+        through \texttt{globalThis.\_\_HUGMESH\_LOAD\_REMOTE\_MODULE\_\_}.
   \item The remote mounts a Web Component that builds the iframe URL.
   \item \texttt{wasm-fragment} serves \texttt{index.html} with the
         COOP/COEP/CORP headers WASM bundles need.

@@ -1440,8 +1440,8 @@
                 "tags": [
                     "Game uploads"
                 ],
-                "summary": "Install a Snapdragon bundle zip",
-                "description": "Multipart upload (field name: `bundle`). Body:\n  \u2022 zip with manifest.json (schema_version 2), bundle/, register.sql\n  \u2022 produced by `Project \u2192 Tools \u2192 Snapdragon \u2192 Export to Snapdragon\u2026`\n\nOn success returns the installed-upload summary. On failure rolls\nback the DB transaction and removes the staged dir.\n",
+                "summary": "Install a HugMesh bundle zip",
+                "description": "Multipart upload (field name: `bundle`). Body:\n  \u2022 zip with manifest.json (schema_version 2), bundle/, register.sql\n  \u2022 produced by `Project \u2192 Tools \u2192 HugMesh \u2192 Export to HugMesh\u2026`\n\nOn success returns the installed-upload summary. On failure rolls\nback the DB transaction and removes the staged dir.\n",
                 "operationId": "upload",
                 "requestBody": {
                     "content": {

@@ -91,8 +91,8 @@ Two design tensions surfaced:
 ## Reference
 
 - [Liquibase 034](../../../backend/src/main/resources/db/changelog/034-friendships-and-session-visibility.xml)
-- [UserRelationshipService](../../../backend/src/main/java/games/snapdragon/bff/service/UserRelationshipService.java)
-- [SessionLogController](../../../backend/src/main/java/games/snapdragon/bff/controller/SessionLogController.java)
+- [UserRelationshipService](../../../backend/src/main/java/games/hugmesh/bff/service/UserRelationshipService.java)
+- [SessionLogController](../../../backend/src/main/java/games/hugmesh/bff/controller/SessionLogController.java)
 - [errorInterceptor](../../../frontend/src/app/services/error-interceptor.ts)
 - [FriendsComponent](../../../frontend/src/app/friends/friends.component.ts)
 - [SessionLogComponent](../../../frontend/src/app/session-log/session-log.component.ts)

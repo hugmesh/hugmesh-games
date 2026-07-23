@@ -14,7 +14,7 @@
 //       context; render() of the opening position issues the EXPECTED draw-call
 //       counts — 64 board fillRect (felt) + 4 disc arcs + the 4 legal-move hint
 //       dots for the side to move.
-//   (b) the real snapdragon_reversi_wasm.wasm is driven through the shared
+//   (b) the real hugmesh_reversi_wasm.wasm is driven through the shared
 //       WasmHost (the shell's marshalling), and a move (Black plays d3) is applied
 //       THROUGH the game's onLocalInput single-click path: the board canvas is
 //       repainted, the board string changes (d4 flips to Black), the score updates
@@ -30,7 +30,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const REVERSI_DIR = join(here, '..');
-const WASM_PATH = join(REVERSI_DIR, 'wasm', 'snapdragon_reversi_wasm.wasm');
+const WASM_PATH = join(REVERSI_DIR, 'wasm', 'hugmesh_reversi_wasm.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -196,7 +196,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.reversi_apply === 'function',
-    'WasmHost bound the real snapdragon_reversi_wasm.wasm (reversi_apply export present)',
+    'WasmHost bound the real hugmesh_reversi_wasm.wasm (reversi_apply export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost (proves the shell

@@ -1,4 +1,4 @@
-import { snapdragonHost } from './federation-base.mjs';
+import { hugmeshHost } from './federation-base.mjs';
 // Host-side federation config. The Angular shell consumes remote
 // modules (login, admin, per-game) at runtime, so it has no `exposes`
 // block — only a list of shared deps that must NOT duplicate between
@@ -9,8 +9,8 @@ import { snapdragonHost } from './federation-base.mjs';
 
 
 
-export default snapdragonHost({
-  name: 'snapdragon-host',
+export default hugmeshHost({
+  name: 'hugmesh-host',
   // Avoid pulling Angular Material's prebuilt themes through shareAll
   // — secondary entry points trip the bundler when nothing imports them.
   extraSkip: ['@angular/material/prebuilt-themes'],

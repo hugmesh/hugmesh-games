@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Connect Four engine WASM module.
 //
-// Loads games/connect-four/wasm/snapdragon_connect_four.wasm with
+// Loads games/connect-four/wasm/hugmesh_connect_four.wasm with
 // WebAssembly.instantiate and EMPTY imports (proving it runs in a bare browser
 // via instantiateStreaming with no host glue), then drives known games move-by-
 // move through the C-ABI / JSON-over-linear-memory shim. If this passes, the same
@@ -23,7 +23,7 @@ const WASM_PATH = join(
   '..',
   'connect-four',
   'wasm',
-  'snapdragon_connect_four.wasm',
+  'hugmesh_connect_four.wasm',
 );
 
 // ── tiny assertion harness ───────────────────────────────────────────────────

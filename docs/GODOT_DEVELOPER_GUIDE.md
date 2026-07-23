@@ -13,14 +13,14 @@ games/
 │   ├── export_presets.cfg            # Cave + Field presets
 │   ├── scenes/cave.tscn, scenes/field.tscn
 │   ├── scripts/                       # api_client.gd, scene_loader.gd, …
-│   ├── addons/snapdragon_export/      # editor plugin → upload zip
-│   ├── snapdragon_bridge.gdextension  # GDExtension binding
-│   └── bin/libsnapdragon_bridge.so    # populated by `make build-rust`
+│   ├── addons/hugmesh_export/      # editor plugin → upload zip
+│   ├── hugmesh_bridge.gdextension  # GDExtension binding
+│   └── bin/libhugmesh_bridge.so    # populated by `make build-rust`
 └── dodecahedron-demo/               # slug: dodecahedron
     └── …
 ```
 
-A Rust GDExtension (`extensions/snapdragon-bridge/`) supplies the bridge ABI. `make build-rust` builds it once and copies `libsnapdragon_bridge.so` into every game's `bin/` so each project can be opened directly.
+A Rust GDExtension (`extensions/hugmesh-bridge/`) supplies the bridge ABI. `make build-rust` builds it once and copies `libhugmesh_bridge.so` into every game's `bin/` so each project can be opened directly.
 
 ---
 
@@ -95,7 +95,7 @@ If the editor can't reach the API, the `BridgeApiClient` (running in standalone 
 ## All API networking flows through the bridge
 
 **Game scripts never call `HTTPRequest` directly.** Use the
-`snapdragon_bridge` addon's `BridgeApiClient`:
+`hugmesh_bridge` addon's `BridgeApiClient`:
 
 ```gdscript
 var _api: Node = null
@@ -127,32 +127,32 @@ callers keep working without code changes. New games should use
 
 See [decision 014](wiki/decisions/014-bridge-routed-networking.md) for
 the full design rationale, or the addon's
-[`README.md`](../extensions/snapdragon-bridge/addons/snapdragon_bridge/README.md)
+[`README.md`](../extensions/hugmesh-bridge/addons/hugmesh_bridge/README.md)
 for usage notes.
 
-## Multiplayer scripting via the snapdragon_bridge addon
+## Multiplayer scripting via the hugmesh_bridge addon
 
 The addon ships every reusable multiplayer + bridge primitive any
-Snapdragon-hosted game needs:
+HugMesh-hosted game needs:
 
 | File / class | Purpose |
 |---|---|
 | `plugin.cfg` + `plugin.gd` | Editor plugin manifest (GDScript). Enable in `project.godot`'s `[editor_plugins]`. |
 | `BridgeGlue` (Rust GodotClass, `bridge_glue.rs`) | `JavaScriptBridge` ↔ `HostBridge` plumbing. Forwards `input_egress` / `view_egress` / `api_request_egress`; pumps `SD_API_RESPONSE` back into `dispatch_api_response`. |
 | `BridgeApiClient` (Rust GodotClass, `bridge_api_client.rs`) | Callable-based wrapper around the bridge's API surface (`http_get`/`http_post`/`http_put`/`http_delete`). The preferred surface for any Godot → BFF call. |
-| `SnapdragonMultiplayerLobby` (Rust GodotClass, `multiplayer_lobby.rs`) | Slot orchestration: subscribes to `slot_registered` / `slot_released` / `movement_received`, fetches `/api/sessions/{id}` *via the bridge*, spawns one programmatic `CharacterBody3D` per registered slot. |
+| `HugMeshMultiplayerLobby` (Rust GodotClass, `multiplayer_lobby.rs`) | Slot orchestration: subscribes to `slot_registered` / `slot_released` / `movement_received`, fetches `/api/sessions/{id}` *via the bridge*, spawns one programmatic `CharacterBody3D` per registered slot. |
 | `multiplayer_lobby_menu.tscn` + `multiplayer_lobby_menu.gd` | The one remaining GDScript UI piece — a drop-in pre-game lobby: list open sessions for `game_slug`, *Join* per row, create-new form. Emits `session_joined(session_id, slot_index)`. |
 
-`BridgeGlue`, `BridgeApiClient`, and `SnapdragonMultiplayerLobby` used to
+`BridgeGlue`, `BridgeApiClient`, and `HugMeshMultiplayerLobby` used to
 be GDScript files in this addon; they were rewritten as native Rust
-GodotClasses (source of truth: `extensions/snapdragon-bridge/src/*.rs`)
-registered by the `snapdragon_bridge.gdextension` file — see
+GodotClasses (source of truth: `extensions/hugmesh-bridge/src/*.rs`)
+registered by the `hugmesh_bridge.gdextension` file — see
 [decision 014](wiki/decisions/014-bridge-routed-networking.md) for the
 full rationale. The remaining GDScript pieces
 (`plugin.gd`, `multiplayer_lobby_menu.gd`) still live under
-`extensions/snapdragon-bridge/addons/snapdragon_bridge/`. `make build-rust`
+`extensions/hugmesh-bridge/addons/hugmesh_bridge/`. `make build-rust`
 syncs the canonical addon copy + the compiled GDExtension binary into
-every game project's `addons/snapdragon_bridge/` / `bin/` (both
+every game project's `addons/hugmesh_bridge/` / `bin/` (both
 gitignored per-game; never hand-edit). Any game that enables the plugin
 in `project.godot` picks up future updates automatically on the next sync.
 
@@ -219,7 +219,7 @@ Then add `scene_elements` rows and (optionally) `level_prerequisites` to gate th
 ### 6. Build
 
 ```
-make build-rust         # populates games/*/bin/libsnapdragon_bridge.so
+make build-rust         # populates games/*/bin/libhugmesh_bridge.so
 make build-godot        # exports every preset in every game → classpath
 make seed-db            # refreshes DB if you changed seed SQL
 docker compose build api wasm-fragment && docker compose up -d api wasm-fragment
@@ -233,12 +233,12 @@ Rebuild `wasm-fragment` whenever you change `assets/levels/` so the federated pa
 
 A *game* is one Godot project under `games/<game-slug-dir>/` that produces one or more level bundles, plus one row in `games`, one row in `federation_modules`, and (usually) a `games-<slug>` Docker compose service if you want a separately deployable Module Federation remote rather than a host-rendered fragment.
 
-The fast path: use the **Snapdragon Export** editor plugin already wired into both stock games (`addons/snapdragon_export/`).
+The fast path: use the **HugMesh Export** editor plugin already wired into both stock games (`addons/hugmesh_export/`).
 
 ### Option A — let the upload pipeline register everything
 
 1. Create a new project under `games/<dir>/` (copy an existing one as a template).
-2. In Godot, open **Project → Tools → Snapdragon → Export…**, fill in slug / display name / description / scene type, and let the plugin produce a deploy-ready zip with `manifest.json` (schema v2) + `register.sql` + `bundle/`.
+2. In Godot, open **Project → Tools → HugMesh → Export…**, fill in slug / display name / description / scene type, and let the plugin produce a deploy-ready zip with `manifest.json` (schema v2) + `register.sql` + `bundle/`.
 3. Hit `/api/admin/games/upload` (the BFF's `GameUploadController`) with the zip. The install transaction:
    - Validates the manifest, computes a content hash, supersedes the previous upload row.
    - Moves the bundle into `app.uploads.games-dir/<slug>/<version-dir>/` and updates `games.current_version_dir`.
@@ -350,7 +350,7 @@ What happens:
 | `ERROR: Parent node is busy setting up children, add_child() failed` | Calling `add_child` (or `get_tree().root.add_child`) directly from `_ready()` or `_process()` while siblings are still `_ready`-ing. Use `node.add_child.call_deferred(child)` |
 | Loading dots animate forever, prefetch logged success | `JavaScriptBridge.eval(...) != true` Variant compare is unreliable. Use `bool(JavaScriptBridge.eval("!!window.foo"))` to coerce through a real JS boolean |
 | Iframe shows old WASM after `make build-godot` | Browser cached the iframe HTML. The Angular remote already cache-busts with `&t=...`; if the timestamp isn't in the URL, it's the wrong code path |
-| GDExtension symbol fails to load in editor | `make build-rust` was skipped or the per-game `bin/libsnapdragon_bridge.so` is stale — the Makefile copies the freshly-built `.so` into every `games/*/bin/` |
+| GDExtension symbol fails to load in editor | `make build-rust` was skipped or the per-game `bin/libhugmesh_bridge.so` is stale — the Makefile copies the freshly-built `.so` into every `games/*/bin/` |
 
 ### Why so many `call_deferred` calls
 

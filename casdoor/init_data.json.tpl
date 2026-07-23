@@ -3,7 +3,7 @@
     {
       "owner": "admin",
       "name": "threewizards",
-      "displayName": "Snapdragon Games",
+      "displayName": "HugMesh Games",
       "websiteUrl": "http://localhost:4200",
       "favicon": "",
       "passwordType": "pbkdf2-salt",
@@ -17,10 +17,10 @@
     {
       "owner": "admin",
       "name": "threewizards-app",
-      "displayName": "Snapdragon Games",
+      "displayName": "HugMesh Games",
       "logo": "",
       "homepageUrl": "http://localhost:4200",
-      "description": "Snapdragon Games — Player Portal",
+      "description": "HugMesh Games — Player Portal",
       "organization": "threewizards",
       "cert": "cert-built-in",
       "enablePassword": true,

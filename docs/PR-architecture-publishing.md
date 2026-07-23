@@ -18,7 +18,7 @@ Self-contained, end-to-end publishing pipeline under `docs/publishing/` plus a f
 
 ### Artefacts
 
-- **32-page LaTeX architecture reference** ([`architecture/architecture.tex`](docs/publishing/architecture/architecture.tex)) — custom `snapdragon-theme.sty` mirroring the project's brand palette (`#7C4DFF` accent on near-black). Seven chapters covering overview, runtime architecture, module federation, data model, API reference, build & deploy, and extending the portal. Five layout TikZ diagrams + seven per-controller marble diagrams + an auto-generated OpenAPI summary table. Every section links back to source files on GitHub via `\reposrc` / `\snapfile` macros.
+- **32-page LaTeX architecture reference** ([`architecture/architecture.tex`](docs/publishing/architecture/architecture.tex)) — custom `hugmesh-theme.sty` mirroring the project's brand palette (`#7C4DFF` accent on near-black). Seven chapters covering overview, runtime architecture, module federation, data model, API reference, build & deploy, and extending the portal. Five layout TikZ diagrams + seven per-controller marble diagrams + an auto-generated OpenAPI summary table. Every section links back to source files on GitHub via `\reposrc` / `\snapfile` macros.
 
 - **Six python-pptx decks** in [`slides/`](docs/publishing/slides/), each targeting a distinct audience:
   - `intro-for-coders.pptx` — entry-level coder tour
@@ -28,11 +28,11 @@ Self-contained, end-to-end publishing pipeline under `docs/publishing/` plus a f
   - `maintainer-runbook.pptx` — on-call / SRE, seven incident runbooks
   - `data-architect-overview.pptx` — steering committee, regulatory + DR posture
   
-  Built from a shared `_snapdragon_deck.py` layout module so all six share cover/section/closing chrome. Slides embed rendered diagrams + screenshots in a half-width image panel.
+  Built from a shared `_hugmesh_deck.py` layout module so all six share cover/section/closing chrome. Slides embed rendered diagrams + screenshots in a half-width image panel.
 
 - **Six user-guide PDFs** in [`userguides/`](docs/publishing/userguides/) — one LaTeX guide per slide deck. 11–15 pages each, sharing the architecture-PDF theme via `TEXINPUTS`. All embed the rendered TikZ diagrams + marble diagrams + screenshots.
 
-- **Themed Maven Javadoc** at [`javadoc-output/`](docs/publishing/javadoc-output/) via [`backend/pom.xml`](backend/pom.xml)'s `maven-javadoc-plugin` config + [`javadoc-theme/`](docs/publishing/javadoc-theme/) (`snapdragon.css` + `header.html` + `footer.html`).
+- **Themed Maven Javadoc** at [`javadoc-output/`](docs/publishing/javadoc-output/) via [`backend/pom.xml`](backend/pom.xml)'s `maven-javadoc-plugin` config + [`javadoc-theme/`](docs/publishing/javadoc-theme/) (`hugmesh.css` + `header.html` + `footer.html`).
 
 - **Federated `api-docs` Angular remote** at [`frontend/projects/api-docs/`](frontend/projects/api-docs/) — a navigator-style swagger/javadoc replacement generated FROM the BFF's OpenAPI spec, mounted at `/admin/docs` behind the existing `authGuard`.
 
@@ -40,7 +40,7 @@ Self-contained, end-to-end publishing pipeline under `docs/publishing/` plus a f
 
 ### Marble diagrams with distinct shapes per Reactor type
 
-Custom `\snapmarble*` TikZ styles in [`snapdragon-theme.sty`](docs/publishing/architecture/snapdragon-theme.sty) using **distinct shapes per Reactor type**: circle = `Mono<T>`, square = `Flux<T>` element, pentagon = `ServerSentEvent`, hexagon = R2DBC tx value, triangle = signal, star = error, bar = onComplete.
+Custom `\snapmarble*` TikZ styles in [`hugmesh-theme.sty`](docs/publishing/architecture/hugmesh-theme.sty) using **distinct shapes per Reactor type**: circle = `Mono<T>`, square = `Flux<T>` element, pentagon = `ServerSentEvent`, hexagon = R2DBC tx value, triangle = signal, star = error, bar = onComplete.
 
 Seven controllers covered in [`marbles/`](docs/publishing/architecture/marbles/) — `auth`, `game-stream`, `level`, `control`, `federation`, `game-launch`, `game-upload`. Each diagram is followed by a `\snapmarblelegend` tabularx that lists the **relevant fields/flags** of every carried object (e.g. `UploadRequest.file`, `LaunchDraft.uid`, `ControlEvent.spellSlot`).
 
@@ -50,7 +50,7 @@ Seven controllers covered in [`marbles/`](docs/publishing/architecture/marbles/)
 
 ### Selenium screenshot capture with graceful fallback
 
-[`capture.py`](docs/publishing/screenshots/capture.py) drives **headless Firefox** (Chrome fallback) against `$SNAPDRAGON_BASE_URL`. Seven captures: home, login, post-login, admin dashboard, admin uploads, in-game cave, in-game dodecahedron. When the stack isn't reachable: writes **branded Pillow placeholders** at matching dimensions so the slide + user-guide builds always succeed.
+[`capture.py`](docs/publishing/screenshots/capture.py) drives **headless Firefox** (Chrome fallback) against `$HUGMESH_BASE_URL`. Seven captures: home, login, post-login, admin dashboard, admin uploads, in-game cave, in-game dodecahedron. When the stack isn't reachable: writes **branded Pillow placeholders** at matching dimensions so the slide + user-guide builds always succeed.
 
 ### OpenAPI publishing pipeline
 
@@ -58,7 +58,7 @@ Seven controllers covered in [`marbles/`](docs/publishing/architecture/marbles/)
 
 - [`metadata.json`](docs/publishing/openapi/metadata.json) — sidecar with `longDescription`, `sampleRequest/Response`, `sse`, `binaryUpload`, marble pointers, chapter refs per tag/operation. Deliberately NOT inline in the controllers — keeps Java source focused on the contract and editorial prose iterable independently.
 - [`openapi.fallback.json`](docs/publishing/openapi/openapi.fallback.json) — hand-curated OpenAPI 3 used when the BFF isn't reachable.
-- [`build-spec.sh`](docs/publishing/openapi/build-spec.sh) probes `/v3/api-docs` (with JSON sanity check), falls back to the static spec, then merges via [`merge-metadata.py`](docs/publishing/openapi/merge-metadata.py) which writes editorial enrichments into `x-snapdragon` extension fields. **Result is still valid OpenAPI 3.**
+- [`build-spec.sh`](docs/publishing/openapi/build-spec.sh) probes `/v3/api-docs` (with JSON sanity check), falls back to the static spec, then merges via [`merge-metadata.py`](docs/publishing/openapi/merge-metadata.py) which writes editorial enrichments into `x-hugmesh` extension fields. **Result is still valid OpenAPI 3.**
 - [`spec-to-latex.py`](docs/publishing/openapi/spec-to-latex.py) walks the merged spec and emits `openapi-summary.tex` (4-column tabularx of every operation) + per-tag fragments under `build/latex/per-tag/`.
 
 ### `api-docs` federated remote ([`frontend/projects/api-docs/`](frontend/projects/api-docs/))

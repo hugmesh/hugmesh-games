@@ -36,12 +36,12 @@ RUN sed -i \
         -e 's|<link rel="modulepreload"[^>]*>||g' \
         -e 's|<script type="module" src="\(polyfills[^"]*\)"|<script type="module-shim" src="\1"|g' \
         -e 's|<script type="esms-options">[^<]*</script>||g' \
-        /app/dist/snapdragon-games-frontend/browser/index.html
+        /app/dist/hugmesh-games-frontend/browser/index.html
 
 # Real upstream nginx (Debian-based), pinned to a current stable release
 # rather than the alpine variant — we get the full module set + the
 # default conf layout the official docs assume.
 FROM nginx:1.27
-COPY --from=build /app/dist/snapdragon-games-frontend/browser /usr/share/nginx/html
+COPY --from=build /app/dist/hugmesh-games-frontend/browser /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080 8443

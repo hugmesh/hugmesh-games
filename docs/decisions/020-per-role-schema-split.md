@@ -77,7 +77,7 @@ preconditions so re-runs are idempotent.
        calls `POST /api/admin/producer-contacts/{id}/decision`
        with `{status: APPROVED}`.
     3. Admin grants the matching Casdoor role (via the admin
-       console or the snapdragon-actions service).
+       console or the hugmesh-actions service).
     4. Admin (or the actions service) creates the
        `accounts.{producers,mods}` row carrying the contact email
        + jurisdiction copied off the application.

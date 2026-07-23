@@ -35,7 +35,7 @@ We picked option 2.
 
 ## Reference
 
-- [PlayerViewEvent](../../../backend/src/main/java/games/snapdragon/bff/model/PlayerViewEvent.java)
+- [PlayerViewEvent](../../../backend/src/main/java/games/hugmesh/bff/model/PlayerViewEvent.java)
 - [ViewEgressController](../architecture/05-api-reference.md)
 - [AdminSessionStreamController](../architecture/05-api-reference.md)
 - Phase 3 commit `5713f2b` (Rust HostBridge + GDScript wiring).

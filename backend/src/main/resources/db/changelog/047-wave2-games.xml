@@ -9,11 +9,11 @@
       Wave-2 single-player puzzles — catalog registration. These run ENTIRELY
       in the browser (WASM); the server is not involved (no session, no relay).
       The catalog rows simply make them appear/launchable. Engines:
-      extensions/snapdragon-{tetris,minesweeper,sudoku,match-three}. Playable
+      extensions/hugmesh-{tetris,minesweeper,sudoku,match-three}. Playable
       Godot/WASM bundles ship per-game later (P3).
     -->
 
-    <changeSet id="047-1-tetris" author="snapdragon">
+    <changeSet id="047-1-tetris" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -27,7 +27,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'tetris');
         </sql>
     </changeSet>
 
-    <changeSet id="047-2-minesweeper" author="snapdragon">
+    <changeSet id="047-2-minesweeper" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -41,7 +41,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'minesweeper');
         </sql>
     </changeSet>
 
-    <changeSet id="047-3-sudoku" author="snapdragon">
+    <changeSet id="047-3-sudoku" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -55,7 +55,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'sudoku');
         </sql>
     </changeSet>
 
-    <changeSet id="047-4-match-three" author="snapdragon">
+    <changeSet id="047-4-match-three" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),

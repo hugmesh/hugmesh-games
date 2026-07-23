@@ -14,7 +14,7 @@
 //       render() of the INITIAL (opening) snapshot issues the EXPECTED draw calls
 //       — the arena floor fillRect, the grid strokeRects, and the trail+head
 //       fillRects for the two seeded start cells.
-//   (b) the real snapdragon_tron_wasm.wasm is driven through the shared WasmHost
+//   (b) the real hugmesh_tron_wasm.wasm is driven through the shared WasmHost
 //       (the shell's marshalling), and an INPUT applies through the game's
 //       onLocalInput keydown path: a legal 90° turn is accepted by the engine,
 //       and a host TICK then advances the simulation (tick counter increments,
@@ -35,7 +35,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const TRON_DIR = join(here, '..');
-const WASM_PATH = join(TRON_DIR, 'wasm', 'snapdragon_tron_wasm.wasm');
+const WASM_PATH = join(TRON_DIR, 'wasm', 'hugmesh_tron_wasm.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -179,7 +179,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.tron_tick === 'function',
-    'WasmHost bound the real snapdragon_tron_wasm.wasm (tron_tick export present)',
+    'WasmHost bound the real hugmesh_tron_wasm.wasm (tron_tick export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost (proves the shell

@@ -1,4 +1,4 @@
-import { snapdragonRemote } from '../../federation-base.mjs';
+import { hugmeshRemote } from '../../federation-base.mjs';
 // Federation config for the banned remote-shell.
 //
 // `name`     — federation_modules.slug. Liquibase 039 seeds this so
@@ -13,7 +13,7 @@ import { snapdragonRemote } from '../../federation-base.mjs';
 
 
 
-export default snapdragonRemote({
+export default hugmeshRemote({
   name: 'banned',
   exposes: {
     './BannedComponent': './projects/banned/src/app/banned-remote.component.ts',

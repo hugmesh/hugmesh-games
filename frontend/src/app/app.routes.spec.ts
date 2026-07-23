@@ -8,7 +8,7 @@ import { loadRemote } from './app.routes';
 // (someone removes the main.ts global stash, someone renames an
 // exposed class) and can take down auth at runtime.
 describe('loadRemote', () => {
-  const GLOBAL_KEY = '__SNAPDRAGON_LOAD_REMOTE_MODULE__';
+  const GLOBAL_KEY = '__HUGMESH_LOAD_REMOTE_MODULE__';
   type LoadRemoteModuleFn = (opts: { remoteName: string; exposedModule: string }) => Promise<Record<string, unknown>>;
   type WithGlobal = Record<string, LoadRemoteModuleFn | undefined>;
 

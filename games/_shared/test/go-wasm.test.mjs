@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Go (Weiqi/Baduk) engine WASM module.
 //
-// Loads games/go/wasm/snapdragon_go.wasm with WebAssembly.instantiate and EMPTY
+// Loads games/go/wasm/hugmesh_go.wasm with WebAssembly.instantiate and EMPTY
 // imports (proving it runs in a bare browser via instantiateStreaming with no
 // host glue), then drives known positions through the C-ABI / JSON-over-linear-
 // memory shim. If this passes, the same .wasm the browser bundle ships is
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const WASM_PATH = join(here, '..', '..', 'go', 'wasm', 'snapdragon_go.wasm');
+const WASM_PATH = join(here, '..', '..', 'go', 'wasm', 'hugmesh_go.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;

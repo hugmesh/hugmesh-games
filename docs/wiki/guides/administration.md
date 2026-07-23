@@ -52,7 +52,7 @@ Step-by-step with screenshots: [howto/upload-and-rollback-game.md](../howto/uplo
 
 Summary:
 
-1. Get a Snapdragon Export zip from the game developer (or build it yourself with the Godot editor plugin).
+1. Get a HugMesh Export zip from the game developer (or build it yourself with the Godot editor plugin).
 2. `/admin/games` → *Upload game bundle* → choose zip → Upload.
 3. The install transaction validates manifest schema v2, hashes the bundle, atomically moves to `<gamesDir>/<slug>/<sha-prefix>`, and runs `register.sql` in one Postgres transaction.
 4. The host's federation manifest discovers the new game on the next refresh (within 60 s).

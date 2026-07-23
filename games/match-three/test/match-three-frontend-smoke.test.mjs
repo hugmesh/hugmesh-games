@@ -15,7 +15,7 @@
 //       context; render() of the opening (seeded) board issues the EXPECTED
 //       draw-call counts — 64 cell fillRect (8x8) + 64 gem arcs, with NO selection
 //       ring before the first click.
-//   (b) the real snapdragon_match_three_wasm.wasm is driven through the shared
+//   (b) the real hugmesh_match_three_wasm.wasm is driven through the shared
 //       WasmHost (the shell's marshalling), and a swap (the first legal swap for
 //       the default seed, cells (6,0)<->(7,0)) is applied THROUGH the game's
 //       onLocalInput two-click path: the board canvas is repainted, the board
@@ -33,7 +33,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const M3_DIR = join(here, '..');
-const WASM_PATH = join(M3_DIR, 'wasm', 'snapdragon_match_three_wasm.wasm');
+const WASM_PATH = join(M3_DIR, 'wasm', 'hugmesh_match_three_wasm.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -200,7 +200,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.match3_swap === 'function',
-    'WasmHost bound the real snapdragon_match_three_wasm.wasm (match3_swap export present)',
+    'WasmHost bound the real hugmesh_match_three_wasm.wasm (match3_swap export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost (proves the shell

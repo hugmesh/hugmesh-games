@@ -176,7 +176,7 @@
       "binaryUpload": {
         "field": "file",
         "accept": ".zip",
-        "description": "Snapdragon Export bundle (manifest.json + register.sql + bundle/...)"
+        "description": "HugMesh Export bundle (manifest.json + register.sql + bundle/...)"
       },
       "sampleResponse": {
         "slug": "three-wizards",

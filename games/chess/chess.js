@@ -23,7 +23,7 @@
 // board can never drift from the rules engine.
 //
 // Pieces are Unicode glyphs (no image assets). The engine is the verified
-// snapdragon_chess.wasm; we drive it through the shared WasmHost with the
+// hugmesh_chess.wasm; we drive it through the shared WasmHost with the
 // EXACT call pattern proven in games/_shared/test/chess-wasm.test.mjs:
 //   host.callStatus('chess_new')              -> 1
 //   host.callPacked('chess_fen')              -> { fen, ... }

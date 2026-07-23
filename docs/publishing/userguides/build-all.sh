@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build all six Snapdragon Games user guide PDFs.
+# Build all six HugMesh Games user guide PDFs.
 #
 # Each guide lives in its own subdirectory with a guide.tex entry point.
 # We add the architecture/ tree to TEXINPUTS so the shared theme +

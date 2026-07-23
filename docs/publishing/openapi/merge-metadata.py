@@ -2,18 +2,18 @@
 Merge the BFF's OpenAPI 3 spec with the editorial sidecar at
 docs/publishing/openapi/metadata.json.
 
-Output is the OpenAPI spec PLUS x-snapdragon extension fields:
+Output is the OpenAPI spec PLUS x-hugmesh extension fields:
   - On each tag entry, the metadata's tag.blurb / marble / chapter
-    are written to x-snapdragon under the tag.
+    are written to x-hugmesh under the tag.
   - On each operation, the metadata's longDescription / sse /
     binaryUpload / sample{Request,Response,Event} are written to
-    operation.x-snapdragon.
+    operation.x-hugmesh.
 
 The result is one self-describing JSON file that:
   - Is still valid OpenAPI 3.0 (the x-* extensions are explicitly
     allowed by the spec — readers ignore unknown vendor keys).
   - The Angular API explorer can render directly (it knows how to
-    look in x-snapdragon for SSE + binary-upload hints).
+    look in x-hugmesh for SSE + binary-upload hints).
   - The LaTeX generator can read for the long-form prose.
 
 The merge is order-independent and idempotent: re-running with the
@@ -43,7 +43,7 @@ def merge(spec: dict, meta: dict) -> dict:
     for tag_name, tm in tag_meta.items():
         ext = {k: v for k, v in tm.items() if v is not None}
         if tag_name in seen:
-            seen[tag_name].setdefault("x-snapdragon", {}).update(ext)
+            seen[tag_name].setdefault("x-hugmesh", {}).update(ext)
         else:
             # Tag wasn't declared by the BFF (e.g. live spec missing the
             # @Tag block). Add it so the API explorer can still group by
@@ -51,7 +51,7 @@ def merge(spec: dict, meta: dict) -> dict:
             out_tags.append({
                 "name": tag_name,
                 "description": tm.get("blurb", ""),
-                "x-snapdragon": ext,
+                "x-hugmesh": ext,
             })
 
     # ── Operations ────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ def merge(spec: dict, meta: dict) -> dict:
             key = normalise_op_key(method, path)
             if key in op_meta:
                 ext = {k: v for k, v in op_meta[key].items() if v is not None}
-                op["x-snapdragon"] = {**op.get("x-snapdragon", {}), **ext}
+                op["x-hugmesh"] = {**op.get("x-hugmesh", {}), **ext}
                 matched += 1
 
     # Track unmatched metadata entries so the build prints what didn't
@@ -84,10 +84,10 @@ def merge(spec: dict, meta: dict) -> dict:
 
     # Top-level branding so consumers can verify they're reading the
     # merged file (not the raw spec).
-    out.setdefault("info", {}).setdefault("x-snapdragon", {}).update({
+    out.setdefault("info", {}).setdefault("x-hugmesh", {}).update({
         "merged": True,
         "metadataPath": "docs/publishing/openapi/metadata.json",
-        "publisher": "Snapdragon Games",
+        "publisher": "HugMesh Games",
     })
 
     return out, matched, unmatched

@@ -31,5 +31,5 @@ Symptom that drove the change: "movement across screens on the same player doesn
 ## Reference
 
 - [04 — Data model](../architecture/04-data-model.md#players-sessions-and-progression)
-- [`backend/src/main/java/games/snapdragon/bff/service/PositionCacheService.java`](../../../backend/src/main/java/games/snapdragon/bff/service/PositionCacheService.java)
-- [`backend/src/main/java/games/snapdragon/bff/service/GameStateService.java`](../../../backend/src/main/java/games/snapdragon/bff/service/GameStateService.java)
+- [`backend/src/main/java/games/hugmesh/bff/service/PositionCacheService.java`](../../../backend/src/main/java/games/hugmesh/bff/service/PositionCacheService.java)
+- [`backend/src/main/java/games/hugmesh/bff/service/GameStateService.java`](../../../backend/src/main/java/games/hugmesh/bff/service/GameStateService.java)

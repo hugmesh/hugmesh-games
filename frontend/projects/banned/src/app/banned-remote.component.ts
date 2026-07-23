@@ -17,7 +17,7 @@ import { catchError, of } from 'rxjs';
  * {@code GET /api/security/appeal-contact} — the BFF picks the
  * current primary on-call mod's {@code contact_email} from
  * {@code accounts.mods}, falling back to {@code app.security
- * .appeal-contact-fallback} (default {@code support@snapdragon
+ * .appeal-contact-fallback} (default {@code support@hugmesh
  * .games}). The endpoint is anonymous-accessible because a
  * revoked user can't carry a JWT.
  *
@@ -34,7 +34,7 @@ import { catchError, of } from 'rxjs';
       <div class="banned-card">
         <div class="badge">⊘</div>
         <h1>Account suspended</h1>
-        <p class="lead">Your access to this Snapdragon stack has been
+        <p class="lead">Your access to this HugMesh stack has been
           temporarily revoked. The platform won't let you reach any
           other route until a producer / mod reviews the suspension.</p>
 
@@ -118,7 +118,7 @@ import { catchError, of } from 'rxjs';
 })
 export class BannedRemoteComponent implements OnInit {
 
-  private static readonly FALLBACK_EMAIL = 'support@snapdragon.games';
+  private static readonly FALLBACK_EMAIL = 'support@hugmesh.games';
 
   private route = inject(ActivatedRoute);
   private http  = inject(HttpClient);
@@ -145,11 +145,11 @@ export class BannedRemoteComponent implements OnInit {
     const key    = this.route.snapshot.queryParamMap.get('key') ?? '<unknown>';
     const reason = this.route.snapshot.queryParamMap.get('reason') ?? '<no reason on file>';
     return [
-      'Subject: Appeal — account suspension on Snapdragon Games',
+      'Subject: Appeal — account suspension on HugMesh Games',
       '',
       'Hello,',
       '',
-      'My account has been suspended on the Snapdragon Games platform.',
+      'My account has been suspended on the HugMesh Games platform.',
       'I would like to appeal this suspension.',
       '',
       `Revocation key: ${key}`,
@@ -165,7 +165,7 @@ export class BannedRemoteComponent implements OnInit {
   }
 
   mailtoHref(): string {
-    const subject = encodeURIComponent('Appeal — account suspension on Snapdragon Games');
+    const subject = encodeURIComponent('Appeal — account suspension on HugMesh Games');
     const body    = encodeURIComponent(this.emailBody());
     return `mailto:${this.contactEmail()}?subject=${subject}&body=${body}`;
   }

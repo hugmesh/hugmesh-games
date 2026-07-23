@@ -19,7 +19,7 @@ import { environment } from './environments/environment';
 // remote slugs, not the federation package). Pre-stashing on the global
 // from main.ts (whose static import IS bundled by esbuild) is the only
 // path that keeps both the karma graph and the production runtime happy.
-(globalThis as any).__SNAPDRAGON_LOAD_REMOTE_MODULE__ = loadRemoteModule;
+(globalThis as any).__HUGMESH_LOAD_REMOTE_MODULE__ = loadRemoteModule;
 
 interface BffManifest {
   generatedAt?: string;
@@ -35,7 +35,7 @@ interface BffManifest {
                              { credentials: 'omit' });
     if (resp.ok) {
       const bffManifest: BffManifest = await resp.json();
-      (globalThis as any).__SNAPDRAGON_FEDERATION_MANIFEST__ = bffManifest;
+      (globalThis as any).__HUGMESH_FEDERATION_MANIFEST__ = bffManifest;
       for (const r of bffManifest.remotes ?? []) {
         if (r.kind === 'remote-game' || r.kind === 'remote-shell') {
           fedMap[r.slug] = r.remoteEntryUrl;

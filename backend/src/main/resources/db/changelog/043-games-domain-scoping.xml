@@ -15,7 +15,7 @@
       Back-compat by construction: NOT NULL DEFAULT 'default'. Every existing row
       backfills to 'default', and a 'default' (or null/blank) domain is treated as
       UNSCOPED / global by the row-domain predicate (Roles.domainApplies, mirroring
-      the snapdragon-gateway GatewayRouteAccessService.domainApplies). So on the
+      the hugmesh-gateway GatewayRouteAccessService.domainApplies). So on the
       single-Casdoor cluster every game is global and nothing changes; in a
       multi-brand deployment new uploads are stamped with the uploader's brand
       (GameUploadService) and a brand-X admin cannot manage a brand-Y game
@@ -23,7 +23,7 @@
       brand THROUGH the parent game (chapters.game_id FK, game_access.game_id,
       federation_modules.game_slug), so only `games` carries the column.
 
-      The 'default' literal is games.snapdragon.bff.security.DomainRegistry.DEFAULT_DOMAIN.
+      The 'default' literal is games.hugmesh.bff.security.DomainRegistry.DEFAULT_DOMAIN.
   -->
 
   <changeSet id="043-1-games-domain-column" author="nin">

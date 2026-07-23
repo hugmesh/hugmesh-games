@@ -13,13 +13,13 @@ There are two paths.
 \subsection{Path A — upload at runtime}
 
 Every supported game ships an editor plugin
-(\snapfile{addons/snapdragon_export/}) under
+(\snapfile{addons/hugmesh_export/}) under
 \reposrc{games/three-wizards-in-a-trenchcoat/} that produces a deploy-ready
 zip with a v2 \texttt{manifest.json}, a \texttt{register.sql} insert
 script, and the \texttt{bundle/} contents:
 
 \begin{enumerate}
-  \item In the Godot editor, \emph{Project~$\rightarrow$~Tools~$\rightarrow$~Snapdragon~$\rightarrow$~Export\dots}.
+  \item In the Godot editor, \emph{Project~$\rightarrow$~Tools~$\rightarrow$~HugMesh~$\rightarrow$~Export\dots}.
   \item Fill in slug, display name, description, scene type. The plugin
         defaults the federation \texttt{remote\_entry\_url} to
         \texttt{/\_remotes/games-<slug>/remoteEntry.json}; if you don't
@@ -48,7 +48,7 @@ For a game you want to ship in the repository:
   \item Drop the Godot project under
         \snapfile{games/<game-dir>/project.godot}, with its own
         \snapfile{export_presets.cfg} and
-        \snapfile{addons/snapdragon_export/}.
+        \snapfile{addons/hugmesh_export/}.
   \item Add the directory to \texttt{GAME\_PROJECTS} and define
         \texttt{PRESETS\_<dir>} in the root \snapfile{Makefile}.
   \item Add a Liquibase changeset that inserts the \texttt{games} +
@@ -193,7 +193,7 @@ new editor-style side service:
         \reposrc{backend/src/main/resources/db/changelog/037-rpg-and-vn-maker-federation.xml}.
   \item Implement the build worker: walk the project tree $\rightarrow$
         emit a Godot 4 source tree with
-        \snapfile{snapdragon\_bridge.gdextension} baked in $\rightarrow$
+        \snapfile{hugmesh\_bridge.gdextension} baked in $\rightarrow$
         \texttt{godot --export-release} per area / act $\rightarrow$
         zip $\rightarrow$ POST to \texttt{/api/admin/games/upload}
         \emph{with the originating publisher's bearer token}. The

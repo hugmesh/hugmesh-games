@@ -15,7 +15,7 @@ Angular (from v19 onward) moved to ESBuild for the `application` builder. The We
 
 - Host shell + every remote configures `@angular-architects/native-federation:build` in `angular.json`.
 - Host's [`main.ts`](../../../frontend/src/main.ts) splits into two modules: `main.ts` runs `initFederation(...)` against the BFF-served manifest, then dynamically imports `bootstrap.ts` which calls `bootstrapApplication`. **Never static-import `@angular/*` in `main.ts`** — those imports resolve before the import map is installed and fail.
-- The remote loader reaches the runtime via `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__` — *not* through Angular DI. This keeps the federation runtime out of karma's static graph and out of every route bundle that doesn't need it.
+- The remote loader reaches the runtime via `globalThis.__HUGMESH_LOAD_REMOTE_MODULE__` — *not* through Angular DI. This keeps the federation runtime out of karma's static graph and out of every route bundle that doesn't need it.
 
 ## Trade-offs accepted
 

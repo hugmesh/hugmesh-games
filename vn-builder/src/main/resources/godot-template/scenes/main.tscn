@@ -4,7 +4,7 @@
 [ext_resource type="Script" path="res://scripts/text_box.gd" id="2"]
 
 ; The VN bundle's root is a Node3D — even a "2D" visual novel ships
-; as a 3D scene so snapdragon-bridge's MultiplayerLobby + per-player
+; as a 3D scene so hugmesh-bridge's MultiplayerLobby + per-player
 ; view channel can render avatars in the same space the dialogue
 ; plays out in. The visible VN surface is a flat QuadMesh layered
 ; against a simple 3D-primitive backdrop (BoxMesh). BackgroundCube and
@@ -33,7 +33,7 @@ transform = Transform3D(2, 0, 0, 0, 1.2, 0, 0, 0, 1, 0, 0, 0)
 
 [node name="Wizards" type="Node3D" parent="."]
 
-[node name="MultiplayerLobby" type="SnapdragonMultiplayerLobby" parent="."]
+[node name="MultiplayerLobby" type="HugMeshMultiplayerLobby" parent="."]
 avatar_parent_path = NodePath("../Wizards")
 
 ; Dialogue UI overlays the 3D space via a CanvasLayer so the text

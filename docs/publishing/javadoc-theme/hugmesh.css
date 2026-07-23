@@ -1,0 +1,228 @@
+/*
+ * HugMesh Games — Javadoc theme.
+ *
+ * Layered ON TOP of the standard doclet's stylesheet.css. The standard
+ * stylesheet loads first and the doclet drives layout; we restyle colors,
+ * type, and the page header/footer chrome so the API reference looks like
+ * the rest of the brand without breaking the doclet's structural CSS.
+ *
+ * Brand tokens kept in sync with frontend/src/app/home/home.component.scss
+ * and docs/publishing/architecture/hugmesh-theme.sty.
+ */
+
+:root {
+  --snap-bg:        #ffffff;
+  --snap-surface:   #f4f2fa;
+  --snap-border:    #e0dcee;
+  --snap-text:      #1f1f2e;
+  --snap-muted:     #6b6b85;
+  --snap-accent:    #7c4dff;
+  --snap-accent-2:  #b388ff;
+  --snap-accent-d:  #4a2fb5;
+  --snap-dark:      #0a0a12;
+  --snap-dark-fg:   #e8e8f0;
+}
+
+/* ── Base type ──────────────────────────────────────────────────────── */
+body, .navPadding, .indexHeader {
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--snap-bg);
+  color: var(--snap-text);
+}
+
+code, pre, .source, .returnType, .modifiers, kbd, samp, tt {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Inconsolata', 'Menlo',
+               'Consolas', monospace;
+}
+
+a, a:link, a:visited {
+  color: var(--snap-accent);
+  text-decoration: none;
+}
+a:hover, a:focus {
+  color: var(--snap-accent-d);
+  text-decoration: underline;
+}
+
+h1, h2, h3, h4, h5, h6,
+.title, .header h1, .contentContainer h1, .contentContainer h2 {
+  color: var(--snap-text);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+h1, .title { color: var(--snap-accent); font-weight: 800; }
+h2 { color: var(--snap-accent-d); font-weight: 700; }
+h3 { color: var(--snap-text);     font-weight: 600; }
+
+/* ── Header / banner ────────────────────────────────────────────────── */
+.topNav, .bottomNav, .navPadding,
+header, footer, .navbar, .header.navHeader {
+  background: var(--snap-dark) !important;
+  color: var(--snap-dark-fg) !important;
+  border-bottom: 2px solid var(--snap-accent);
+  padding: 0;
+}
+
+.topNav a, .bottomNav a,
+.topNav a:link, .bottomNav a:link,
+.topNav a:visited, .bottomNav a:visited,
+header a, header a:visited, footer a, footer a:visited {
+  color: var(--snap-accent-2) !important;
+}
+
+.topNav a:hover, .bottomNav a:hover,
+header a:hover, footer a:hover {
+  color: white !important;
+}
+
+.navListSearch, .skipNav { color: var(--snap-dark-fg); }
+
+/* HugMesh brand strip injected by header.html */
+.snap-brand-strip {
+  background: linear-gradient(135deg, var(--snap-accent) 0%, var(--snap-accent-2) 100%);
+  color: white;
+  padding: 18px 28px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.snap-brand-strip .snap-mark { font-size: 1.05rem; }
+.snap-brand-strip .snap-mark strong { letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.78rem; opacity: 0.85; display: block; margin-bottom: 4px; }
+.snap-brand-strip .snap-mark span { font-size: 1.4rem; }
+.snap-brand-strip .snap-meta {
+  font-size: 0.78rem;
+  font-weight: 500;
+  opacity: 0.9;
+  text-align: right;
+  line-height: 1.4;
+}
+.snap-brand-strip .snap-meta a { color: white; text-decoration: underline; }
+
+/* ── Section blocks (class summaries, member tables) ───────────────── */
+.classUseContainer, .contentContainer, .indexContainer,
+.summary, .blockList, .description, .details, .memberSummary {
+  background: var(--snap-bg);
+  color: var(--snap-text);
+}
+
+.tableSubHeadingColor, .altColor, .rowColor,
+.colFirst, .colSecond, .colLast, .colConstructorName, .colDeprecatedItemName {
+  background: var(--snap-bg);
+  color: var(--snap-text);
+}
+
+.altColor { background: var(--snap-surface); }
+.rowColor { background: var(--snap-bg); }
+.altColor th, .rowColor th { color: var(--snap-text); }
+
+.tableSubHeadingColor, .summary caption, .description caption,
+.memberSummary caption, .three-column-summary > caption,
+.two-column-summary > caption {
+  background: var(--snap-accent);
+  color: white;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 6px 12px;
+  border-radius: 4px 4px 0 0;
+}
+
+table.summary, table.classUseContainer, table.indexContainer,
+table.memberSummary, table.useSummary, .three-column-summary,
+.two-column-summary {
+  border: 1px solid var(--snap-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+th, td { border-color: var(--snap-border); }
+
+/* ── Code & signatures ──────────────────────────────────────────────── */
+pre, .source, code.signature, .memberSignature {
+  background: var(--snap-surface);
+  border: 1px solid var(--snap-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: var(--snap-text);
+}
+.memberSignature .modifiers { color: var(--snap-accent-d); }
+.memberSignature .returnType { color: var(--snap-accent); }
+.memberSignature .memberName { color: var(--snap-text); font-weight: 700; }
+
+/* ── Breadcrumbs ────────────────────────────────────────────────────── */
+.subTitle, .header > .subTitle {
+  color: var(--snap-muted);
+  font-size: 0.85rem;
+}
+
+/* ── Tabs ───────────────────────────────────────────────────────────── */
+.activeTableTab, .tableTab, button.activeTableTab, button.tableTab {
+  background: var(--snap-bg);
+  color: var(--snap-text);
+  border: 1px solid var(--snap-border);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 4px 4px 0 0;
+}
+.activeTableTab, button.activeTableTab {
+  background: var(--snap-accent);
+  color: white;
+  border-color: var(--snap-accent);
+}
+
+/* ── Inline tags (@param, @return, @throws…) ────────────────────────── */
+dt { color: var(--snap-accent-d); font-weight: 700; }
+dt + dd { color: var(--snap-text); }
+.deprecatedLabel, .deprecationBlock {
+  background: #fff4cc;
+  border-left: 4px solid #cc9900;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────── */
+.snap-footer {
+  background: var(--snap-dark);
+  color: var(--snap-dark-fg);
+  padding: 22px 28px;
+  margin-top: 40px;
+  font-size: 0.85rem;
+  text-align: center;
+  border-top: 2px solid var(--snap-accent);
+}
+.snap-footer a { color: var(--snap-accent-2); }
+
+/* Build stamp line (project name + datetime) injected by `make docs-javadocs`. */
+.snap-footer .snap-buildstamp {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+
+/* ── Search box ─────────────────────────────────────────────────────── */
+.searchInput, input[type="text"] {
+  background: white;
+  color: var(--snap-text);
+  border: 1px solid var(--snap-border);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+.searchInput:focus, input[type="text"]:focus {
+  outline: none;
+  border-color: var(--snap-accent);
+  box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.18);
+}
+
+/* ── Module / package bar ───────────────────────────────────────────── */
+.contentContainer .description, .contentContainer .summary,
+.classUseContainer .description, .classUseContainer .summary,
+.indexContainer .description, .indexContainer .summary {
+  border-radius: 6px;
+}

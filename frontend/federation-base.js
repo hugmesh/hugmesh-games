@@ -36,7 +36,7 @@ const STD_SHARED = shareAll({
  * without losing the standard list (the host adds
  * '@angular/material/prebuilt-themes' that way).
  */
-function snapdragonRemote({ name, exposes, extraSkip = [] }) {
+function hugmeshRemote({ name, exposes, extraSkip = [] }) {
   return withNativeFederation({
     name,
     exposes,
@@ -51,7 +51,7 @@ function snapdragonRemote({ name, exposes, extraSkip = [] }) {
  * skip list. Naming the host explicitly so the manifest's self-row
  * matches the federation_modules seed.
  */
-function snapdragonHost({ name = 'snapdragon-host', extraSkip = [] } = {}) {
+function hugmeshHost({ name = 'hugmesh-host', extraSkip = [] } = {}) {
   return withNativeFederation({
     name,
     shared: { ...STD_SHARED },
@@ -60,8 +60,8 @@ function snapdragonHost({ name = 'snapdragon-host', extraSkip = [] } = {}) {
 }
 
 module.exports = {
-  snapdragonRemote,
-  snapdragonHost,
+  hugmeshRemote,
+  hugmeshHost,
   STD_SKIP,
   STD_SHARED,
 };

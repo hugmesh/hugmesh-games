@@ -33,10 +33,10 @@ Without per-session keying, a player in session A would see another player's mov
 
 ## How we proved isolation
 
-[`SessionIsolationTest`](../../../backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java) — emits on session A's sinks and asserts session B's per-session subscriber sees nothing. Six specs cover movement, world snapshots, view events, bidirectional isolation, and the legacy single-player path's non-leakage.
+[`SessionIsolationTest`](../../../backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java) — emits on session A's sinks and asserts session B's per-session subscriber sees nothing. Six specs cover movement, world snapshots, view events, bidirectional isolation, and the legacy single-player path's non-leakage.
 
 ## Reference
 
 - [02 — Runtime architecture § Per-session SSE sinks](../architecture/02-runtime.md)
 - [05 — API + service reference § GameStateService](../architecture/05-api-reference.md)
-- [`SessionSinks`](../../../backend/src/main/java/games/snapdragon/bff/service/SessionSinks.java)
+- [`SessionSinks`](../../../backend/src/main/java/games/hugmesh/bff/service/SessionSinks.java)

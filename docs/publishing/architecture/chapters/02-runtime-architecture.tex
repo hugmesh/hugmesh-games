@@ -24,7 +24,7 @@ The host shell's \snapfile{main.ts} is intentionally split into two
 modules. \snapfile{main.ts} runs the
 \textbf{native-federation \texttt{initFederation(...)}} bootstrap with the
 manifest fetched from \texttt{GET /api/federation/manifest}, then stashes
-\texttt{loadRemoteModule} on \texttt{globalThis.\_\_SNAPDRAGON\_LOAD\_REMOTE\_MODULE\_\_}
+\texttt{loadRemoteModule} on \texttt{globalThis.\_\_HUGMESH\_LOAD\_REMOTE\_MODULE\_\_}
 and only then dynamically imports \snapfile{bootstrap.ts}, which calls
 \texttt{bootstrapApplication} with the host's \texttt{AppComponent}. This
 ordering is non-negotiable: any \texttt{@angular/*} static import resolved
@@ -153,7 +153,7 @@ $\alpha$'s events; the admin firehose at
 \caption{Per-session SSE sink isolation. Events emitted on session
 $\alpha$'s sinks NEVER reach session $\beta$'s subscribers and vice
 versa; the global sink keeps the admin firehose intact. The
-\reposrc{backend/src/test/java/games/snapdragon/bff/service/SessionIsolationTest.java}
+\reposrc{backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java}
 integration test pins the dashed-arrow non-leakage in both directions.}
 \end{figure}
 
@@ -183,7 +183,7 @@ service alongside the BFF, with their own Postgres tenants:
 \end{itemize}
 
 Each side service's build worker walks the project tree, emits a Godot
-4 source tree with \snapfile{snapdragon\_bridge.gdextension} baked in
+4 source tree with \snapfile{hugmesh\_bridge.gdextension} baked in
 (multiplayer-aware out of the box), runs the Godot CLI per area or act,
 zips the result, and POSTs to the BFF's
 \texttt{/api/admin/games/upload} endpoint \emph{with the originating
@@ -215,9 +215,9 @@ matrix is pinned by
 \reposrc{e2e/features/security/mod-grant-gates.feature} on the BDD side
 and a \texttt{@WebFluxTest} on the controller side.
 
-\section{Perimeter: snapdragon-gateway}
+\section{Perimeter: hugmesh-gateway}
 
-All browser traffic enters through \snapfile{snapdragon-gateway} (Spring
+All browser traffic enters through \snapfile{hugmesh-gateway} (Spring
 Cloud Gateway). The gateway terminates TLS, holds the
 \emph{primary} rate-limit (per-key token bucket) and revocation list
 (stamps \texttt{X-Revoked} on requests from banned keys), and routes:

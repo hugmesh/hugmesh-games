@@ -8,7 +8,7 @@
     <!--
       Chess P2 — registers the multiplayer chess title in the catalog.
 
-      Chess is HOST-AUTHORITATIVE: the host browser runs the snapdragon-chess
+      Chess is HOST-AUTHORITATIVE: the host browser runs the hugmesh-chess
       WASM engine and the server only STREAMS moves over the existing
       input/world session channels (reemitToSession) — there is NO server-side
       chess logic, so no Java/controller changes are needed here. This changeset
@@ -21,7 +21,7 @@
       Ids/sort_order are computed from MAX(...)+1 so this is collision-safe
       regardless of how earlier games seeded their explicit ids.
     -->
-    <changeSet id="044-1-chess-game" author="snapdragon">
+    <changeSet id="044-1-chess-game" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -34,7 +34,7 @@ WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'chess');
         </sql>
     </changeSet>
 
-    <changeSet id="044-2-chess-board-chapter" author="snapdragon">
+    <changeSet id="044-2-chess-board-chapter" author="hugmesh">
         <sql>
 -- The "levels" table was renamed to "chapters" in changeset 028; this seed
 -- (unlike the pre-rename 017 dodecahedron seed) targets the current name.

@@ -11,11 +11,11 @@
     <relativePath/>
   </parent>
 
-  <groupId>games.snapdragon</groupId>
-  <artifactId>snapdragon-gaming-bff</artifactId>
+  <groupId>games.hugmesh</groupId>
+  <artifactId>hugmesh-gaming-bff</artifactId>
   <version>0.1.0-SNAPSHOT</version>
-  <name>snapdragon-gaming-bff</name>
-  <description>Snapdragon Gaming BFF — backend-for-frontend that delivers the Snapdragon Games portal (game catalog, sessions, SSE state stream, asset bundles).</description>
+  <name>hugmesh-gaming-bff</name>
+  <description>HugMesh Gaming BFF — backend-for-frontend that delivers the HugMesh Games portal (game catalog, sessions, SSE state stream, asset bundles).</description>
   <packaging>jar</packaging>
 
   <properties>
@@ -244,7 +244,7 @@
          RevocationListService refresh + DistributedRateLimitService
          calls so a slow Cassandra doesn't pile up rate-limit checks
          on the hot path. Same artefact + same `casdoor` /
-         `revocation` instance names the snapdragon-gateway uses for
+         `revocation` instance names the hugmesh-gateway uses for
          its corresponding cache services. -->
     <dependency>
       <groupId>io.github.resilience4j</groupId>
@@ -272,13 +272,13 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
         <configuration>
-          <mainClass>games.snapdragon.bff.SnapdragonGamesBffApplication</mainClass>
+          <mainClass>games.hugmesh.bff.HugMeshGamesBffApplication</mainClass>
         </configuration>
       </plugin>
       <!--
         Themed Javadoc generation. Driven by `make docs-javadocs` from the
         repo root, which sets `additionalparam` to override the doclet's
-        stylesheet and header/footer with the Snapdragon brand assets under
+        stylesheet and header/footer with the HugMesh brand assets under
         docs/publishing/javadoc-theme/. The plugin stays bound to no phase
         on purpose — the Make target invokes `mvn javadoc:javadoc` directly
         so the regular `mvn package` build doesn't pay the Javadoc cost.
@@ -288,32 +288,32 @@
         <artifactId>maven-javadoc-plugin</artifactId>
         <version>3.11.2</version>
         <configuration>
-          <doctitle>Snapdragon Games &mdash; Snapdragon Gaming BFF API</doctitle>
-          <windowtitle>Snapdragon Gaming BFF</windowtitle>
+          <doctitle>HugMesh Games &mdash; HugMesh Gaming BFF API</doctitle>
+          <windowtitle>HugMesh Gaming BFF</windowtitle>
           <bottom><![CDATA[
             <div class="snap-footer">
-              <strong>Snapdragon Games</strong> &middot;
-              <a href="https://github.com/Snapdragon-Systems/snapdragon.games">repository</a>
+              <strong>HugMesh Games</strong> &middot;
+              <a href="https://github.com/Snapdragon-Systems/hugmesh-games">repository</a>
               &middot;
-              <a href="https://github.com/Snapdragon-Systems/snapdragon.games/blob/main/docs/publishing/architecture/architecture.tex">architecture (PDF)</a>
+              <a href="https://github.com/Snapdragon-Systems/hugmesh-games/blob/main/docs/publishing/architecture/architecture.tex">architecture (PDF)</a>
               &middot;
-              <a href="https://github.com/Snapdragon-Systems/snapdragon.games/blob/main/README.md">README</a>
+              <a href="https://github.com/Snapdragon-Systems/hugmesh-games/blob/main/README.md">README</a>
             </div>
           ]]></bottom>
           <header><![CDATA[
             <div class="snap-brand-strip">
               <div class="snap-mark">
-                <strong>Snapdragon Games</strong>
+                <strong>HugMesh Games</strong>
                 <span>API Reference</span>
               </div>
               <div class="snap-meta">
-                snapdragon.games &middot;
-                <a href="https://github.com/Snapdragon-Systems/snapdragon.games">github</a>
+                hugmesh.games &middot;
+                <a href="https://github.com/Snapdragon-Systems/hugmesh-games">github</a>
               </div>
             </div>
           ]]></header>
           <!--
-            Snapdragon Games stylesheet. The maven-javadoc-plugin's
+            HugMesh Games stylesheet. The maven-javadoc-plugin's
             addStylesheets element resolves paths against src/main/javadoc/,
             but the canonical theme lives under docs/publishing/javadoc-theme/.
             We pass the raw javadoc tool flag below (add-stylesheet) so we
@@ -327,7 +327,7 @@
           <additionalOptions>
             <additionalOption>--allow-script-in-comments</additionalOption>
             <additionalOption>--add-stylesheet</additionalOption>
-            <additionalOption>${project.basedir}/../docs/publishing/javadoc-theme/snapdragon.css</additionalOption>
+            <additionalOption>${project.basedir}/../docs/publishing/javadoc-theme/hugmesh.css</additionalOption>
           </additionalOptions>
           <links>
             <link>https://docs.spring.io/spring-framework/docs/current/javadoc-api/</link>
@@ -339,7 +339,7 @@
       <!-- Byte Buddy (via Mockito) only officially supports up to JDK 23; this
            enables it to run on newer JDKs (the build host runs Temurin 25). A
            no-op on JDK <=23, so it is safe for the Java 21 target too. Same
-           convention as rpg-builder / vn-builder / the snapdragon-*-bff-api
+           convention as rpg-builder / vn-builder / the hugmesh-*-bff-api
            repos. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

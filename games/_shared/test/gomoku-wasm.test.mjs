@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable gomoku engine WASM module.
 //
-// Loads games/gomoku/wasm/snapdragon_gomoku.wasm with WebAssembly.instantiate and
+// Loads games/gomoku/wasm/hugmesh_gomoku.wasm with WebAssembly.instantiate and
 // EMPTY imports (proving it runs in a bare browser via instantiateStreaming with
 // no host glue), then drives gomoku move-by-move through the C-ABI /
 // JSON-over-linear-memory shim. If this passes, the same .wasm the browser bundle
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const WASM_PATH = join(here, '..', '..', 'gomoku', 'wasm', 'snapdragon_gomoku.wasm');
+const WASM_PATH = join(here, '..', '..', 'gomoku', 'wasm', 'hugmesh_gomoku.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;

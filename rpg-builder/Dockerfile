@@ -55,7 +55,7 @@ COPY --from=godot /root/.local/share/godot /root/.local/share/godot
 # turned on until the deployment manifest flips APP_BUILD_GODOT_ENABLED=true (paired
 # with the multi-GB ephemeral-storage the export workdir needs), so that is a
 # config-only flip later, no image rebuild. APP_BUILD_BRIDGE_DIR (the compiled
-# snapdragon_bridge binaries) is likewise supplied by the deployment; it defaults unset.
+# hugmesh_bridge binaries) is likewise supplied by the deployment; it defaults unset.
 ENV APP_BUILD_GODOT_BIN=/opt/godot/godot
-COPY --from=build /app/target/snapdragon-rpg-builder-0.1.0-SNAPSHOT.jar app.jar
+COPY --from=build /app/target/hugmesh-rpg-builder-0.1.0-SNAPSHOT.jar app.jar
 ENTRYPOINT ["java", "-jar", "app.jar"]

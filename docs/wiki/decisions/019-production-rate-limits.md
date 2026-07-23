@@ -11,7 +11,7 @@ The portal needs three distinct deployment topologies in one repo:
    another workstation on the same Wi-Fi can hit the portal at
    `http://<host-ip>:<port>/`. Useful for in-person playtesting +
    debugging mobile rendering.
-3. **Production** — `snapdragon.games` reachable from the internet,
+3. **Production** — `hugmesh.games` reachable from the internet,
    with rate limits sized for an audience of around 10 000 concurrent
    users + abuse protection on the credential-grant and admin paths.
 
@@ -67,7 +67,7 @@ directly so both invocation paths produce the same result.
 [`compose.prod.yml`](../../../compose.prod.yml)'s frontend port
 defaults to `${PROD_FRONTEND_BIND:-127.0.0.1:}8080:8080` — loopback
 because the standard prod posture is an upstream LB / TLS terminator
-(nginx, Caddy, ELB, Cloud LB) at `snapdragon.games` that forwards to
+(nginx, Caddy, ELB, Cloud LB) at `hugmesh.games` that forwards to
 this host's `127.0.0.1:8080`. Set `PROD_FRONTEND_BIND=0.0.0.0:` for a
 single-VM deploy that wants this nginx to face the internet directly.
 

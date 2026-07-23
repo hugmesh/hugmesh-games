@@ -6,7 +6,7 @@ import { catchError } from 'rxjs/operators';
 
 // DTOs mirror the BFF responses; types are erased across the federation
 // boundary so the remote owns its own copy. Keep field names byte-aligned
-// with the BFF DTOs in games.snapdragon.bff.model.GameSessionDto +
+// with the BFF DTOs in games.hugmesh.bff.model.GameSessionDto +
 // ModGameScope or the table will silently render undefined.
 interface ModGameScope {
   casdoorId: string;

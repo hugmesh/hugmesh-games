@@ -33,7 +33,7 @@ import { HttpClient } from '@angular/common/http';
 
         @if (submitted()) {
           <p class="success">Your application is on file. Watch the
-            inbox you provided for a follow-up from a Snapdragon
+            inbox you provided for a follow-up from a HugMesh
             admin.</p>
         } @else {
           <form [formGroup]="form" (ngSubmit)="submit()">

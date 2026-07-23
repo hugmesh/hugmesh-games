@@ -2,7 +2,7 @@
 
 ## Context
 
-`RateLimitFilter` ([backend/src/main/java/games/snapdragon/bff/config/RateLimitFilter.java](../../../backend/src/main/java/games/snapdragon/bff/config/RateLimitFilter.java)) caps each `(remote-IP, path-prefix)` to 20 requests / minute on the credential-grant endpoints (`/api/auth/`, `/api/admin/actions/`). The original implementation kept its bucket state in a per-pod `ConcurrentHashMap`. That holds up under a single-pod deploy but a multi-pod fleet defeats it: a credential-stuffing attacker fanning across N pods sees N × MAX_PER_WINDOW headroom because each pod's bucket is isolated.
+`RateLimitFilter` ([backend/src/main/java/games/hugmesh/bff/config/RateLimitFilter.java](../../../backend/src/main/java/games/hugmesh/bff/config/RateLimitFilter.java)) caps each `(remote-IP, path-prefix)` to 20 requests / minute on the credential-grant endpoints (`/api/auth/`, `/api/admin/actions/`). The original implementation kept its bucket state in a per-pod `ConcurrentHashMap`. That holds up under a single-pod deploy but a multi-pod fleet defeats it: a credential-stuffing attacker fanning across N pods sees N × MAX_PER_WINDOW headroom because each pod's bucket is isolated.
 
 ## Options considered
 

@@ -1,7 +1,7 @@
 # Per-remote Dockerfile for the federated admin console.
 #
 #   docker build -f frontend/projects/admin/Dockerfile \
-#                -t snapdragon-admin ./frontend
+#                -t hugmesh-admin ./frontend
 
 FROM node:20-alpine AS build
 WORKDIR /app

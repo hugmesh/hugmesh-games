@@ -25,7 +25,7 @@ type LoadRemoteModuleFn = (opts: { remoteName: string; exposedModule: string }) 
 // (missing global, missing class export) deserve direct coverage.
 // Routes below are the only production callers.
 export function loadRemote<T>(remoteName: string, exposedModule: string, exportName: string): Promise<Type<T>> {
-  const fn = (globalThis as { __SNAPDRAGON_LOAD_REMOTE_MODULE__?: LoadRemoteModuleFn }).__SNAPDRAGON_LOAD_REMOTE_MODULE__;
+  const fn = (globalThis as { __HUGMESH_LOAD_REMOTE_MODULE__?: LoadRemoteModuleFn }).__HUGMESH_LOAD_REMOTE_MODULE__;
   if (!fn) return Promise.reject(new Error(`[routes] loadRemoteModule missing — initFederation didn't run`));
   return fn({ remoteName, exposedModule }).then(mod => {
     const cls = mod[exportName];

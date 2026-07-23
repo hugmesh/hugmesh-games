@@ -4,21 +4,21 @@
 
 ## Context
 
-The `domain-foundation` work (same branch) taught the games BFF to derive a tenant the same way snapdragon-gateway does:
+The `domain-foundation` work (same branch) taught the games BFF to derive a tenant the same way hugmesh-gateway does:
 
-- [`DomainRegistry`](../../../backend/src/main/java/games/snapdragon/bff/security/DomainRegistry.java) maps a cryptographically-validated token **issuer** → brand/domain (one Casdoor per brand ⇒ distinct `iss`).
-- [`CasdoorAuthorities`](../../../backend/src/main/java/games/snapdragon/bff/config/CasdoorAuthorities.java) stamps exactly one issuer-derived `DOMAIN_<x>` authority on every token, with a reserved-prefix guard so a `permissions:["DOMAIN_other"]` entry can't forge a tenant.
-- [`Roles`](../../../backend/src/main/java/games/snapdragon/bff/security/Roles.java) gained the gateway-aligned `isSuperadmin` / fail-closed `domainOf` helpers.
+- [`DomainRegistry`](../../../backend/src/main/java/games/hugmesh/bff/security/DomainRegistry.java) maps a cryptographically-validated token **issuer** → brand/domain (one Casdoor per brand ⇒ distinct `iss`).
+- [`CasdoorAuthorities`](../../../backend/src/main/java/games/hugmesh/bff/config/CasdoorAuthorities.java) stamps exactly one issuer-derived `DOMAIN_<x>` authority on every token, with a reserved-prefix guard so a `permissions:["DOMAIN_other"]` entry can't forge a tenant.
+- [`Roles`](../../../backend/src/main/java/games/hugmesh/bff/security/Roles.java) gained the gateway-aligned `isSuperadmin` / fail-closed `domainOf` helpers.
 
 That branch deliberately stopped at the seam — its own Javadoc says *"The games BFF currently has no per-domain request-scoped data, so no `@PreAuthorize`/query DOMAIN predicate is wired."* So the authority was **stamped but never read**. Nothing enforced it.
 
-Meanwhile the gateway already does enforce it: [`GatewayRouteAccessFilter`](../../../../snapdragon-gateway/src/main/java/systems/snapdragon/gateway/filter/GatewayRouteAccessFilter.java) hard-denies (403) a non-superadmin principal whose `DOMAIN_<x>` ≠ the request's target brand (derived from the `Host` header), *before* the route-access grant layer.
+Meanwhile the gateway already does enforce it: [`GatewayRouteAccessFilter`](../../../../hugmesh-gateway/src/main/java/systems/hugmesh/gateway/filter/GatewayRouteAccessFilter.java) hard-denies (403) a non-superadmin principal whose `DOMAIN_<x>` ≠ the request's target brand (derived from the `Host` header), *before* the route-access grant layer.
 
 The games README documents a standing defence-in-depth posture: the gateway is the primary enforcement point, but **the BFF re-runs the gateway's checks** (revocation, rate-limit) so that *"service-to-service traffic on the compose network that bypasses the gateway stays gated."* The domain check was the one gateway control the BFF had the inputs for (`DOMAIN_<x>` is now on the token) but did not re-run. A request reaching the BFF directly on the compose network — skipping the gateway — could present a foreign-brand Casdoor token and sail past the (absent) edge domain check.
 
 ## Decision
 
-Add [`DomainGuardFilter`](../../../backend/src/main/java/games/snapdragon/bff/config/DomainGuardFilter.java) — a reactive `WebFilter` that re-runs the gateway's domain hard-deny at the BFF.
+Add [`DomainGuardFilter`](../../../backend/src/main/java/games/hugmesh/bff/config/DomainGuardFilter.java) — a reactive `WebFilter` that re-runs the gateway's domain hard-deny at the BFF.
 
 ### Activation
 
@@ -40,7 +40,7 @@ The match contract (`DomainGuardFilter.domainMatches`) is copied verbatim from t
 
 ### Ordering
 
-`@Order(HIGHEST_PRECEDENCE + 40)` — the same tier as [`BanGateFilter`](../../../backend/src/main/java/games/snapdragon/bff/config/BanGateFilter.java) (`+50`), one notch earlier, so a foreign-brand token is rejected as a tenant violation *before* any per-user ban lookup (a cheaper, more fundamental deny that never touches the `AdminActionService` cache). Both read the JWT from the reactive `ReactiveSecurityContextHolder` Spring Security's authentication filter populates.
+`@Order(HIGHEST_PRECEDENCE + 40)` — the same tier as [`BanGateFilter`](../../../backend/src/main/java/games/hugmesh/bff/config/BanGateFilter.java) (`+50`), one notch earlier, so a foreign-brand token is rejected as a tenant violation *before* any per-user ban lookup (a cheaper, more fundamental deny that never touches the `AdminActionService` cache). Both read the JWT from the reactive `ReactiveSecurityContextHolder` Spring Security's authentication filter populates.
 
 ## Why a BFF copy of a gateway check (and not just trust the gateway)
 
@@ -60,6 +60,6 @@ It is **not** a substitute for the gateway: the gateway derives the target brand
 
 ## Verification
 
-[`DomainGuardFilterTest`](../../../backend/src/test/java/games/snapdragon/bff/config/DomainGuardFilterTest.java) — 16 specs along the project taxonomy: single-tenant no-op (`Disabled`), one-principal match/mismatch/legacy-default/anonymous (`UserSituational`), superadmin cross-domain bypass (`MultiUserSituational`), the ALLOW+DENY isolation contract at one instance (`CrossUserIsolation`), fail-closed on 0/>1 `DOMAIN_` authorities (`FailClosed`), and stateless no-cross-talk routing under 16-thread load (`Concurrent`).
+[`DomainGuardFilterTest`](../../../backend/src/test/java/games/hugmesh/bff/config/DomainGuardFilterTest.java) — 16 specs along the project taxonomy: single-tenant no-op (`Disabled`), one-principal match/mismatch/legacy-default/anonymous (`UserSituational`), superadmin cross-domain bypass (`MultiUserSituational`), the ALLOW+DENY isolation contract at one instance (`CrossUserIsolation`), fail-closed on 0/>1 `DOMAIN_` authorities (`FailClosed`), and stateless no-cross-talk routing under 16-thread load (`Concurrent`).
 
 A full multi-brand **e2e** is gated on a second Casdoor issuer in the integration-test harness (the current `make e2e` stack runs a single Casdoor). Until then the filter logic — where every security decision lives — is pinned by the unit suite, and the single-tenant default is exercised by the entire existing e2e suite running with `app.tenancy.domain` unset.

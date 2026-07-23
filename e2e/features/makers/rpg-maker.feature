@@ -14,7 +14,7 @@ Feature: RPG maker — author and build a multi-chapter RPG
   As a publisher
   I want to launch the RPG maker from the publisher console
   And create areas, rooms, exits and a build job
-  So I can ship a federated, multiplayer-aware Snapdragon game
+  So I can ship a federated, multiplayer-aware HugMesh game
   Without touching Godot directly
 
   Background:

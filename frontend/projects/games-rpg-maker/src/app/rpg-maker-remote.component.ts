@@ -22,7 +22,7 @@ const GENERATE_KINDS = ['tileset','sprite','portrait','icon'] as const;
 const IMAGE_MIMES = ['image/png','image/jpeg','image/webp','image/svg+xml'];
 
 /**
- * Mudlet-shaped editor remote for the snapdragon RPG builder.
+ * Mudlet-shaped editor remote for the hugmesh RPG builder.
  *
  * Three-pane layout:
  *   1. Projects    — pick / create with slug + name validation
@@ -211,7 +211,7 @@ const IMAGE_MIMES = ['image/png','image/jpeg','image/webp','image/svg+xml'];
           @if (selectedProject) {
             <h3>Build &amp; publish</h3>
             <fieldset>
-              <legend>Compile to a Snapdragon-bridge bundle</legend>
+              <legend>Compile to a HugMesh-bridge bundle</legend>
               <label>Target slug (where it ships)
                 <input name="targetSlug" [(ngModel)]="buildTargetSlug"
                        placeholder="defaults to project slug" />

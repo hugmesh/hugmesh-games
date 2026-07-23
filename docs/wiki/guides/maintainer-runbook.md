@@ -144,7 +144,7 @@ Casdoor login is password-grant (no OAuth redirect URI to whitelist), so LAN cli
 
 ## Production exposure + rate-limit knobs
 
-`compose.prod.yml` defaults the frontend to `127.0.0.1:8080` (assumes upstream LB / TLS terminator at `snapdragon.games`). Set `PROD_FRONTEND_BIND=0.0.0.0:` on the deploy host when there is no upstream proxy and this nginx should face the internet directly.
+`compose.prod.yml` defaults the frontend to `127.0.0.1:8080` (assumes upstream LB / TLS terminator at `hugmesh.games`). Set `PROD_FRONTEND_BIND=0.0.0.0:` on the deploy host when there is no upstream proxy and this nginx should face the internet directly.
 
 The host nginx (`frontend/nginx.conf` + `frontend/nginx-tls.conf`) ships `limit_req_zone` declarations sized for ~10 000 concurrent users — see [decision 019](../decisions/019-production-rate-limits.md) for the budgets per path. Tripped requests return 429 (not 503) so well-behaved clients back off.
 

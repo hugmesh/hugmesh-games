@@ -79,7 +79,7 @@ Migrations 001–017 are pre-federation. The federation work landed in:
 - `031-system-settings.xml` — generic key/value table seeded with `wasm_console_debug_enabled='false'`.
 - `032-mod-game-scopes.xml` — `mod_game_scopes` + `publisher_game_scopes` for per-game RBAC; seed rows for the per-game seeded users.
 - `033-mod-publisher-federation.xml` — `federation_modules` rows for the new `mod` and `publisher` federated remotes.
-- `036-widen-session-ids-for-sha3.xml` — widens `game_sessions.id` and `session_members.session_id` from `varchar(36)` to `varchar(64)` so the SHA3-256-derived UIDs minted by [`Crypto.mintUid()`](../../../backend/src/main/java/games/snapdragon/bff/util/Crypto.java) (43 base64url chars) fit. Old UUID-shape rows continue to fit; new rows are SHA3.
+- `036-widen-session-ids-for-sha3.xml` — widens `game_sessions.id` and `session_members.session_id` from `varchar(36)` to `varchar(64)` so the SHA3-256-derived UIDs minted by [`Crypto.mintUid()`](../../../backend/src/main/java/games/hugmesh/bff/util/Crypto.java) (43 base64url chars) fit. Old UUID-shape rows continue to fit; new rows are SHA3.
 - `037-rpg-and-vn-maker-federation.xml` — seeds `federation_modules` rows for the `games-rpg-maker` + `games-vn-maker` remotes that drive the [`rpg-builder/`](../../../rpg-builder/) and [`vn-builder/`](../../../vn-builder/) Spring side services. The side services own their own DBs (`postgres-rpg-builder` + `postgres-vn-builder`) with their own Liquibase changelogs ([rpg-builder/.../db.changelog-master.xml](../../../rpg-builder/src/main/resources/db/changelog/db.changelog-master.xml), [vn-builder/.../db.changelog-master.xml](../../../vn-builder/src/main/resources/db/changelog/db.changelog-master.xml)) — see [decision 018](../decisions/018-rpg-and-vn-makers.md).
 - `038-flatland-publisher-scopes.xml` — pre-grants the `publisher-flatland` Casdoor seed user the publisher scope on the two Flatland fixture games. Idempotent — guarded by `<sqlCheck expectedResult="0">`.
 - `039-auth-ux-remotes-federation.xml` — `federation_modules` rows for the new `producer-registration` and `banned` federated remotes. The banned remote pairs with `AppealContactController` (`/api/security/appeal-contact`) for the appeal flow; producer-registration drives the intake table created in 040.
@@ -114,7 +114,7 @@ Build pipeline state lives in the `*_build_jobs` table; the worker claims rows a
 
 ## R2DBC + JDBC coexistence
 
-Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`, so [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/JdbcDataSourceConfig.java) declares an explicit `@Primary HikariDataSource` (pool size 3) just for the migration phase. R2DBC then connects in parallel against the same database via the `spring.r2dbc.url` property. See [decision 002](../decisions/002-r2dbc-jdbc-coexistence.md).
+Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`, so [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java) declares an explicit `@Primary HikariDataSource` (pool size 3) just for the migration phase. R2DBC then connects in parallel against the same database via the `spring.r2dbc.url` property. See [decision 002](../decisions/002-r2dbc-jdbc-coexistence.md).
 
 ### ⚠ MVCC snapshot race
 
@@ -195,7 +195,7 @@ See [decision 010](../decisions/010-per-session-sse-sinks.md), [decision 011](..
 
 ### Identifier shape: SHA3-256, not UUID
 
-`game_sessions.id` and every other URL-facing UID (launch tokens, session tokens, pod ids) are minted by [`Crypto.mintUid()`](../../../backend/src/main/java/games/snapdragon/bff/util/Crypto.java): a SHA3-256 digest of 64 random bytes from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as URL-safe base64. The result is one 43-character token per UID — no leading entropy bytes, no version bits, no dashes.
+`game_sessions.id` and every other URL-facing UID (launch tokens, session tokens, pod ids) are minted by [`Crypto.mintUid()`](../../../backend/src/main/java/games/hugmesh/bff/util/Crypto.java): a SHA3-256 digest of 64 random bytes from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as URL-safe base64. The result is one 43-character token per UID — no leading entropy bytes, no version bits, no dashes.
 
 This replaces every prior call site of `UUID.randomUUID()` and JDK `SecureRandom`. The migration was driven by three goals:
 
@@ -209,7 +209,7 @@ Liquibase 036 widens the legacy `varchar(36)` columns; older UUID-shape rows con
 
 Two players in different sessions may legitimately use the same `character_id` (e.g. both pick "wizard 1" in their own lobby). The unscoped `findActiveOwnerOfCharacter(character_id)` returns whichever row Postgres picks first, which means the second player's `POST /api/controls/{id}` always 403s with "character not owned by caller".
 
-Mitigation: when a control arrives with `X-Session-Id`, the controller passes that header through to the session-scoped overload `authorizeControl(casdoorId, characterId, sessionId)` which calls [`SessionMemberRepository.findActiveOwnerInSession(sessionId, characterId)`](../../../backend/src/main/java/games/snapdragon/bff/repository/SessionMemberRepository.java). The `(session_id, character_id)` tuple is unique among active members thanks to the partial constraint on `session_members`, so the lookup deterministic.
+Mitigation: when a control arrives with `X-Session-Id`, the controller passes that header through to the session-scoped overload `authorizeControl(casdoorId, characterId, sessionId)` which calls [`SessionMemberRepository.findActiveOwnerInSession(sessionId, characterId)`](../../../backend/src/main/java/games/hugmesh/bff/repository/SessionMemberRepository.java). The `(session_id, character_id)` tuple is unique among active members thanks to the partial constraint on `session_members`, so the lookup deterministic.
 
 ## Generalised input event surface
 
@@ -221,7 +221,7 @@ Three reference tables anchor the schema; an append-only audit table writes agai
 |---|---|
 | `input_event_kinds` | Reference. PK on `kind`. Closed vocabulary: `gamepad`, `mouse`, `keyboard`, `touch`, `audio`, `world`, `control`. Seeded by Liquibase 026. |
 | `input_event_types` | Reference. **Composite** PK `(kind, type)`. Per-kind type vocabulary (e.g. `gamepad: button_down / button_up / axis / connected / disconnected / rumble_ack`) plus an `example_payload` (jsonb) used by the upload-time validator and the OpenAPI explorer's sample generator. |
-| `game_event_support` | Per-game opt-in. **Composite** PK `(game_slug, event_kind, event_type)`, FK to `input_event_types(kind, type)`. The Snapdragon Export plugin writes one row per declared event during upload; the BFF refuses any input emit whose triple isn't enabled here, regardless of what the client sends. |
+| `game_event_support` | Per-game opt-in. **Composite** PK `(game_slug, event_kind, event_type)`, FK to `input_event_types(kind, type)`. The HugMesh Export plugin writes one row per declared event during upload; the BFF refuses any input emit whose triple isn't enabled here, regardless of what the client sends. |
 | `input_events` | Append-only audit log. FK on `(event_kind, event_type)` into `input_event_types` so a row can never reference an unknown type. Indexed on `(character_id, occurred_at)`, `(session_id, occurred_at)`, and `(event_kind, occurred_at)` for replay + analytics. |
 | `games.features` | New `jsonb` column. Per-game feature flags: `instant_loadout`, `quests`, `items`, `char_progression` (the JRPG subsystems — non-JRPG games turn these off and the matching endpoints return `405`); `audio`, `gamepad`, `mouse`, `keyboard`, `touch` (input-kind gates). |
 

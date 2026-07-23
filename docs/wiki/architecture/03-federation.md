@@ -9,7 +9,7 @@ See also: [howto/add-federated-route.md](../howto/add-federated-route.md).
 ## The two ordering rules
 
 1. **`initFederation` before `bootstrapApplication`.** [`frontend/src/main.ts`](../../../frontend/src/main.ts) dynamic-imports `bootstrap.ts` after the federation runtime resolves. Static imports of `@angular/*` from `main.ts` would be evaluated before the import map is installed and would therefore fail to resolve.
-2. **Remote-loader access through `globalThis`.** Route handlers reach the federation runtime through `globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__`, set by `main.ts` once `initFederation` resolves. This keeps `@angular-architects/native-federation` out of karma's static graph and out of every route-handler bundle.
+2. **Remote-loader access through `globalThis`.** Route handlers reach the federation runtime through `globalThis.__HUGMESH_LOAD_REMOTE_MODULE__`, set by `main.ts` once `initFederation` resolves. This keeps `@angular-architects/native-federation` out of karma's static graph and out of every route-handler bundle.
 
 ## Federation bootstrap
 
@@ -26,7 +26,7 @@ sequenceDiagram
     BFF-->>main.ts: { remotes: [...] }
     main.ts->>Federation: initFederation(manifest)
     Federation-->>main.ts: import-map installed
-    main.ts->>main.ts: globalThis.__SNAPDRAGON_LOAD_REMOTE_MODULE__ = loadRemoteModule
+    main.ts->>main.ts: globalThis.__HUGMESH_LOAD_REMOTE_MODULE__ = loadRemoteModule
     main.ts->>bootstrap.ts: dynamic import('./bootstrap')
     bootstrap.ts->>App: bootstrapApplication(AppComponent)
     App-->>Browser: rendered
@@ -66,8 +66,8 @@ const STD_SHARED = ['@angular/core','@angular/common','@angular/forms',
 const STD_SKIP   = ['@angular/compiler','@angular-architects/native-federation'];
 
 module.exports = {
-  snapdragonHost:   () => snapdragonShared({singleton:true,strictVersion:true}),
-  snapdragonRemote: () => snapdragonShared({singleton:true,requiredVersion:'auto'}),
+  hugmeshHost:   () => hugmeshShared({singleton:true,strictVersion:true}),
+  hugmeshRemote: () => hugmeshShared({singleton:true,requiredVersion:'auto'}),
 };
 ```
 
@@ -83,7 +83,7 @@ export function loadRemote<T>(
 ): () => Promise<T> {
   return async () => {
     const loadRemoteModule = (globalThis as any)
-      .__SNAPDRAGON_LOAD_REMOTE_MODULE__;
+      .__HUGMESH_LOAD_REMOTE_MODULE__;
     if (!loadRemoteModule) throw new Error('federation runtime missing');
     const m = await loadRemoteModule({ remoteName, exposedModule });
     return m[exportName];

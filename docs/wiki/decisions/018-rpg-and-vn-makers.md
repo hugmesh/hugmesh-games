@@ -15,7 +15,7 @@ roadmap:
   `Character.gd` / `Background.gd` / `ScenePlayer.gd` shape.
 
 The produced games must federate under the building user just like any
-admin-uploaded bundle, must use the existing snapdragon-bridge
+admin-uploaded bundle, must use the existing hugmesh-bridge
 GDExtension (so multiplayer + per-player view channel come for free),
 and must support multiple Areas / Acts so they map cleanly onto the BFF
 `chapters` schema (one WASM bundle per chapter, as the host portal
@@ -85,7 +85,7 @@ flowchart LR
 - **Rendering** writes a Godot 4 project tree under `<workdir>/<job-id>/godot-src/`.
   The RPG renderer emits one `.gd` + `.tscn` pair per room; the VN
   renderer emits a per-act `scenes_data.json` the runtime ScenePlayer
-  parses. Both projects bake in `snapdragon_bridge.gdextension` so the
+  parses. Both projects bake in `hugmesh_bridge.gdextension` so the
   produced WASM speaks our HostBridge / multiplayer lobby / view
   channel out of the box.
 - **Exporting** iterates the project's Areas (RPG) / Acts (VN) and

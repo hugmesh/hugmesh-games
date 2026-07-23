@@ -7,11 +7,11 @@
  *   • Path / query / header parameter form, defaulted from the spec.
  *   • Request-body editor (JSON for application/json, file picker for
  *     multipart/form-data with a binary field).
- *   • Sample request preload from x-snapdragon.sampleRequest.
+ *   • Sample request preload from x-hugmesh.sampleRequest.
  *   • Fetch-based "Send" that respects the override token.
  *   • Live response panel: status, headers, body (JSON pretty-printed
  *     when the content-type allows).
- *   • Terminal-styled SSE viewer for endpoints with x-snapdragon.sse
+ *   • Terminal-styled SSE viewer for endpoints with x-hugmesh.sse
  *     (or text/event-stream in the response). Opens a fetch-stream
  *     and appends incoming events; "Stop" button cancels.
  */
@@ -214,7 +214,7 @@ export class ApiExplorerComponent implements OnChanges {
       }
     } catch { /* tab without localStorage access — ignore */ }
     // Preload sample body when available.
-    const sample = this.active.op?.['x-snapdragon']?.sampleRequest;
+    const sample = this.active.op?.['x-hugmesh']?.sampleRequest;
     if (sample && this.hasJsonBody()) {
       this.bodyJson = JSON.stringify(sample, null, 2);
     }
@@ -232,10 +232,10 @@ export class ApiExplorerComponent implements OnChanges {
     return !!this.active?.op?.requestBody?.content?.['application/json'];
   }
   binaryUpload(): any | null {
-    return this.active?.op?.['x-snapdragon']?.binaryUpload || null;
+    return this.active?.op?.['x-hugmesh']?.binaryUpload || null;
   }
   isSse(): boolean {
-    if (this.active?.op?.['x-snapdragon']?.sse) return true;
+    if (this.active?.op?.['x-hugmesh']?.sse) return true;
     const responses = this.active?.op?.responses || {};
     for (const r of Object.values<any>(responses)) {
       if (r?.content?.['text/event-stream']) return true;

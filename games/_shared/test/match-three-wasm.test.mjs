@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Match-3 puzzle engine WASM module.
 //
-// Loads games/match-three/wasm/snapdragon_match_three_wasm.wasm with
+// Loads games/match-three/wasm/hugmesh_match_three_wasm.wasm with
 // WebAssembly.instantiate and EMPTY imports (proving it runs in a bare browser via
 // instantiateStreaming with no host glue), then drives a DETERMINISTIC, SEEDED
 // scenario through the C-ABI / JSON-over-linear-memory shim. If this passes, the
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const WASM_PATH = join(here, '..', '..', 'match-three', 'wasm', 'snapdragon_match_three_wasm.wasm');
+const WASM_PATH = join(here, '..', '..', 'match-three', 'wasm', 'hugmesh_match_three_wasm.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;

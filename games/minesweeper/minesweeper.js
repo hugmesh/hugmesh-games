@@ -28,7 +28,7 @@
 // engine; every state transition flows through mine_reveal / mine_flag so the
 // board can never drift from the rules engine. The server runs none of this.
 //
-// The engine is the verified snapdragon_minesweeper_wasm.wasm; we drive it
+// The engine is the verified hugmesh_minesweeper_wasm.wasm; we drive it
 // through the shared WasmHost with the EXACT call pattern proven in
 // games/_shared/test/minesweeper-wasm.test.mjs:
 //   host.callStatus('mine_new', '{"width":..,"height":..,"mines":..,"seed":..}') -> 1

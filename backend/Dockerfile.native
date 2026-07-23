@@ -1,4 +1,4 @@
-# GraalVM native-image build of the Snapdragon Gaming BFF.
+# GraalVM native-image build of the HugMesh Gaming BFF.
 # Drop-in replacement for backend/Dockerfile — same listening port, same
 # config file resolution, same env vars. Tradeoffs:
 #
@@ -7,10 +7,10 @@
 #   ✓ Final image ~150 MB (vs ~430 MB on eclipse-temurin:21-jre)
 #   ✗ Build is slow (~5–10 min) and memory-hungry (~6–8 GB)
 #   ✗ No JIT / class hot-swap; reflection requires explicit hints
-#     (see backend/src/main/java/games/snapdragon/bff/aot/SnapdragonRuntimeHints.java)
+#     (see backend/src/main/java/games/hugmesh/bff/aot/HugMeshRuntimeHints.java)
 #
 # Build standalone:
-#   docker build -f backend/Dockerfile.native -t snapdragon-gaming-bff:native ./backend
+#   docker build -f backend/Dockerfile.native -t hugmesh-gaming-bff:native ./backend
 #
 # Build via make (preferred — caches Maven offline deps):
 #   make build-backend-native
@@ -50,7 +50,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=build /app/target/snapdragon-gaming-bff app.bin
+COPY --from=build /app/target/hugmesh-gaming-bff app.bin
 
 EXPOSE 8080
 ENTRYPOINT ["/app/app.bin"]

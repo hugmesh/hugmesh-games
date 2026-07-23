@@ -1,19 +1,19 @@
 {
-  "name": "@snapdragon-games/portal-frontend",
+  "name": "@hugmesh/games-portal-frontend",
   "version": "0.1.0",
-  "description": "Snapdragon Games portal — Angular host shell + federated remotes for snapdragon.games.",
-  "homepage": "https://snapdragon.games",
+  "description": "HugMesh Games portal — Angular host shell + federated remotes for hugmesh.games.",
+  "homepage": "https://hugmesh.games",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Snapdragon-Systems/snapdragon.games.git",
+    "url": "https://github.com/Snapdragon-Systems/hugmesh-games.git",
     "directory": "frontend"
   },
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "ng": "ng",
-    "start": "ng serve snapdragon-games-frontend",
-    "build": "ng build snapdragon-games-frontend",
+    "start": "ng serve hugmesh-games-frontend",
+    "build": "ng build hugmesh-games-frontend",
     "build:remote:dodecahedron": "ng build games-dodecahedron --configuration production",
     "build:remote:login": "ng build login --configuration production",
     "build:remote:admin": "ng build admin --configuration production",
@@ -22,9 +22,9 @@
     "build:remotes": "npm run build:remote:login && npm run build:remote:admin && npm run build:remote:api-docs && npm run build:remote:three-wizards && npm run build:remote:dodecahedron",
     "build:all": "npm run build:prod && npm run build:remotes",
     "prebuild": "test -s openapi.json && npm run gen || true",
-    "build:prod": "ng build snapdragon-games-frontend --configuration production",
-    "watch": "ng build snapdragon-games-frontend --watch --configuration development",
-    "test": "ng test snapdragon-games-frontend --watch=false --browsers=ChromeHeadlessCI",
+    "build:prod": "ng build hugmesh-games-frontend --configuration production",
+    "watch": "ng build hugmesh-games-frontend --watch --configuration development",
+    "test": "ng test hugmesh-games-frontend --watch=false --browsers=ChromeHeadlessCI",
     "gen": "ng-openapi-gen --config ng-openapi-gen.json",
     "gen:fetch": "curl -sf http://localhost:8080/v3/api-docs -o openapi.json && npm run gen"
   },

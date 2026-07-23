@@ -6,11 +6,11 @@
 
 Two coupled changes:
 
-1. **The bulk of the Snapdragon Bridge moves into Rust.** What was
+1. **The bulk of the HugMesh Bridge moves into Rust.** What was
    four GDScript files in the addon (`bridge_glue.gd`,
    `bridge_api_client.gd`, `multiplayer_lobby.gd`, plus per-game
    `bridge_glue.gd` copies) becomes three Rust modules — `BridgeGlue`,
-   `BridgeApiClient`, `SnapdragonMultiplayerLobby` — registered as
+   `BridgeApiClient`, `HugMeshMultiplayerLobby` — registered as
    GDExtension classes alongside the existing `HostBridge`. Game
    scenes reference them by class type (`type="BridgeGlue"`,
    `type="BridgeApiClient"`); no script files to chase.
@@ -54,12 +54,12 @@ Two reasons drove the split:
     - JSON-array splitting for queue drains
     - per-frame dispatch back into typed signals
     - per-slot avatar lifecycle in
-      `SnapdragonMultiplayerLobby` (palette / formation / collision
+      `HugMeshMultiplayerLobby` (palette / formation / collision
       shape build-out happens in Rust)
 
 ## How to apply
 
-- **Add a Snapdragon node trio to the scene root** (or use the
+- **Add a HugMesh node trio to the scene root** (or use the
   bundled `multiplayer_lobby_menu.tscn`):
 
   ```
@@ -113,9 +113,9 @@ Two reasons drove the split:
 
 ## Reference
 
-- [HostBridge](../../../extensions/snapdragon-bridge/src/host_bridge.rs)
-- [BridgeGlue](../../../extensions/snapdragon-bridge/src/bridge_glue.rs)
-- [BridgeApiClient](../../../extensions/snapdragon-bridge/src/bridge_api_client.rs)
-- [SnapdragonMultiplayerLobby](../../../extensions/snapdragon-bridge/src/multiplayer_lobby.rs)
+- [HostBridge](../../../extensions/hugmesh-bridge/src/host_bridge.rs)
+- [BridgeGlue](../../../extensions/hugmesh-bridge/src/bridge_glue.rs)
+- [BridgeApiClient](../../../extensions/hugmesh-bridge/src/bridge_api_client.rs)
+- [HugMeshMultiplayerLobby](../../../extensions/hugmesh-bridge/src/multiplayer_lobby.rs)
 - [ApiBridgeService](../../../frontend/src/app/services/api-bridge.service.ts)
 - [Decision 014 — All Godot networking flows through the bridge](014-bridge-routed-networking.md)

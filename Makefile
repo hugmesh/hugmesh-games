@@ -1,4 +1,4 @@
-# Snapdragon Games portal — Master Build (snapdragon.games)
+# HugMesh Games portal — Master Build (hugmesh.games)
 # Build chain: cargo → godot export → mvn package → ng build
 #
 # Prerequisites:
@@ -44,13 +44,13 @@ DB_PORT      ?= 5432
 DB_NAME      ?= threewizards
 DB_USER      ?= threewizards
 PSQL         ?= psql
-RUST_DIR      = extensions/snapdragon-bridge
+RUST_DIR      = extensions/hugmesh-bridge
 GAMES_DIR     = games
 FRONTEND_DIR  = frontend
 BACKEND_DIR   = backend
 
-RUST_TARGET_NATIVE  = target/release/libsnapdragon_bridge.so
-RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/snapdragon_bridge.wasm
+RUST_TARGET_NATIVE  = target/release/libhugmesh_bridge.so
+RUST_TARGET_WASM    = target/wasm32-unknown-emscripten/release/hugmesh_bridge.wasm
 GODOT_EXPORT_ROOT   = $(BACKEND_DIR)/src/main/resources/assets/levels
 
 # Per-game project layout. Each row maps:
@@ -62,13 +62,13 @@ GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo chess-godo
 PRESETS_three-wizards-in-a-trenchcoat = Cave Field
 PRESETS_dodecahedron-demo             = Dodecahedron
 # chess-godot: the FIRST reference game ported to the Godot pivot — a real Godot
-# project that REUSES the deterministic snapdragon-chess Rust core via the
+# project that REUSES the deterministic hugmesh-chess Rust core via the
 # ChessEngine GDExtension node (no GDScript rules). Preset name lower-cases to
 # the slug 'chess-godot'. Ships ALONGSIDE the existing web-native 'chess' bundle
 # (kept as fallback). See games/_godot-template/README.md for the port recipe.
 PRESETS_chess-godot                   = Chess-Godot
 # connect-four-godot: the FIRST turn-based port after chess (wave A). A real
-# Godot project that REUSES the deterministic snapdragon-connect-four Rust core
+# Godot project that REUSES the deterministic hugmesh-connect-four Rust core
 # via the ConnectFourEngine GDExtension node (no GDScript rules). Preset name
 # lower-cases to the slug 'connect-four-godot'. Ships ALONGSIDE the existing
 # web-native 'connect-four' bundle (kept as fallback).
@@ -76,8 +76,8 @@ PRESETS_connect-four-godot            = Connect-Four-Godot
 # Flat slug list used by `make seed-roles` and other per-game iteration.
 GAME_SLUGS          = three-wizards dodecahedron chess-godot connect-four-godot
 
-BACKEND_JAR         = $(BACKEND_DIR)/target/snapdragon-gaming-bff-0.1.0-SNAPSHOT.jar
-FRONTEND_DIST       = $(FRONTEND_DIR)/dist/snapdragon-games-frontend
+BACKEND_JAR         = $(BACKEND_DIR)/target/hugmesh-gaming-bff-0.1.0-SNAPSHOT.jar
+FRONTEND_DIST       = $(FRONTEND_DIR)/dist/hugmesh-games-frontend
 
 # ── Full production build ─────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ build: build-rust build-godot build-backend build-frontend
 # ── Rust GDExtension ──────────────────────────────────────────────────────────
 
 build-rust: deps-rust build-rust-wasm sync-bridge-addon
-	@echo "→ Building Snapdragon Bridge GDExtension (native)..."
+	@echo "→ Building HugMesh Bridge GDExtension (native)..."
 	@# api-custom: regenerate the extension_api.json against the
 	@# user's actual Godot binary. Without this, gdext's baked-in
 	@# 4.6-stable bindings panic on a 4.6.x patch release with
@@ -101,46 +101,46 @@ build-rust: deps-rust build-rust-wasm sync-bridge-addon
 	@# One canonical binary in the extension dir; copy into every game project's
 	@# bin/ so each project opens standalone in the Godot editor.
 	mkdir -p $(RUST_DIR)/bin
-	cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(RUST_DIR)/bin/libsnapdragon_bridge.so
+	cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(RUST_DIR)/bin/libhugmesh_bridge.so
 	@for game in $(GAME_PROJECTS); do \
 	  mkdir -p $(GAMES_DIR)/$$game/bin; \
-	  cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(GAMES_DIR)/$$game/bin/libsnapdragon_bridge.so; \
-	  cp $(RUST_DIR)/bin/snapdragon_bridge.wasm $(GAMES_DIR)/$$game/bin/snapdragon_bridge.wasm 2>/dev/null || true; \
+	  cp $(RUST_DIR)/$(RUST_TARGET_NATIVE) $(GAMES_DIR)/$$game/bin/libhugmesh_bridge.so; \
+	  cp $(RUST_DIR)/bin/hugmesh_bridge.wasm $(GAMES_DIR)/$$game/bin/hugmesh_bridge.wasm 2>/dev/null || true; \
 	done
 	@echo "✓ Rust build done"
 
-# Mirror the Snapdragon Bridge addon into every game project's
-# `addons/snapdragon_bridge/` so each game opens standalone in the
+# Mirror the HugMesh Bridge addon into every game project's
+# `addons/hugmesh_bridge/` so each game opens standalone in the
 # Godot editor and the addon's GDScript surface (BridgeApiClient,
 # MultiplayerLobby, default lobby UI) is reachable as
-# `res://addons/snapdragon_bridge/...`. Source of truth is the
+# `res://addons/hugmesh_bridge/...`. Source of truth is the
 # canonical copy under the extension dir; never hand-edit the
 # per-game copies.
 .PHONY: sync-bridge-addon
 sync-bridge-addon:
-	@echo "→ Syncing snapdragon_bridge + snapdragon_export addons into game projects..."
+	@echo "→ Syncing hugmesh_bridge + hugmesh_export addons into game projects..."
 	@for game in $(GAME_PROJECTS); do \
-	  mkdir -p $(GAMES_DIR)/$$game/addons/snapdragon_bridge; \
+	  mkdir -p $(GAMES_DIR)/$$game/addons/hugmesh_bridge; \
 	  rsync -a --delete --exclude='.gitkeep' \
-	    $(RUST_DIR)/addons/snapdragon_bridge/ \
-	    $(GAMES_DIR)/$$game/addons/snapdragon_bridge/ ; \
-	  mkdir -p $(GAMES_DIR)/$$game/addons/snapdragon_export; \
+	    $(RUST_DIR)/addons/hugmesh_bridge/ \
+	    $(GAMES_DIR)/$$game/addons/hugmesh_bridge/ ; \
+	  mkdir -p $(GAMES_DIR)/$$game/addons/hugmesh_export; \
 	  rsync -a --delete --exclude='.gitkeep' \
-	    $(RUST_DIR)/addons/snapdragon_export/ \
-	    $(GAMES_DIR)/$$game/addons/snapdragon_export/ ; \
+	    $(RUST_DIR)/addons/hugmesh_export/ \
+	    $(GAMES_DIR)/$$game/addons/hugmesh_export/ ; \
 	done
-	@echo "✓ snapdragon_bridge + snapdragon_export addons synced"
+	@echo "✓ hugmesh_bridge + hugmesh_export addons synced"
 
 # WASM build runs inside a Docker image (rust + emsdk pinned) so the
 # host doesn't need emscripten installed — the Gentoo / system Rust
 # packages don't ship the wasm32-unknown-emscripten std-lib, and
 # emsdk's curl|sh installer is the kind of thing CI shouldn't run on
 # every box. The image is built once and cached.
-RUST_WASM_IMAGE = snapdragon-rust-wasm
+RUST_WASM_IMAGE = hugmesh-rust-wasm
 RUST_WASM_DOCKERFILE = tools/build-rust-wasm/Dockerfile
 
 build-rust-wasm: $(RUST_WASM_DOCKERFILE)
-	@echo "→ Building Snapdragon Bridge (WASM via dockerised emsdk)..."
+	@echo "→ Building HugMesh Bridge (WASM via dockerised emsdk)..."
 	@if ! docker image inspect $(RUST_WASM_IMAGE) >/dev/null 2>&1; then \
 	  echo "  → docker image $(RUST_WASM_IMAGE) missing, building (~5 min one-time)"; \
 	  docker build -t $(RUST_WASM_IMAGE) tools/build-rust-wasm/ ; \
@@ -159,8 +159,8 @@ build-rust-wasm: $(RUST_WASM_DOCKERFILE)
 	docker run --rm -v "$(PWD):/work" $(RUST_WASM_IMAGE) \
 	  chown -R "$(shell id -u):$(shell id -g)" /work/$(RUST_DIR)/target
 	mkdir -p $(RUST_DIR)/bin
-	cp $(RUST_DIR)/target/wasm32-unknown-emscripten/release/snapdragon_bridge.wasm \
-	   $(RUST_DIR)/bin/snapdragon_bridge.wasm
+	cp $(RUST_DIR)/target/wasm32-unknown-emscripten/release/hugmesh_bridge.wasm \
+	   $(RUST_DIR)/bin/hugmesh_bridge.wasm
 
 deps-rust:
 	@command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found — install rustup or your distro's rust package"; exit 1; }
@@ -201,7 +201,7 @@ build-godot: build-rust
 # ── Real maker builds (RPG/VN → playable Godot WASM) ─────────────────────────
 # The makers run a headless Web export when app.build.godot-enabled=true. The
 # docker-compose.godot.yml overlay bind-mounts a host Godot + Web export
-# templates + the snapdragon-bridge wasm. See tools/godot-export/README.md.
+# templates + the hugmesh-bridge wasm. See tools/godot-export/README.md.
 
 .PHONY: godot-export-tools build-with-godot
 GODOT_TOOLS_DIR := tools/godot-export
@@ -267,7 +267,7 @@ build-backend:
 # native path is proven end-to-end.
 #
 # Phase-2 plan: docs/PLAN-module-federation-and-native.md (section D).
-NATIVE_IMAGE = snapdragon-gaming-bff:native
+NATIVE_IMAGE = hugmesh-gaming-bff:native
 
 build-backend-native:
 	@echo "→ Building native-image (GraalVM, ~5–10 min)…"
@@ -278,7 +278,7 @@ build-backend-native:
 # Same Playwright suite as `make e2e` but with the JVM api swapped for
 # the GraalVM native binary via docker-compose.native.yml. Use this to
 # surface any reflection / resource hint gaps that the AOT processor
-# missed; fold the fixes into SnapdragonRuntimeHints.
+# missed; fold the fixes into HugMeshRuntimeHints.
 
 E2E_NATIVE_FILES = $(E2E_FILES) -f docker-compose.native.yml
 
@@ -576,7 +576,7 @@ e2e-bdd: gen-certs
 # Each subproject runs its own native test framework. `make test` runs them
 # all sequentially. Each one is also runnable in isolation (CI fan-out).
 #
-#   test-rust      → cargo test in extensions/snapdragon-bridge (host toolchain; needs cargo)
+#   test-rust      → cargo test in extensions/hugmesh-bridge (host toolchain; needs cargo)
 #   test-backend   → mvnw test in backend/   (host toolchain; needs JDK 21)
 #   test-frontend  → ng test in a Docker container (Chromium baked in,
 #                    so the host doesn't need a browser)
@@ -584,7 +584,7 @@ e2e-bdd: gen-certs
 # Godot has no GDScript test suite yet — coverage of the runtime layer is
 # exercised by `make e2e`, which loads the WASM bundle in a real browser.
 
-FRONTEND_TEST_IMAGE = snapdragon-games-frontend-test
+FRONTEND_TEST_IMAGE = hugmesh-games-frontend-test
 
 test: test-rust test-backend test-frontend
 	@echo "✓ All project unit tests passed"
@@ -816,6 +816,6 @@ pentest-dast:
 	  echo "    which delegates to the vendored harness:"; \
 	  echo "      bash tests/pentest/run-pentest.sh --env url --scan baseline --pipeline games"; \
 	  echo "    (the same harness the CI dast:baseline + centralized .pentest-dast-baseline run;"; \
-	  echo "     if the harness is not vendored, clone snapdragon-generator and run"; \
+	  echo "     if the harness is not vendored, clone hugmesh-generator and run"; \
 	  echo "     tests/pentest/run-pentest.sh from there)."; \
 	fi

@@ -93,10 +93,10 @@ make docs-clean        # remove every produced artefact
 \subsection{Javadoc theming}
 
 \snapfile{backend/pom.xml} configures the Maven Javadoc plugin to read
-\snapfile{docs/publishing/javadoc-theme/snapdragon.css} as the override
+\snapfile{docs/publishing/javadoc-theme/hugmesh.css} as the override
 stylesheet and \snapfile{docs/publishing/javadoc-theme/header.html} as
 the page header. The override is purely additive — the standard doclet's
-default stylesheet still loads first; the Snapdragon CSS layers on top.
+default stylesheet still loads first; the HugMesh CSS layers on top.
 
 \subsection{PowerPoint generator}
 
@@ -123,7 +123,7 @@ make build-vn-builder     # mvn package + docker image for /api/vn/*
 \end{lstlisting}
 
 Each service's worker walks its project tree to a Godot 4 source tree
-(with \snapfile{snapdragon\_bridge.gdextension} baked in), invokes
+(with \snapfile{hugmesh\_bridge.gdextension} baked in), invokes
 \texttt{godot --export-release} per area / act (gated behind
 \texttt{app.build.godot-enabled}; stub bundles otherwise), zips the
 result, and POSTs to the BFF \texttt{/api/admin/games/upload} endpoint

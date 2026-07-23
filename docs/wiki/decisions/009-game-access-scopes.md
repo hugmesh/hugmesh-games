@@ -28,7 +28,7 @@ A single-column `visibility` enum would force one mode per game; a JSON blob wou
 
 ## How to apply
 
-- **Public-by-default for newly uploaded games.** The Snapdragon Export plugin's `register.sql` includes `INSERT INTO game_access (scope='all') ON CONFLICT DO NOTHING`. Admins narrow this from the admin UI afterwards.
+- **Public-by-default for newly uploaded games.** The HugMesh Export plugin's `register.sql` includes `INSERT INTO game_access (scope='all') ON CONFLICT DO NOTHING`. Admins narrow this from the admin UI afterwards.
 - **Admin UI** — *Per-game access* card. POST to `/api/admin/games/{slug}/access` with `{scope, value}`. The roles dropdown reads live from Casdoor via `/api/admin/roles`.
 - **Read path** — `ProgressionService` joins `game_access` × `characters` × `character_quests`. Drives `/api/games/available/{characterId}`.
 

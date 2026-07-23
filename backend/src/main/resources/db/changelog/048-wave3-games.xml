@@ -8,11 +8,11 @@
     <!--
       Wave-3 real-time duels — catalog registration. Host-authoritative
       deterministic tick sims (the guest re-simulates); the server only STREAMS
-      inputs. Engines: extensions/snapdragon-{tron,bomberman,asteroids-duel}.
+      inputs. Engines: extensions/hugmesh-{tron,bomberman,asteroids-duel}.
       Playable Godot/WASM bundles ship per-game later (P3).
     -->
 
-    <changeSet id="048-1-tron" author="snapdragon">
+    <changeSet id="048-1-tron" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -26,7 +26,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'tron');
         </sql>
     </changeSet>
 
-    <changeSet id="048-2-bomberman" author="snapdragon">
+    <changeSet id="048-2-bomberman" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
@@ -40,7 +40,7 @@ WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'bomberman');
         </sql>
     </changeSet>
 
-    <changeSet id="048-3-asteroids-duel" author="snapdragon">
+    <changeSet id="048-3-asteroids-duel" author="hugmesh">
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),

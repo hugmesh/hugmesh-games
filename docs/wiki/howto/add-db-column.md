@@ -46,7 +46,7 @@ public class Character {
 }
 ```
 
-[`R2dbcConvertersConfig`](../../../backend/src/main/java/games/snapdragon/bff/config/R2dbcConvertersConfig.java) only needs new entries when adding a new *entity*, not a new *column*.
+[`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) only needs new entries when adding a new *entity*, not a new *column*.
 
 ## 4. If it changes a derived query
 

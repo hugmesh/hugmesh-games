@@ -1,0 +1,15 @@
+# Per-target rustflags for the HugMesh Bridge GDExtension.
+#
+# wasm32-unknown-emscripten REQUIRES panic=abort so the produced .wasm
+# doesn't reference the `__cpp_exception` import tag — Godot's web
+# export template doesn't supply that tag and the bundle fails to
+# instantiate with:
+#   "import object field '__cpp_exception' is not a Tag"
+#
+# Native targets keep panic=unwind so godot-rust's master-branch
+# compatibility panics on Godot 4.6 (e.g. "Failed to load class method
+# TranslationServer::get_translation_object") are caught by the runtime
+# instead of aborting the whole godot process during export.
+
+[target.wasm32-unknown-emscripten]
+rustflags = ["-Cpanic=abort"]

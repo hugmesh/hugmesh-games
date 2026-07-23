@@ -1,4 +1,4 @@
-# Snapdragon Games — Wiki
+# HugMesh Games — Wiki
 
 A Markdown-rendered companion to the LaTeX-typeset reference under [`../publishing/`](../publishing/). The PDFs and PowerPoints are the canonical artefacts; this tree presents their content in a form that renders inline on GitHub and requires no TeX installation.
 
@@ -12,7 +12,7 @@ Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/archit
 
 | # | Page | Contents |
 |---|---|---|
-| 01 | [Overview](architecture/01-overview.md) | What Snapdragon Games is in three sentences, the container list, and the two game families (Godot WASM vs web-native Rust→wasm32). |
+| 01 | [Overview](architecture/01-overview.md) | What HugMesh Games is in three sentences, the container list, and the two game families (Godot WASM vs web-native Rust→wasm32). |
 | 02 | [Runtime architecture](architecture/02-runtime.md) | Browser → host nginx → BFF; the Godot and web-native (`wasm-game`) launch flows; the SSE merge; the `autoCancel=false` rule. |
 | 03 | [Module Federation](architecture/03-federation.md) | The two ordering rules, the manifest endpoint, per-game routing, the `wasm-game` kind for web-native games. |
 | 04 | [Data model](architecture/04-data-model.md) | Postgres schema clusters (55 changelogs), Cassandra cache, Liquibase order incl. the web-native catalog + realtime-match tables. |

@@ -30,7 +30,7 @@ interface SseSubscribeRequest {
 }
 
 /**
- * Host-shell side of the Snapdragon bridge's API egress channel.
+ * Host-shell side of the HugMesh bridge's API egress channel.
  *
  * <p>Listens for `SD_API_REQUEST` and `SD_VIEW_EGRESS` postMessages
  * from any Godot iframe, performs the matching HTTP call via the

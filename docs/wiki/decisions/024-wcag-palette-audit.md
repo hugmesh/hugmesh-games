@@ -2,7 +2,7 @@
 
 ## Context
 
-The Snapdragon palette evolved per-component: each `*.component.scss`
+The HugMesh palette evolved per-component: each `*.component.scss`
 defined its own `$muted` / `$accent` SCSS variables, and each federated
 remote pasted the same hex literals into its template-string styles.
 Two values turned up almost everywhere as text colour:

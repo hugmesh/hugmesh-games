@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Reversi/Othello engine WASM module.
 //
-// Loads games/reversi/wasm/snapdragon_reversi_wasm.wasm with WebAssembly.instantiate
+// Loads games/reversi/wasm/hugmesh_reversi_wasm.wasm with WebAssembly.instantiate
 // and EMPTY imports (proving it runs in a bare browser via instantiateStreaming with
 // no host glue), then drives the opening + a short game through the C-ABI /
 // JSON-over-linear-memory shim. If this passes, the same .wasm the browser bundle
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const WASM_PATH = join(here, '..', '..', 'reversi', 'wasm', 'snapdragon_reversi_wasm.wasm');
+const WASM_PATH = join(here, '..', '..', 'reversi', 'wasm', 'hugmesh_reversi_wasm.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;

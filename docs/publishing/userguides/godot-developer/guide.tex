@@ -1,6 +1,6 @@
 \documentclass[11pt,a4paper,openany]{book}
 \input{userguide-preamble}
-\hypersetup{pdftitle={Snapdragon Games --- Godot developer walkthrough}}
+\hypersetup{pdftitle={HugMesh Games --- Godot developer walkthrough}}
 \begin{document}
 
 \begin{titlepage}\thispagestyle{empty}
@@ -11,7 +11,7 @@
 \end{tikzpicture}
 \vspace*{4cm}\noindent
 {\sffamily\bfseries
-  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont SNAPDRAGON GAMES}\\[3mm]
+  {\color{snapAccentTwo}\fontsize{18}{22}\selectfont HUGMESH GAMES}\\[3mm]
   {\color{white}\fontsize{42}{50}\selectfont Godot\\developer guide}\par}
 \vspace{1.5cm}\noindent\color{white!75!snapAccentTwo}\rule{0.4\linewidth}{1.2pt}
 \vspace{0.8cm}\noindent
@@ -29,8 +29,8 @@ Companion to \texttt{godot-developer.pptx}. Generated: \snapbuilddate{} \snapbui
 \chapter{What you'll build}
 A new Godot 4.6 project under \snapfile{games/<game-slug>/} that opens
 standalone in the editor. It uses the reusable Rust GDExtension at
-\snapfile{extensions/snapdragon-bridge/} for HostBridge signals. The
-Snapdragon Export plugin produces a deploy-ready zip with
+\snapfile{extensions/hugmesh-bridge/} for HostBridge signals. The
+HugMesh Export plugin produces a deploy-ready zip with
 \texttt{manifest.json} (schema v2) + \texttt{register.sql} +
 \texttt{bundle/}. You ship it either through \texttt{make build-godot}
 (committed in-repo) or through \texttt{/admin/games} (hot upload).
@@ -43,15 +43,15 @@ Snapdragon Export plugin produces a deploy-ready zip with
         for the Rust GDExtension WASM target.
 \end{itemize}
 Run once: \texttt{make build-rust} so every \snapfile{games/<dir>/bin/}
-gets a fresh \texttt{libsnapdragon\_bridge.so}.
+gets a fresh \texttt{libhugmesh\_bridge.so}.
 
 \chapter{Step 1 --- Create the project}
 \begin{enumerate}
   \item \texttt{mkdir games/my-game-slug/}
   \item Open Godot $\rightarrow$ New Project $\rightarrow$ set path
         $\rightarrow$ Create.
-  \item Copy \snapfile{snapdragon\_bridge.gdextension} and
-        \snapfile{addons/snapdragon\_export/} from
+  \item Copy \snapfile{hugmesh\_bridge.gdextension} and
+        \snapfile{addons/hugmesh\_export/} from
         \snapfile{games/three-wizards-in-a-trenchcoat/}.
   \item Drop a starter scene at \snapfile{scenes/main.tscn}.
 \end{enumerate}
@@ -106,7 +106,7 @@ drives headless export.
 \chapter{Step 5b --- Upload through admin}
 \snapdiagram{game-upload-controller.tex}
 
-In Godot: \emph{Project $\rightarrow$ Tools $\rightarrow$ Snapdragon
+In Godot: \emph{Project $\rightarrow$ Tools $\rightarrow$ HugMesh
 $\rightarrow$ Export\ldots}. Fill in slug, display name, description,
 scene type. The plugin writes a deploy-ready zip with the v2
 \texttt{manifest.json} + \texttt{register.sql} + \texttt{bundle/}.
@@ -170,7 +170,7 @@ Two contracts your scene must respect:
 \end{enumerate}
 
 The HostBridge build is the same one used by the RPG + VN makers ---
-those bundles already ship \snapfile{snapdragon\_bridge.gdextension}
+those bundles already ship \snapfile{hugmesh\_bridge.gdextension}
 in the produced source tree, so multiplayer-awareness comes for free
 when a publisher uses a maker rather than authoring directly in Godot.
 

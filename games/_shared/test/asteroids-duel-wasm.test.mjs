@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Asteroids-Duel engine WASM module.
 //
-// Loads games/asteroids-duel/wasm/snapdragon_asteroids_duel_wasm.wasm with
+// Loads games/asteroids-duel/wasm/hugmesh_asteroids_duel_wasm.wasm with
 // WebAssembly.instantiate and EMPTY imports (proving it runs in a bare browser via
 // instantiateStreaming with no host glue), then drives a DETERMINISTIC known
 // scenario through the C-ABI / JSON-over-linear-memory shim. If this passes, the
@@ -26,7 +26,7 @@ const WASM_PATH = join(
   '..',
   'asteroids-duel',
   'wasm',
-  'snapdragon_asteroids_duel_wasm.wasm',
+  'hugmesh_asteroids_duel_wasm.wasm',
 );
 
 // ── tiny assertion harness ───────────────────────────────────────────────────

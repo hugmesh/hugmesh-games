@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Bomberman engine WASM module.
 //
-// Loads games/bomberman/wasm/snapdragon_bomberman_wasm.wasm with
+// Loads games/bomberman/wasm/hugmesh_bomberman_wasm.wasm with
 // WebAssembly.instantiate and EMPTY imports (proving it runs in a bare browser via
 // instantiateStreaming with no host glue), then drives a DETERMINISTIC two-player
 // tick simulation through the C-ABI / JSON-over-linear-memory shim. If this passes,
@@ -22,9 +22,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const WASM_PATH = join(here, '..', '..', 'bomberman', 'wasm', 'snapdragon_bomberman_wasm.wasm');
+const WASM_PATH = join(here, '..', '..', 'bomberman', 'wasm', 'hugmesh_bomberman_wasm.wasm');
 
-// FUSE / board geometry constants mirrored from snapdragon-bomberman/src/lib.rs.
+// FUSE / board geometry constants mirrored from hugmesh-bomberman/src/lib.rs.
 const FUSE = 8;
 const WIDTH = 13;
 const HEIGHT = 11;

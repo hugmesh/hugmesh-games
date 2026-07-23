@@ -40,7 +40,7 @@
       re-runs on partial state are no-ops (idempotent per the repo's migration
       protocol). Appends only — never edits a merged changeset.
     -->
-    <changeSet id="052-1-web-game-control-event-types" author="snapdragon">
+    <changeSet id="052-1-web-game-control-event-types" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="input_event_types"/>
         </preConditions>
@@ -71,7 +71,7 @@
         </sql>
     </changeSet>
 
-    <changeSet id="052-2-web-game-event-support" author="snapdragon">
+    <changeSet id="052-2-web-game-event-support" author="hugmesh">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="game_event_support"/>
         </preConditions>

@@ -8,14 +8,14 @@
     <!--
         Hot-upload bookkeeping (PLAN section C).
 
-        The admin console accepts a Snapdragon bundle zip (produced by
-        the Godot editor plugin in addons/snapdragon_export). The BFF:
+        The admin console accepts a HugMesh bundle zip (produced by
+        the Godot editor plugin in addons/hugmesh_export). The BFF:
 
           1. Streams the multipart upload to a staging directory.
           2. Validates manifest.json schema_version + slug regex + zip-
              slip-safe paths.
           3. Hashes the bundle/ tree → version dir name (sha256 prefix).
-          4. Renames staging → /var/snapdragon/games/<slug>/<version>/.
+          4. Renames staging → /var/hugmesh/games/<slug>/<version>/.
           5. Inserts a row HERE with the version_dir + manifest.
           6. Runs register.sql from the bundle inside the same tx.
           7. Updates `current_version_dir` on the matching game row.

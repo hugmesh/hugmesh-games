@@ -2,7 +2,7 @@ import { DestroyRef, Injectable, NgZone, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 /**
- * Browser Gamepad API → Snapdragon input-event stream.
+ * Browser Gamepad API → HugMesh input-event stream.
  *
  * <p>The Gamepad API has no "event" model worth using — `gamepadconnected`
  * / `gamepaddisconnected` fire reliably, but button + axis state is
@@ -200,7 +200,7 @@ export class GamepadService {
       // only mirror in-session inputs for replay, so we land them on a
       // placeholder character id of 0 if the host hasn't set one yet.
       // (HomeComponent updates this once a game card is clicked.)
-      const characterId = (window as any).__SNAPDRAGON_ACTIVE_CHARACTER_ID__ || 0;
+      const characterId = (window as any).__HUGMESH_ACTIVE_CHARACTER_ID__ || 0;
       if (characterId > 0) {
         const tok = (() => {
           try { return JSON.parse(localStorage.getItem('tw_auth') || '{}').accessToken; }

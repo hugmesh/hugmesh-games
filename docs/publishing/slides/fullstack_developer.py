@@ -1,5 +1,5 @@
 """
-Snapdragon Games — Full-stack developer guide.
+HugMesh Games — Full-stack developer guide.
 
 A 16-slide deck for a developer landing on the project who needs to be
 productive across BFF (Java/Spring), persistence (Postgres+Liquibase,
@@ -10,7 +10,7 @@ instead of giving an exhaustive tour.
 from pathlib import Path
 import argparse, sys
 sys.path.insert(0, str(Path(__file__).parent))
-from _snapdragon_deck import make_deck   # noqa: E402
+from _hugmesh_deck import make_deck   # noqa: E402
 
 
 SECTIONS = [
@@ -255,7 +255,7 @@ CLOSING = {
         "Most production fires this codebase has had came from skipping one of those three. Don't be the next one.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/snapdragon.games",
+        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
         "Architecture PDF: make docs-pdf",
         "Build everything: make docs-all",
     ],
@@ -267,7 +267,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     make_deck(
-        title="Snapdragon Games — Full-stack developer guide",
+        title="HugMesh Games — Full-stack developer guide",
         subtitle="From DB to browser, with the rules that hold the stack together",
         kicker="Full-stack developer guide",
         audience="Engineers shipping changes across BFF, persistence, and frontend.",

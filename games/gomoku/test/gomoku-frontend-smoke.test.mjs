@@ -10,7 +10,7 @@
 //       context; render() of the START position issues the EXPECTED draw-call
 //       counts — 30 grid-line strokes (15 horizontal + 15 vertical) and ZERO
 //       stone fills (an empty board), with the 9 star-point fills.
-//   (b) the real snapdragon_gomoku.wasm is driven through the shared WasmHost,
+//   (b) the real hugmesh_gomoku.wasm is driven through the shared WasmHost,
 //       and a placement (h8) applied THROUGH the game's onLocalInput click path
 //       changes the engine state: the board gains a stone and the turn flips
 //       black→white — exactly the browser flow, minus the browser.
@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..', '..'); // repo root
 const GOMOKU_DIR = join(here, '..');
-const WASM_PATH = join(GOMOKU_DIR, 'wasm', 'snapdragon_gomoku.wasm');
+const WASM_PATH = join(GOMOKU_DIR, 'wasm', 'hugmesh_gomoku.wasm');
 
 // ── tiny assertion harness ───────────────────────────────────────────────────
 let passed = 0;
@@ -194,7 +194,7 @@ async function main() {
   await host.loadBytes(bytes);
   assert(
     typeof host.exports.gomoku_apply === 'function',
-    'WasmHost bound the real snapdragon_gomoku.wasm (gomoku_apply export present)',
+    'WasmHost bound the real hugmesh_gomoku.wasm (gomoku_apply export present)',
   );
 
   // Sanity: the marshalling contract works through WasmHost.

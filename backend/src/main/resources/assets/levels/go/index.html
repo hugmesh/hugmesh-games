@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Go — Snapdragon</title>
+    <title>Go — HugMesh</title>
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="stylesheet" href="./go.css" />
   </head>
@@ -29,7 +29,7 @@
 
       const GAME = createGoGame();
 
-      mountGame(GAME, { wasmUrl: './wasm/snapdragon_go.wasm' })
+      mountGame(GAME, { wasmUrl: './wasm/hugmesh_go.wasm' })
         .then((ctx) => {
           window.__goReady = true; // smoke-test boot signal
           window.__goCtx = ctx; // expose for the headless smoke test

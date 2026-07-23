@@ -1,6 +1,6 @@
 // Functional test for the browser-loadable Tron light-cycles engine WASM module.
 //
-// Loads games/tron/wasm/snapdragon_tron_wasm.wasm with WebAssembly.instantiate
+// Loads games/tron/wasm/hugmesh_tron_wasm.wasm with WebAssembly.instantiate
 // and EMPTY imports (proving it runs in a bare browser via instantiateStreaming
 // with no host glue), then drives DETERMINISTIC, hand-checked scenarios through
 // the C-ABI / JSON-over-linear-memory shim — the realtime tick loop:
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const WASM_PATH = join(here, '..', '..', 'tron', 'wasm', 'snapdragon_tron_wasm.wasm');
+const WASM_PATH = join(here, '..', '..', 'tron', 'wasm', 'hugmesh_tron_wasm.wasm');
 
 // Direction codes (must match the shim: 0=up 1=down 2=left 3=right).
 const UP = 0;

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Gomoku — Snapdragon</title>
+    <title>Gomoku — HugMesh</title>
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="stylesheet" href="./gomoku.css" />
   </head>
@@ -27,7 +27,7 @@
 
       const GAME = createGomokuGame();
 
-      mountGame(GAME, { wasmUrl: './wasm/snapdragon_gomoku.wasm' })
+      mountGame(GAME, { wasmUrl: './wasm/hugmesh_gomoku.wasm' })
         .then((ctx) => {
           window.__gomokuReady = true; // smoke-test boot signal
           window.__gomokuCtx = ctx; // expose for the headless smoke test

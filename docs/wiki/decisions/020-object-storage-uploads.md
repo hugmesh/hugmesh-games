@@ -62,13 +62,13 @@ Three call sites:
 
 Files:
 
-- `backend/src/main/java/games/snapdragon/bff/upload/UploadStorage.java` — interface
-- `backend/src/main/java/games/snapdragon/bff/upload/FilesystemUploadStorage.java`
-- `backend/src/main/java/games/snapdragon/bff/upload/S3UploadStorage.java`
-- `backend/src/main/java/games/snapdragon/bff/upload/UploadStorageConfig.java` — bean selection
-- `backend/src/main/java/games/snapdragon/bff/service/GameUploadService.java` — strategy call site for writes
-- `backend/src/main/java/games/snapdragon/bff/service/GameUploadPruner.java` — strategy call site for deletes
-- `backend/src/main/java/games/snapdragon/bff/controller/AssetController.java` — strategy call site for reads
+- `backend/src/main/java/games/hugmesh/bff/upload/UploadStorage.java` — interface
+- `backend/src/main/java/games/hugmesh/bff/upload/FilesystemUploadStorage.java`
+- `backend/src/main/java/games/hugmesh/bff/upload/S3UploadStorage.java`
+- `backend/src/main/java/games/hugmesh/bff/upload/UploadStorageConfig.java` — bean selection
+- `backend/src/main/java/games/hugmesh/bff/service/GameUploadService.java` — strategy call site for writes
+- `backend/src/main/java/games/hugmesh/bff/service/GameUploadPruner.java` — strategy call site for deletes
+- `backend/src/main/java/games/hugmesh/bff/controller/AssetController.java` — strategy call site for reads
 - `backend/pom.xml` — `software.amazon.awssdk:s3` (with `url-connection-client` to avoid clashing with Reactor Netty)
 - `docker-compose.yml` — `minio` + `minio-init` services + `minio-data` volume
 - `backend/src/main/resources/application.yml` — `app.uploads.storage` + `app.uploads.s3.*` config block
@@ -78,7 +78,7 @@ Files:
 ```bash
 # Filesystem mode (default; no MinIO needed)
 docker compose up -d
-curl -X POST /api/admin/games/upload -F file=@bundle.zip   # → 200, version_dir = file:/var/snapdragon/games/<slug>/<hash>
+curl -X POST /api/admin/games/upload -F file=@bundle.zip   # → 200, version_dir = file:/var/hugmesh/games/<slug>/<hash>
 
 # S3 mode
 docker compose up -d minio minio-init

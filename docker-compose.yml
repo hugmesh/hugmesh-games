@@ -305,7 +305,7 @@ services:
     restart: "no"
 
   api:
-    image: snapdragon-games/bff:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/bff:${HUGMESH_TAG:-dev}
     build: ./backend
     depends_on:
       postgres:
@@ -339,7 +339,7 @@ services:
       # path when classpath assets/levels/<slug>/ doesn't have the file.
       # Override the host-side bind via APP_GAMES_UPLOAD_HOST_DIR (see
       # the volume entry below); the in-container path stays stable.
-      APP_UPLOADS_GAMES_DIR: ${APP_UPLOADS_GAMES_DIR:-/var/snapdragon/games}
+      APP_UPLOADS_GAMES_DIR: ${APP_UPLOADS_GAMES_DIR:-/var/hugmesh/games}
 
       # Multipart upload limits — game bundle zips can run into the
       # hundreds of megabytes. Override per environment if needed.
@@ -353,11 +353,11 @@ services:
       # pointing at a real host path (NFS / fast SSD). Don't
       # duplicate-mount in a single file — Compose errors on the
       # second entry.
-      - games_uploads:/var/snapdragon/games
+      - games_uploads:/var/hugmesh/games
     restart: on-failure
 
   frontend:
-    image: snapdragon-games/portal-host:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/portal-host:${HUGMESH_TAG:-dev}
     build: ./frontend
     depends_on:
       # nginx resolves every upstream at startup; without these the
@@ -397,7 +397,7 @@ services:
        - "${FRONTEND_BIND:-127.0.0.1:}${FRONTEND_PORT:-8080}:8080"
   # ── Side services: builder back-ends ────────────────────────────────────────
   # rpg-builder stores Mudlet-shaped RPG project trees and produces
-  # snapdragon-bridge Godot WASM bundles. vn-builder does the VN
+  # hugmesh-bridge Godot WASM bundles. vn-builder does the VN
   # equivalent (godot-2d-visual-novel-shaped). Each owns its own
   # Postgres DB; both POST built bundles to the BFF upload endpoint
   # so produced games federate under the building user. The host
@@ -405,7 +405,7 @@ services:
   # federated maker remotes can talk to them via same-origin URLs.
 
   rpg-builder:
-    image: snapdragon-games/rpg-builder:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/rpg-builder:${HUGMESH_TAG:-dev}
     build: ./rpg-builder
     depends_on:
       postgres-rpg-builder:
@@ -423,15 +423,15 @@ services:
       CASDOOR_ENDPOINT: http://casdoor:8000
       APP_BFF_BASE_URL: http://api:8080
       APP_BUILD_GODOT_ENABLED: "false"
-      APP_BUILD_WORKDIR: /var/snapdragon/rpg-builds
-      APP_BUILD_ASSETS_DIR: /var/snapdragon/rpg-assets
+      APP_BUILD_WORKDIR: /var/hugmesh/rpg-builds
+      APP_BUILD_ASSETS_DIR: /var/hugmesh/rpg-assets
     volumes:
-      - rpg_builds:/var/snapdragon/rpg-builds
-      - rpg_assets:/var/snapdragon/rpg-assets
+      - rpg_builds:/var/hugmesh/rpg-builds
+      - rpg_assets:/var/hugmesh/rpg-assets
     restart: on-failure
 
   vn-builder:
-    image: snapdragon-games/vn-builder:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/vn-builder:${HUGMESH_TAG:-dev}
     build: ./vn-builder
     depends_on:
       postgres-vn-builder:
@@ -449,11 +449,11 @@ services:
       CASDOOR_ENDPOINT: http://casdoor:8000
       APP_BFF_BASE_URL: http://api:8080
       APP_BUILD_GODOT_ENABLED: "false"
-      APP_BUILD_WORKDIR: /var/snapdragon/vn-builds
-      APP_BUILD_ASSETS_DIR: /var/snapdragon/vn-assets
+      APP_BUILD_WORKDIR: /var/hugmesh/vn-builds
+      APP_BUILD_ASSETS_DIR: /var/hugmesh/vn-assets
     volumes:
-      - vn_builds:/var/snapdragon/vn-builds
-      - vn_assets:/var/snapdragon/vn-assets
+      - vn_builds:/var/hugmesh/vn-builds
+      - vn_assets:/var/hugmesh/vn-assets
     restart: on-failure
 
   # ── Federation remotes ──────────────────────────────────────────────────────
@@ -470,7 +470,7 @@ services:
   # origin (same COOP/COEP, same TLS termination, no CORS gymnastics).
 
   login:
-    image: snapdragon-games/login-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/login-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/login/Dockerfile
@@ -482,7 +482,7 @@ services:
   # unauthenticated traffic. See decision item #5 in the platform
   # roadmap + 030-auth-ux-remotes-federation.xml seed row.
   registration:
-    image: snapdragon-games/registration-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/registration-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/registration/Dockerfile
@@ -493,7 +493,7 @@ services:
   # `producer_contacts` (Liquibase 031) with status=PENDING; an
   # admin reviews + flips to APPROVED out of band. Roadmap item #8.
   producer-registration:
-    image: snapdragon-games/producer-registration-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/producer-registration-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/producer-registration/Dockerfile
@@ -504,14 +504,14 @@ services:
   # the host's auth-error interceptor routes 403 + X-Revoked
   # responses here. Roadmap item #7.
   banned:
-    image: snapdragon-games/banned-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/banned-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/banned/Dockerfile
     expose: ["8080"]
 
   admin:
-    image: snapdragon-games/admin-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/admin-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/admin/Dockerfile
@@ -521,7 +521,7 @@ services:
   # stop-session and per-player kick actions. Authz is BFF-side via
   # mod_game_scopes; this service just ships the UI.
   mod:
-    image: snapdragon-games/mod-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/mod-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/mod/Dockerfile
@@ -531,7 +531,7 @@ services:
   # mod-grant card. Authz via publisher_game_scopes; the upload route
   # accepts ROLE_PUBLISHER as well as ROLE_ADMIN.
   publisher:
-    image: snapdragon-games/publisher-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/publisher-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/publisher/Dockerfile
@@ -541,21 +541,21 @@ services:
   # replacement generated from the BFF's OpenAPI spec. Mounted at
   # /admin/docs in the host. Same image pattern as login + admin.
   api-docs:
-    image: snapdragon-games/api-docs-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/api-docs-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/api-docs/Dockerfile
     expose: ["8080"]
 
   games-three-wizards:
-    image: snapdragon-games/three-wizards-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/three-wizards-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/games-three-wizards/Dockerfile
     expose: ["8080"]
 
   games-dodecahedron:
-    image: snapdragon-games/dodecahedron-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/dodecahedron-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/games-dodecahedron/Dockerfile
@@ -565,7 +565,7 @@ services:
   # talks to the rpg-builder side service via /api/rpg/* (same-origin
   # through the host nginx proxy below).
   games-rpg-maker:
-    image: snapdragon-games/rpg-maker-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/rpg-maker-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/games-rpg-maker/Dockerfile
@@ -574,7 +574,7 @@ services:
   # godot-2d-visual-novel-shaped VN editor remote. Mounts at /vn-maker;
   # talks to the vn-builder side service via /api/vn/*.
   games-vn-maker:
-    image: snapdragon-games/vn-maker-remote:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/vn-maker-remote:${HUGMESH_TAG:-dev}
     build:
       context: ./frontend
       dockerfile: projects/games-vn-maker/Dockerfile
@@ -589,7 +589,7 @@ services:
   # + threaded WASM; .wasm gets the right application/wasm MIME so
   # WebAssembly.instantiateStreaming doesn't fall back to ArrayBuffer.
   wasm-fragment:
-    image: snapdragon-games/wasm-fragment:${SNAPDRAGON_TAG:-dev}
+    image: hugmesh-games/wasm-fragment:${HUGMESH_TAG:-dev}
     build:
       context: .
       dockerfile: wasm-fragment/Dockerfile

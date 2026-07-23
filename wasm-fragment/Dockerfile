@@ -29,7 +29,7 @@ COPY backend/src/main/resources/assets/levels /usr/share/nginx/html
 # output and forwards it to the parent shell, plus drains incoming
 # SD_INPUT_EVENT postMessages onto a window queue the GDScript bridge
 # polls every frame.
-COPY wasm-fragment/snapdragon-shim.js /usr/share/nginx/html/snapdragon-shim.js
+COPY wasm-fragment/hugmesh-shim.js /usr/share/nginx/html/hugmesh-shim.js
 
 COPY wasm-fragment/nginx.conf /etc/nginx/conf.d/default.conf
 

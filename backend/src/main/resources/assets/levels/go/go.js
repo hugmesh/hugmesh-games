@@ -29,7 +29,7 @@
 // from the rules engine.
 //
 // Stones are canvas-drawn discs (no image assets). The engine is the verified
-// snapdragon_go.wasm; we drive it through the shared WasmHost with the EXACT call
+// hugmesh_go.wasm; we drive it through the shared WasmHost with the EXACT call
 // pattern proven in games/_shared/test/go-wasm.test.mjs:
 //   host.callStatus('go_new')                       -> 1
 //   host.callPacked('go_state')                     -> { type:'go.snapshot', size, board, side, ... }
