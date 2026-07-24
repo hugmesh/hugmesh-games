@@ -17,7 +17,7 @@ test.describe('diagnostics gate (admin + flag)', () => {
     const player = SEED_USERS.find(u => u.username === 'player')!;
     await login(page, player);
     const status = await page.evaluate(async () => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       const r = await fetch('/api/diagnostics/wasm-console', {
         method: 'POST',
@@ -41,7 +41,7 @@ test.describe('diagnostics gate (admin + flag)', () => {
 
     // Force flag OFF first so the default-on assumption isn't tested.
     await page.evaluate(async (flag) => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       const r = await fetch('/api/admin/debug-mode/wasm-console', {
         method: 'PUT',
@@ -53,7 +53,7 @@ test.describe('diagnostics gate (admin + flag)', () => {
 
     // Flag OFF → 403 even for admin.
     const offStatus = await page.evaluate(async () => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       const r = await fetch('/api/diagnostics/wasm-console', {
         method: 'POST',
@@ -66,7 +66,7 @@ test.describe('diagnostics gate (admin + flag)', () => {
 
     // Flip flag ON.
     await page.evaluate(async (flag) => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       const r = await fetch('/api/admin/debug-mode/wasm-console', {
         method: 'PUT',
@@ -78,7 +78,7 @@ test.describe('diagnostics gate (admin + flag)', () => {
 
     // Flag ON → 202 (Accepted).
     const onStatus = await page.evaluate(async () => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       const r = await fetch('/api/diagnostics/wasm-console', {
         method: 'POST',
@@ -91,7 +91,7 @@ test.describe('diagnostics gate (admin + flag)', () => {
 
     // Restore default (off) so dependent specs don't see leaked state.
     await page.evaluate(async () => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       await fetch('/api/admin/debug-mode/wasm-console', {
         method: 'PUT',

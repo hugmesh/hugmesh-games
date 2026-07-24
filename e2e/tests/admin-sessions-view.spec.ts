@@ -64,7 +64,7 @@ test.describe('admin per-session view stream', () => {
       characterId: number,
     ): Promise<number> => {
       return page.evaluate(async ({ sid, slot, cid }) => {
-        const raw = window.sessionStorage.getItem('tw_auth');
+        const raw = window.localStorage.getItem('tw_auth');
         const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
         const r = await fetch('/api/view', {
           method: 'POST',
@@ -106,7 +106,7 @@ test.describe('admin per-session view stream', () => {
     //    surface in `event: view` payloads. Runs in-page so the JWT
     //    lives next to the same-origin host.
     const observed = await pAdmin.evaluate(async ({ sid }) => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
       const ctrl = new AbortController();
       const seenSlots = new Set<number>();

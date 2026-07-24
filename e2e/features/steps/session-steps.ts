@@ -36,6 +36,16 @@ Given('{string} creates a private session named {string} in Three Wizards',
     sessionByName.set(name, { id: session.id, gameSlug: session.gameSlug });
   });
 
+Given('{string} creates a public session named {string} in Dodecahedron',
+  async ({}, username: string, name: string) => {
+    // A second game so the mod-scoped session-log filter has cross-game
+    // history to prove it filters (three-wizards vs dodecahedron).
+    const session = await createSession(pageFor(username), {
+      gameSlug: 'dodecahedron', name, maxPlayers: 3, visibility: 'public', characterId: 1, slotIndex: 0,
+    });
+    sessionByName.set(name, { id: session.id, gameSlug: session.gameSlug });
+  });
+
 When('{string} opens the Three Wizards lobby', async ({}, username: string) => {
   const page = pageFor(username);
   await page.goto('/');
@@ -71,6 +81,55 @@ Then('{string} still sees the session named {string} in their own lobby',
     // step for why .first() is no longer safe.
     await page.locator('.game-card[data-game-slug="three-wizards"]').click();
     await expect(page.locator(`text=${name}`).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+// ── friends-tier ALLOW leg ──────────────────────────────────────────────
+// The DENY legs above assert strangers can't see friends-only / private
+// sessions. These assert the positive contract: after the mutual-friend
+// handshake, the friend DOES see the friends-tier session and can join it
+// — so a fail-closed regression in the friend-graph filter (hiding
+// friends-tier sessions from everyone) fails the suite instead of passing.
+
+Then('{string} sees the session named {string} in the lobby',
+  async ({}, username: string, name: string) => {
+    // Lobby already opened by a prior "opens the Three Wizards lobby"
+    // step for this user. Pin the row by its .session-name so we assert
+    // the ALLOW leg precisely (not an incidental text match elsewhere).
+    const page = pageFor(username);
+    const row = page.locator('.session-row', {
+      has: page.locator('.session-name', { hasText: name }),
+    }).first();
+    await expect(row).toBeVisible({ timeout: 10_000 });
+  });
+
+When('{string} joins the session named {string}',
+  async ({}, username: string, name: string) => {
+    const page = pageFor(username);
+    const row = page.locator('.session-row', {
+      has: page.locator('.session-name', { hasText: name }),
+    }).first();
+    await row.waitFor({ state: 'visible', timeout: 10_000 });
+    await row.locator('button.join-btn').click();
+  });
+
+Then('{string} reaches the active-session slot',
+  async ({}, username: string) => {
+    // joinSession() flips the picker to its "you're in this session as
+    // slot N" state (.session-picker-active) once the BFF returns the
+    // updated session — the render-layer proof that the join landed.
+    const page = pageFor(username);
+    await expect(page.locator('.session-picker-active')).toBeVisible({ timeout: 15_000 });
+  });
+
+Then("{string}'s lobby does not show the session named {string}",
+  async ({}, username: string, name: string) => {
+    // User-scoped DENY (vs. the all-open-lobbies variant above) so a
+    // stranger leg can run in the SAME scenario as a friend who legitimately
+    // sees the session in their own still-open lobby.
+    const page = pageFor(username);
+    await expect(page.locator('.session-row', {
+      has: page.locator('.session-name', { hasText: name }),
+    })).toHaveCount(0, { timeout: 10_000 });
   });
 
 When('{string} requests their own session log', async ({}, username: string) => {

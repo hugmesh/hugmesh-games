@@ -7,6 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { GameLibraryService } from '../services/game-library.service';
 import { CharacterService } from '../services/character.service';
+import { CharacterState } from '../models/character.model';
 import { RemoteLoaderService } from '../services/remote-loader.service';
 import { FederationService, FederationRemote } from '../services/federation.service';
 import {
@@ -89,6 +90,16 @@ export class HomeComponent implements OnInit {
   private readonly sessionControl = inject(SessionControlService);
 
   characterId = 1;
+  /** True when characterId was pinned by the `?characterId=` URL override
+   *  (the e2e multi-user helpers use it). When set, the owned-character
+   *  default below must NOT clobber the caller's explicit choice. */
+  private characterIdFromUrl = false;
+  /** The caller's own characters (GET /api/characters). Backs the picker
+   *  in the session modal so two real players in one session choose
+   *  distinct character_ids instead of both defaulting to the seeded
+   *  Hero (id 1) and colliding on the per-character control authorization
+   *  (the loser's POST /api/controls 403s). Empty until the list resolves. */
+  myCharacters: CharacterState[] = [];
   /** Game-level cards on the home page. Each carries its embedded
    *  chapters; click → modal shows the chapter list for that game. */
   games$: Observable<GameWithChapters[]> = of([]);
@@ -177,8 +188,24 @@ export class HomeComponent implements OnInit {
       const fromUrl = parseInt(params.get('characterId') ?? '', 10);
       if (Number.isFinite(fromUrl) && fromUrl > 0) {
         this.characterId = fromUrl;
+        this.characterIdFromUrl = true;
       }
     }
+
+    // Load the caller's own characters for the picker. When the URL
+    // didn't pin a character, default to the caller's FIRST owned
+    // character (lowest id) instead of the hardcoded id 1 — so a real
+    // player joins a session as a character they actually own, which is
+    // what keeps two players in one session on distinct character_ids.
+    this.characterSvc.listMine().pipe(
+      catchError(() => of([] as CharacterState[])),
+    ).subscribe(chars => {
+      this.myCharacters = [...chars].sort((a, b) => a.id - b.id);
+      if (!this.characterIdFromUrl && this.myCharacters.length > 0
+          && !this.myCharacters.some(c => c.id === this.characterId)) {
+        this.selectCharacter(this.myCharacters[0].id);
+      }
+    });
 
     // Resolve the web-native launch table from the DB-backed federation
     // manifest. The launch decision below is data-driven off this map —
@@ -216,6 +243,30 @@ export class HomeComponent implements OnInit {
       this.activeSessionId = null;
     }
   });
+
+  /**
+   * Pick which of the caller's characters this player controls. Called
+   * from the modal's character picker and from the owned-character
+   * default in ngOnInit. Refreshes the character stats (HUD/dashboard)
+   * and the available-games list, since per-character unlock state and
+   * control authorization both key on character_id. No-op while a
+   * session is already active — the picker is hidden in that state so a
+   * player can't swap character mid-session under a claimed slot.
+   */
+  selectCharacter(id: number): void {
+    if (id === this.characterId || this.activeSessionId) return;
+    this.characterId = id;
+    this.characterSvc.load(id).pipe(catchError(() => of(null))).subscribe();
+    this.games$ = this.library.listAvailable(id).pipe(
+      map(games => [...games].sort((a, b) => a.sortOrder - b.sortOrder)),
+      catchError(() => of([])),
+    );
+  }
+
+  /** The caller's currently-selected character (for the picker label). */
+  get selectedCharacter(): CharacterState | null {
+    return this.myCharacters.find(c => c.id === this.characterId) ?? null;
+  }
 
   /** Open the chapter modal for the clicked game. Disabled for
    *  games with zero unlocked chapters. */

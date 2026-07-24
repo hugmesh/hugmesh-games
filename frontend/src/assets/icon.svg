@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  HugMesh Games brand mark — a stylised dragon head matching the
+  dragon nav brand in app.component.html. Drawn on the audited
+  HugMesh palette (decisions/024): bg #0a0a12, border #7c4dff
+  (non-text accent), mark #b388ff (accent-soft). Linked as the tab
+  favicon from src/index.html.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="HugMesh Games">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0a0a12" stroke="#7c4dff" stroke-width="2.5"/>
+  <!-- Dragon head, side profile facing right: back-swept horn, crest
+       horn, open jaw, neck sweeping down to the badge base. -->
+  <path fill="#b388ff" d="
+    M15 54
+    C13 45 14 36 19 30
+    C15 28 12 23 12 16
+    C16 19 20 21 23 21
+    C24 16 27 11 32 9
+    C31 13 31 16 32 18
+    C38 16 45 18 50 23
+    C54 27 56 31 56 34
+    L42 34
+    C43 37 46 39 51 39
+    C49 44 43 46 38 44
+    C35 48 33 51 33 54
+    Z"/>
+  <!-- Eye + nostril knocked out of the head in the badge background
+       colour so the mark stays readable at 16px. -->
+  <circle cx="39" cy="27" r="2.6" fill="#0a0a12"/>
+  <circle cx="51" cy="31" r="1.4" fill="#0a0a12"/>
+  <!-- Flame breath accent off the open jaw. -->
+  <path fill="#7c4dff" d="M53 44 C56 43 59 44 61 47 C58 47 57 49 54 50 C55 48 54 46 53 44 Z"/>
+</svg>

@@ -102,6 +102,28 @@
             </p>
           </header>
 
+          <!-- Character picker. Only shown when the caller owns more than
+               one character and hasn't yet joined/created a session — the
+               chosen character_id threads through createSession/joinSession
+               below so two real players in one session hold DISTINCT
+               characters instead of colliding on the default. A single-
+               character player skips this entirely (the sole owned character
+               is already selected by the ngOnInit default). -->
+          @if (!activeSessionId && myCharacters.length > 1) {
+            <div class="character-picker">
+              <label for="character-select" class="character-picker-label">Play as</label>
+              <select id="character-select"
+                      class="character-select"
+                      name="characterSelect"
+                      [ngModel]="characterId"
+                      (ngModelChange)="selectCharacter($event)">
+                @for (c of myCharacters; track c.id) {
+                  <option [ngValue]="c.id">{{ c.name }} — Lv {{ c.level }}</option>
+                }
+              </select>
+            </div>
+          }
+
           @if (activeSessionId) {
             <p class="session-picker-active" role="status">
               ✓ You're in this session as slot <strong>{{ activeSlotIndex }}</strong>.

@@ -22,7 +22,7 @@ async function login(page: Page, user: string, pass: string): Promise<void> {
   await page.click('button.login-btn');
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
   await page.waitForFunction(() => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem('tw_auth');
     if (!raw) return false;
     try { return Boolean(JSON.parse(raw).accessToken); } catch { return false; }
   }, undefined, { timeout: 15_000 });

@@ -37,6 +37,19 @@ export class CharacterService {
     );
   }
 
+  /**
+   * List the authenticated caller's own characters. Backs the home-page
+   * character picker: `GET /api/characters` returns only the caller's
+   * roster (CharacterController.list matches on `casdoor_id == jwt.sub`;
+   * admins get everyone, but a plain player never sees another player's
+   * characters). Distinct from {@link load}, which fetches ONE character
+   * by id and pushes it onto `character$`; this is a plain list read and
+   * deliberately does NOT touch the live `character$` subject.
+   */
+  listMine(): Observable<CharacterState[]> {
+    return this.http.get<CharacterState[]>(`${environment.apiBase}/api/characters`);
+  }
+
   update(id: number, patch: Partial<CharacterState>): Observable<CharacterState> {
     return this.http.put<CharacterState>(`${environment.apiBase}/api/characters/${id}`, patch).pipe(
       tap(c => this._character$.next(c))

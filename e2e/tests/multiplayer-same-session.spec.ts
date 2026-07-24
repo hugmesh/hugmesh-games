@@ -151,7 +151,7 @@ async function createSessionViaLobby(page: Page, sessionName: string, characterI
   await page.locator('button.create-btn').click();
   await page.locator('.session-picker-active').waitFor({ state: 'visible', timeout: 15_000 });
   return await page.evaluate(async (name: string) => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem('tw_auth');
     const token = raw ? (JSON.parse(raw).accessToken ?? '') : '';
     const r = await fetch('/api/sessions?gameSlug=three-wizards', {
       headers: { Authorization: `Bearer ${token}` },

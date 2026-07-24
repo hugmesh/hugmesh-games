@@ -39,8 +39,11 @@ const STORAGE_KEY = 'tw_auth';
   template: `
     <div class="login-page">
       <div class="login-card">
+        <!-- Brand glyph — the same dragon as the host nav brand
+             ('🐉 HugMesh Games') and assets/icon.svg, so the login
+             card, tab icon, and shell chrome carry one mark. -->
         <div class="logo-area">
-          <div class="logo-icon">&#9878;</div>
+          <div class="logo-icon">&#128009;</div>
         </div>
         <h1 class="game-title">HugMesh<br><span>Games</span></h1>
         <p class="subtitle">Sign in to enter the portal</p>

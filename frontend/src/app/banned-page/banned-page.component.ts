@@ -64,6 +64,13 @@ interface BanStatus {
           </p>
         }
 
+        @if (appealEmail) {
+          <p class="banned-appeal">
+            To appeal this decision, contact the moderation team at
+            <a class="banned-appeal-link" [href]="'mailto:' + appealEmail">{{ appealEmail }}</a>.
+          </p>
+        }
+
         <div class="banned-actions">
           <button type="button" class="btn-primary"
                   (click)="signOut()">
@@ -132,6 +139,17 @@ interface BanStatus {
       font-weight: 600;
       color: #b388ff;
     }
+    .banned-appeal {
+      margin: 0 0 20px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: #d8dde6;
+      text-align: center;
+    }
+    .banned-appeal-link {
+      color: #b388ff;
+      font-weight: 600;
+    }
     .banned-actions {
       display: flex;
       gap: 12px;
@@ -176,6 +194,11 @@ export class BannedPageComponent implements OnInit {
 
   loading = true;
   status: BanStatus | null = null;
+  /** Resolved appeal-contact email (GET /api/security/appeal-contact —
+   *  anonymous-accessible by design so a fully-revoked user with no JWT
+   *  still gets it). Rendered so a banned user has a concrete way to
+   *  appeal instead of a dead end. */
+  appealEmail: string | null = null;
 
   ngOnInit(): void {
     if (!this.auth.isAuthenticated()) {
@@ -194,6 +217,12 @@ export class BannedPageComponent implements OnInit {
       error: _ => {
         this.loading = false;
       },
+    });
+    // Resolve the appeal contact. Best-effort: a failure just hides the
+    // appeal line (the ban-status render above is the primary content).
+    this.http.get<{ email: string }>('/api/security/appeal-contact').subscribe({
+      next: r => { this.appealEmail = r?.email ?? null; },
+      error: _ => { /* leave appealEmail null */ },
     });
   }
 

@@ -40,7 +40,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/login/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -102,7 +108,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/admin/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -164,7 +176,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/mod/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -226,7 +244,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/publisher/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -288,7 +312,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/games-rpg-maker/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -350,7 +380,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/games-vn-maker/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -412,7 +448,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/games-three-wizards/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -474,7 +516,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/games-dodecahedron/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -720,7 +768,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/registration/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -782,7 +836,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/banned/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},
@@ -844,7 +904,13 @@
 							"zone.js"
 						],
 						"tsConfig": "projects/producer-registration/tsconfig.app.json",
-						"assets": [],
+						"assets": [
+							{
+								"glob": "es-module-shims.js",
+								"input": "src/assets",
+								"output": "assets"
+							}
+						],
 						"styles": [],
 						"scripts": []
 					},

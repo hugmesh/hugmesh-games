@@ -124,7 +124,8 @@ Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-fede
 
 - **Strict CSP.** 🔭 Planned. The first-cut Content-Security-Policy ships in both nginx confs ([decision 023](docs/wiki/decisions/023-content-security-policy.md)); the path to *strict* CSP — dropping the remaining `unsafe-*` tokens once the es-module-shims / Angular runtime needs are removed — is a documented future step, not done.
 - **Retire `CassandraSyncService`.** 🔭 Planned. The Kafka → ClickHouse streaming pipeline foundation, producers, and cross-pod consumer are ✅ on `main` ([decision 021](docs/wiki/decisions/021-kafka-clickhouse-streaming-pipeline.md)), but `CassandraSyncService` stays in place until the streaming pipeline has demonstrated production stability — the retirement is a planned follow-up.
-- **Move bearer tokens off `sessionStorage`.** 🔭 Planned. The frontend currently stores the Casdoor token in `sessionStorage` (`tw_auth`); migrating off web storage is a platform-wide security backlog item that this repo inherits if/when the games frontend is in scope.
+- **Move bearer tokens off web storage.** 🔭 Planned. The frontend currently stores the Casdoor token in `localStorage` (`tw_auth`, moved from `sessionStorage` in PR #57 so open-in-new-tab keeps the user signed in); migrating off XSS-readable web storage entirely (HttpOnly `bff_` session cookies, the platform's native-login convention) is a platform-wide security backlog item that this repo inherits if/when the games frontend is in scope.
+- **Re-export the Godot bridge onto the `localStorage` auth store.** 🔭 Planned. `games/three-wizards-in-a-trenchcoat/scripts/game_bridge.gd` still reads the JWT from `window.parent.sessionStorage`, which PR #57 emptied when it moved `tw_auth` to `localStorage` — so the in-iframe Godot control POSTs (`POST /api/controls/{characterId}`) currently go out with no `Authorization` header and land unauthenticated. The bridge fails soft (the BFF's role check finds no identity and skips), so this is a lost-authorization gap rather than a crash. Fixing it is a one-line source change **plus** a real Godot re-export, because the compiled bridge also ships inside the tracked `index.pck` bundles under `backend/src/main/resources/assets/levels/{cave,field}/`; changing the `.gd` alone would leave source and shipped bundle disagreeing. Tracked as a dedicated follow-up that runs `make build-rust && make build-godot`.
 
 ---
 
@@ -429,7 +430,7 @@ flowchart TB
         FK["keydown '1' (KEY_1)"]
         FInput["game_bridge._unhandled_input"]
         FCast["player._cast_spell(1)<br/>projectile from hand"]
-        FSend["send_control('CAST_INSTANT_1', true)<br/>POST /api/controls/1 (Authorization: Bearer JWT read from parent sessionStorage)<br/>keyup: send_control(…, false)"]
+        FSend["send_control('CAST_INSTANT_1', true)<br/>POST /api/controls/1 — reads parent sessionStorage, stale since PR 57 moved 'tw_auth' to localStorage,<br/>so the token is empty and this POST currently goes out unauthenticated (see hardening follow-ups)<br/>keyup: send_control(…, false)"]
         FK --> FInput
         FInput --> FCast
         FInput --> FSend

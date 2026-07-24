@@ -1,7 +1,8 @@
 // Step definitions for features/security/*.feature.
 //
 // Pattern: a Given "X is logged in" step (re-used from maker-steps.ts)
-// stages a real Casdoor login + token in sessionStorage. The When step
+// stages a real Casdoor login + token in localStorage (PR #57 moved
+// the auth store off sessionStorage). The When step
 // fires the API call via `page.evaluate(fetch(...))` so the request is
 // same-origin through the host nginx — exercising the actual auth
 // chain (limit_req → @PreAuthorize → service-level scope check). The
@@ -9,7 +10,7 @@
 // Then assertion doesn't have to thread it.
 //
 // Why page.evaluate + fetch instead of Playwright's APIRequestContext?
-// The fetch call inherits the same sessionStorage'd JWT the SPA uses,
+// The fetch call inherits the same localStorage'd JWT the SPA uses,
 // so the auth assertion matches what a real browser exchange would
 // trigger (cookies, CORS, edge rate limits). APIRequestContext lives
 // outside the page context and would bypass nginx's per-origin paths.
@@ -31,7 +32,7 @@ async function pageFor(username: string, fallback: import('@playwright/test').Pa
 // ── Generic API-call steps ────────────────────────────────────────────────
 
 When('the unauthenticated client POSTs to {string}', async ({ page }, path: string) => {
-  // Anonymous request — no Authorization header, no sessionStorage
+  // Anonymous request — no Authorization header, no localStorage
   // priming. We still go through the SPA shell so the request lands
   // at the same origin via fetch.
   await page.goto('/');
@@ -138,7 +139,7 @@ Then('a player can launch chapter {string} of game {string}',
 
   const result = await page.evaluate(async ({ pw, g, c }) => {
     // The publisher's bearer (the page that ran the maker) is in
-    // sessionStorage. We use it for the admin-side grant call below,
+    // localStorage. We use it for the admin-side grant call below,
     // then mint a separate player JWT through the public /api/auth
     // endpoint and use it for the actual launch — so the assertion
     // proves "after the game was published, a PLAYER (not the

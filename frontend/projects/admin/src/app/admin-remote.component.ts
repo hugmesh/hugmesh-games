@@ -57,7 +57,9 @@ interface PlayerSession {
     <div class="admin-page">
       <header class="admin-header">
         <div>
-          <h1 class="admin-title">&#9878; Admin Panel</h1>
+          <!-- Dragon brand glyph — unified with the host nav brand +
+               login card (was the off-brand scales &#9878;). -->
+          <h1 class="admin-title">&#128009; Admin Panel</h1>
           <span class="admin-subtitle">
             Server management — federated remote · <code>admin</code>
           </span>

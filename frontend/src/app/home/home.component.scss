@@ -496,6 +496,26 @@ button.game-card {
 .session-picker-header { margin-bottom: 14px; }
 .session-picker-title  { font-size: 17px; margin: 0 0 4px; color: #f0f2fa; }
 .session-picker-sub    { font-size: 13px; margin: 0; color: #9aa3b8; line-height: 1.45; }
+.character-picker {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 14px; padding: 10px 12px;
+  background: var(--sd-bg-2, #1a1a2e);
+  border: 1px solid var(--sd-border, #1e1e32);
+  border-radius: 8px;
+}
+.character-picker-label {
+  font-size: 13px; color: var(--sd-text-muted, #a8acc4); white-space: nowrap;
+}
+.character-select {
+  flex: 1; min-width: 0;
+  background: var(--sd-bg-1, #12121e);
+  color: var(--sd-text, #e8e8f0);
+  border: 1px solid var(--sd-border, #1e1e32);
+  border-radius: 6px; padding: 7px 10px; font-size: 14px;
+}
+.character-select:focus-visible {
+  outline: 2px solid var(--sd-accent, #7c4dff); outline-offset: 1px;
+}
 .session-picker-active {
   margin: 0 0 12px; padding: 10px 12px;
   background: rgba(76,175,80,0.12); border-left: 3px solid #4caf50;

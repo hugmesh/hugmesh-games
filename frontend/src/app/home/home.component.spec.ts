@@ -1,10 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient, withXhr } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 
 import { HomeComponent } from './home.component';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
+import { CharacterState } from '../models/character.model';
 
 /**
  * Pure-helper coverage for HomeComponent. Heavier orchestration is
@@ -245,5 +246,100 @@ describe('HomeComponent chapter modal — focus trap', () => {
     fixture.detectChanges();
 
     expect(document.activeElement).toBe(outsideTrigger);
+  });
+});
+
+/**
+ * Character picker coverage. The picker consumes GET /api/characters
+ * (the caller's own roster) so two real players in one session default
+ * to DISTINCT character_ids instead of both landing on the seeded Hero
+ * (id 1) and colliding on the per-character control authorization. These
+ * tests pin the two load-bearing behaviours: the owned-character default
+ * in ngOnInit and the selectCharacter() guard rails.
+ */
+describe('HomeComponent character picker', () => {
+  let fixture: ComponentFixture<HomeComponent>;
+  let component: HomeComponent;
+  let httpMock: HttpTestingController;
+
+  const CHARACTERS_URL = 'http://localhost:8080/api/characters';
+
+  function character(id: number, name: string, level = 1): CharacterState {
+    return {
+      id, name, level, xp: 0, xpToNext: 100,
+      maxHp: 30, currentHp: 30, maxMp: 10, currentMp: 10,
+      attack: 5, defense: 5, speed: 5, magicPower: 5, currentChapterId: null,
+    };
+  }
+
+  beforeEach(() => {
+    // Keep any prior spec's ?characterId= override from leaking in — the
+    // default-selection assertions below depend on a clean URL.
+    if (window.location.search) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
+    });
+    fixture = TestBed.createComponent(HomeComponent);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  /** Flush the ngOnInit GET /api/characters with the given roster and
+   *  ignore the sibling ngOnInit fetches (games / stats / session
+   *  connect) — none are under test here, so we leave them unflushed. */
+  function flushRoster(chars: CharacterState[]): void {
+    fixture.detectChanges(); // runs ngOnInit → fires the listMine() GET
+    const req = httpMock.match(r => r.url === CHARACTERS_URL && r.method === 'GET');
+    expect(req.length).toBe(1);
+    req[0].flush(chars);
+  }
+
+  it('defaults characterId to the caller\'s lowest-id owned character (not the hardcoded 1)', () => {
+    flushRoster([character(7, 'Mage'), character(3, 'Rogue')]);
+    // Sorted ascending → id 3 is first; 3 replaces the hardcoded default 1.
+    expect(component.characterId).toBe(3);
+    expect(component.myCharacters.map(c => c.id)).toEqual([3, 7]);
+  });
+
+  it('keeps the hardcoded default when the owned list already contains id 1', () => {
+    flushRoster([character(1, 'Hero'), character(9, 'Cleric')]);
+    expect(component.characterId).toBe(1);
+  });
+
+  it('leaves characterId at 1 when the caller owns no characters', () => {
+    flushRoster([]);
+    expect(component.characterId).toBe(1);
+    expect(component.myCharacters).toEqual([]);
+  });
+
+  it('selectCharacter switches the active character and resolves selectedCharacter', () => {
+    flushRoster([character(3, 'Rogue'), character(7, 'Mage')]);
+    expect(component.selectedCharacter?.id).toBe(3);
+    component.selectCharacter(7);
+    expect(component.characterId).toBe(7);
+    expect(component.selectedCharacter?.name).toBe('Mage');
+  });
+
+  it('selectCharacter is a no-op while a session is already active (no mid-session swap)', () => {
+    flushRoster([character(3, 'Rogue'), character(7, 'Mage')]);
+    component.activeSessionId = 'sess-123';
+    component.selectCharacter(7);
+    expect(component.characterId).toBe(3); // unchanged
+  });
+
+  it('respects the ?characterId= URL override and does NOT clobber it with the owned default', () => {
+    window.history.replaceState({}, '', window.location.pathname + '?characterId=42');
+    try {
+      flushRoster([character(3, 'Rogue'), character(7, 'Mage')]);
+      expect(component.characterId).toBe(42);
+    } finally {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   });
 });

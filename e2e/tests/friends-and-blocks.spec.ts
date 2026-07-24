@@ -22,7 +22,7 @@ async function login(page: Page, user: string, pass: string): Promise<void> {
   await page.click('button.login-btn');
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
   await page.waitForFunction(() => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem('tw_auth');
     if (!raw) return false;
     try { return Boolean(JSON.parse(raw).accessToken); } catch { return false; }
   }, undefined, { timeout: 15_000 });
@@ -80,7 +80,7 @@ test.describe('friends + blocking', () => {
     // First send a request, then block from the friends row — or block
     // directly via a direct API call against /api/relationships/blocks/add.
     await blocker.evaluate(async (target) => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       if (!raw) return;
       const { accessToken } = JSON.parse(raw);
       await fetch('/api/relationships/blocks/add', {

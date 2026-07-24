@@ -36,38 +36,44 @@ export function loadRemote<T>(remoteName: string, exposedModule: string, exportN
   });
 }
 
+// Per-route document titles (Route.title). Angular's default
+// TitleStrategy stamps these onto document.title on every successful
+// navigation, so tabs opened on /admin, /friends, the makers, … are
+// tellable apart. Format per the platform branding baseline:
+// '<Surface> — HugMesh Games'; the home catalog keeps the bare
+// product name (matches the static <title> in index.html).
 export const routes: Routes = [
-  { path: '', component: HomeComponent, canActivate: [authGuard] },
-  { path: 'dashboard', component: PlayerDashboardComponent, canActivate: [authGuard] },
-  { path: 'friends', component: FriendsComponent, canActivate: [authGuard] },
-  { path: 'sessions/log', component: SessionLogPageComponent, canActivate: [authGuard] },
-  { path: 'login', loadComponent: () => loadRemote('login', './LoginComponent', 'LoginRemoteComponent') },
-  { path: 'about', component: AboutComponent },
-  { path: 'banned', component: BannedPageComponent },
-  { path: 'admin', loadComponent: () => loadRemote('admin', './AdminShell', 'AdminRemoteComponent'), canActivate: [authGuard] },
-  { path: 'admin/games', loadComponent: () => loadRemote('admin', './UploadShell', 'UploadRemoteComponent'), canActivate: [authGuard] },
+  { path: '', component: HomeComponent, canActivate: [authGuard], title: 'HugMesh Games' },
+  { path: 'dashboard', component: PlayerDashboardComponent, canActivate: [authGuard], title: 'Dashboard — HugMesh Games' },
+  { path: 'friends', component: FriendsComponent, canActivate: [authGuard], title: 'Friends — HugMesh Games' },
+  { path: 'sessions/log', component: SessionLogPageComponent, canActivate: [authGuard], title: 'Session log — HugMesh Games' },
+  { path: 'login', loadComponent: () => loadRemote('login', './LoginComponent', 'LoginRemoteComponent'), title: 'Sign in — HugMesh Games' },
+  { path: 'about', component: AboutComponent, title: 'About — HugMesh Games' },
+  { path: 'banned', component: BannedPageComponent, title: 'Account suspended — HugMesh Games' },
+  { path: 'admin', loadComponent: () => loadRemote('admin', './AdminShell', 'AdminRemoteComponent'), canActivate: [authGuard], title: 'Admin — HugMesh Games' },
+  { path: 'admin/games', loadComponent: () => loadRemote('admin', './UploadShell', 'UploadRemoteComponent'), canActivate: [authGuard], title: 'Game uploads — HugMesh Games' },
   // Per-session live observation including per-player view SSE — admin
   // SessionsShell ships from the same admin remote bundle.
-  { path: 'admin/sessions', loadComponent: () => loadRemote('admin', './SessionsShell', 'SessionsRemoteComponent'), canActivate: [authGuard] },
+  { path: 'admin/sessions', loadComponent: () => loadRemote('admin', './SessionsShell', 'SessionsRemoteComponent'), canActivate: [authGuard], title: 'Live sessions — HugMesh Games' },
   // Admin session-log tree: every open multiplayer session grouped by
   // game, searchable. Lives in the host shell (not federated) since it
   // shares the GameLibraryService + auth interceptor with the player
   // session-log page.
-  { path: 'admin/session-log', component: AdminSessionLogPageComponent, canActivate: [authGuard] },
-  { path: 'admin/docs', loadComponent: () => loadRemote('api-docs', './DocsShell', 'DocsShellComponent'), canActivate: [authGuard] },
+  { path: 'admin/session-log', component: AdminSessionLogPageComponent, canActivate: [authGuard], title: 'Sessions by game — HugMesh Games' },
+  { path: 'admin/docs', loadComponent: () => loadRemote('api-docs', './DocsShell', 'DocsShellComponent'), canActivate: [authGuard], title: 'API docs — HugMesh Games' },
   // Per-game moderator console — ROLE_MOD or ROLE_ADMIN. The BFF
   // controllers @PreAuthorize so the route mounts for any authenticated
   // user; non-mod / non-admin callers see a 403 banner inside the shell.
-  { path: 'mod', loadComponent: () => loadRemote('mod', './ModShell', 'ModRemoteComponent'), canActivate: [authGuard] },
+  { path: 'mod', loadComponent: () => loadRemote('mod', './ModShell', 'ModRemoteComponent'), canActivate: [authGuard], title: 'Moderator — HugMesh Games' },
   // Per-game publisher console — ROLE_PUBLISHER or ROLE_ADMIN. Same
   // BFF-side enforcement pattern as /mod.
-  { path: 'publisher', loadComponent: () => loadRemote('publisher', './PublisherShell', 'PublisherRemoteComponent'), canActivate: [authGuard] },
+  { path: 'publisher', loadComponent: () => loadRemote('publisher', './PublisherShell', 'PublisherRemoteComponent'), canActivate: [authGuard], title: 'Publisher — HugMesh Games' },
   // Mudlet-shaped RPG maker — federated remote that drives the
   // rpg-builder side service. ROLE_PUBLISHER or ROLE_ADMIN; the
   // BFF rejects unauthorised callers behind /api/rpg/*.
-  { path: 'rpg-maker', loadComponent: () => loadRemote('games-rpg-maker', './RpgMakerShell', 'RpgMakerRemoteComponent'), canActivate: [authGuard] },
+  { path: 'rpg-maker', loadComponent: () => loadRemote('games-rpg-maker', './RpgMakerShell', 'RpgMakerRemoteComponent'), canActivate: [authGuard], title: 'RPG Maker — HugMesh Games' },
   // godot-2d-visual-novel-shaped VN maker — federated remote that
   // drives the vn-builder side service.
-  { path: 'vn-maker',  loadComponent: () => loadRemote('games-vn-maker',  './VnMakerShell',  'VnMakerRemoteComponent'),  canActivate: [authGuard] },
+  { path: 'vn-maker',  loadComponent: () => loadRemote('games-vn-maker',  './VnMakerShell',  'VnMakerRemoteComponent'),  canActivate: [authGuard], title: 'Visual Novel Maker — HugMesh Games' },
   { path: '**', redirectTo: '' },
 ];

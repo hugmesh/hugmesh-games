@@ -31,7 +31,7 @@ async function login(page: Page, user: string, pass: string): Promise<void> {
   // this guard, an immediate page.evaluate(fetch(..., Authorization))
   // can race the storage write and send `Bearer ` (empty token) → 0.
   await page.waitForFunction(() => {
-    const raw = window.sessionStorage.getItem('tw_auth');
+    const raw = window.localStorage.getItem('tw_auth');
     if (!raw) return false;
     try { return Boolean(JSON.parse(raw).accessToken); } catch { return false; }
   }, undefined, { timeout: 15_000 });
@@ -60,7 +60,7 @@ test.describe('session participation log', () => {
   test('admin can request anyone\'s session history via /api/session-logs/admin/{id}', async ({ page }) => {
     await login(page, ADMIN, ADMIN_PASS);
     const status = await page.evaluate(async () => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       if (!raw) return 0;
       const { accessToken } = JSON.parse(raw);
       const r = await fetch('/api/session-logs/admin/player1?limit=10', {
@@ -74,7 +74,7 @@ test.describe('session participation log', () => {
   test('non-admin player gets 403 from the admin-scoped endpoint', async ({ page }) => {
     await login(page, PLAYER, PASS);
     const status = await page.evaluate(async () => {
-      const raw = window.sessionStorage.getItem('tw_auth');
+      const raw = window.localStorage.getItem('tw_auth');
       if (!raw) return 0;
       const { accessToken } = JSON.parse(raw);
       const r = await fetch('/api/session-logs/admin/player2?limit=10', {

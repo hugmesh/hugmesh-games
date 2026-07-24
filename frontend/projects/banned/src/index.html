@@ -6,7 +6,11 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script type="esms-options">{ "shimMode": true }</script>
-  <script src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+  <!-- Vendored copy of es-module-shims (see host src/assets/) so
+       standalone/offline debugging works without external CDN access
+       — host vendored-shim policy, decision-023. Shipped into this
+       remote's dist via the angular.json assets entry. -->
+  <script src="assets/es-module-shims.js"></script>
 </head>
 <body>
   <p>Banned remote — load via federation; this index is the artefact root.</p>
