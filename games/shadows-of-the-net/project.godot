@@ -1,0 +1,44 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Shadows of the Net - CHAT"
+run/main_scene="res://scenes/room.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[autoload]
+
+XrBoot="*res://scripts/xr_boot.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.02, 0.02, 0.05, 1)
+
+[xr]
+
+; OpenXR is the NATIVE PCVR branch (Linux: Monado/WiVRn/SteamVR, Windows:
+; SteamVR/Meta Link). It is ignored by the Web export — the web path uses
+; WebXRInterface, initialized at runtime by xr_boot.gd on a user gesture.
+; startup_alert=false so a desktop run without an OpenXR runtime boots
+; silently into the non-XR mouse/WASD fallback instead of popping a modal.
+openxr/enabled=true
+openxr/startup_alert=false
+shaders/enabled=true

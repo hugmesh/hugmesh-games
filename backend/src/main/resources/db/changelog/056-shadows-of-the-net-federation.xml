@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Shadows of the Net – CHAT (XR-chat noir room).
+
+      games/shadows-of-the-net/ is a Godot 4 project UNLIKE the previous Godot
+      ports (053 chess-godot / 055 connect-four-godot): it is PURE GDScript —
+      no Rust rules core, no hugmesh_bridge GDExtension. It is a 3D chat
+      CHAMBER, not a board game: a 16-seat noir room with media surfaces
+      (table-1..6 / screen-1..4 / stage) whose participants render as
+      procedural 3D characters. `make build-godot` exports its Web preset to
+      /_remotes/wasm-fragment/shadows-of-the-net/index.html — the standard
+      kind='wasm-game' launch shape, so the host mounts it as a parametrised
+      iframe with no frontend change.
+
+      Session relay shape (mode=session, the games-portal default):
+        * seat/pose updates ride the MOVEMENT channel as control actions
+          (POST /api/controls/{cid}, actions SOTN_POSE|… / SOTN_SEAT|… /
+          SOTN_STAGE|…) — the controls path has no (kind, type) vocabulary, so
+          NO input_event_types rows are needed for them;
+        * the HOST (session creator, slot 0) broadcasts the authoritative room
+          state (seat map + stage grant) as kind='world' type='state' via
+          POST /api/input/{cid} — that (kind, type) pair is ALREADY seeded by
+          050-1, so this changeset only opts the slug into game_event_support
+          (Gate 3, when wired), exactly as 052 did for the web-native games.
+        * metadata carries "xr":true — this bundle offers a WebXR
+          immersive-vr entry (Quest browser) on top of the desktop fallback.
+
+      Mirrors 053/055 idempotency (ON CONFLICT / NOT EXISTS + tableExists
+      preconditions) so re-runs on partial state are no-ops.
+    -->
+
+    <!-- 1. Catalog game row. Collision-safe MAX(id)+1 like 044-1/053-1. -->
+    <changeSet id="056-1-shadows-of-the-net-game" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Shadows of the Net – CHAT',
+       'A noir cyber chat chamber in XR: sit around the round table with up to 16 participants rendered as procedural 3D characters, share media onto the table plates, wall screens and the spotlit stage, and enter the room in VR from a Quest browser or flat on any desktop. Pure-GDScript Godot bundle, host-authoritative seat/stage state.',
+       'shadows-of-the-net',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'shadows-of-the-net');
+        </sql>
+    </changeSet>
+
+    <!-- 2. The chamber chapter. scene_type carries the game's own slug (the
+         web-native 044 convention) — there is no legacy wiring to reuse;
+         asset_url points at the wasm-fragment bundle. -->
+    <changeSet id="056-2-shadows-of-the-net-chapter" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="chapters"/>
+        </preConditions>
+        <sql>
+INSERT INTO chapters
+    (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT
+    'The Chamber',
+    'The circular noir room: center round table with six media plates, four wall screens, a spotlit stage and a 16-seat ring. The session creator arbitrates seats and the stage; everyone relays their pose on the movement channel.',
+    'shadows-of-the-net',
+    'shadows-of-the-net',
+    1,
+    '/_remotes/wasm-fragment/shadows-of-the-net/index.html',
+    '{}',
+    (SELECT id FROM games WHERE slug = 'shadows-of-the-net'),
+    NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'shadows-of-the-net');
+        </sql>
+    </changeSet>
+
+    <!-- 3. Federation row (kind='wasm-game'), mirroring 051/053/055. The host's
+         home.component.ts isWebNative/webNativeSlug reads this off
+         GET /api/federation/manifest and launches it as a parametrised iframe. -->
+    <changeSet id="056-3-shadows-of-the-net-federation-row" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="federation_modules"/>
+        </preConditions>
+        <sql>
+INSERT INTO federation_modules
+    (slug, display_name, kind, remote_entry_url, exposed_module, game_slug, version, enabled, metadata)
+VALUES
+    ('games-shadows-of-the-net', 'Shadows of the Net – CHAT', 'wasm-game',
+     '/_remotes/wasm-fragment/shadows-of-the-net/index.html', NULL, 'shadows-of-the-net', '0.1.0', true,
+     '{"sse":true,"hostAuthoritative":true,"engine":"godot","xr":true}'::jsonb)
+ON CONFLICT (slug) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <!-- 4. Default all-users access, mirroring 053-4/055-4 — without a
+         game_access row the tile is hidden AND un-launchable for every
+         non-admin principal. -->
+    <changeSet id="056-4-shadows-of-the-net-default-access" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="game_access"/>
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO game_access (game_id, scope, scope_value, granted_by, granted_at)
+SELECT g.id, 'all', NULL, 'system:migration-056', NOW()
+  FROM games g
+ WHERE g.slug = 'shadows-of-the-net'
+   AND NOT EXISTS (
+        SELECT 1 FROM game_access ga
+         WHERE ga.game_id = g.id AND ga.scope = 'all' AND ga.scope_value IS NULL
+ );
+        </sql>
+    </changeSet>
+
+    <!-- 5. Relay vocabulary opt-in (Gate 3, when wired). world/state itself is
+         already a reference row (050-1); the room's other relay traffic rides
+         the controls path which has no (kind, type) vocabulary — so this is
+         the ONLY event-support row the game needs. Mirrors 050-2/052-2. -->
+    <changeSet id="056-5-shadows-of-the-net-event-support" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="game_event_support"/>
+        </preConditions>
+        <sql>
+            INSERT INTO game_event_support (game_slug, event_kind, event_type, direction) VALUES
+                ('shadows-of-the-net', 'world', 'state', 'both')
+            ON CONFLICT (game_slug, event_kind, event_type) DO NOTHING;
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

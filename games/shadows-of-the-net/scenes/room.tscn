@@ -1,0 +1,284 @@
+[gd_scene load_steps=19 format=3 uid="uid://sotn_room_main"]
+
+[ext_resource type="Script" path="res://scripts/room_controller.gd" id="1_room"]
+[ext_resource type="Script" path="res://scripts/session_bridge.gd" id="2_session"]
+[ext_resource type="Script" path="res://scripts/chat3d_bridge.gd" id="3_chat3d"]
+[ext_resource type="Script" path="res://scripts/media_surfaces.gd" id="4_surfaces"]
+[ext_resource type="Script" path="res://scripts/avatar_manager.gd" id="5_avatars"]
+[ext_resource type="Script" path="res://scripts/local_controller.gd" id="6_local"]
+
+[sub_resource type="Environment" id="env_room"]
+background_mode = 1
+background_color = Color(0.012, 0.012, 0.03, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.22, 0.26, 0.42, 1)
+ambient_light_energy = 0.7
+fog_enabled = true
+fog_light_color = Color(0.05, 0.06, 0.12, 1)
+fog_density = 0.015
+
+[sub_resource type="StandardMaterial3D" id="mat_floor"]
+albedo_color = Color(0.05, 0.055, 0.09, 1)
+roughness = 0.25
+metallic = 0.4
+
+[sub_resource type="StandardMaterial3D" id="mat_wall"]
+cull_mode = 1
+albedo_color = Color(0.03, 0.035, 0.07, 1)
+roughness = 0.6
+emission_enabled = true
+emission = Color(0.08, 0.16, 0.22, 1)
+emission_energy_multiplier = 0.25
+
+[sub_resource type="StandardMaterial3D" id="mat_table"]
+albedo_color = Color(0.07, 0.075, 0.13, 1)
+roughness = 0.15
+metallic = 0.6
+emission_enabled = true
+emission = Color(0.2, 0.12, 0.4, 1)
+emission_energy_multiplier = 0.2
+
+[sub_resource type="StandardMaterial3D" id="mat_stage"]
+albedo_color = Color(0.09, 0.07, 0.14, 1)
+roughness = 0.3
+emission_enabled = true
+emission = Color(0.45, 0.3, 0.75, 1)
+emission_energy_multiplier = 0.3
+
+[sub_resource type="CylinderMesh" id="mesh_floor"]
+top_radius = 9.5
+bottom_radius = 9.5
+height = 0.2
+
+[sub_resource type="CylinderMesh" id="mesh_wall"]
+top_radius = 9.5
+bottom_radius = 9.5
+height = 5.0
+cap_top = false
+cap_bottom = false
+
+[sub_resource type="CylinderMesh" id="mesh_table"]
+top_radius = 2.2
+bottom_radius = 2.4
+height = 0.9
+
+[sub_resource type="CylinderMesh" id="mesh_stage"]
+top_radius = 1.6
+bottom_radius = 1.7
+height = 0.35
+
+[sub_resource type="QuadMesh" id="mesh_screen"]
+size = Vector2(3.2, 1.8)
+
+[sub_resource type="QuadMesh" id="mesh_plate"]
+size = Vector2(0.9, 0.6)
+
+[sub_resource type="QuadMesh" id="mesh_backdrop"]
+size = Vector2(2.6, 1.5)
+
+[node name="Room" type="Node3D"]
+script = ExtResource("1_room")
+
+[node name="SessionBridge" type="Node" parent="."]
+script = ExtResource("2_session")
+
+[node name="Chat3DBridge" type="Node" parent="."]
+script = ExtResource("3_chat3d")
+
+[node name="Env" type="WorldEnvironment" parent="."]
+environment = SubResource("env_room")
+
+[node name="Lights" type="Node3D" parent="."]
+
+[node name="KeyLight" type="DirectionalLight3D" parent="Lights"]
+rotation = Vector3(-0.9, 0.35, 0)
+light_color = Color(0.55, 0.62, 0.9, 1)
+light_energy = 0.5
+
+[node name="TableLight" type="OmniLight3D" parent="Lights"]
+position = Vector3(0, 3.4, 0)
+light_color = Color(0.5, 0.75, 0.9, 1)
+light_energy = 1.1
+omni_range = 9.0
+
+[node name="StageSpot" type="SpotLight3D" parent="Lights"]
+position = Vector3(-4.81, 4.5, -4.81)
+rotation = Vector3(-1.5708, 0, 0)
+light_color = Color(0.85, 0.75, 1, 1)
+light_energy = 2.5
+spot_range = 6.0
+spot_angle = 28.0
+
+[node name="Chamber" type="Node3D" parent="."]
+
+[node name="Floor" type="MeshInstance3D" parent="Chamber"]
+position = Vector3(0, -0.1, 0)
+mesh = SubResource("mesh_floor")
+material_override = SubResource("mat_floor")
+
+[node name="Wall" type="MeshInstance3D" parent="Chamber"]
+position = Vector3(0, 2.5, 0)
+mesh = SubResource("mesh_wall")
+material_override = SubResource("mat_wall")
+
+[node name="Table" type="MeshInstance3D" parent="Chamber"]
+position = Vector3(0, 0.45, 0)
+mesh = SubResource("mesh_table")
+material_override = SubResource("mat_table")
+
+[node name="StagePlatform" type="MeshInstance3D" parent="Chamber"]
+position = Vector3(-4.81, 0.175, -4.81)
+mesh = SubResource("mesh_stage")
+material_override = SubResource("mat_stage")
+
+[node name="Surfaces" type="Node3D" parent="."]
+script = ExtResource("4_surfaces")
+
+[node name="Table1" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(1.5, 0.92, 0)
+rotation = Vector3(-1.5708, 0, 0)
+mesh = SubResource("mesh_plate")
+
+[node name="Table2" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(0.75, 0.92, 1.299)
+rotation = Vector3(-1.5708, 0, 0)
+mesh = SubResource("mesh_plate")
+
+[node name="Table3" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(-0.75, 0.92, 1.299)
+rotation = Vector3(-1.5708, 0, 0)
+mesh = SubResource("mesh_plate")
+
+[node name="Table4" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(-1.5, 0.92, 0)
+rotation = Vector3(-1.5708, 0, 0)
+mesh = SubResource("mesh_plate")
+
+[node name="Table5" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(-0.75, 0.92, -1.299)
+rotation = Vector3(-1.5708, 0, 0)
+mesh = SubResource("mesh_plate")
+
+[node name="Table6" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(0.75, 0.92, -1.299)
+rotation = Vector3(-1.5708, 0, 0)
+mesh = SubResource("mesh_plate")
+
+[node name="Screen1" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(0, 2.6, -9.3)
+mesh = SubResource("mesh_screen")
+
+[node name="Screen2" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(9.3, 2.6, 0)
+rotation = Vector3(0, -1.5708, 0)
+mesh = SubResource("mesh_screen")
+
+[node name="Screen3" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(0, 2.6, 9.3)
+rotation = Vector3(0, 3.14159, 0)
+mesh = SubResource("mesh_screen")
+
+[node name="Screen4" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(-9.3, 2.6, 0)
+rotation = Vector3(0, 1.5708, 0)
+mesh = SubResource("mesh_screen")
+
+[node name="StageBackdrop" type="MeshInstance3D" parent="Surfaces"]
+position = Vector3(-5.94, 1.6, -5.94)
+rotation = Vector3(0, 0.7854, 0)
+mesh = SubResource("mesh_backdrop")
+
+[node name="Seats" type="Node3D" parent="."]
+
+[node name="Seat01" type="Marker3D" parent="Seats"]
+position = Vector3(5.2, 0, 0)
+
+[node name="Seat02" type="Marker3D" parent="Seats"]
+position = Vector3(4.804, 0, 1.99)
+
+[node name="Seat03" type="Marker3D" parent="Seats"]
+position = Vector3(3.677, 0, 3.677)
+
+[node name="Seat04" type="Marker3D" parent="Seats"]
+position = Vector3(1.99, 0, 4.804)
+
+[node name="Seat05" type="Marker3D" parent="Seats"]
+position = Vector3(0, 0, 5.2)
+
+[node name="Seat06" type="Marker3D" parent="Seats"]
+position = Vector3(-1.99, 0, 4.804)
+
+[node name="Seat07" type="Marker3D" parent="Seats"]
+position = Vector3(-3.677, 0, 3.677)
+
+[node name="Seat08" type="Marker3D" parent="Seats"]
+position = Vector3(-4.804, 0, 1.99)
+
+[node name="Seat09" type="Marker3D" parent="Seats"]
+position = Vector3(-5.2, 0, 0)
+
+[node name="Seat10" type="Marker3D" parent="Seats"]
+position = Vector3(-4.804, 0, -1.99)
+
+[node name="Seat11" type="Marker3D" parent="Seats"]
+position = Vector3(-3.677, 0, -3.677)
+
+[node name="Seat12" type="Marker3D" parent="Seats"]
+position = Vector3(-1.99, 0, -4.804)
+
+[node name="Seat13" type="Marker3D" parent="Seats"]
+position = Vector3(0, 0, -5.2)
+
+[node name="Seat14" type="Marker3D" parent="Seats"]
+position = Vector3(1.99, 0, -4.804)
+
+[node name="Seat15" type="Marker3D" parent="Seats"]
+position = Vector3(3.677, 0, -3.677)
+
+[node name="Seat16" type="Marker3D" parent="Seats"]
+position = Vector3(4.804, 0, -1.99)
+
+[node name="StageAnchor" type="Node3D" parent="."]
+position = Vector3(-4.81, 0.35, -4.81)
+
+[node name="Avatars" type="Node3D" parent="."]
+script = ExtResource("5_avatars")
+
+[node name="DesktopRig" type="Node3D" parent="."]
+script = ExtResource("6_local")
+
+[node name="Camera3D" type="Camera3D" parent="DesktopRig"]
+position = Vector3(0, 3, 8)
+current = true
+
+[node name="XRRig" type="XROrigin3D" parent="."]
+
+[node name="XRCamera" type="XRCamera3D" parent="XRRig"]
+position = Vector3(0, 1.7, 0)
+
+[node name="LeftHand" type="XRController3D" parent="XRRig"]
+tracker = &"left_hand"
+
+[node name="RightHand" type="XRController3D" parent="XRRig"]
+tracker = &"right_hand"
+
+[node name="Ui" type="CanvasLayer" parent="."]
+
+[node name="ModeLabel" type="Label" parent="Ui"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 640.0
+offset_bottom = 40.0
+text = "shadows-of-the-net"
+
+[node name="EnterVrButton" type="Button" parent="Ui"]
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = -160.0
+offset_top = -64.0
+offset_right = -24.0
+offset_bottom = -24.0
+text = "Enter VR"
+visible = false

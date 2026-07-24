@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Shadows of the Net - CHAT">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#101024"/>
+      <stop offset="1" stop-color="#05050d"/>
+    </linearGradient>
+    <radialGradient id="spot" cx="0.5" cy="0.35" r="0.6">
+      <stop offset="0" stop-color="#b388ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#b388ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="url(#bg)"/>
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="url(#spot)"/>
+  <!-- round table -->
+  <ellipse cx="32" cy="42" rx="18" ry="6" fill="#1c1c36" stroke="#7c4dff" stroke-width="1.2"/>
+  <!-- seated silhouettes around the table -->
+  <g fill="#0b0b16" stroke="#a8acc4" stroke-width="0.8">
+    <circle cx="14" cy="34" r="3.4"/>
+    <circle cx="24" cy="30" r="3.4"/>
+    <circle cx="40" cy="30" r="3.4"/>
+    <circle cx="50" cy="34" r="3.4"/>
+  </g>
+  <!-- wall screens -->
+  <g fill="#151530" stroke="#39d3bb" stroke-width="0.8">
+    <rect x="10" y="12" width="12" height="8" rx="1"/>
+    <rect x="26" y="10" width="12" height="8" rx="1"/>
+    <rect x="42" y="12" width="12" height="8" rx="1"/>
+  </g>
+</svg>

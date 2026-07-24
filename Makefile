@@ -58,7 +58,7 @@ GODOT_EXPORT_ROOT   = $(BACKEND_DIR)/src/main/resources/assets/levels
 # `make build-godot` iterates this list, runs each preset, and writes the
 # resulting bundle to backend/.../assets/levels/<lower-preset>/. Adding a
 # new game = drop a new project under games/<slug>/ + append a row here.
-GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo chess-godot connect-four-godot
+GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo chess-godot connect-four-godot shadows-of-the-net
 PRESETS_three-wizards-in-a-trenchcoat = Cave Field
 PRESETS_dodecahedron-demo             = Dodecahedron
 # chess-godot: the FIRST reference game ported to the Godot pivot — a real Godot
@@ -73,8 +73,14 @@ PRESETS_chess-godot                   = Chess-Godot
 # lower-cases to the slug 'connect-four-godot'. Ships ALONGSIDE the existing
 # web-native 'connect-four' bundle (kept as fallback).
 PRESETS_connect-four-godot            = Connect-Four-Godot
+# shadows-of-the-net: the XR-chat noir room ("Shadows of the Net – CHAT") — a
+# PURE-GDScript Godot 3D project (no Rust core, no GDExtension; the SD_* and
+# Chat3D transports are JavaScriptBridge-based). Only the Web preset is driven
+# here; its Linux/Windows PCVR presets are exported manually. Preset name
+# lower-cases to the slug 'shadows-of-the-net'.
+PRESETS_shadows-of-the-net            = Shadows-Of-The-Net
 # Flat slug list used by `make seed-roles` and other per-game iteration.
-GAME_SLUGS          = three-wizards dodecahedron chess-godot connect-four-godot
+GAME_SLUGS          = three-wizards dodecahedron chess-godot connect-four-godot shadows-of-the-net
 
 BACKEND_JAR         = $(BACKEND_DIR)/target/hugmesh-gaming-bff-0.1.0-SNAPSHOT.jar
 FRONTEND_DIST       = $(FRONTEND_DIR)/dist/hugmesh-games-frontend
@@ -177,6 +183,7 @@ build-godot: build-rust
 	    dodecahedron-demo)             presets="Dodecahedron";; \
 	    chess-godot)                   presets="Chess-Godot";; \
 	    connect-four-godot)            presets="Connect-Four-Godot";; \
+	    shadows-of-the-net)            presets="Shadows-Of-The-Net";; \
 	    *)                             presets="";; \
 	  esac; \
 	  for preset in $$presets; do \
@@ -241,6 +248,7 @@ patch-godot:
 	    dodecahedron-demo)             presets="Dodecahedron";; \
 	    chess-godot)                   presets="Chess-Godot";; \
 	    connect-four-godot)            presets="Connect-Four-Godot";; \
+	    shadows-of-the-net)            presets="Shadows-Of-The-Net";; \
 	    *)                             presets="";; \
 	  esac; \
 	  for preset in $$presets; do \
