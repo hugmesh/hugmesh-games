@@ -98,8 +98,9 @@ Migrations 001–017 are pre-federation. The federation work landed in:
 - `052-web-game-relay-event-types.xml` — `input_event_types` + `game_event_support` rows for the generic web-native control/world relay channels.
 - `053-chess-godot-federation.xml` — registers the optional `chess-godot` Godot front-end variant (`games`/`chapters`/`federation_modules`/`game_access` rows) alongside the web-native chess title.
 - `055-connect-four-godot-federation.xml` — same pattern as 053, for a `connect-four-godot` variant alongside the web-native connect-four title. The merge commit's own title flags the WASM export as not yet verified — the catalog/federation rows are real, but nobody has confirmed the produced bundle boots.
+- `056-shadows-of-the-net-federation.xml` — registers "Shadows of the Net – CHAT" (`shadows-of-the-net`): the pure-GDScript XR chat chamber under the same `kind='wasm-game'` launch shape (games/chapters/federation/game_access, metadata `{"sse":true,"hostAuthoritative":true,"engine":"godot","xr":true}`) plus the slug's `game_event_support` opt-in for the host-authoritative `world/state` room-state broadcast (the `input_event_types` reference row was already seeded by 050-1). Pinned end to end — including idempotent re-runs of every statement — by `ShadowsOfTheNetFederationSeedTest`.
 
-The catalog now spans **18 games** (4 Godot — incl. the `chess-godot` and `connect-four-godot` front-end variants registered by changelogs 053/055 — + 14 web-native). The `realtime_matches` work (049) adds engines and a match surface, not a launchable catalog title.
+The catalog now spans **19 games** (5 Godot — the `chess-godot` / `connect-four-godot` front-end variants registered by changelogs 053/055 plus the `shadows-of-the-net` XR room registered by 056 — + 14 web-native). The `realtime_matches` work (049) adds engines and a match surface, not a launchable catalog title.
 
 **Never edit a previously-merged changeset.** When something is missed, append a new changeset with `<preConditions onFail="MARK_RAN">` so re-runs are idempotent.
 

@@ -16,8 +16,17 @@ games/
 │   ├── addons/hugmesh_export/      # editor plugin → upload zip
 │   ├── hugmesh_bridge.gdextension  # GDExtension binding
 │   └── bin/libhugmesh_bridge.so    # populated by `make build-rust`
-└── dodecahedron-demo/               # slug: dodecahedron
-    └── …
+├── dodecahedron-demo/               # slug: dodecahedron
+│   └── …
+├── chess-godot/                     # slug: chess-godot (Godot port, Rust chess core via the bridge)
+│   └── …
+├── connect-four-godot/              # slug: connect-four-godot (same recipe as chess-godot)
+│   └── …
+└── shadows-of-the-net/              # slug: shadows-of-the-net ("Shadows of the Net – CHAT")
+    ├── project.godot                #   PURE GDScript — deliberately NO hugmesh_bridge
+    ├── export_presets.cfg           #   Web (threads OFF) + Linux/Windows PCVR presets
+    ├── scenes/room.tscn             #   16-seat noir chamber, media surfaces, stage
+    └── scripts/                     #   session_bridge.gd (SD_*) + chat3d_bridge.gd (Chat3D)
 ```
 
 A Rust GDExtension (`extensions/hugmesh-bridge/`) supplies the bridge ABI. `make build-rust` builds it once and copies `libhugmesh_bridge.so` into every game's `bin/` so each project can be opened directly.
@@ -251,7 +260,7 @@ Once the request returns, the game is live: the host shell's federation manifest
 If you're committing a game to the repo (rather than uploading at runtime), do all four:
 
 1. Add the project dir to `GAME_PROJECTS` and define `PRESETS_<dir>` in the Makefile.
-2. Add a Liquibase changeset that inserts the `games` row, the `federation_modules` row, and `level_prerequisites`/`game_access` if needed. See `db/changelog/017-snapdragon-catalog.xml` and `018-federation-modules.xml` for the patterns.
+2. Add a Liquibase changeset that inserts the `games` row, the `federation_modules` row, and `level_prerequisites`/`game_access` if needed. See `db/changelog/017-snapdragon-catalog.xml` and `018-federation-modules.xml` for the patterns — or, for a `kind='wasm-game'` title (iframe straight off the wasm-fragment, no per-game Angular remote), mirror `053-chess-godot-federation.xml` / `056-shadows-of-the-net-federation.xml` instead.
 3. (Optional) Add a `games-<slug>` service to `docker-compose.yml` if the game ships its own remote (separate Angular project under `frontend/projects/games-<slug>/`). Stock games use this; one-off uploads can ride the shared `wasm-fragment` remote instead.
 4. Run the section-6 build chain.
 

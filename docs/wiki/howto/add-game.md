@@ -65,12 +65,13 @@ In the root [`Makefile`](../../../Makefile):
 
 ### 3. Add a Liquibase changeset
 
-Use [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) as the template. Insert into:
+Use [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) as the template — or, for a `kind='wasm-game'` title launched straight off the wasm-fragment (no per-game Angular remote), copy one of the modern four-row seeds instead: [`053-chess-godot-federation.xml`](../../../backend/src/main/resources/db/changelog/053-chess-godot-federation.xml) (Godot + Rust core) or [`056-shadows-of-the-net-federation.xml`](../../../backend/src/main/resources/db/changelog/056-shadows-of-the-net-federation.xml) (pure GDScript, plus a `game_event_support` opt-in for a host-authoritative `world/state` relay). Insert into:
 
 - `games` — slug, display name, description, sort order.
 - `chapters` — one row per export preset.
 - `federation_modules` — the per-game remote (or point at `wasm-fragment` if no per-game frontend).
 - `game_access` — at least one row, typically `(scope='all', value=NULL)` for public.
+- `input_event_types` / `game_event_support` — only if the game relays a new `(kind, type)` over `/api/input` (see changesets 050/052/056).
 
 Append to [`db.changelog-master.xml`](../../../backend/src/main/resources/db/changelog/db.changelog-master.xml).
 
