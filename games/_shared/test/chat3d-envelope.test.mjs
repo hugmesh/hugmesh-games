@@ -28,6 +28,11 @@
 //    PUSH time, which is exactly the `pngBase64` shape Marshalls.base64_to_raw
 //    expects on the GDScript side.
 //
+// …plus the §5 `sticker` byte channel added on top of them, whose cap is the
+// one that CANNOT reuse placeMedia's degrade-to-null shape: on that channel a
+// null payload is the CLEAR signal, so nulling an oversized sticker would erase
+// the plate a member is already wearing. See section 8d.
+//
 // Run: node games/_shared/test/chat3d-envelope.test.mjs
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -331,6 +336,64 @@ for (const [call, slots] of Object.entries(ALIASES)) {
   // Backfill must not widen an args[] BEYOND its own signature.
   deliver({ v: 1, t: 'setLocal', args: ['@me:x', 'extra'] });
   eq(drain(), [{ t: 'setLocal', args: ['@me:x'] }], 'surplus args are trimmed to the signature');
+}
+
+// ── 8d. the sticker cap DROPS THE CALL, because null means "clear" ──────────
+//
+// The §5 `sticker` channel's cap cannot reuse capMedia's degrade-to-null shape,
+// and the difference is not cosmetic. placeMedia keeps its metadata plaque when
+// the texture is dropped, so a null third argument still means "show the label".
+// A sticker has no plaque: `b64 === null` is the CLEAR signal, so nulling an
+// oversized payload would let a 40 MB upload ERASE the plate a member is
+// already wearing. The whole call is therefore dropped and the member keeps
+// what they are wearing. The cap also has to run on the RAW argument, BEFORE
+// normArg — normArg is what turns an over-cap ArrayBuffer into that same
+// dangerous null.
+
+{
+  const { deliver, drain, api } = bootShim();
+  eq(SIGNATURES.sticker, ['userId', 'b64', 'mime'], 'sticker declares the §5 byte-channel slots');
+  eq(ALIASES.sticker, { b64: ['bytes', 'png'], mime: ['type', 'contentType'] },
+    'sticker accepts matrix-ui\'s alternate spellings for both payload slots');
+
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
+  const okB64 = Buffer.from(png).toString('base64');
+  deliver({ v: 1, t: 'sticker', args: ['@b:t', okB64, 'image/png'] });
+  eq(drain(), [{ t: 'sticker', args: ['@b:t', okB64, 'image/png'] }],
+    'an under-cap sticker crosses intact');
+
+  // A structured-clone ArrayBuffer is base64d at push time like every other
+  // binary payload — the drain JSON.stringifies the queue.
+  deliver({ v: 1, t: 'sticker', userId: '@b:t', bytes: png.buffer, contentType: 'image/png' });
+  eq(drain(), [{ t: 'sticker', args: ['@b:t', okB64, 'image/png'] }],
+    'an alias-named ArrayBuffer sticker decodes to §5 order as base64');
+
+  const oversizedB64 = 'A'.repeat(Math.ceil((MAX_MEDIA_BYTES + 1024) * 4 / 3));
+  deliver({ v: 1, t: 'sticker', args: ['@b:t', oversizedB64, 'image/png'] });
+  eq(drain(), [], 'an oversized BASE64 sticker is dropped WHOLE, not nulled into a clear');
+
+  deliver({ v: 1, t: 'sticker', userId: '@b:t', bytes: new Uint8Array(MAX_MEDIA_BYTES + 1).buffer, mime: 'image/png' });
+  eq(drain(), [], 'an oversized ARRAYBUFFER sticker is dropped before normArg can null it');
+
+  // Off-by-one: exactly at the cap still ships (the game re-checks the same
+  // number after decoding, so this is the boundary both halves agree on).
+  const atLimit = new Uint8Array(MAX_MEDIA_BYTES);
+  deliver({ v: 1, t: 'sticker', userId: '@b:t', bytes: atLimit, mime: 'image/png' });
+  const [atCap] = drain();
+  ok(atCap && typeof atCap.args[1] === 'string', 'a sticker exactly at the cap is accepted');
+
+  // The CLEAR must still get through — the cap guard must not confuse "no
+  // payload" with "an unmeasurable one" (rawBytes returns -1 for a non-payload).
+  deliver({ v: 1, t: 'sticker', args: ['@b:t', null, null] });
+  eq(drain(), [{ t: 'sticker', args: ['@b:t', null, null] }],
+    'a null payload — the CLEAR — is never mistaken for an oversized one');
+
+  // Same cap on the direct same-origin call path, not only postMessage.
+  api.sticker('@b:t', oversizedB64, 'image/png');
+  eq(drain(), [], 'the direct Chat3D.sticker() call is capped too');
+  api.sticker('@b:t', okB64, 'image/png');
+  eq(drain(), [{ t: 'sticker', args: ['@b:t', okB64, 'image/png'] }],
+    '…and an ordinary one still goes through it');
 }
 
 // ── 9. the inbound queue is bounded ─────────────────────────────────────────
