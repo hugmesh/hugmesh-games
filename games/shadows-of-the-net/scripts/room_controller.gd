@@ -482,19 +482,25 @@ func _on_roster(list: Array) -> void:
 	var keys: Array = []
 	for entry in list:
 		var user_id := ""
+		var display_name := ""
 		if entry is String:
 			user_id = entry
 		elif entry is Dictionary:
 			user_id = str(entry.get("userId", ""))
+			# The host ships `name` in EVERY roster row and documents it as the
+			# nametag source. Building the tag from the mxid localpart and
+			# discarding it is why nobody's chosen display name ever showed up.
+			display_name = str(entry.get("name", ""))
 		if user_id == "":
 			continue
 		keys.append(user_id)
 		_avatars.call("ensure", user_id)
+		_avatars.call("set_display_name", user_id, display_name)
 	_avatars.call("prune", keys)
 
 
-func _on_avatar(user_id: String, config: Dictionary) -> void:
-	_avatars.call("upsert", user_id, config)
+func _on_avatar(user_id: String, config: Variant, meta: Dictionary = {}) -> void:
+	_avatars.call("upsert", user_id, config, meta)
 
 
 func _on_pose(user_id: String, x: float, z: float, yaw: float, seat: int) -> void:
@@ -514,12 +520,28 @@ func _on_speaking(user_id: String, value: bool) -> void:
 	_avatars.call("set_speaking", user_id, value)
 
 
+## CONVERGENCE NOTE — `expression` and `stage` are RECEIVE-ONLY here and the
+## host currently has no producer for either, which is the same "a receiver
+## nobody feeds" defect as the original `ready` handshake bug, in mirror image.
+##
+## The agreed resolution is to WIRE THE PRODUCERS on the host rather than delete
+## the channels, because an honest source exists for both and both are named
+## features: `expression` comes from the VN expression signal that already
+## drives the 2D stage (matrix-ui `vn/expression.ts` — explicit `vn.expression`
+## over the sentiment derivation, the same 10 canonical labels this rig poses),
+## and `stage` from the moderator stage-grant surface (`stageModOnly` /
+## STAGE_SURFACE_ID in `chat3d-scene.service.ts`). Deleting them would delete
+## DESIGN §5 vocabulary that the game can already render today.
+##
+## So the receivers below STAY, and test_chat3d_convergence pins them: if the
+## host lane deletes a channel instead, that pin is the thing that has to be
+## deleted with it — not silently left passing.
 func _on_expression(user_id: String, label: String) -> void:
 	_avatars.call("set_expression", user_id, label)
 
 
-func _on_place_media(surface_id: String, meta: Dictionary, png: PackedByteArray) -> void:
-	_surfaces.call("place", surface_id, meta, png)
+func _on_place_media(surface_id: String, meta: Dictionary, image_bytes: PackedByteArray) -> void:
+	_surfaces.call("place", surface_id, meta, image_bytes)
 
 
 func _on_clear_media(surface_id: String) -> void:

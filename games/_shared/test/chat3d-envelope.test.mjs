@@ -97,7 +97,11 @@ function bootShim({ search = `?mode=matrix&origin=${encodeURIComponent(HOST)}`, 
   return {
     api: window.Chat3D,
     posted,
-    deliver: (data, origin = HOST) => listeners.forEach((fn) => fn({ origin, data })),
+    parent: window.parent,
+    // `source` defaults to the embedding window (the only window the shim
+    // accepts) — see the source-window pin below.
+    deliver: (data, origin = HOST, source = window.parent) =>
+      listeners.forEach((fn) => fn({ origin, data, source })),
     drain: () => JSON.parse(window.Chat3D._drain()),
   };
 }
@@ -150,6 +154,25 @@ function bootShim({ search = `?mode=matrix&origin=${encodeURIComponent(HOST)}`, 
   eq(drain(), [{ t: 'setLocal', args: ['@me:x'] }], 'a well-formed message is accepted');
 }
 
+// ── 3b. SOURCE-WINDOW pin, not just the origin ──────────────────────────────
+//
+// CONVERGENCE: the host pins origin AND `ev.source !== frameWindow`; this side
+// pinned the origin only, so ANY window on the host origin — a second tab the
+// host opened, a popup, a nested frame — could drive the whole room: roster,
+// avatars, stage grants, media. window.parent is the one window the shim also
+// posts back to, so it is the only one whose messages can be a conversation.
+
+{
+  const { deliver, drain, parent } = bootShim();
+  const otherWindowOnTheSameOrigin = { postMessage() {} };
+  deliver({ v: 1, t: 'setLocal', args: ['@evil:x'] }, HOST, otherWindowOnTheSameOrigin);
+  eq(drain().length, 0, 'a same-origin message from ANOTHER window is dropped');
+  deliver({ v: 1, t: 'setLocal', args: ['@evil:x'] }, HOST, null);
+  eq(drain().length, 0, 'a message with no source window is dropped');
+  deliver({ v: 1, t: 'setLocal', args: ['@me:x'] }, HOST, parent);
+  eq(drain(), [{ t: 'setLocal', args: ['@me:x'] }], 'the embedding window still gets through');
+}
+
 // ── 4. the canonical args[] path (what matrix-ui sends today) ───────────────
 
 {
@@ -170,7 +193,8 @@ function bootShim({ search = `?mode=matrix&origin=${encodeURIComponent(HOST)}`, 
   // The older TypeScript spellings every one of these channels used to ship.
   const legacy = [
     [{ v: 1, t: 'roster', users: '[]' }, ['[]']],
-    [{ v: 1, t: 'avatar', userId: '@a:t', config: '{"style":"toon"}' }, ['@a:t', '{"style":"toon"}']],
+    [{ v: 1, t: 'avatar', userId: '@a:t', config: '{"style":"toon"}' },
+      ['@a:t', '{"style":"toon"}', null, null, null]],
     [{ v: 1, t: 'openness', userId: '@a:t', value: 0.25 }, ['@a:t', 0.25]],
     [{ v: 1, t: 'blendshapes', userId: '@a:t', values: 'AAA=' }, ['@a:t', 'AAA=']],
     [{ v: 1, t: 'speaking', userId: '@a:t', speaking: true }, ['@a:t', true]],
@@ -250,6 +274,63 @@ for (const [call, slots] of Object.entries(ALIASES)) {
   const atLimit = new Uint8Array(MAX_MEDIA_BYTES);
   deliver({ v: 1, t: 'placeMedia', surfaceId: 'table-1', meta: '{}', bytes: atLimit });
   ok(typeof drain()[0].args[2] === 'string', 'a texture exactly at the limit is accepted');
+}
+
+// ── 8b. the cap applies to the BASE64 transport that actually ships ─────────
+//
+// CONVERGENCE: MAX_MEDIA_BYTES lived only inside the ArrayBuffer/TypedArray
+// normaliser, so on the base64-string transport matrix-ui really uses it was
+// unreachable — and each side's comments assumed the other one bounded it.
+
+{
+  const { deliver, drain, api } = bootShim();
+  const oversizedB64 = 'A'.repeat(Math.ceil((MAX_MEDIA_BYTES + 1024) * 4 / 3));
+  deliver({ v: 1, t: 'placeMedia', args: ['table-1', '{"label":"big"}', oversizedB64] });
+  const [call] = drain();
+  eq(call.args[2], null, 'an oversized BASE64 STRING texture is dropped, not forwarded');
+  eq(call.args[1], '{"label":"big"}', 'the metadata survives so the plaque still labels');
+
+  const okB64 = Buffer.from(new Uint8Array(1024)).toString('base64');
+  deliver({ v: 1, t: 'placeMedia', args: ['table-1', '{}', okB64] });
+  eq(drain()[0].args[2], okB64, 'a base64 texture under the cap passes through');
+
+  // Same cap on the direct same-origin call path, not only postMessage.
+  api.placeMedia('table-1', '{}', oversizedB64);
+  eq(drain()[0].args[2], null, 'the direct Chat3D.placeMedia() call is capped too');
+}
+
+// ── 8c. avatar carries mode/sticker/name IN the signature ───────────────────
+//
+// CONVERGENCE: the host ships mode/sticker/name as envelope fields OUTSIDE the
+// signature and sends configJson=null for billboard participants. The decode
+// path takes `args` verbatim when it is an array, so all three were dropped and
+// billboard avatars were unrepresentable. The signature is widened on BOTH
+// sides; a SHORT args array from a host that has not caught up yet is
+// backfilled from the named fields, so the room works against either.
+
+{
+  eq(SIGNATURES.avatar, ['userId', 'configJson', 'mode', 'sticker', 'name'],
+    'avatar declares the five §5+billboard slots');
+
+  const { deliver, drain } = bootShim();
+  deliver({
+    v: 1, t: 'avatar', args: ['@b:t', null],
+    userId: '@b:t', configJson: null,
+    mode: 'billboard', sticker: 'mxc://x/y', name: 'Bee',
+  });
+  eq(drain(), [{ t: 'avatar', args: ['@b:t', null, 'billboard', 'mxc://x/y', 'Bee'] }],
+    'a short args[] is backfilled from the named billboard fields');
+
+  deliver({
+    v: 1, t: 'avatar',
+    args: ['@c:t', '{"style":"toon"}', 'forge', null, 'Cee'],
+  });
+  eq(drain(), [{ t: 'avatar', args: ['@c:t', '{"style":"toon"}', 'forge', null, 'Cee'] }],
+    'a full args[] from an upgraded host decodes verbatim');
+
+  // Backfill must not widen an args[] BEYOND its own signature.
+  deliver({ v: 1, t: 'setLocal', args: ['@me:x', 'extra'] });
+  eq(drain(), [{ t: 'setLocal', args: ['@me:x'] }], 'surplus args are trimmed to the signature');
 }
 
 // ── 9. the inbound queue is bounded ─────────────────────────────────────────

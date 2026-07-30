@@ -11,14 +11,15 @@ extends Node3D
 #   AvatarManager
 #   └── Avatar_<key> (Node3D)      ← the node this manager MOVES (target_pos/yaw)
 #       ├── Rig (CharacterAssembler)  ← re-assembled on every avatar() update
+#       ├── Billboard (MeshInstance3D) ← billboard mode only (hidden otherwise)
 #       ├── NameTag (Label3D)
 #       └── SpeakingRing (MeshInstance3D)
 #
-# The nametag and speaking ring are SIBLINGS of the rig, never its children:
-# CharacterAssembler.assemble() frees ALL of its own children on every rebuild
-# (`for child in get_children(): child.queue_free()`), so anything parented to
-# the rig is destroyed the first time a participant publishes their config —
-# which is the normal roster→avatar order, i.e. it would happen to everyone.
+# The nametag, billboard and speaking ring are SIBLINGS of the rig, never its
+# children: CharacterAssembler.assemble() frees ALL of its own children on every
+# rebuild (`for child in get_children(): child.queue_free()`), so anything
+# parented to the rig is destroyed the first time a participant publishes their
+# config — which is the normal roster→avatar order, i.e. everyone.
 
 const CharacterAssembler := preload("res://scripts/character_assembler.gd")
 
@@ -27,6 +28,8 @@ const MAX_AVATARS := 16
 ## Chamber radius (mirrors local_controller.ROOM_RADIUS). Remote poses are
 ## clamped into it — see set_pose().
 const ROOM_RADIUS := 8.6
+## Longest nametag rendered above a participant.
+const MAX_NAMETAG := 24
 
 var seats_root: Node3D = null
 var stage_anchor: Node3D = null
@@ -47,11 +50,32 @@ func _process(delta: float) -> void:
 		root_node.rotation.y = lerp_angle(root_node.rotation.y, av["target_yaw"], t)
 
 
+## The nametag text for a participant: the DISPLAY NAME the host supplies in
+## every roster row and avatar envelope, falling back to the mxid localpart.
+##
+## The host documents `name` as the nametag source and computes it on every
+## poll; this side used to build the tag from the localpart and throw the
+## supplied name away, so a participant's chosen display name never appeared in
+## the room they were standing in. The name is sanitised with the SERVER's
+## display-name rule (control/bidi/invisible code points stripped) before it
+## goes anywhere near a Label3D — an unsanitised tag lets one member's name
+## visually rewrite their neighbour's.
+static func nametag_for(key: String, display_name: String) -> String:
+	var clean := CharacterAssembler.display_name(display_name)
+	if clean == "":
+		clean = key.get_slice(":", 0).trim_prefix("@")
+	return clean.substr(0, MAX_NAMETAG)
+
+
 ## Create/replace a participant's rig from a Char3DConfig (or null → keep).
-func upsert(key: String, config: Variant) -> void:
+##
+## `meta` is the §5 avatar envelope's mode/sticker/name slots ({} when the
+## caller has none — session mode, or an `ensure()` from the roster).
+func upsert(key: String, config: Variant, meta: Dictionary = {}) -> void:
 	if _avatars.has(key):
 		if config != null:
 			(_avatars[key]["rig"] as Node3D).call("assemble", config)
+		_apply_meta(key, meta)
 		return
 	if _avatars.size() >= MAX_AVATARS:
 		push_warning("[sotn] avatar cap (%d) reached — ignoring %s" % [MAX_AVATARS, key])
@@ -67,9 +91,26 @@ func upsert(key: String, config: Variant) -> void:
 	root_node.add_child(rig)
 	rig.assemble(config if config != null else CharacterAssembler.random_config(hash(key)))
 
+	# A flat sticker plane for billboard-mode participants — hidden until the
+	# avatar envelope says `mode:"billboard"`. See _apply_meta for the honest
+	# limit on the sticker IMAGE.
+	var billboard := MeshInstance3D.new()
+	billboard.name = "Billboard"
+	var billboard_mesh := QuadMesh.new()
+	billboard_mesh.size = Vector2(0.9, 1.2)
+	billboard.mesh = billboard_mesh
+	var billboard_mat := StandardMaterial3D.new()
+	billboard_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	billboard_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	billboard_mat.albedo_color = Color(0.12, 0.14, 0.22)
+	billboard.material_override = billboard_mat
+	billboard.position = Vector3(0, 0.95, 0)
+	billboard.visible = false
+	root_node.add_child(billboard)
+
 	var label := Label3D.new()
 	label.name = "NameTag"
-	label.text = key.get_slice(":", 0).trim_prefix("@").substr(0, 24)
+	label.text = nametag_for(key, str(meta.get("name", "")))
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.pixel_size = 0.004
 	label.position = Vector3(0, 1.75, 0)
@@ -93,7 +134,67 @@ func upsert(key: String, config: Variant) -> void:
 
 	_avatars[key] = {"root": root_node, "rig": rig,
 			"target_pos": Vector3.ZERO, "target_yaw": 0.0,
-			"seat": -1, "on_stage": false, "ring": ring, "label": label}
+			"seat": -1, "on_stage": false, "ring": ring, "label": label,
+			"billboard": billboard, "mode": "", "sticker": ""}
+	_apply_meta(key, meta)
+
+
+## Apply the §5 avatar envelope's mode/sticker/name slots.
+##
+## BILLBOARD MODE is a real participant choice ("appear as my flat VN sticker,
+## not as a 3D character"), and the host cannot express it any other way: it
+## sends configJson=null and puts everything in these fields. Rendering such a
+## participant as a randomised 3D character — which is what happened while the
+## fields were unreachable — misrepresents them.
+##
+## HONEST LIMIT: `sticker` is an `mxc://` URL. Matrix media is authenticated and
+## lives on the HOST's origin; this wasm bundle runs on the games origin with no
+## access token, so it cannot fetch the image. The billboard therefore renders
+## as a blank plate carrying the participant's nametag until the host ships the
+## sticker BYTES (the placeMedia base64 precedent). The mxc is kept so that
+## channel can be added without another protocol change.
+func _apply_meta(key: String, meta: Dictionary) -> void:
+	if meta.is_empty() or not _avatars.has(key):
+		return
+	var av: Dictionary = _avatars[key]
+	# A SUPPLIED name updates the tag. An absent/empty one must not clobber it:
+	# the roster row is the other place the host publishes the display name, and
+	# an older host's two-slot avatar envelope carries no name at all — resetting
+	# everyone to their mxid localpart on the next avatar diff is not a fallback,
+	# it is data loss.
+	var supplied_name := str(meta.get("name", ""))
+	if supplied_name != "":
+		set_display_name(key, supplied_name)
+	var mode := str(meta.get("mode", ""))
+	if mode == "":
+		return          # host said nothing — leave the current representation
+	av["mode"] = mode
+	av["sticker"] = str(meta.get("sticker", ""))
+	var is_billboard := mode == "billboard"
+	var billboard: Variant = av["billboard"]
+	if is_instance_valid(billboard):
+		(billboard as MeshInstance3D).visible = is_billboard
+	(av["rig"] as Node3D).visible = not is_billboard
+
+
+## Set a participant's nametag from a host-supplied display name (roster row or
+## avatar envelope). Empty ⇒ the mxid-localpart fallback.
+func set_display_name(key: String, display_name: String) -> void:
+	if not _avatars.has(key):
+		return
+	var label: Variant = _avatars[key]["label"]
+	if is_instance_valid(label):
+		(label as Label3D).text = nametag_for(key, display_name)
+
+
+## How a participant chose to appear ("" until the host says).
+func mode_of(key: String) -> String:
+	return str(_avatars[key]["mode"]) if _avatars.has(key) else ""
+
+
+## The billboard sticker mxc a participant published ("" when not billboard).
+func sticker_of(key: String) -> String:
+	return str(_avatars[key]["sticker"]) if _avatars.has(key) else ""
 
 
 ## Deterministic guest fallback for participants without a config.

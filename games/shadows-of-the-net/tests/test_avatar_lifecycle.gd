@@ -121,8 +121,11 @@ func _repeated_avatar_updates_do_not_leak_decorations() -> void:
 	var root_node: Node3D = av["root"]
 	ok(is_instance_valid(av["ring"]), "ring survives four re-assembles")
 	ok(is_instance_valid(av["label"]), "nametag survives four re-assembles")
-	# Exactly one rig + one nametag + one ring — no duplicate decorations.
-	eq(root_node.get_child_count(), 3, "participant root holds exactly rig+nametag+ring")
+	# Exactly one rig + one billboard plate + one nametag + one ring — no
+	# duplicate decorations. (The billboard is the sibling that carries a
+	# billboard-mode participant; it stays hidden for a 3D rig.)
+	eq(root_node.get_child_count(), 4,
+			"participant root holds exactly rig+billboard+nametag+ring")
 	free_room(room)
 
 

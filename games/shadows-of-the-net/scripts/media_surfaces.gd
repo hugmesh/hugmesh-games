@@ -5,12 +5,23 @@ extends Node3D
 #   screen-1..4 four wall screens
 #   stage       the stage backdrop
 #
-# placeMedia(surfaceId, meta, pngBytes) textures the plane with a decoded PNG
-# (bytes arrive via the Chat3D bridge as base64 — Matrix media is fetched and
-# authenticated by the EMBEDDING page, never from inside the wasm) and shows
+# placeMedia(surfaceId, meta, imageBytes) textures the plane with the decoded
+# image (bytes arrive via the Chat3D bridge as base64 — Matrix media is fetched
+# and authenticated by the EMBEDDING page, never from inside the wasm) and shows
 # the moderated label. clearMedia() restores the idle noir look. Activation
 # (click / XR select toward a surface) is resolved mathematically against the
 # plane quads — no physics bodies needed.
+#
+# THE BYTES ARE NOT NECESSARILY PNG. The host forwards the UNTRANSCODED original
+# Matrix attachment — it has no image decoder of its own, so making it transcode
+# would mean shipping one — and the channel's argument is named `pngBase64` only
+# for historical reasons. Every JPEG or WebP attachment in the channel therefore
+# used to hit `load_png_from_buffer`, fail, and show a red error plate with a
+# warning that blamed the bytes. DECODE_FORMATS is the fix on this side, which
+# is the cheap side. The warning path stays for genuinely undecodable bytes.
+#
+# Inbound size is capped upstream at chat3d_bridge.MAX_MEDIA_BYTES (the single
+# inbound boundary), so nothing here has to bound the buffer again.
 
 signal surface_activated(surface_id: String)
 
@@ -45,19 +56,72 @@ func _ready() -> void:
 		_labels[surface_id] = label
 
 
-func place(surface_id: String, meta: Dictionary, png_bytes: PackedByteArray) -> void:
+## Every image container the room can texture a surface with.
+const DECODE_FORMATS: PackedStringArray = ["png", "jpg", "webp"]
+
+
+## The container `bytes` declares itself to be, by magic number ("" = none of
+## ours). Used only to try the RIGHT decoder first: Godot's loaders log an
+## engine error on a mismatch, and the games shim republishes console output to
+## the embedding page, so probing blindly would spam every JPEG placement.
+static func sniff_format(b: PackedByteArray) -> String:
+	if b.size() >= 8 and b[0] == 0x89 and b[1] == 0x50 and b[2] == 0x4E and b[3] == 0x47 \
+			and b[4] == 0x0D and b[5] == 0x0A and b[6] == 0x1A and b[7] == 0x0A:
+		return "png"
+	if b.size() >= 3 and b[0] == 0xFF and b[1] == 0xD8 and b[2] == 0xFF:
+		return "jpg"
+	if b.size() >= 12 and b[0] == 0x52 and b[1] == 0x49 and b[2] == 0x46 and b[3] == 0x46 \
+			and b[8] == 0x57 and b[9] == 0x45 and b[10] == 0x42 and b[11] == 0x50:
+		return "webp"
+	return ""
+
+
+## Decode `bytes` as any format the room accepts. Returns null only when EVERY
+## decoder refused — that, and only that, is a genuinely undecodable payload.
+##
+## The sniffed container is tried first and the others after it, so a mislabeled
+## or magic-less buffer that some decoder can still read is not thrown away.
+static func decode_image(bytes: PackedByteArray) -> Image:
+	if bytes.is_empty():
+		return null
+	var order: Array = []
+	# The sniff only REORDERS the admitted formats — it can never admit one
+	# DECODE_FORMATS does not list, or this constant would be decoration.
+	var sniffed := sniff_format(bytes)
+	if sniffed != "" and DECODE_FORMATS.has(sniffed):
+		order.append(sniffed)
+	for fmt in DECODE_FORMATS:
+		if fmt != sniffed:
+			order.append(fmt)
+	for fmt in order:
+		var img := Image.new()
+		var err := ERR_UNAVAILABLE
+		match fmt:
+			"png":
+				err = img.load_png_from_buffer(bytes)
+			"jpg":
+				err = img.load_jpg_from_buffer(bytes)
+			"webp":
+				err = img.load_webp_from_buffer(bytes)
+		if err == OK:
+			return img
+	return null
+
+
+func place(surface_id: String, meta: Dictionary, image_bytes: PackedByteArray) -> void:
 	var mesh := _mesh_for(surface_id)
 	if mesh == null:
 		return
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	if png_bytes.size() > 0:
-		var img := Image.new()
-		if img.load_png_from_buffer(png_bytes) == OK:
+	if image_bytes.size() > 0:
+		var img := decode_image(image_bytes)
+		if img != null:
 			mat.albedo_texture = ImageTexture.create_from_image(img)
 			mat.albedo_color = Color.WHITE
 		else:
-			push_warning("[sotn] undecodable PNG for %s — placeholder shown" % surface_id)
+			push_warning(("[sotn] undecodable image for %s (not PNG/JPEG/WebP)"
+					+ " — placeholder shown") % surface_id)
 			mat.albedo_color = Color(0.25, 0.1, 0.12)
 	else:
 		# Metadata-only placement (file / video poster pending / thread):

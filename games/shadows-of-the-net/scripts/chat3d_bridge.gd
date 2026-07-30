@@ -7,7 +7,9 @@ extends Node
 #
 # IN — the host page calls (directly, or via the postMessage envelope below):
 #   Chat3D.roster(json)                     full participant list (JSON array)
-#   Chat3D.avatar(userId, configJson)       a user's Char3DConfig
+#   Chat3D.avatar(userId, configJson, mode, sticker, name)
+#                                           a user's Char3DConfig + how they
+#                                           chose to appear (see AVATAR_MODES)
 #   Chat3D.pose(userId, x, z, yaw, seat)    pose update (seat -1 = free-roam)
 #   Chat3D.openness(userId, f)              mouth openness 0..1
 #   Chat3D.blendshapes(userId, b64)         base64 uint8[52] ARKit blendshapes
@@ -40,8 +42,13 @@ extends Node
 # the `pngBase64` shape the decoder below expects, so a host that passes real
 # image bytes (structured clone) and a host that passes base64 both work.
 #
-# ORIGIN ALLOW-LIST — checked on EVERY message, both ways:
-#   * inbound: event.origin must equal the allowed origin;
+# ORIGIN + SOURCE-WINDOW PINNING — checked on EVERY message, both ways:
+#   * inbound: event.origin must equal the allowed origin AND event.source must
+#     be the very window we post back to (window.parent). Origin alone is not
+#     enough — ANY window on the host origin (a second tab the host opened, a
+#     popup, a nested frame) can postMessage into this frame and drive the whole
+#     room. The host side pins both (origin allow-list + `ev.source !==
+#     frameWindow`); this is the mirror of that check.
 #   * outbound: postMessage targets the allowed origin explicitly (never '*').
 # The allowed origin comes from the ?origin= query param (set by the embedding
 # page), falling back to document.referrer's origin. With neither, postMessage
@@ -49,7 +56,10 @@ extends Node
 # degradation instead of a '*' hole.
 
 signal roster_received(list: Array)
-signal avatar_received(user_id: String, config: Dictionary)
+## `config` is a Dictionary, or null when the host sent configJson=null (a
+## billboard participant, or a metadata-only refresh) — the receiver keeps the
+## rig it has. `meta` carries the §5 mode/sticker/name slots.
+signal avatar_received(user_id: String, config: Variant, meta: Dictionary)
 signal pose_received(user_id: String, x: float, z: float, yaw: float, seat: int)
 signal openness_received(user_id: String, value: float)
 signal blendshapes_received(user_id: String, weights: PackedByteArray)
@@ -63,10 +73,27 @@ signal enter_vr_requested()
 
 ## surfaceId grammar (same regex the scene event clamps to server-side).
 const SURFACE_RE := "^(table-[1-6]|screen-[1-4]|stage)$"
+
+## How a participant chose to appear (matrix-ui `AVATAR_MODES`): a
+## character-forge config, a seeded random guest, or a flat VN sticker
+## billboard. "" = the host did not say (an older host) ⇒ treat as a 3D rig.
+const AVATAR_MODES: PackedStringArray = ["forge", "billboard", "guest"]
+## Cap on the sticker mxc URL carried in billboard mode (matrix-ui
+## MAX_AVATAR_STICKER_URL_LENGTH).
+const MAX_STICKER_URL := 512
+
 ## Argument order per function — the single source of the envelope mapping.
+##
+## `avatar` carries FIVE slots, not DESIGN §5's two. mode/sticker/name are what
+## a billboard participant IS: the host sends configJson=null for them and the
+## appearance lives entirely in those fields. They shipped as envelope fields
+## OUTSIDE the signature, which made them unreachable — the decode path takes
+## `args` verbatim when it is an array, so three fields the host computes on
+## every poll were silently dropped and billboard avatars were unrepresentable.
+## Widening the signature (on BOTH sides) is what makes the mode real.
 const SIGNATURES := {
 	"roster": ["json"],
-	"avatar": ["userId", "configJson"],
+	"avatar": ["userId", "configJson", "mode", "sticker", "name"],
 	"pose": ["userId", "x", "z", "yaw", "seat"],
 	"openness": ["userId", "f"],
 	"blendshapes": ["userId", "b64"],
@@ -100,6 +127,14 @@ const ALIASES := {
 ## Bytes accepted for one placeMedia texture before we drop the payload and
 ## fall back to a metadata-only plaque (the base64 of this still has to survive
 ## a JSON round-trip through the drain).
+##
+## ENFORCED ON EVERY TRANSPORT, not just the binary one. The cap used to live
+## only inside the ArrayBuffer/TypedArray normaliser, so on the base64-STRING
+## transport that actually shipped it was unreachable — and each side's comments
+## assumed the other one bounded it. It is now applied (a) in the JS shim to a
+## base64 string as well as to raw bytes and (b) again in _dispatch after
+## decoding, which is the check a headless run can actually execute. The host
+## enforces the SAME numeric limit before sending.
 const MAX_MEDIA_BYTES := 4 * 1024 * 1024
 
 ## The host queues everything until `ready`; re-announce until it talks back so
@@ -155,6 +190,27 @@ func _install_js() -> void:
 		if (ArrayBuffer.isView(v) && !(v instanceof DataView)) return toB64(v);
 		return v;
 	}
+	// Decoded byte length of a base64 string (no allocation).
+	function b64Bytes(s) {
+		var n = s.length;
+		if (n === 0) return 0;
+		var pad = s.charAt(n - 1) === '=' ? (s.charAt(n - 2) === '=' ? 2 : 1) : 0;
+		return Math.floor(n * 3 / 4) - pad;
+	}
+	// The media cap on the transport that actually ships: a base64 STRING. The
+	// binary path is capped in toB64; without this one an oversized texture
+	// crossed the bridge unbounded because it never touched that path.
+	function capMedia(t, args) {
+		if (t !== 'placeMedia') return args;
+		var v = args[2];
+		if (typeof v === 'string' && b64Bytes(v) > MAX_MEDIA) {
+			args = args.slice();
+			args[2] = null;
+			console.warn('[sotn] placeMedia texture over ' + MAX_MEDIA
+				+ ' bytes - dropped, metadata plaque only');
+		}
+		return args;
+	}
 	// Canonical signature name first, then the documented aliases.
 	function pick(d, t, key) {
 		if (d[key] !== undefined) return d[key];
@@ -179,7 +235,7 @@ func _install_js() -> void:
 	var q = [];
 	function push(t, args) {
 		if (q.length > 2048) q.length = 0;
-		q.push({ t: t, args: args.map(normArg) });
+		q.push({ t: t, args: capMedia(t, args.map(normArg)) });
 	}
 	var api = { _allowedOrigin: allowed, onEmit: null };
 	Object.keys(SIG).forEach(function(name) {
@@ -199,12 +255,25 @@ func _install_js() -> void:
 	};
 	window.addEventListener('message', function(e) {
 		if (!allowed || e.origin !== allowed) return;
+		// SOURCE-WINDOW PIN. Origin alone lets ANY window on the host origin
+		// drive this room; window.parent is the one window we also post back
+		// to, so it is the only one whose messages can be part of a
+		// conversation. Mirrors the host's `ev.source !== frameWindow` check.
+		if (e.source !== window.parent) return;
 		var d = e && e.data;
 		if (!d || typeof d !== 'object' || d.v !== 1 || typeof d.t !== 'string') return;
 		var sig = SIG[d.t];
 		if (!sig) return;
-		var args = Array.isArray(d.args) ? d.args
-			: sig.map(function(k) { return pick(d, d.t, k); });
+		// An `args` array wins slot-for-slot, but a SHORT one is backfilled from
+		// the signature-named fields instead of decoding to undefined: a host
+		// that has not yet widened its own signature table still sends the extra
+		// slots as named fields, and dropping them is how avatar mode/sticker/
+		// name went missing in the first place.
+		var args = [];
+		var supplied = Array.isArray(d.args) ? d.args : [];
+		for (var i = 0; i < sig.length; i++) {
+			args.push(i < supplied.length ? supplied[i] : pick(d, d.t, sig[i]));
+		}
 		push(d.t, args);
 	});
 	window.Chat3D = api;
@@ -248,9 +317,21 @@ func _dispatch(t: String, args: Array) -> void:
 			if parsed is Array:
 				roster_received.emit(parsed)
 		"avatar":
+			var uid := _arg_str(args, 0)
+			if uid == "":
+				return
 			var cfg: Variant = _arg_json(args, 1)
-			if cfg is Dictionary:
-				avatar_received.emit(_arg_str(args, 0), cfg)
+			var meta := {
+				"mode": _arg_enum(args, 2, AVATAR_MODES),
+				"sticker": _arg_sticker(args, 3),
+				"name": _arg_str(args, 4).substr(0, 120),
+			}
+			# A null config is NOT noise: billboard participants ship exactly
+			# that, and so does a metadata-only refresh. Passing null through
+			# (rather than dropping the whole call) lets the receiver keep the
+			# rig it has and still apply the new mode/name.
+			if cfg is Dictionary or meta["mode"] != "":
+				avatar_received.emit(uid, cfg if cfg is Dictionary else null, meta)
 		"pose":
 			pose_received.emit(_arg_str(args, 0), _arg_f(args, 1), _arg_f(args, 2),
 					_arg_f(args, 3), _arg_i(args, 4, -1))
@@ -268,13 +349,21 @@ func _dispatch(t: String, args: Array) -> void:
 			var surface := _arg_str(args, 0)
 			if _surface_re.search(surface) == null:
 				return
-			var meta: Variant = _arg_json(args, 1)
+			var media_meta: Variant = _arg_json(args, 1)
 			var png := PackedByteArray()
 			var b64 := _arg_str(args, 2)
 			if b64 != "":
 				png = Marshalls.base64_to_raw(b64)
+				# INBOUND CAP (MAX_MEDIA_BYTES, same number the host refuses to
+				# send above). Degrade to the metadata plaque instead of handing
+				# a multi-megabyte buffer to the image decoders.
+				if png.size() > MAX_MEDIA_BYTES:
+					push_warning(("[sotn] placeMedia texture for %s is %d bytes"
+							+ " (cap %d) — metadata plaque only")
+							% [surface, png.size(), MAX_MEDIA_BYTES])
+					png = PackedByteArray()
 			place_media_received.emit(surface,
-					meta if meta is Dictionary else {}, png)
+					media_meta if media_meta is Dictionary else {}, png)
 		"clearMedia":
 			var surface2 := _arg_str(args, 0)
 			if _surface_re.search(surface2) != null:
@@ -347,6 +436,23 @@ func _arg_i(args: Array, i: int, fallback: int) -> int:
 
 func _arg_b(args: Array, i: int) -> bool:
 	return i < args.size() and args[i] == true
+
+
+## An enum-checked string slot — anything outside `allowed` reads as "" (unset)
+## rather than being passed through to a `match` somewhere downstream.
+func _arg_enum(args: Array, i: int, allowed: PackedStringArray) -> String:
+	var v := _arg_str(args, i)
+	return v if allowed.has(v) else ""
+
+
+## The billboard sticker slot: an `mxc://` URL, length-capped. Anything else is
+## dropped — the room can only ever hand this back to the host, so a non-mxc
+## string is either a mistake or an attempt to smuggle a URL somewhere.
+func _arg_sticker(args: Array, i: int) -> String:
+	var v := _arg_str(args, i)
+	if not v.begins_with("mxc://") or v.length() > MAX_STICKER_URL:
+		return ""
+	return v
 
 
 ## Accepts either a JSON string or an already-structured value at args[i].

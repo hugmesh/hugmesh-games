@@ -104,7 +104,11 @@ func _signature_table_matches_design_section_5() -> void:
 	var sig: Dictionary = CHAT3D.SIGNATURES
 	var expected := {
 		"roster": ["json"],
-		"avatar": ["userId", "configJson"],
+		# FIVE slots, not §5's two: mode/sticker/name are what a billboard
+		# participant IS (configJson is null for them) and they were
+		# unreachable while they rode OUTSIDE the signature. Widened on BOTH
+		# sides — matrix-ui's HOST_CALL_SIGNATURES.avatar must match this.
+		"avatar": ["userId", "configJson", "mode", "sticker", "name"],
 		"pose": ["userId", "x", "z", "yaw", "seat"],
 		"openness": ["userId", "f"],
 		"blendshapes": ["userId", "b64"],

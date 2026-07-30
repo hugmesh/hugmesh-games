@@ -23,9 +23,16 @@ extends Node3D
 #
 #   WHAT IS ACTUALLY SHARED, and must stay in lockstep, is the DATA CONTRACT,
 #   not the code: the Char3DConfig v1 schema below, the 29-value family
-#   vocabulary, the 7 material regions, the 7 part slots, and the canonical
+#   vocabulary, the 7 canonical + 4 EXTENDED material regions, the 7 part
+#   slots, the bounded-value patterns, DEFAULT_MATERIALS and the canonical
 #   10-label expression vocabulary. Change one of those upstream ⇒ mirror the
 #   constant tables here (and vice versa); everything else is local.
+#
+#   THE AUTHORITY for every one of those tables is the server validator,
+#   snapdragon-character-forge-bff-api `Char3DConfigValidator`. This file is a
+#   MIRROR and must never be MORE PERMISSIVE than it: a value this copy accepts
+#   and the BFF rejects is a character that renders in the room and then 400s
+#   when the wearer tries to save it.
 #
 # WHAT IT DOES
 #   assemble(config) builds a stylized character rig from parameterized
@@ -62,7 +69,8 @@ extends Node3D
 #   { schemaVersion:1, name, body:{archetype,build 0-1,height 0.5-1.5},
 #     head:{family,variant,snoutLength 0-1,earStyle,hornStyle},
 #     parts:{tail,wings,ears,feature,accessory,markings,hair},
-#     materials:{fur,accent,detail,line,iris,skin,hair}, style }
+#     materials:{fur,accent,detail,line,iris,skin,hair
+#                (+ OPTIONAL innerMuzzle,socks,innerEar,tailTip)}, style }
 # ─────────────────────────────────────────────────────────────────────────────
 
 const SCHEMA_VERSION := 1
@@ -85,50 +93,96 @@ const EXPRESSIONS: PackedStringArray = [
 	"embarrassed", "thinking", "wink", "sleepy", "smug",
 ]
 
-## Material region names — 1:1 with the SVG palette regions (menagerie:
-## fur/accent/detail/line/iris; anime adds skin/hair).
+## The seven CANONICAL material regions — 1:1 with the SVG palette regions
+## (menagerie: fur/accent/detail/line/iris; anime adds skin/hair). Always
+## present in a parsed config (an absent/invalid one falls back to
+## DEFAULT_MATERIALS).
 const MATERIAL_REGIONS: PackedStringArray = [
 	"fur", "accent", "detail", "line", "iris", "skin", "hair",
 ]
 
-const DEFAULT_MATERIALS := {
-	"fur": "#8a6f4d", "accent": "#d9c7a0", "detail": "#4d3826",
-	"line": "#241a12", "iris": "#3f7fbf", "skin": "#e8c39e", "hair": "#3a2f2a",
+## The four EXTENDED coat-block regions (kemono.md's colour masks: lighter
+## inner-muzzle, socks/gloves, inner ear, tail tip) the character-forge uplift
+## added on top of the canonical seven.
+##
+## They are OPTIONAL ON THE WIRE and ABSENT MEANS "DERIVE IT" — the twin of
+## Char3DConfigValidator.EXTENDED_MATERIAL_KEYS and char3d_config.gd's
+## EXTENDED_MATERIAL_REGIONS. A room-side mirror that does not know them must
+## never reject the whole definition over them: that is exactly how a kemono
+## character ends up hard-rejected in the room while rendering fine in the
+## maker. This copy ACCEPTS a supplied value (same hex rule as the canonical
+## seven), and DERIVES the absent ones per EXTENDED_DERIVED_FROM, which
+## reproduces the pre-extension appearance.
+const EXTENDED_MATERIAL_REGIONS: PackedStringArray = [
+	"innerMuzzle", "socks", "innerEar", "tailTip",
+]
+
+## Every region a rig builds a material for (canonical + extended).
+const ALL_MATERIAL_REGIONS: PackedStringArray = [
+	"fur", "accent", "detail", "line", "iris", "skin", "hair",
+	"innerMuzzle", "socks", "innerEar", "tailTip",
+]
+
+## Extended region → the canonical region its DEFAULT derives from (verbatim
+## from CharForgePalette.DERIVED_FROM: innerMuzzle←fur lightened, socks←accent,
+## innerEar←skin, tailTip←accent).
+const EXTENDED_DERIVED_FROM := {
+	"innerMuzzle": "fur", "socks": "accent", "innerEar": "skin", "tailTip": "accent",
 }
 
-## Per-family construction traits. snout: default snout length bias;
+## Color.lightened() factor for the derived innerMuzzle block (kemono.md's
+## "lighter inner-muzzle"). CharForgePalette.INNER_MUZZLE_LIGHTEN twin.
+const INNER_MUZZLE_LIGHTEN := 0.45
+
+## The ONE canonical unset-region palette. AUTHORITY:
+## Char3DConfigValidator.DEFAULT_MATERIALS — copied verbatim, byte for byte, and
+## identical in char3d_config.gd (the Godot maker), char3d-config.ts (the Angular
+## editor), the matrix-ui room mirror and here. The five copies once disagreed on
+## accent/detail/iris, so ONE character rendered in different colour schemes
+## depending on which surface drew it. Do not "improve" these values locally.
+const DEFAULT_MATERIALS := {
+	"fur": "#8b5a2b", "accent": "#d2b48c", "detail": "#4a3728",
+	"line": "#2f2f2f", "iris": "#00bcd4", "skin": "#ffdbac", "hair": "#563d2d",
+}
+
+## Per-family construction traits.
 ## ears: default ear builder id; horns: default horn builder id ("" = none);
 ## beak: replace the snout with a beak cone; muzzle_flat: suid/ape-flat face.
+##
+## There is deliberately NO per-family `snout` bias here any more: the server
+## (Char3DConfigValidator) and every other mirror default head.snoutLength to a
+## FLAT 0.5, and a family-dependent default made the same definition render a
+## different muzzle in the room than in the maker.
 const FAMILY_TRAITS := {
-	"canid":     {"snout": 0.6, "ears": "pointed", "horns": ""},
-	"felid":     {"snout": 0.35, "ears": "pointed", "horns": ""},
-	"avian":     {"snout": 0.7, "ears": "", "horns": "", "beak": true},
-	"reptile":   {"snout": 0.6, "ears": "", "horns": ""},
-	"dragon":    {"snout": 0.65, "ears": "frill", "horns": "swept"},
-	"dino":      {"snout": 0.75, "ears": "", "horns": ""},
-	"kobold":    {"snout": 0.55, "ears": "frill", "horns": "stub"},
-	"gryphon":   {"snout": 0.6, "ears": "tuft", "horns": "", "beak": true},
-	"equine":    {"snout": 0.8, "ears": "pointed", "horns": ""},
-	"cervine":   {"snout": 0.6, "ears": "round", "horns": "antler"},
-	"bovine":    {"snout": 0.65, "ears": "round", "horns": "curved"},
-	"caprine":   {"snout": 0.55, "ears": "droop", "horns": "curled"},
-	"suid":      {"snout": 0.45, "ears": "droop", "horns": "", "muzzle_flat": true},
-	"hyena":     {"snout": 0.55, "ears": "round", "horns": ""},
-	"lapine":    {"snout": 0.3, "ears": "long", "horns": ""},
-	"rodent":    {"snout": 0.4, "ears": "round", "horns": ""},
-	"macropod":  {"snout": 0.55, "ears": "long", "horns": ""},
-	"moth":      {"snout": 0.2, "ears": "feather", "horns": ""},
-	"insect":    {"snout": 0.25, "ears": "feather", "horns": "stub"},
-	"bat":       {"snout": 0.35, "ears": "long", "horns": ""},
-	"ursine":    {"snout": 0.5, "ears": "round", "horns": ""},
-	"mustelid":  {"snout": 0.45, "ears": "round", "horns": ""},
-	"procyonid": {"snout": 0.4, "ears": "pointed", "horns": ""},
-	"amphibian": {"snout": 0.3, "ears": "", "horns": "", "muzzle_flat": true},
-	"aquatic":   {"snout": 0.5, "ears": "fin", "horns": ""},
-	"slime":     {"snout": 0.1, "ears": "", "horns": ""},
-	"robot":     {"snout": 0.3, "ears": "antenna", "horns": ""},
-	"synth":     {"snout": 0.45, "ears": "antenna", "horns": ""},
-	"humanoid":  {"snout": 0.0, "ears": "", "horns": "", "muzzle_flat": true},
+	"canid":     {"ears": "pointed", "horns": ""},
+	"felid":     {"ears": "pointed", "horns": ""},
+	"avian":     {"ears": "", "horns": "", "beak": true},
+	"reptile":   {"ears": "", "horns": ""},
+	"dragon":    {"ears": "frill", "horns": "swept"},
+	"dino":      {"ears": "", "horns": ""},
+	"kobold":    {"ears": "frill", "horns": "stub"},
+	"gryphon":   {"ears": "tuft", "horns": "", "beak": true},
+	"equine":    {"ears": "pointed", "horns": ""},
+	"cervine":   {"ears": "round", "horns": "antler"},
+	"bovine":    {"ears": "round", "horns": "curved"},
+	"caprine":   {"ears": "droop", "horns": "curled"},
+	"suid":      {"ears": "droop", "horns": "", "muzzle_flat": true},
+	"hyena":     {"ears": "round", "horns": ""},
+	"lapine":    {"ears": "long", "horns": ""},
+	"rodent":    {"ears": "round", "horns": ""},
+	"macropod":  {"ears": "long", "horns": ""},
+	"moth":      {"ears": "feather", "horns": ""},
+	"insect":    {"ears": "feather", "horns": "stub"},
+	"bat":       {"ears": "long", "horns": ""},
+	"ursine":    {"ears": "round", "horns": ""},
+	"mustelid":  {"ears": "round", "horns": ""},
+	"procyonid": {"ears": "pointed", "horns": ""},
+	"amphibian": {"ears": "", "horns": "", "muzzle_flat": true},
+	"aquatic":   {"ears": "fin", "horns": ""},
+	"slime":     {"ears": "", "horns": ""},
+	"robot":     {"ears": "antenna", "horns": ""},
+	"synth":     {"ears": "antenna", "horns": ""},
+	"humanoid":  {"ears": "", "horns": "", "muzzle_flat": true},
 }
 
 ## Expression presets: pose/scale multipliers applied to the face nodes.
@@ -151,7 +205,27 @@ const EXPRESSION_PRESETS := {
 	"smug":        {"eyes": 0.5, "brows": -0.25, "jaw": 0.12, "ears": -0.15},
 }
 
-const HEX_RE := "^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{4}$|^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{8}$"
+## The server's bounded-value patterns — Char3DConfigValidator.HEX_PATTERN /
+## PART_ID_PATTERN / SHORT_STR_PATTERN / KEY_PATTERN, copied literally.
+##
+## The mirror must never be MORE PERMISSIVE than the validator whose behaviour
+## it claims to mirror (a part id with a space, a variant with a newline, a hex
+## this copy widens): those render here and then 400 on save. It must never be
+## NARROWER either — this copy's hex regex used to admit only 3/4/6/8 digits
+## while the server admits the whole 3..8 range, so a perfectly valid stored
+## `#12345` silently fell back to the default colour.
+const HEX_PATTERN := "^#[0-9a-fA-F]{3,8}$"
+const PART_ID_PATTERN := "^[A-Za-z0-9_-]{1,64}$"      # parts.*
+const SHORT_STR_PATTERN := "^[A-Za-z0-9 _-]{1,40}$"   # variant / earStyle / hornStyle
+const KEY_PATTERN := "^[a-z0-9_-]{1,40}$"             # source slot / palette KEY names
+
+## Display-name cap (Char3DConfigValidator.MAX_NAME_LENGTH).
+const MAX_NAME_LENGTH := 120
+
+static var _hex_re: RegEx = null
+static var _part_id_re: RegEx = null
+static var _short_str_re: RegEx = null
+static var _key_re: RegEx = null
 
 const JAW_MAX_PITCH := 0.45   # radians — full mouth-open rotation
 const BROW_BASE_Y := 0.085    # brow pivot rest height on the head
@@ -204,9 +278,10 @@ static func parse_config(raw: Variant) -> Dictionary:
 	var mats_src: Dictionary = src.get("materials", {}) if src.get("materials") is Dictionary else {}
 
 	var family := _clamp_enum(str(head_src.get("family", "")), FAMILIES, "humanoid")
+	var variant: Variant = _opt_short_str(head_src.get("variant"))
 	var cfg := {
 		"schemaVersion": SCHEMA_VERSION,
-		"name": str(src.get("name", "")).substr(0, 120),
+		"name": display_name(src.get("name")),
 		"body": {
 			"archetype": _clamp_enum(str(body_src.get("archetype", "")), FAMILIES, family),
 			"build": _clamp_num(body_src.get("build"), 0.0, 1.0, 0.5),
@@ -214,24 +289,74 @@ static func parse_config(raw: Variant) -> Dictionary:
 		},
 		"head": {
 			"family": family,
-			"variant": str(head_src.get("variant", "")).substr(0, 40),
-			"snoutLength": _clamp_num(head_src.get("snoutLength"),
-					0.0, 1.0, float(FAMILY_TRAITS[family].get("snout", 0.4))),
-			"earStyle": _clamp_opt_str(head_src.get("earStyle"), 40),
-			"hornStyle": _clamp_opt_str(head_src.get("hornStyle"), 40),
+			# "" is the canonical UNSET encoding for variant (the server emits
+			# the key unconditionally; earStyle/hornStyle stay null when unset).
+			"variant": variant if variant != null else "",
+			"snoutLength": _clamp_num(head_src.get("snoutLength"), 0.0, 1.0, 0.5),
+			"earStyle": _opt_short_str(head_src.get("earStyle")),
+			"hornStyle": _opt_short_str(head_src.get("hornStyle")),
 		},
 		"parts": {},
 		"materials": {},
 		"style": _clamp_enum(str(src.get("style", "")), STYLES, "toon"),
 	}
 	for slot in ["tail", "wings", "ears", "feature", "accessory", "markings", "hair"]:
-		cfg["parts"][slot] = _clamp_opt_str(parts_src.get(slot), 64)
-	var re := RegEx.new()
-	re.compile(HEX_RE)
+		cfg["parts"][slot] = _opt_part_id(parts_src.get(slot))
 	for region in MATERIAL_REGIONS:
 		var v := str(mats_src.get(region, ""))
-		cfg["materials"][region] = v if re.search(v) != null else DEFAULT_MATERIALS[region]
+		cfg["materials"][region] = v if valid_hex(v) else DEFAULT_MATERIALS[region]
+	# EXTENDED coat blocks: stored ONLY when explicitly supplied and valid, so
+	# "unset" stays distinguishable and region_color() can derive it. Copying a
+	# derived value in here instead would freeze this room's derivation into a
+	# config that then round-trips back to the BFF.
+	for region in EXTENDED_MATERIAL_REGIONS:
+		var ev: Variant = mats_src.get(region)
+		if ev is String and valid_hex(ev):
+			cfg["materials"][region] = ev
 	return cfg
+
+
+## FULL match (java.util.regex Matcher#matches semantics). RegEx.search() finds
+## a SUBSTRING and PCRE2's `$` also matches before a trailing newline, so a bare
+## search() would call "#fff\n" valid where the server's matches() rejects it.
+static func _full_match(re: RegEx, value: String) -> bool:
+	var m := re.search(value)
+	return m != null and m.get_start(0) == 0 and m.get_end(0) == value.length()
+
+
+static func _compile(pattern: String) -> RegEx:
+	var re := RegEx.new()
+	re.compile(pattern)
+	return re
+
+
+## True when `value` matches the server's hex-colour allow-list (#rgb..#rrggbbaa).
+static func valid_hex(value: String) -> bool:
+	if _hex_re == null:
+		_hex_re = _compile(HEX_PATTERN)
+	return _full_match(_hex_re, value)
+
+
+static func valid_part_id(value: String) -> bool:
+	if _part_id_re == null:
+		_part_id_re = _compile(PART_ID_PATTERN)
+	return _full_match(_part_id_re, value)
+
+
+static func valid_short_str(value: String) -> bool:
+	if _short_str_re == null:
+		_short_str_re = _compile(SHORT_STR_PATTERN)
+	return _full_match(_short_str_re, value)
+
+
+## True when `value` is a valid lower-slug KEY name (source slot / palette
+## region names). The room does not carry the optional §2 `source` echo, so
+## nothing here consumes it today — it is mirrored so a future consumer cannot
+## invent a laxer rule than the BFF's.
+static func valid_key(value: String) -> bool:
+	if _key_re == null:
+		_key_re = _compile(KEY_PATTERN)
+	return _full_match(_key_re, value)
 
 
 static func _clamp_num(v: Variant, lo: float, hi: float, fallback: float) -> float:
@@ -246,11 +371,102 @@ static func _clamp_enum(v: String, allowed: PackedStringArray, fallback: String)
 	return v if allowed.has(v) else fallback
 
 
-static func _clamp_opt_str(v: Variant, max_len: int) -> Variant:
-	if v == null:
+## Optional bounded short descriptor (head.variant / earStyle / hornStyle):
+## absent, null or BLANK ⇒ unset (null); anything that does not match the
+## server's SHORT_STR_PATTERN after stripping is DROPPED rather than truncated
+## — truncating "ears<script>" to 40 chars would keep the payload, and a
+## silently-kept value that the BFF 400s on is worse than an unset one.
+static func _opt_short_str(v: Variant) -> Variant:
+	if not (v is String):
 		return null
-	var s := str(v).substr(0, max_len)
-	return s if s != "" else null
+	var s: String = (v as String).strip_edges()
+	if s.is_empty():
+		return null
+	return s if valid_short_str(s) else null
+
+
+## Optional bounded part id (parts.*) — same rule against PART_ID_PATTERN.
+static func _opt_part_id(v: Variant) -> Variant:
+	if not (v is String):
+		return null
+	var s: String = (v as String).strip_edges()
+	if s.is_empty():
+		return null
+	return s if valid_part_id(s) else null
+
+
+## True for a code point no display name may carry: C0/C1 controls (Cc), every
+## Unicode FORMAT code point (Cf — U+202E RIGHT-TO-LEFT OVERRIDE, the
+## U+2066..U+2069 isolates, U+200B..U+200F, U+FEFF, the tag block, …) and the
+## line/paragraph separators (Zl/Zp).
+##
+## NOT cosmetic. A roster nametag sits next to every other participant's in a
+## shared 3D room, so one member carrying a bidi override visually rewrites a
+## NEIGHBOUR's handle — and this surface has no moderation seam. Mirrored
+## character-for-character from Char3DConfigValidator#isForbiddenNameCodePoint
+## and char3d_config.gd's is_forbidden_name_char.
+static func is_forbidden_name_char(c: int) -> bool:
+	if c < 0x20 or (c >= 0x7F and c <= 0x9F):
+		return true                                   # Cc
+	if c == 0x00AD or c == 0x061C or c == 0x06DD or c == 0x070F or c == 0x08E2:
+		return true
+	if c >= 0x0600 and c <= 0x0605:
+		return true
+	if c == 0x180E or c == 0xFEFF:
+		return true
+	if c >= 0x200B and c <= 0x200F:
+		return true
+	if c >= 0x202A and c <= 0x202E:
+		return true
+	if c == 0x2028 or c == 0x2029:                    # Zl / Zp
+		return true
+	if c >= 0x2060 and c <= 0x2064:
+		return true
+	if c >= 0x2066 and c <= 0x206F:
+		return true
+	if c >= 0xFFF9 and c <= 0xFFFB:
+		return true
+	if c >= 0x1D173 and c <= 0x1D17A:
+		return true
+	if c >= 0xE0000 and c <= 0xE0FFF:
+		return true
+	return false
+
+
+## A display name sanitised exactly the way the BFF validates it: forbidden code
+## points STRIPPED (the server 400s on them), edges trimmed, capped at 120.
+## Returns "" for a missing/blank name — the room falls back to the mxid
+## localpart, which is never empty.
+static func display_name(v: Variant) -> String:
+	if not (v is String):
+		return ""
+	var cleaned := ""
+	for c in (v as String):
+		if not is_forbidden_name_char(c.unicode_at(0)):
+			cleaned += c
+	cleaned = cleaned.strip_edges()
+	return cleaned.substr(0, MAX_NAME_LENGTH)
+
+
+## The resolved hex for a CANONICAL region, or "" for an extended region with no
+## explicit value (⇒ derive it — see region_color).
+static func region_hex(cfg: Dictionary, region: String) -> String:
+	var mats: Variant = cfg.get("materials", {})
+	if mats is Dictionary and mats.get(region) is String and valid_hex(str(mats[region])):
+		return str(mats[region])
+	return str(DEFAULT_MATERIALS.get(region, ""))
+
+
+## The colour a region renders with: an explicit hex when the config carries
+## one, the canonical default for the seven, and the DERIVED colour for an
+## extended coat block that was left unset (innerMuzzle←fur lightened,
+## socks←accent, innerEar←skin, tailTip←accent).
+static func region_color(cfg: Dictionary, region: String) -> Color:
+	var hex := region_hex(cfg, region)
+	if hex != "":
+		return Color.from_string(hex, Color(0.5, 0.5, 0.5))
+	var base := region_color(cfg, str(EXTENDED_DERIVED_FROM.get(region, "fur")))
+	return base.lightened(INNER_MUZZLE_LIGHTEN) if region == "innerMuzzle" else base
 
 
 ## Deterministic random config — same seed ⇒ same character on every client.
@@ -290,8 +506,10 @@ func assemble(raw_config: Variant) -> void:
 	for child in get_children():
 		child.queue_free()
 	_materials.clear()
-	for region in MATERIAL_REGIONS:
-		_materials[region] = _make_material(config["materials"][region])
+	# ALL eleven regions — the canonical seven plus the four extended coat
+	# blocks, whose colour is derived when the definition leaves them unset.
+	for region in ALL_MATERIAL_REGIONS:
+		_materials[region] = _make_material(region_color(config, region))
 
 	var height: float = config["body"]["height"]
 	var build: float = config["body"]["build"]
@@ -377,7 +595,10 @@ func _build_head(head: Node3D, family: String, traits: Dictionary) -> void:
 	var jaw_depth := 0.10 + 0.10 * snout_len if not traits.get("muzzle_flat", false) else 0.09
 	jaw_mesh.size = Vector3(0.10, 0.035, jaw_depth)
 	jaw_mesh_i.mesh = jaw_mesh
-	jaw_mesh_i.material_override = _materials["detail"]
+	# kemono.md's "lighter inner-muzzle" block. Unset ⇒ fur lightened by
+	# INNER_MUZZLE_LIGHTEN, so a definition written before the extended regions
+	# existed still gets a sane muzzle.
+	jaw_mesh_i.material_override = _materials["innerMuzzle"]
 	jaw_mesh_i.position = Vector3(0, -0.02, -jaw_depth * 0.5)
 	_jaw.add_child(jaw_mesh_i)
 
@@ -414,6 +635,8 @@ func _build_head(head: Node3D, family: String, traits: Dictionary) -> void:
 	if ear_style != "":
 		_ear_l = _build_part_at(head, "ears", ear_style, Vector3(-0.11, head_scale * 0.8, 0))
 		_ear_r = _build_part_at(head, "ears", ear_style, Vector3(0.11, head_scale * 0.8, 0))
+		_add_inner_ear(_ear_l)
+		_add_inner_ear(_ear_r)
 
 	# Horns — explicit hornStyle wins, else family default.
 	var horn_style: String = str(config["head"]["hornStyle"]) \
@@ -475,7 +698,8 @@ func _build_attachments(chest: Node3D, family: String) -> void:
 	tail_anchor.position = Vector3(0, -0.45, 0.16)
 	chest.add_child(tail_anchor)
 	if config["parts"]["tail"] != null:
-		_build_part_at(tail_anchor, "tail", str(config["parts"]["tail"]), Vector3.ZERO)
+		_add_tail_tip(_build_part_at(tail_anchor, "tail",
+				str(config["parts"]["tail"]), Vector3.ZERO))
 
 	var wing_anchor := Node3D.new()
 	wing_anchor.name = "WingAnchor"
@@ -508,6 +732,52 @@ func _build_attachments(chest: Node3D, family: String) -> void:
 		band.material_override = _materials["accent"]
 		band.position = Vector3(0, 0.1, 0)
 		chest.add_child(band)
+
+# ── extended coat blocks (kemono.md colour masks) ───────────────────────────
+#
+# Three of the four extended regions have geometry in this rig:
+#   innerMuzzle → the jaw wedge (see _build_head)
+#   innerEar    → the insert below
+#   tailTip     → the cap below
+# `socks` (forearm/paw + shin/foot markings) has NONE: the room rig is a capsule
+# torso with no limbs, so a supplied socks colour is accepted, validated and
+# resolvable through region_color() but nothing draws it. Accepting-and-ignoring
+# is the contract's explicit allowance; inventing limbs to justify a colour is
+# not. Give the rig limbs and this is the material to paint them with.
+
+
+## A small inner-ear patch so `materials.innerEar` is a colour you can actually
+## see. Child of the ear PIVOT, so the expression presets' ear pitch carries it.
+func _add_inner_ear(ear: Node3D) -> void:
+	if ear == null:
+		return
+	var insert := MeshInstance3D.new()
+	insert.name = "InnerEar"
+	var m := SphereMesh.new()
+	m.radius = 0.018
+	m.height = 0.036
+	insert.mesh = m
+	insert.material_override = _materials["innerEar"]
+	insert.position = Vector3(0, 0.045, -0.012)
+	ear.add_child(insert)
+
+
+## A tip cap at the far end of whichever tail part was built. Position is
+## approximate on purpose — the tail builders differ (capsule / cone / sphere)
+## and a per-builder tip offset table would be four numbers to keep in sync for
+## a 4cm sphere.
+func _add_tail_tip(tail: Node3D) -> void:
+	if tail == null:
+		return
+	var tip := MeshInstance3D.new()
+	tip.name = "TailTip"
+	var m := SphereMesh.new()
+	m.radius = 0.045
+	m.height = 0.09
+	tip.mesh = m
+	tip.material_override = _materials["tailTip"]
+	tip.position = Vector3(0, 0.2, 0)
+	tail.add_child(tip)
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Part registry (primitive builders — GLB library replaces these later)
@@ -655,9 +925,9 @@ func _prim_torus(inner: float, outer: float, region: String) -> Node3D:
 
 
 ## Toon-ish look: low roughness + rim, per DESIGN §2. One material per region.
-func _make_material(hex: String) -> StandardMaterial3D:
+func _make_material(color: Color) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color.from_string(hex, Color(0.5, 0.5, 0.5))
+	mat.albedo_color = color
 	mat.roughness = 0.35
 	mat.metallic = 0.0
 	mat.rim_enabled = true

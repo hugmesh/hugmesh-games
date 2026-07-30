@@ -73,11 +73,35 @@ postMessages with the Angular `ApiBridgeService`.
 `Chat3dHostComponent`) drives everything through the versioned `Chat3D`
 interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
 
-* In: `roster(json)`, `avatar(userId, configJson)`, `pose(userId,x,z,yaw,seat)`,
+* In: `roster(json)`,
+  `avatar(userId, configJson, mode, sticker, name)`,
+  `pose(userId,x,z,yaw,seat)`,
   `openness(userId,f)`, `blendshapes(userId, base64-uint8[52])`,
   `speaking(userId,bool)`, `expression(userId,label)`,
   `placeMedia(surfaceId, metaJson, pngBase64|null)`, `clearMedia(surfaceId)`,
   `stage(userId,bool)`, `setLocal(userId)`, `enterVR()`.
+* **`avatar` carries five slots, not DESIGN §5's two.** `mode` is one of
+  `forge` / `guest` / `billboard`; a billboard participant has
+  `configJson === null` and is described entirely by `mode` + `sticker`
+  (an `mxc://` URL) + `name`. Those three used to ride *outside* the signature,
+  which made them unreachable (the decode path takes `args` verbatim when it is
+  an array), so billboard participants were rendered as randomised 3D
+  characters. Both sides now declare all five; a short `args` array from an
+  un-upgraded host is backfilled from the signature-named fields.
+  *Honest limit:* the sticker is an `mxc://` URL that this wasm bundle (games
+  origin, no access token) cannot fetch, so the billboard renders as a blank
+  plate with the participant's nametag until the host ships sticker **bytes**
+  the way it already does for `placeMedia`.
+* **`roster` rows carry `name`, and it is what the nametag says** — the mxid
+  localpart is only the fallback for an empty one. Names are sanitised with the
+  BFF's display-name rule (control / bidi-override / invisible code points
+  stripped) before they are drawn, because a nametag sits next to every other
+  participant's.
+* **`expression` and `stage` are received but the host has no producer yet.**
+  The agreed resolution is that the host wires them (`expression` from the VN
+  expression signal that drives the 2D stage, `stage` from the moderator
+  stage-grant surface) rather than the channels being deleted; the receivers
+  here are pinned by `tests/test_chat3d_convergence.gd`.
 * Out (`Chat3D.onEmit` callback + postMessage): `ready()`,
   `localPose(x,z,yaw,seat)` ~10 Hz, `mediaActivate(surfaceId)`,
   `vrState(active)`.
@@ -97,7 +121,19 @@ interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
   the injected JS. The inbound queue is drained as JSON and `JSON.stringify`
   flattens an `ArrayBuffer` to `{}`, so a host that transfers real image bytes
   by structured clone and a host that sends `pngBase64` both work. Payloads
-  over `MAX_MEDIA_BYTES` (4 MiB) degrade to a metadata-only plaque.
+  over `MAX_MEDIA_BYTES` (4 MiB) degrade to a metadata-only plaque — on the
+  base64-string transport as well as the binary one (the cap used to live only
+  inside the binary normaliser, i.e. nowhere that shipped), and again in
+  GDScript after decoding. The host enforces the same number before sending.
+* **The texture bytes are not necessarily PNG.** The host forwards the
+  untranscoded original Matrix attachment, so `media_surfaces.decode_image()`
+  tries PNG, JPEG and WebP (magic-sniffed so the right decoder goes first, since
+  a mismatch logs an engine error the shim republishes) and only warns when all
+  of them refuse.
+* Inbound postMessages must come from the allowed origin **and** from
+  `window.parent` — the one window this frame also posts back to. Origin alone
+  would let any other window on the host origin (a second tab, a popup, a nested
+  frame) drive the room; the host pins both directions the same way.
 * postMessage envelope, both directions: `{v:1, t:<function-name>, args:[…]}`
   (args in signature order; inbound also accepts signature-named fields,
   outbound carries both). `v !== 1` is dropped.
