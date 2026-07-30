@@ -6,7 +6,7 @@ extends Node3D
 # PROVENANCE (read before "re-syncing" anything)
 #   This is an INDEPENDENT implementation, NOT a byte-copy. A sibling assembler
 #   exists in the character-forge repo at
-#     snapdragon-character-forge-bff-api/godot/character-forge/scripts/character_assembler.gd
+#     hugmesh-character-forge-bff-api/godot/character-forge/scripts/character_assembler.gd
 #   and both files carry each other's name, but they share no implementation:
 #   ~750 lines here vs ~1200 there, and the public APIs are incompatible —
 #   that file is `class_name CharacterAssembler` with `apply_config(cfg)` +

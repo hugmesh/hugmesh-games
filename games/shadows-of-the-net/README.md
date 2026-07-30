@@ -6,7 +6,7 @@ circular room with a round center table carrying six media plates
 (`stage`), and a 16-seat ring. Participants appear as procedural 3D characters
 built by the room-local `CharacterAssembler` (Char3DConfig v1). A sibling
 assembler of the same name lives in
-`snapdragon-character-forge-bff-api/godot/character-forge/scripts/`; the two
+`hugmesh-character-forge-bff-api/godot/character-forge/scripts/`; the two
 share the **data contract**, not the code — see the provenance header in
 `scripts/character_assembler.gd` before "re-syncing" anything.
 
