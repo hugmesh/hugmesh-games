@@ -205,10 +205,21 @@ func _show_billboard(av: Dictionary, on: bool) -> void:
 ##
 ## THIS MUTATOR MUST NEVER ensure(). Every other one here conjures a rig for an
 ## unknown key, which is right for channels the host orders after the roster
-## row. A sticker is order-independent by contract — it may arrive before or
-## after that row — so conjuring from it would let ARRIVAL ORDER decide whether
-## a member exists, and a sticker for somebody who has left would resurrect
-## them. An unknown key is dropped; the host re-sends when they reappear.
+## row. Conjuring from a sticker would let ARRIVAL ORDER decide whether a member
+## exists, and a sticker for somebody who has left would resurrect them. An
+## unknown key is DROPPED, and not buffered either — a buffer here would be a
+## second roster nobody prunes, painting a plate onto whoever next claimed that
+## mxid.
+##
+## THE DROP IS LOSSY, AND ORDERING IS THE HOST'S JOB (contract §4, amended to v3
+## after this shipped). Earlier revisions of that contract called this channel
+## "order-independent", which read as "either order is fine" and is not what a
+## silent drop is: nothing on this channel reports one, so a sticker that
+## outruns its roster row is simply never seen again. The host now (a) keeps its
+## pre-handshake queue in produced order so a roster cannot sink behind a
+## sticker, and (b) treats every plate a roster names as unsent, which is what
+## makes the drop below RECOVERABLE rather than permanent. The rule here is
+## unchanged and stays: this side refuses, the host re-sends.
 func set_sticker(key: String, bytes: PackedByteArray) -> void:
 	if not _avatars.has(key):
 		return

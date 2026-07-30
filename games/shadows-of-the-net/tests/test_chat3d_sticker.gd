@@ -15,12 +15,23 @@ extends "res://tests/test_case.gd"
 #      other; an empty payload means "clear the plate, give them their rig".
 #   2. IT NEVER CONJURES A PARTICIPANT. Every other mutator on the manager
 #      ensure()s a rig for an unknown key, which is right for channels the host
-#      orders after the roster row. A sticker is order-independent by contract
-#      — it may arrive before OR after that row — so ensure()ing from one would
-#      let ARRIVAL ORDER decide who is in the room, and a sticker for somebody
-#      who has left would resurrect them. Unknown key ⇒ dropped, and NOT
-#      buffered for replay: the host re-sends per (userId, mxc) when they
-#      reappear, and a buffer would be a second, hidden roster.
+#      orders after the roster row. ensure()ing from a sticker would let ARRIVAL
+#      ORDER decide who is in the room, and a sticker for somebody who has left
+#      would resurrect them. Unknown key ⇒ dropped, and NOT buffered for replay:
+#      a buffer would be a second, hidden roster nobody prunes.
+#
+#      THAT DROP IS LOSSY, AND ORDERING IS THE HOST'S JOB — contract §4, amended
+#      to v3 after both halves shipped. v1/v2 called this channel
+#      "order-independent", which reads as "either order is fine"; it is not
+#      what a silent drop is. Nothing on this channel reports one, so a sticker
+#      that outran its roster row was simply never seen again — an adversarial
+#      verifier reproduced a member with no plate, for anybody, for a whole
+#      session. The host now keeps its pre-handshake queue in produced order
+#      (§4a) and re-sends every plate a roster names (§4c). This side's rule is
+#      unchanged: refuse, and let the host re-send. What changed is that the
+#      re-send is now GUARANTEED rather than hoped for, and
+#      `_the_hosts_lossy_interleave_recovers_on_the_next_roster` below drives
+#      the exact interleave the verifier found.
 #   3. THE CONTAINER ALLOW-LIST AND THE BYTE CAP ARE ENFORCED ON BOTH SIDES.
 #      The host refuses to send; this side refuses to accept. "The other one
 #      bounds it" is precisely the assumption that let MAX_MEDIA_BYTES sit for
@@ -45,7 +56,7 @@ func suite_name() -> String:
 
 ## See test_case.plan() — pinned so an aborted suite cannot report green.
 func plan() -> int:
-	return 67
+	return 81
 
 
 func run() -> void:
@@ -53,8 +64,10 @@ func run() -> void:
 	await _all_three_allow_listed_containers_decode()
 	await _a_sticker_never_conjures_a_participant()
 	await _a_sticker_before_the_roster_row_is_dropped_not_buffered()
+	await _the_hosts_lossy_interleave_recovers_on_the_next_roster()
 	await _a_disallowed_mime_is_refused()
 	await _an_oversized_payload_is_refused()
+	await _an_over_cap_base64_string_is_refused_before_it_is_decoded()
 	await _undecodable_bytes_keep_the_current_look()
 	await _an_empty_payload_restores_the_stand_in_rig()
 
@@ -199,11 +212,11 @@ func _a_sticker_before_the_roster_row_is_dropped_not_buffered() -> void:
 	room.call("_setup_matrix")
 	var png_b64 := Marshalls.raw_to_base64(_png())
 
-	# ORDER-INDEPENDENT means "either order is legal", not "the early one is
-	# held". The host diffs per (userId, mxc) and re-sends when the member
-	# reappears, so the recovery path is a re-send — a queue here would be a
-	# second roster nobody prunes, and it would paint a plate onto whoever next
-	# claimed that mxid.
+	# EARLY MEANS LOST, NOT HELD. The recovery path is a host re-send: contract
+	# §4(c) makes every roster push re-arm the plates it names, so the roster row
+	# that admits this member is itself what brings the bytes back. A queue here
+	# would be a second roster nobody prunes, and it would paint a plate onto
+	# whoever next claimed that mxid.
 	bridge.call("_dispatch", "sticker", ["@late:example.org", png_b64, "image/png"])
 	not_ok(bool(avatars.call("has_avatar", "@late:example.org")),
 			"a sticker arriving BEFORE the roster row creates nobody")
@@ -221,6 +234,103 @@ func _a_sticker_before_the_roster_row_is_dropped_not_buffered() -> void:
 	bridge.call("_dispatch", "sticker", ["@late:example.org", png_b64, "image/png"])
 	ok(bool(avatars.call("has_sticker_image", "@late:example.org")),
 			"the host's re-send is what puts the plate up — the documented recovery")
+	free_room(room)
+
+
+## THE VERIFIER'S INTERLEAVE, replayed byte for byte.
+##
+## A node replica of the host's `send`/`queueKey` produced this flush order out
+## of its pre-handshake queue — `avatar|@bill → sticker|@bill → roster| →
+## avatar|@bob → sticker|@bob` — because re-queuing a key used to MOVE it to the
+## end of the Map, so a second member joining during the 15-30s wasm
+## cold-compile sank the roster behind stickers already queued.
+##
+## The suite above drives this channel in the CORRECT order everywhere, which is
+## exactly why nothing here caught it. What this pins is the two halves of the
+## v3 answer as they land on THIS side:
+##
+##   * the loss is real and this side does not paper over it — @bob is plated
+##     because his roster row preceded his sticker, @bill is not, and no
+##     `avatar` rescues him: for a billboard member the host sends
+##     `avatar(uid, null)` with no `mode`, and `_dispatch` only emits when
+##     `cfg is Dictionary or meta["mode"] != ""`, so nothing upserts;
+##   * the recovery is a plain re-send after a roster (§4c) and needs no buffer,
+##     no ensure(), and no new message type on this side.
+func _the_hosts_lossy_interleave_recovers_on_the_next_roster() -> void:
+	var room := make_room()
+	var avatars: Node3D = room.get_node("Avatars")
+	var bridge: Node = room.get_node("Chat3DBridge")
+	room.call("_setup_matrix")
+	var png_b64 := Marshalls.raw_to_base64(_png())
+	var bill := "@bill:example.org"
+	var bob := "@bob:example.org"
+
+	bridge.call("_dispatch", "avatar", [bill, null, null, null, null])
+	not_ok(bool(avatars.call("has_avatar", bill)),
+			"a billboard member's `avatar(uid, null)` creates nobody — it is not a fallback")
+	bridge.call("_dispatch", "sticker", [bill, png_b64, "image/png"])
+	not_ok(bool(avatars.call("has_avatar", bill)),
+			"…and neither does the sticker that outran his roster row")
+
+	bridge.call("_dispatch", "roster", [JSON.stringify([
+			{"userId": bill, "name": "Bill"}, {"userId": bob, "name": "Bob"}])])
+	bridge.call("_dispatch", "avatar", [bob, null, null, null, null])
+	bridge.call("_dispatch", "sticker", [bob, png_b64, "image/png"])
+
+	ok(bool(avatars.call("has_avatar", bill)), "the roster admits both members")
+	ok(bool(avatars.call("has_avatar", bob)), "…both of them")
+	ok(bool(avatars.call("has_sticker_image", bob)),
+			"@bob is plated: his roster row came BEFORE his sticker")
+	not_ok(bool(avatars.call("has_sticker_image", bill)),
+			"@bill is NOT: his sticker came before the roster and was dropped, silently")
+	var bill_entry: Dictionary = avatars.get("_avatars")[bill]
+	ok((bill_entry["rig"] as Node3D).visible,
+			"…so he stands as his deterministic stand-in rig, looking like a deliberate choice")
+
+	# §4(c). The host does not learn about the drop — nothing on this channel
+	# tells it — so the recovery cannot be an ack. It is unconditional: the
+	# roster it just pushed is what ADMITS these members, so it re-sends every
+	# plate that roster names, and @bill's lands on the second attempt.
+	bridge.call("_dispatch", "sticker", [bill, png_b64, "image/png"])
+	ok(bool(avatars.call("has_sticker_image", bill)),
+			"the roster-triggered re-send plates @bill — the drop is not permanent")
+	ok(bool(avatars.call("has_sticker_image", bob)),
+			"…and @bob's re-send is idempotent, not a flicker")
+	free_room(room)
+
+
+## The cheap leg of the inbound cap: an over-cap base64 STRING is refused on its
+## length, before `Marshalls.base64_to_raw` allocates the payload the size check
+## would then reject. The threshold has to be derived, not guessed — one char
+## too tight and a legitimate payload exactly AT the cap stops decoding, which
+## `_an_oversized_payload_is_refused` above is the guard for.
+func _an_over_cap_base64_string_is_refused_before_it_is_decoded() -> void:
+	eq(CHAT3D.MAX_MEDIA_B64_CHARS, int(ceil(CHAT3D.MAX_MEDIA_BYTES / 3.0)) * 4,
+			"the base64 cap is the encoded length of the byte cap, derived not guessed")
+	ok(Marshalls.raw_to_base64(_filler(CHAT3D.MAX_MEDIA_BYTES)).length()
+			<= CHAT3D.MAX_MEDIA_B64_CHARS,
+			"…so a payload exactly AT the byte cap still fits under it")
+
+	var room := make_room()
+	var avatars: Node3D = room.get_node("Avatars")
+	var bridge: Node = room.get_node("Chat3DBridge")
+	room.call("_setup_matrix")
+	room.call("_on_roster", [{"userId": "@vn:example.org", "name": "Sam"}])
+	var seen: Array = []
+	bridge.connect("sticker_received",
+			func(uid: String, bytes: PackedByteArray): seen.append([uid, bytes.size()]))
+
+	bridge.call("_dispatch", "sticker",
+			["@vn:example.org", Marshalls.raw_to_base64(_png()), "image/png"])
+	eq(seen.size(), 1, "premise: an ordinary sticker is delivered")
+
+	# A base64 string of the right SHAPE and far too long. Not built from real
+	# bytes — the point is that no bytes are ever produced from it.
+	var oversized := "A".repeat(CHAT3D.MAX_MEDIA_B64_CHARS + 4)
+	bridge.call("_dispatch", "sticker", ["@vn:example.org", oversized, "image/png"])
+	eq(seen.size(), 1, "an over-cap base64 string is dropped on its length alone")
+	ok(bool(avatars.call("has_sticker_image", "@vn:example.org")),
+			"…and, like every other refusal, is not degraded into a clear")
 	free_room(room)
 
 

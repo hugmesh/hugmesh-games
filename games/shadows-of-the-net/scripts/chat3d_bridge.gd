@@ -65,6 +65,11 @@ signal avatar_received(user_id: String, config: Variant, meta: Dictionary)
 ## A billboard participant's sticker IMAGE. Empty `bytes` = clear the plate and
 ## give that member back the rig they have.
 ##
+## Applied only to a member the roster already admitted, and DROPPED otherwise
+## (avatar_manager.set_sticker). That makes the channel lossy, so contract §4
+## puts ordering AND recovery on the host: it keeps its pre-handshake queue in
+## produced order, and re-sends every plate a roster names.
+##
 ## The declared `mime` is deliberately NOT carried onward: it is validated at
 ## this boundary (see STICKER_MIME_TYPES) and then has no reader — the decoder
 ## sniffs the container itself, so passing the header along would be a field
@@ -168,6 +173,18 @@ const ALIASES := {
 ## decoding, which is the check a headless run can actually execute. The host
 ## enforces the SAME numeric limit before sending.
 const MAX_MEDIA_BYTES := 4 * 1024 * 1024
+
+## The longest base64 STRING that could still decode to MAX_MEDIA_BYTES or less
+## — ceil(MAX_MEDIA_BYTES / 3) * 4, base64's 4-chars-per-3-bytes with padding.
+##
+## Checked BEFORE `Marshalls.base64_to_raw`, which allocates the whole decoded
+## payload and only then hands it to the size check below. On the defence-in-
+## depth leg — a host that ignored its own send-side cap, or a hostile frame —
+## that meant materialising the very buffer the check exists to refuse. A string
+## longer than this cannot decode to anything at or under the cap, so refusing
+## it here costs a length read; the post-decode check stays, because it is the
+## one that knows the real size.
+const MAX_MEDIA_B64_CHARS := 5592408
 
 ## The host queues everything until `ready`; re-announce until it talks back so
 ## a host listener that attaches after the wasm boots still completes the
@@ -401,6 +418,13 @@ func _dispatch(t: String, args: Array) -> void:
 			if not STICKER_MIME_TYPES.has(smime):
 				push_warning(("[sotn] sticker for %s declares '%s' — the room decodes"
 						+ " only %s; dropped") % [suid, smime, ", ".join(STICKER_MIME_TYPES)])
+				return
+			# INBOUND CAP, cheap leg: a base64 string this long cannot decode to
+			# anything the cap admits, so refuse it without allocating the decode.
+			if sb64.length() > MAX_MEDIA_B64_CHARS:
+				push_warning(("[sotn] sticker for %s is %d base64 chars (cap %d) — dropped"
+						+ " before decoding; that member keeps their current look")
+						% [suid, sb64.length(), MAX_MEDIA_B64_CHARS])
 				return
 			var sbytes := Marshalls.base64_to_raw(sb64)
 			# INBOUND CAP (MAX_MEDIA_BYTES, the number the host refuses to send).

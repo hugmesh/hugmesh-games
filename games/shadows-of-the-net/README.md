@@ -129,11 +129,23 @@ interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
   the billboard signal (`mode` never travels on it, so neither side has a mode
   field to keep in sync), an empty payload clears the plate and gives the
   member back their rig, and it is the one inbound channel that refuses to
-  `ensure()` an unknown participant: it may arrive before or after that
-  member's roster row, so conjuring from it would let arrival order decide who
-  is in the room. `mime` is allow-listed to the room's three decoders
+  `ensure()` an unknown participant: conjuring from it would let arrival order
+  decide who is in the room, and a sticker for somebody who has left would
+  resurrect them. `mime` is allow-listed to the room's three decoders
   (`image/png` / `image/jpeg` / `image/webp`) and the payload is re-checked
   against `MAX_MEDIA_BYTES` on receive — both enforced on the sending side too.
+  An over-cap payload is refused on its base64 LENGTH before it is decoded, so
+  the defence-in-depth leg never allocates the buffer it exists to reject.
+* **That drop is lossy, and ordering is matrix-ui's job (contract §4, v3).**
+  Earlier revisions called this channel "order-independent", which reads as
+  "either order is fine"; it is not what a silent drop is. Nothing on this
+  channel reports one, so a sticker that outran its roster row was never seen
+  again — one member joining during the 15-30 s wasm cold-compile could reorder
+  the host's pre-handshake queue and leave another member with no plate, for
+  anybody, for the whole session. The host now keeps that queue in produced
+  order and re-sends every plate a roster names, which is what makes the drop
+  here recoverable. The rule on this side is unchanged: refuse, and let the
+  host re-send. `tests/test_chat3d_sticker.gd` drives the exact interleave.
 * **`roster` rows carry `name`, and it is what the nametag says** — the mxid
   localpart is only the fallback for an empty one. Names are sanitised with the
   BFF's display-name rule (control / bidi-override / invisible code points
