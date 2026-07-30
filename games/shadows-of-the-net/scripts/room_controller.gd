@@ -7,16 +7,42 @@ extends Node3D
 #     hugmesh-shim SD_* postMessage transport (session_bridge.gd),
 #     movement channel = seat/pose relay via SOTN_* control-action strings,
 #     worldNative kind:'world' = HOST-authoritative room state (seat map +
-#     stage grant) broadcast as {type:'sotn.room', …} — the BFF's Gate 0b
-#     already rejects kind:'world' from non-creators, so slot 0 is the host.
+#     stage grant + media placements) broadcast as {type:'sotn.room', …} — the
+#     BFF's Gate 0b already rejects kind:'world' from non-creators, and the BFF
+#     pins slot 0 to the session creator (GameSessionService.CREATOR_SLOT), so
+#     `slot_index == 0` and "may post kind:'world'" are the SAME set. If the
+#     two ever disagree the BFF wins: a 403 on our world POST demotes us (see
+#     _on_world_forbidden) instead of looping SD_SESSION_EXPIRED forever.
 #   mode=matrix — NO games BFF. All I/O rides the versioned Chat3D
 #     postMessage interface (chat3d_bridge.gd); the embedding matrix-ui page
 #     owns roster/avatars/media/audio and this scene just renders + relays.
+#     The host page queues everything until the game announces `ready`, so
+#     _setup_matrix() MUST emit that handshake (chat3d_bridge.emit_ready).
 #
 # Movement-channel action grammar (session mode; PlayerMovement.action):
 #   SOTN_POSE|<x>|<z>|<yaw>|<seat>   any member, ~10 Hz local pose
 #   SOTN_SEAT|<seat>                 seat request → host validates + rebroadcasts
 #   SOTN_STAGE|<0|1>                 stage request/release → host arbitrates
+#   SOTN_MEDIA|<surfaceId>           surface place/clear toggle → host arbitrates
+#
+# Every one of those four has a PRODUCER in this file — SEAT via
+# _sync_local_seat, STAGE via _on_local_stage_clicked, MEDIA via
+# _on_surface_activated, POSE via _on_local_pose. Adding a verb to the grammar
+# without one is how the stage grant shipped unreachable.
+#
+# TRUST MODEL for the movement channel: the BFF relays a member's action string
+# VERBATIM to the whole session, so every field of every SOTN_* action is
+# attacker-controlled by any member of the room. Only <x>/<z>/<yaw> are applied
+# from the sender (sanitized in avatar_manager.set_pose); seat, stage and media
+# placement come EXCLUSIVELY from the host's authoritative world broadcast —
+# the <seat> field of SOTN_POSE is the sender's own optimistic echo and is
+# deliberately ignored for remote peers.
+#
+# COROLLARY — every seat change must travel the ARBITRATED channel. Because
+# peers ignore the pose's <seat>, a seat change that only ever appears there is
+# invisible to the room. local_controller drops the seat to -1 on ANY walk step
+# without emitting `seat_clicked`, so `_sync_local_seat` (driven off the pose
+# tick) is what turns "I walked away" into a real SOTN_SEAT|-1 release.
 #
 # XR entry: xr_boot.gd (autoload). The in-scene Enter-VR button is the
 # reliable user-gesture path; Chat3D.enterVR() is honoured too but reports
@@ -27,7 +53,20 @@ enum Mode { SESSION, MATRIX, NATIVE }
 const POSE_ACTION := "SOTN_POSE"
 const SEAT_ACTION := "SOTN_SEAT"
 const STAGE_ACTION := "SOTN_STAGE"
+const MEDIA_ACTION := "SOTN_MEDIA"
 const WORLD_TYPE := "sotn.room"
+const MAX_SEATS := 16
+## Minimum interval between authoritative world broadcasts (10 Hz — the rate
+## the room already sustains for poses).
+##
+## AMPLIFICATION: the BFF relays every member's control action to the session,
+## so any ONE member can drive _host_assign_seat / _host_set_stage /
+## _host_toggle_media at their own send rate, and each call used to produce an
+## immediate world POST that the BFF then fanned out to EVERY member — a 1:N
+## amplifier with a guest holding the trigger. Coalescing is safe because the
+## payload is FULL state, not a delta: a dropped intermediate tick loses
+## nothing and the last write still converges everyone.
+const WORLD_BROADCAST_INTERVAL := 0.1
 
 var mode: Mode = Mode.SESSION
 
@@ -43,11 +82,24 @@ var mode: Mode = Mode.SESSION
 @onready var _vr_button: Button = $Ui/EnterVrButton
 @onready var _mode_label: Label = $Ui/ModeLabel
 
-# ── session-mode host state (authoritative only on the host) ─────────────────
+# ── session-mode room state ──────────────────────────────────────────────────
+# The host OWNS these; every guest MIRRORS them from the authoritative world
+# broadcast and never writes them from a peer's own movement action.
 var _is_host := false
-var _seat_by_cid: Dictionary = {}   # characterId(int) → seat(int)
+var _seat_by_cid: Dictionary = {}     # characterId(int) → seat(int)
+var _placements: Dictionary = {}      # surfaceId(String) → characterId(int)
+var _applied_placements: Dictionary = {}  # surfaceId(String) → label(String)
 var _stage_cid := -1
 var _world_tick := 0
+## Host-only: room state changed and a broadcast is owed (see _flush_world).
+var _world_dirty := false
+var _world_accum := 0.0
+## Last local seat we told the host about over the arbitrated SEAT channel.
+## -1 == "standing", which is also the launch state, so a fresh room sends
+## nothing until the local seat actually changes.
+var _local_seat_sent := -1
+## Edge-trigger for the local stage grant (see _apply_local_stage).
+var _local_on_stage := false
 
 var _local_key := ""
 
@@ -61,9 +113,11 @@ func _ready() -> void:
 	_stage_spot.visible = false
 	_spawn_seat_cushions()
 
+	_local.set("stage_platform", $Chamber/StagePlatform)
 	_local.connect("pose_changed", _on_local_pose)
 	_local.connect("seat_clicked", _on_local_seat_clicked)
 	_local.connect("surface_clicked", _on_local_surface_clicked)
+	_local.connect("stage_clicked", _on_local_stage_clicked)
 	_surfaces.connect("surface_activated", _on_surface_activated)
 	XrBoot.xr_state_changed.connect(_on_xr_state)
 	_vr_button.pressed.connect(_on_vr_button)
@@ -109,7 +163,9 @@ func _detect_mode() -> Mode:
 	return Mode.MATRIX if str(raw) == "matrix" else Mode.SESSION
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if mode == Mode.SESSION:
+		_flush_world(delta)
 	# Keep the Enter-VR affordance honest: web + supported + not already in VR.
 	_vr_button.visible = OS.has_feature("web") \
 			and XrBoot.web_xr_supported and not XrBoot.xr_active
@@ -127,13 +183,20 @@ func _setup_session() -> void:
 	_session.connect("movement_received", _on_movement)
 	_session.connect("world_received", _on_world)
 	_session.connect("session_control_received", _on_session_control)
+	_session.connect("world_forbidden", _on_world_forbidden)
+	# Slot 0 is the creator's slot — the BFF pins it there on create and
+	# refuses it to anyone else on join, so this election agrees with Gate 0b's
+	# isCreator() check. _on_world_forbidden is the belt-and-braces path for a
+	# session created before that pin existed.
 	_is_host = int(_session.get("slot_index")) == 0
 	_local_key = str(int(_session.get("character_id")))
 	_avatars.set("local_key", _local_key)
 	_avatars.call("ensure", _local_key)
 	if _is_host:
-		# Seed + broadcast the initial (empty) room state so late guests sync.
-		_broadcast_world.call_deferred()
+		# Seed the initial (empty) room state so late guests sync. No longer
+		# deferred: _broadcast_world only raises the dirty flag now, and
+		# _flush_world does the POST from _process a tick later anyway.
+		_broadcast_world()
 
 
 func _on_movement(payload: Dictionary) -> void:
@@ -145,29 +208,81 @@ func _on_movement(payload: Dictionary) -> void:
 	match parts[0]:
 		POSE_ACTION:
 			if parts.size() >= 5 and str(cid) != _local_key:
+				var pose := _parse_pose(parts)
+				if pose.is_empty():
+					return
 				_avatars.call("ensure", str(cid))
+				# The SEAT comes from the authoritative map, NOT from parts[4]:
+				# the sender controls every byte of its own action string, so
+				# trusting its seat index would let any member teleport onto
+				# any seat 10x/second and override the host's arbitration.
 				_avatars.call("set_pose", str(cid),
-						parts[1].to_float(), parts[2].to_float(),
-						parts[3].to_float(), parts[4].to_int())
+						pose[0], pose[1], pose[2], int(_seat_by_cid.get(cid, -1)))
 		SEAT_ACTION:
 			if _is_host and parts.size() >= 2:
 				_host_assign_seat(cid, parts[1].to_int())
 		STAGE_ACTION:
 			if _is_host and parts.size() >= 2:
 				_host_set_stage(cid, parts[1] == "1")
+		MEDIA_ACTION:
+			if _is_host and parts.size() >= 2:
+				_host_toggle_media(cid, parts[1])
+
+
+## Parse the three peer-supplied pose floats out of a SOTN_POSE action.
+## Returns [] (⇒ drop the whole action) when any of them is not finite.
+##
+## `String.to_float()` is NOT a validator: "1e400" parses to +INF without a
+## hint of error, and a single non-finite Vector3 reaching the renderer makes
+## Godot assert every frame for the rest of the session AND permanently NaNs
+## the smoothing target, so the victim never recovers even from later valid
+## poses. Matrix mode already guarded this (chat3d_bridge._arg_f); session mode
+## must too — the movement relay is open to every member of the room.
+static func _parse_pose(parts: PackedStringArray) -> Array:
+	var x := parts[1].to_float()
+	var z := parts[2].to_float()
+	var yaw := parts[3].to_float()
+	if not (is_finite(x) and is_finite(z) and is_finite(yaw)):
+		return []
+	return [x, z, yaw]
 
 
 ## Host arbitration: first-come seat claims; -1 releases; a taken seat is
 ## refused (the guest's own pose keeps them free-roaming until re-request).
 func _host_assign_seat(cid: int, seat: int) -> void:
-	if seat >= 16 or seat < -1:
+	if seat >= MAX_SEATS or seat < -1:
 		return
-	if seat >= 0 and _seat_by_cid.values().has(seat) and _seat_by_cid.get(cid, -1) != seat:
+	# A no-op claim must not rebroadcast. `_sync_local_seat` re-affirms the
+	# local seat whenever the authoritative echo moves us, so without this a
+	# host-driven sit would bounce sit → pose → SEAT → broadcast → sit forever.
+	if int(_seat_by_cid.get(cid, -1)) == seat:
+		return
+	if seat >= 0 and _seat_by_cid.values().has(seat):
 		return
 	if seat < 0:
 		_seat_by_cid.erase(cid)
 	else:
 		_seat_by_cid[cid] = seat
+	_broadcast_world()
+
+
+## Host arbitration for media surfaces: first-come claim per surface, and only
+## the claimant may release it. The surface id is checked against the scene's
+## allow-list so a forged action can't invent a node name.
+##
+## Session mode carries NO image bytes (there is no authenticated media source
+## behind the games portal the way matrix-ui fetches Matrix media): a placement
+## is the metadata-only slate media_surfaces.place() already renders, labelled
+## with the claiming character. Bytes stay a matrix-mode capability.
+func _host_toggle_media(cid: int, surface_id: String) -> void:
+	if not bool(_surfaces.call("has_surface", surface_id)):
+		return
+	if _placements.has(surface_id):
+		if int(_placements[surface_id]) != cid:
+			return
+		_placements.erase(surface_id)
+	else:
+		_placements[surface_id] = cid
 	_broadcast_world()
 
 
@@ -181,14 +296,36 @@ func _host_set_stage(cid: int, wants: bool) -> void:
 	_broadcast_world()
 
 
+## Mark the room state dirty. The POST itself is coalesced — see
+## WORLD_BROADCAST_INTERVAL and _flush_world.
 func _broadcast_world() -> void:
+	_world_dirty = true
+
+
+## Host-only, driven from _process: emit at most one authoritative broadcast
+## per WORLD_BROADCAST_INTERVAL, and only when something actually changed.
+func _flush_world(delta: float) -> void:
+	if not _is_host:
+		return
+	_world_accum += delta
+	if not _world_dirty or _world_accum < WORLD_BROADCAST_INTERVAL:
+		return
+	_world_accum = 0.0
+	_world_dirty = false
+	_send_world_now()
+
+
+func _send_world_now() -> void:
 	_world_tick += 1
 	# JSON keys must be strings — cids are stringified and re-parsed on apply.
 	var seats := {}
 	for cid in _seat_by_cid:
 		seats[str(cid)] = _seat_by_cid[cid]
-	_session.call("send_world",
-			{"type": WORLD_TYPE, "seats": seats, "stage": _stage_cid, "tick": _world_tick})
+	var placements := {}
+	for surface_id in _placements:
+		placements[str(surface_id)] = int(_placements[surface_id])
+	_session.call("send_world", {"type": WORLD_TYPE, "seats": seats,
+			"placements": placements, "stage": _stage_cid, "tick": _world_tick})
 
 
 func _on_world(payload: Dictionary) -> void:
@@ -196,9 +333,15 @@ func _on_world(payload: Dictionary) -> void:
 		return
 	var seats: Variant = payload.get("seats")
 	if seats is Dictionary:
+		# Mirror the authoritative seat map locally: _on_movement reads it back
+		# so a peer's own SOTN_POSE can never move it off the host's decision.
+		if not _is_host:
+			_seat_by_cid.clear()
 		for cid_key in seats:
 			var seat := int(seats[cid_key])
 			var key := str(cid_key)
+			if not _is_host and seat >= 0 and seat < MAX_SEATS:
+				_seat_by_cid[int(str(cid_key))] = seat
 			_avatars.call("ensure", key)
 			if key == _local_key:
 				if seat != int(_local.get("seat")):
@@ -206,17 +349,95 @@ func _on_world(payload: Dictionary) -> void:
 			else:
 				var p: Vector3 = _avatars.call("position_of", key)
 				_avatars.call("set_pose", key, p.x, p.z, 0.0, seat)
+		# A peer the authoritative echo does NOT seat must be un-seated too,
+		# otherwise a stale seat (or one the host just refused) keeps them
+		# glued to an anchor the host has already handed to someone else.
+		for key in _avatars.call("keys"):
+			var key_s := str(key)
+			if key_s == _local_key or seats.has(key_s):
+				continue
+			if int(_avatars.call("seat_of", key_s)) >= 0:
+				var p2: Vector3 = _avatars.call("position_of", key_s)
+				_avatars.call("set_pose", key_s, p2.x, p2.z, 0.0, -1)
 		# Authoritative echo does NOT hold a seat for us but we sat locally
 		# (optimistic click on a seat the host then refused, or a release we
 		# lost the race on) → stand up so we don't overlap the real holder.
 		if not _is_host and not seats.has(_local_key) and int(_local.get("seat")) >= 0:
 			_local.call("stand")
+	var placements: Variant = payload.get("placements")
+	if placements is Dictionary:
+		_apply_placements(placements)
 	var stage_cid := int(payload.get("stage", -1))
+	if stage_cid >= 0:
+		# The holder may hold no seat and may not have posed yet, so the seats
+		# loop above will not have created their rig — and the host only
+		# rebroadcasts when its state CHANGES. Without this the holder would
+		# render on the floor for the entire grant on every other client.
+		_avatars.call("ensure", str(stage_cid))
 	for key in _avatars.call("keys"):
 		_avatars.call("set_stage", key, str(stage_cid) == str(key))
 	_stage_spot.visible = stage_cid >= 0
 	if not _is_host:
 		_stage_cid = stage_cid
+	_apply_local_stage(str(stage_cid) == _local_key)
+
+
+## Keep the desktop rig — and therefore the third-person camera — with the local
+## avatar when a stage grant moves it. `avatar_manager.set_stage` teleports the
+## RIG onto the stage anchor and then suppresses pose updates for as long as the
+## grant is held, so without this the player would watch their character walk
+## off while the camera stayed orbiting an empty patch of floor. Edge-triggered:
+## the authoritative echo repeats the same grant on every tick.
+func _apply_local_stage(on_stage: bool) -> void:
+	if on_stage == _local_on_stage:
+		return
+	_local_on_stage = on_stage
+	if on_stage:
+		_local.call("stand_at", _stage_anchor.position)
+
+
+## Reconcile the room's media surfaces with the authoritative placement map.
+## Only diffs are pushed to media_surfaces so a re-broadcast at seat-click rate
+## doesn't rebuild eleven materials each tick.
+func _apply_placements(placements: Dictionary) -> void:
+	var wanted: Dictionary = {}
+	for surface_key in placements:
+		var surface_id := str(surface_key)
+		if not bool(_surfaces.call("has_surface", surface_id)):
+			continue  # forged / unknown surface id from a hostile host
+		wanted[surface_id] = "shared by #%d" % int(placements[surface_key])
+	for surface_id in wanted:
+		if str(_applied_placements.get(surface_id, "")) != str(wanted[surface_id]):
+			_surfaces.call("place", surface_id,
+					{"label": wanted[surface_id]}, PackedByteArray())
+	for surface_id in _applied_placements:
+		if not wanted.has(surface_id):
+			_surfaces.call("clear", surface_id)
+	_applied_placements = wanted
+	if not _is_host:
+		_placements.clear()
+		for surface_key in placements:
+			var surface_id2 := str(surface_key)
+			if wanted.has(surface_id2):
+				_placements[surface_id2] = int(placements[surface_key])
+
+
+## The BFF refused our authoritative broadcast: whatever the launch URL said,
+## this client is NOT the session creator. Stand down instead of re-POSTing
+## (and instead of letting session_bridge treat it as an expired claim, which
+## would loop connect/claimControl on every seat click).
+func _on_world_forbidden() -> void:
+	if not _is_host:
+		return
+	push_warning("[sotn] BFF refused kind:'world' — this client is not the session "
+			+ "creator; standing down as room host")
+	_is_host = false
+	_seat_by_cid.clear()
+	_placements.clear()
+	# We were arbitrating our own seat locally; as a guest it has to be REQUESTED
+	# from the real host. Forgetting what we "sent" makes the next pose tick
+	# re-announce the current seat over the wire.
+	_local_seat_sent = -1
 
 
 func _on_session_control(action: String) -> void:
@@ -248,6 +469,13 @@ func _setup_matrix() -> void:
 	_chat3d.connect("stage_received", _on_stage)
 	_chat3d.connect("local_user_set", _on_set_local)
 	_chat3d.connect("enter_vr_requested", _on_enter_vr_requested)
+	# HANDSHAKE — not optional. Chat3dHostComponent queues EVERY outbound
+	# envelope (roster/avatar/pose/setLocal/placeMedia/…) until the game
+	# announces `ready`, and keeps the Enter-VR button inert until then. Without
+	# this call the matrix-mode room renders an empty chamber forever.
+	# Emitted only once the signal wiring above is in place so nothing the host
+	# flushes in response can be dropped on the floor.
+	_chat3d.call("announce_ready")
 
 
 func _on_roster(list: Array) -> void:
@@ -301,6 +529,8 @@ func _on_clear_media(surface_id: String) -> void:
 func _on_stage(user_id: String, value: bool) -> void:
 	_avatars.call("set_stage", user_id, value)
 	_stage_spot.visible = value or _any_on_stage()
+	if user_id == _local_key:
+		_apply_local_stage(value)
 
 
 func _any_on_stage() -> bool:
@@ -331,18 +561,70 @@ func _on_local_pose(x: float, z: float, yaw: float, seat: int) -> void:
 		_avatars.call("set_pose", _local_key, x, z, yaw, seat)
 	match mode:
 		Mode.SESSION:
+			_sync_local_seat(seat)
 			_session.call("send_control",
 					"%s|%.2f|%.2f|%.2f|%d" % [POSE_ACTION, x, z, yaw, seat])
 		Mode.MATRIX:
+			# Matrix mode has no in-game arbiter: the host page owns the seat
+			# map and reads it straight off localPose, so no separate channel.
 			_chat3d.call("emit_local_pose", x, z, yaw, seat)
 
 
 func _on_local_seat_clicked(seat: int) -> void:
 	if mode == Mode.SESSION:
-		if _is_host:
-			_host_assign_seat(int(_session.get("character_id")), seat)
-		else:
-			_session.call("send_control", "%s|%d" % [SEAT_ACTION, seat])
+		_sync_local_seat(seat)
+
+
+## Take / release the stage. This is the ONLY producer of SOTN_STAGE: the host
+## side (`_host_set_stage`) and the whole `stage` leg of the world payload
+## shipped with no sender at all, so the spotlight could never light and DESIGN
+## §5's "stage grants" half of the session-mode world state was dead geometry.
+##
+## Matrix mode is deliberately excluded: there the host page owns stage grants
+## and the game's OUT vocabulary is localPose / mediaActivate / vrState only —
+## inventing a `stageRequest` emit would be a unilateral protocol change.
+func _on_local_stage_clicked() -> void:
+	if mode != Mode.SESSION:
+		return
+	var cid := int(_session.get("character_id"))
+	var wants := _stage_cid != cid       # click toggles; -1 means nobody holds it
+	if _is_host:
+		_host_set_stage(cid, wants)
+	else:
+		_session.call("send_control", "%s|%d" % [STAGE_ACTION, 1 if wants else 0])
+
+
+## Push a CHANGE of the local seat onto the arbitrated SEAT channel.
+##
+## Peers deliberately ignore the <seat> field of a peer's SOTN_POSE (see the
+## trust model at the top), so a seat change that never reaches the host is
+## invisible to the whole room. Clicking a seat is not the only way to change
+## it: local_controller._process_desktop sets `seat = -1` on ANY walk step and
+## emits only `pose_changed`, and `_on_world` calls sit()/stand() on us when the
+## host arbitrates. Driving this off the pose tick therefore covers every
+## source. Without it, walking off a seat left the walker glued to their anchor
+## on every OTHER client and leaked the seat in `_seat_by_cid` permanently —
+## the host kept refusing that seat to everyone else for the rest of the room.
+##
+## Only transitions are sent (the pose tick runs at 10 Hz); `_host_assign_seat`
+## additionally drops no-op claims so the echo can't feed back into itself.
+func _sync_local_seat(seat: int) -> void:
+	if seat == _local_seat_sent:
+		return
+	_local_seat_sent = seat
+	if not _is_host:
+		_session.call("send_control", "%s|%d" % [SEAT_ACTION, seat])
+		return
+	var cid := int(_session.get("character_id"))
+	_host_assign_seat(cid, seat)
+	# The host's own claim goes through the SAME arbitration as everyone
+	# else's, and can be refused when a guest already holds that anchor. A
+	# guest learns this from the authoritative echo (`_on_world` stands us up
+	# when the map omits us) but the host never receives that branch, so
+	# without this it would stay visually seated on top of the real holder.
+	if seat >= 0 and int(_seat_by_cid.get(cid, -1)) != seat:
+		_local.call("stand")
+		_local_seat_sent = -1
 
 
 func _on_local_surface_clicked(surface_id: String) -> void:
@@ -350,8 +632,17 @@ func _on_local_surface_clicked(surface_id: String) -> void:
 
 
 func _on_surface_activated(surface_id: String) -> void:
-	if mode == Mode.MATRIX:
-		_chat3d.call("emit_media_activate", surface_id)
+	match mode:
+		Mode.MATRIX:
+			_chat3d.call("emit_media_activate", surface_id)
+		Mode.SESSION:
+			# DESIGN §5: session-mode placements live in the host-authoritative
+			# world state. The host applies its own click directly; everyone
+			# else asks over the movement channel and waits for the echo.
+			if _is_host:
+				_host_toggle_media(int(_session.get("character_id")), surface_id)
+			else:
+				_session.call("send_control", "%s|%s" % [MEDIA_ACTION, surface_id])
 
 
 func _on_xr_state(active: bool) -> void:

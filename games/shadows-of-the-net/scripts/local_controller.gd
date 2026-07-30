@@ -16,14 +16,24 @@ extends Node3D
 signal pose_changed(x: float, z: float, yaw: float, seat: int)
 signal seat_clicked(seat: int)
 signal surface_clicked(surface_id: String)
+## The player clicked the stage platform — a request to take (or release) the
+## stage. Arbitration is NOT local: room_controller relays it and waits for the
+## authoritative grant, exactly like a seat claim.
+signal stage_clicked()
 
 const WALK_SPEED := 2.6
 const ROOM_RADIUS := 8.6
 const SEAT_SNAP_DIST := 1.1
 const EMIT_INTERVAL := 0.1   # 10 Hz
+## Click radius of the stage platform disc (scenes/room.tscn StagePlatform is a
+## CylinderMesh with top_radius 1.6 / bottom_radius 1.7).
+const STAGE_CLICK_RADIUS := 1.7
 
 var seats_root: Node3D = null
 var surfaces: Node3D = null
+## The StagePlatform mesh, injected by room_controller (same pattern as
+## seats_root / surfaces). Null ⇒ the stage is simply not clickable.
+var stage_platform: Node3D = null
 
 var pos := Vector3(0, 0, 3.5)
 var yaw := PI            # facing the room center from +Z
@@ -164,8 +174,21 @@ func _handle_click(screen_pos: Vector2) -> void:
 	if nearest >= 0:
 		sit(nearest)
 		seat_clicked.emit(nearest)
+	elif _hit_stage(hit):
+		# Request only — the grant comes back through the authoritative echo
+		# (session) or the host page (matrix), never from this click.
+		stage_clicked.emit()
 	elif Vector2(hit.x, hit.z).length() <= ROOM_RADIUS:
 		_walk_target = Vector3(hit.x, 0, hit.z)
+
+
+## Did the floor click land on the stage platform disc? Tested AFTER the seat
+## snap so the seat ring (which the stage sits just outside of) keeps priority.
+func _hit_stage(hit: Vector3) -> bool:
+	if stage_platform == null:
+		return false
+	var c := stage_platform.position
+	return Vector2(hit.x - c.x, hit.z - c.z).length() <= STAGE_CLICK_RADIUS
 
 
 ## Snap the local pose onto a seat anchor (also used when the host assigns us).
@@ -184,3 +207,19 @@ func sit(seat_index: int) -> void:
 func stand() -> void:
 	seat = -1
 	_dirty = true
+
+
+## Place the rig at an explicit point — used when the stage grant lands on us.
+##
+## avatar_manager.set_stage() teleports the local AVATAR onto the stage anchor
+## and then suppresses pose updates while the grant is held. Without moving the
+## desktop rig too, the third-person camera would stay behind orbiting an empty
+## patch of floor while the player's character stood across the room. Leaving
+## the seat is part of taking the stage, so this stands us up as well.
+func stand_at(point: Vector3) -> void:
+	seat = -1
+	_walk_target = Vector3.INF
+	pos = Vector3(point.x, 0, point.z)
+	yaw = atan2(-point.x, -point.z)
+	_dirty = true
+	_update_camera()

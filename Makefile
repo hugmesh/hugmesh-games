@@ -12,7 +12,7 @@ SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-bdd e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
-        test test-rust test-backend test-frontend \
+        test test-rust test-backend test-frontend test-godot test-games-js \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
         docs-userguides docs-openapi-spec docs-openapi-latex \
@@ -588,14 +588,43 @@ e2e-bdd: gen-certs
 #   test-backend   → mvnw test in backend/   (host toolchain; needs JDK 21)
 #   test-frontend  → ng test in a Docker container (Chromium baked in,
 #                    so the host doesn't need a browser)
+#   test-godot     → headless GDScript suites for the Godot games (no browser,
+#                    no export — instantiates the real scenes and drives the
+#                    transports' own handlers)
+#   test-games-js  → plain-node functional tests under games/_shared/test/
+#                    (web-native wasm engines + the browser-only JS a Godot
+#                    game injects with JavaScriptBridge.eval, which a headless
+#                    Godot run can never execute)
 #
-# Godot has no GDScript test suite yet — coverage of the runtime layer is
-# exercised by `make e2e`, which loads the WASM bundle in a real browser.
+# Browser-level coverage of the runtime layer stays with `make e2e`.
 
 FRONTEND_TEST_IMAGE = hugmesh-games-frontend-test
+## Godot projects that ship a tests/run_tests.gd headless suite.
+GODOT_TEST_PROJECTS = shadows-of-the-net
 
-test: test-rust test-backend test-frontend
+test: test-rust test-backend test-godot test-games-js test-frontend
 	@echo "✓ All project unit tests passed"
+
+test-godot:
+	@command -v $(GODOT) >/dev/null 2>&1 || { \
+	  echo "ERROR: '$(GODOT)' not found — set GODOT=/path/to/godot4"; exit 1; }
+	@status=0; \
+	for slug in $(GODOT_TEST_PROJECTS); do \
+	  echo "→ Running headless GDScript suites for $$slug…"; \
+	  $(GODOT) --headless --path games/$$slug --script res://tests/run_tests.gd || status=$$?; \
+	done; \
+	if [ $$status -ne 0 ]; then echo "✗ GDScript suites FAILED"; exit $$status; fi
+	@echo "✓ GDScript suites passed"
+
+test-games-js:
+	@command -v node >/dev/null 2>&1 || { echo "ERROR: node not found"; exit 1; }
+	@status=0; \
+	for t in games/_shared/test/*.test.mjs; do \
+	  echo "→ node $$t"; \
+	  node "$$t" || status=$$?; \
+	done; \
+	if [ $$status -ne 0 ]; then echo "✗ games JS tests FAILED"; exit $$status; fi
+	@echo "✓ games JS tests passed"
 
 test-rust: deps-rust
 	@echo "→ Running Rust unit tests…"

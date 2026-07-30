@@ -6,6 +6,7 @@ import { provideRouter } from '@angular/router';
 import { HomeComponent } from './home.component';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { CharacterState } from '../models/character.model';
+import { GameSession, SessionMember } from '../services/multiplayer-session.service';
 
 /**
  * Pure-helper coverage for HomeComponent. Heavier orchestration is
@@ -341,5 +342,111 @@ describe('HomeComponent character picker', () => {
     } finally {
       window.history.replaceState({}, '', window.location.pathname);
     }
+  });
+});
+
+/**
+ * Slot 0 is the CREATOR's slot. Host-authoritative Godot titles elect their
+ * in-game host from the client-visible `slot_index` — shadows-of-the-net does
+ * `_is_host = slot_index == 0` — while the BFF grants authority on
+ * `SessionMember.isCreator()` (InputEventController's Gate 0b). The lobby's
+ * slot picker used to start its scan at 0, so any session whose creator row
+ * carried no slot handed slot 0 to the first GUEST. That guest then believed
+ * itself the room host, arbitrated seats / stage / media placements for
+ * everyone, and had every authoritative broadcast 403'd — which the game
+ * turned into SD_SESSION_EXPIRED, so the host shell re-ran connect +
+ * claimControl on every seat click and stage toggle, forever, while the real
+ * creator never broadcast at all.
+ *
+ * The BFF now pins the creator to slot 0 and 409s any other member that asks
+ * for it; this spec pins the client half — the picker must never even offer
+ * it, including for legacy sessions whose creator row predates the pin.
+ */
+describe('HomeComponent session slot picker', () => {
+  let fixture: ComponentFixture<HomeComponent>;
+  let component: HomeComponent;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
+    });
+    fixture = TestBed.createComponent(HomeComponent);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  function member(casdoorId: string, slotIndex: number | null, creator = false): SessionMember {
+    return { casdoorId, characterId: 1, slotIndex, creator, joinedAt: '2026-01-01T00:00:00Z' };
+  }
+
+  function session(maxPlayers: number, members: SessionMember[]): GameSession {
+    return {
+      id: 'sess-1', name: 'Demo', gameSlug: 'shadows-of-the-net',
+      creatorCasdoorId: 'alice', maxPlayers, activePlayers: members.length,
+      visibility: 'public', createdAt: '2026-01-01T00:00:00Z', closedAt: null, members,
+    };
+  }
+
+  /** MultiplayerSessionService posts RELATIVE paths (no environment.apiBase
+   *  prefix, unlike CharacterService) — match on the path as issued. */
+  const joinUrl = (id: string) => `/api/sessions/${id}/join`;
+
+  /** Drive the real public join path and return the slotIndex it POSTs. */
+  function slotSentForJoin(s: GameSession): number | undefined {
+    component.joinSession(s);
+    const reqs = httpMock.match(r => r.url === joinUrl(s.id) && r.method === 'POST');
+    expect(reqs.length).toBe(1);
+    const slot = (reqs[0].request.body as { slotIndex?: number }).slotIndex;
+    reqs[0].flush(s);
+    return slot;
+  }
+
+  /** Drive the join path and return how many join POSTs it produced. */
+  function joinRequestCount(s: GameSession): number {
+    component.joinSession(s);
+    return httpMock.match(r => r.url === joinUrl(s.id) && r.method === 'POST').length;
+  }
+
+  it('never hands slot 0 to a joining guest, even when nobody has claimed it', () => {
+    // The exact legacy shape: a creator row that predates the slot pin.
+    const slot = slotSentForJoin(session(4, [member('alice', null, true)]));
+    expect(slot).not.toBe(0);
+    expect(slot).toBe(1);
+  });
+
+  it('skips claimed slots and returns the lowest free non-creator slot', () => {
+    const slot = slotSentForJoin(session(4, [
+      member('alice', 0, true), member('bob', 1), member('carol', 3),
+    ]));
+    expect(slot).toBe(2);
+  });
+
+  it('reports the session full rather than falling back to slot 0', () => {
+    // maxPlayers 3 with slots 1 and 2 taken: only 0 is free, and it is the
+    // creator's — the guest must be told the session is full, never re-seated
+    // onto the host slot.
+    expect(joinRequestCount(session(3, [member('bob', 1), member('carol', 2)]))).toBe(0);
+  });
+
+  it('a single-slot session is full for a guest (slot 0 belongs to the creator)', () => {
+    expect(joinRequestCount(session(1, []))).toBe(0);
+  });
+
+  it('createSession still claims slot 0 for the creator', () => {
+    component.modalGame = {
+      slug: 'shadows-of-the-net', name: 'Shadows of the Net', description: '',
+      chapters: [],
+    } as unknown as GameWithChapters;
+    component.newSessionName = 'Noir room';
+    component.createSession();
+
+    const reqs = httpMock.match(r => r.url === '/api/sessions' && r.method === 'POST');
+    expect(reqs.length).toBe(1);
+    expect((reqs[0].request.body as { slotIndex?: number }).slotIndex).toBe(0);
   });
 });

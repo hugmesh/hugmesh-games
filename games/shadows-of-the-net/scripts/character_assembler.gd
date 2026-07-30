@@ -1,14 +1,31 @@
 extends Node3D
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VENDORED COPY — CharacterAssembler (Char3DConfig v1 → procedural Node3D rig)
+# ROOM-LOCAL ASSEMBLER — CharacterAssembler (Char3DConfig v1 → Node3D rig)
 #
-# The CANONICAL copy of this file lives in the character-forge repo:
-#   snapdragon-character-forge-bff-api/godot/character-forge/character_assembler.gd
-# This is the platform's vendored-model convention (same as matrix-ui vendoring
-# the studio's VnCharacter models): native-federation / cross-repo rules forbid
-# runtime imports, so the room ships its own byte-consistent copy. Fix bugs in
-# the canonical copy first, then re-vendor here.
+# PROVENANCE (read before "re-syncing" anything)
+#   This is an INDEPENDENT implementation, NOT a byte-copy. A sibling assembler
+#   exists in the character-forge repo at
+#     snapdragon-character-forge-bff-api/godot/character-forge/scripts/character_assembler.gd
+#   and both files carry each other's name, but they share no implementation:
+#   ~750 lines here vs ~1200 there, and the public APIs are incompatible —
+#   that file is `class_name CharacterAssembler` with `apply_config(cfg)` +
+#   `rebuild()` and depends on the forge project's `Char3DConfig` autoload,
+#   while this one is a plain `preload()`ed script with `assemble(raw)` +
+#   static `parse_config()`/`random_config()` and no project-level
+#   dependencies (deliberate: the room is a self-contained wasm bundle).
+#   This copy also implements `set_blendshapes()` (52-weight MediaPipe vector),
+#   which the forge copy does not have at all.
+#
+#   DO NOT "fix the canonical copy and re-vendor" — dropping the forge file in
+#   here removes set_blendshapes, breaks every `assemble()` call site in
+#   avatar_manager.gd, and pulls in an autoload this project doesn't have.
+#
+#   WHAT IS ACTUALLY SHARED, and must stay in lockstep, is the DATA CONTRACT,
+#   not the code: the Char3DConfig v1 schema below, the 29-value family
+#   vocabulary, the 7 material regions, the 7 part slots, and the canonical
+#   10-label expression vocabulary. Change one of those upstream ⇒ mirror the
+#   constant tables here (and vice versa); everything else is local.
 #
 # WHAT IT DOES
 #   assemble(config) builds a stylized character rig from parameterized

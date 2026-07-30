@@ -19,12 +19,26 @@ extends Node
 #   Chat3D.setLocal(userId)                 which participant is ME
 #   Chat3D.enterVR()                        request immersive-vr
 # OUT — the game emits (onEmit callback + postMessage to the allowed origin):
+#   ready()  — the HANDSHAKE. The matrix-ui host queues every outbound envelope
+#              until it arrives (Chat3dHostComponent.send → outQueue) and keeps
+#              Enter-VR inert, so nothing at all happens in the room until the
+#              game announces itself. Emitted by room_controller._setup_matrix
+#              via announce_ready(), and re-announced until the host answers so
+#              a listener that attaches late still gets it.
 #   localPose(x, z, yaw, seat) ~10Hz | mediaActivate(surfaceId) | vrState(active)
 #
 # ENVELOPE (postMessage, both directions): {v:1, t:<function-name>, args:[…]}
 # — t is the Chat3D function name, args is the argument list in signature
 # order. Inbound messages ALSO accept signature-named fields ({userId:…,x:…})
-# for tolerance; outbound messages carry BOTH forms. Version v !== 1 ⇒ drop.
+# plus the documented ALIASES below for tolerance; outbound messages carry BOTH
+# forms. Version v !== 1 ⇒ drop.
+#
+# BINARY ARGUMENTS — the inbound queue is drained as JSON (JavaScriptBridge
+# cannot hand a live ArrayBuffer to GDScript), and JSON.stringify turns an
+# ArrayBuffer into `{}`. Any ArrayBuffer / TypedArray argument is therefore
+# base64-encoded AT PUSH TIME, before it can be flattened — which is exactly
+# the `pngBase64` shape the decoder below expects, so a host that passes real
+# image bytes (structured clone) and a host that passes base64 both work.
 #
 # ORIGIN ALLOW-LIST — checked on EVERY message, both ways:
 #   * inbound: event.origin must equal the allowed origin;
@@ -65,8 +79,41 @@ const SIGNATURES := {
 	"enterVR": [],
 }
 
+## Accepted ALTERNATE field names per signature slot, for hosts that build the
+## envelope from named fields rather than an `args` array. The canonical names
+## above are DESIGN §5's argument names and are always tried first; these are
+## the natural TypeScript-side spellings (matrix-ui's `hostMsg` builders use
+## `users`/`config`/`value`/`values`/`speaking`/`meta`/`bytes`/`on`), so
+## accepting them keeps the room working instead of silently defaulting every
+## payload to null. Never widen this to accept a DIFFERENT slot's name.
+const ALIASES := {
+	"roster": {"json": ["users", "roster", "list"]},
+	"avatar": {"configJson": ["config"]},
+	"openness": {"f": ["value", "openness"]},
+	"blendshapes": {"b64": ["values", "weights", "bytes"]},
+	"speaking": {"value": ["speaking"]},
+	"expression": {"label": ["expression"]},
+	"placeMedia": {"metaJson": ["meta"], "pngBase64": ["bytes", "png"]},
+	"stage": {"value": ["on", "stage"]},
+}
+
+## Bytes accepted for one placeMedia texture before we drop the payload and
+## fall back to a metadata-only plaque (the base64 of this still has to survive
+## a JSON round-trip through the drain).
+const MAX_MEDIA_BYTES := 4 * 1024 * 1024
+
+## The host queues everything until `ready`; re-announce until it talks back so
+## a host listener that attaches after the wasm boots still completes the
+## handshake. ~1 s apart, then give up (the host is simply not there).
+const READY_RETRY_INTERVAL := 1.0
+const READY_MAX_RETRIES := 15
+
 var _polling := false
 var _surface_re: RegEx = null
+var _ready_announced := false
+var _ready_acked := false
+var _ready_retries := 0
+var _ready_accum := 0.0
 
 
 func _ready() -> void:
@@ -79,12 +126,46 @@ func _ready() -> void:
 
 
 func _install_js() -> void:
-	# The signature table is injected so JS and GDScript can never drift.
+	# The signature + alias tables are injected so JS and GDScript can never
+	# drift apart on the envelope mapping.
 	var sig_json := JSON.stringify(SIGNATURES)
+	var alias_json := JSON.stringify(ALIASES)
 	JavaScriptBridge.eval("""
 (function() {
 	if (window.Chat3D) return;
 	var SIG = %s;
+	var ALIAS = %s;
+	var MAX_MEDIA = %d;
+	// ArrayBuffer / TypedArray -> base64. The drain JSON.stringifies the queue,
+	// which would otherwise flatten binary payloads to '{}' and silently lose
+	// every placeMedia texture the host transfers as a structured clone.
+	function toB64(view) {
+		var bytes = view instanceof ArrayBuffer
+			? new Uint8Array(view)
+			: new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+		if (bytes.length > MAX_MEDIA) return null;
+		var s = '';
+		for (var i = 0; i < bytes.length; i += 0x8000) {
+			s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+		}
+		try { return btoa(s); } catch (e) { return null; }
+	}
+	function normArg(v) {
+		if (v instanceof ArrayBuffer) return toB64(v);
+		if (ArrayBuffer.isView(v) && !(v instanceof DataView)) return toB64(v);
+		return v;
+	}
+	// Canonical signature name first, then the documented aliases.
+	function pick(d, t, key) {
+		if (d[key] !== undefined) return d[key];
+		var alts = (ALIAS[t] || {})[key];
+		if (alts) {
+			for (var i = 0; i < alts.length; i++) {
+				if (d[alts[i]] !== undefined) return d[alts[i]];
+			}
+		}
+		return null;
+	}
 	var allowed = (function() {
 		try {
 			var p = new URLSearchParams(window.location.search);
@@ -98,7 +179,7 @@ func _install_js() -> void:
 	var q = [];
 	function push(t, args) {
 		if (q.length > 2048) q.length = 0;
-		q.push({ t: t, args: args });
+		q.push({ t: t, args: args.map(normArg) });
 	}
 	var api = { _allowedOrigin: allowed, onEmit: null };
 	Object.keys(SIG).forEach(function(name) {
@@ -123,17 +204,18 @@ func _install_js() -> void:
 		var sig = SIG[d.t];
 		if (!sig) return;
 		var args = Array.isArray(d.args) ? d.args
-			: sig.map(function(k) { return d[k] !== undefined ? d[k] : null; });
+			: sig.map(function(k) { return pick(d, d.t, k); });
 		push(d.t, args);
 	});
 	window.Chat3D = api;
 })();
-	""" % sig_json)
+	""" % [sig_json, alias_json, MAX_MEDIA_BYTES])
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not _polling:
 		return
+	_retry_ready(delta)
 	var raw: Variant = JavaScriptBridge.eval(
 		"window.Chat3D && window.Chat3D._drain ? window.Chat3D._drain() : '[]'")
 	if raw == null:
@@ -143,7 +225,20 @@ func _process(_delta: float) -> void:
 		return
 	for c in calls:
 		if c is Dictionary:
+			# Any inbound call proves the host heard our handshake.
+			_ready_acked = true
 			_dispatch(str(c.get("t", "")), c.get("args") if c.get("args") is Array else [])
+
+
+func _retry_ready(delta: float) -> void:
+	if not _ready_announced or _ready_acked or _ready_retries >= READY_MAX_RETRIES:
+		return
+	_ready_accum += delta
+	if _ready_accum < READY_RETRY_INTERVAL:
+		return
+	_ready_accum = 0.0
+	_ready_retries += 1
+	_emit("ready", [], {})
 
 
 func _dispatch(t: String, args: Array) -> void:
@@ -193,6 +288,22 @@ func _dispatch(t: String, args: Array) -> void:
 
 
 # ── outbound emits ───────────────────────────────────────────────────────────
+
+## The Chat3D handshake. Until the host receives this it holds every envelope
+## it wants to send us (roster, avatar, setLocal, placements…) in a queue and
+## refuses Enter-VR requests, so the room stays empty. Call it once the inbound
+## signals are wired; _retry_ready re-announces until the host answers.
+func announce_ready() -> void:
+	_ready_announced = true
+	_ready_accum = 0.0
+	_emit("ready", [], {})
+
+
+## Whether the host has sent us anything since the handshake (test/diagnostic
+## hook — the room is only truly live once this flips).
+func ready_acked() -> bool:
+	return _ready_acked
+
 
 func emit_local_pose(x: float, z: float, yaw: float, seat: int) -> void:
 	_emit("localPose", [x, z, yaw, seat], {"x": x, "z": z, "yaw": yaw, "seat": seat})

@@ -32,8 +32,19 @@ extends Node
 signal movement_received(payload: Dictionary)
 signal world_received(payload: Dictionary)
 signal session_control_received(action: String)
+## The BFF rejected an authoritative kind:'world' POST (Gate 0b — we are not
+## the session creator). Distinct from a stale controller claim: reconnecting
+## can never fix it, so the room must stand down as host instead.
+signal world_forbidden()
 
 const GAME_SLUG := "shadows-of-the-net"
+## Outstanding world POSTs we still expect a response for. Bounded — a lost
+## response must never let this grow without limit.
+const MAX_PENDING_WORLD := 64
+
+## _classify_response verdicts.
+const VERDICT_WORLD_FORBIDDEN := "world-forbidden"
+const VERDICT_EXPIRED := "expired"
 
 var session_id := ""
 var character_id := -1
@@ -44,6 +55,8 @@ var session_live := false
 
 var _req_id := 0
 var _polling := false
+## requestId(int) → true for in-flight kind:'world' POSTs (see _drain_api).
+var _pending_world: Dictionary = {}
 
 
 func _ready() -> void:
@@ -160,10 +173,34 @@ func _drain_api() -> void:
 	for resp in responses:
 		if not (resp is Dictionary):
 			continue
-		# 403 = stale controller claim after a BFF restart. Mirror the Rust
-		# game_bridge auto-recovery: ask the host to re-run connect/claim.
-		if int(resp.get("status", 0)) == 403:
+		var verdict := _classify_response(resp)
+		if verdict == VERDICT_WORLD_FORBIDDEN:
+			world_forbidden.emit()
+		elif verdict == VERDICT_EXPIRED:
 			_post_parent({"type": "SD_SESSION_EXPIRED"})
+
+
+## Classify one drained SD_API_RESPONSE and retire its pending-world entry.
+##
+## The two 403s the BFF can hand us mean OPPOSITE things and the old code
+## conflated them:
+##   * 403 on POST /api/input/{cid} (kind:'world') is Gate 0b — only the
+##     session CREATOR may broadcast authoritative state. That is a permanent
+##     authority verdict; reconnecting cannot change it, and re-running
+##     connect/claimControl just 403s again on the next broadcast (once per
+##     seat click, per stage toggle, and on the deferred initial seed).
+##   * 403 on POST /api/controls/{cid} is a stale controller claim after a BFF
+##     restart, which connect/claimControl DOES fix (the documented
+##     SD_SESSION_EXPIRED recovery every other game in this repo uses).
+##
+## Kept as a pure-ish function so the routing is unit-testable without a
+## browser: `_drain_api` only owns the JS drain, this owns the decision.
+func _classify_response(resp: Dictionary) -> String:
+	var rid := int(resp.get("requestId", -1))
+	var was_world := _pending_world.erase(rid)
+	if int(resp.get("status", 0)) != 403:
+		return ""
+	return VERDICT_WORLD_FORBIDDEN if was_world else VERDICT_EXPIRED
 
 
 # ── outbound ─────────────────────────────────────────────────────────────────
@@ -193,6 +230,9 @@ func send_world(payload: Dictionary) -> void:
 	if not session_live or character_id < 0:
 		return
 	_req_id += 1
+	if _pending_world.size() >= MAX_PENDING_WORLD:
+		_pending_world.clear()   # responses went missing; don't leak the map
+	_pending_world[_req_id] = true
 	_post_parent({"type": "SD_API_REQUEST", "payload": {
 		"requestId": _req_id, "method": "POST",
 		"path": "/api/input/%d" % character_id,

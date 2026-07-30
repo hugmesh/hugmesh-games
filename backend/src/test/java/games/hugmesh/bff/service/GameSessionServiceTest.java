@@ -144,17 +144,128 @@ class GameSessionServiceTest {
 
     @Test
     void joinIsIdempotentForExistingMember() {
-        GameSession s = sample();
+        GameSession s = sample();                          // creator is "alice"
         when(sessions.findById(s.getId())).thenReturn(Mono.just(s));
-        SessionMember existing = newMember(s.getId(), "alice", 1L, 0, true);
-        when(members.findActive(s.getId(), "alice")).thenReturn(Mono.just(existing));
+        // A NON-creator: the creator is pinned to CREATOR_SLOT and cannot bump
+        // its own slot (see the creator-slot specs below).
+        SessionMember existing = newMember(s.getId(), "bob", 2L, 1, false);
+        when(members.findActive(s.getId(), "bob")).thenReturn(Mono.just(existing));
 
-        StepVerifier.create(service.join(s.getId(), "alice", 1L, 1))  // bumping slot
+        StepVerifier.create(service.join(s.getId(), "bob", 2L, 2))  // bumping slot
                 .assertNext(dto -> {
                     assertThat(dto.id()).isEqualTo(s.getId());
                 })
                 .verifyComplete();
-        assertThat(existing.getSlotIndex()).isEqualTo(1);  // mutated
+        assertThat(existing.getSlotIndex()).isEqualTo(2);  // mutated
+    }
+
+    // ── creator-slot pin ────────────────────────────────────────────────────
+    // Host-authoritative Godot titles elect their in-game host from the
+    // client-visible slot_index (shadows-of-the-net: `_is_host = slot_index ==
+    // 0`) while this service grants authority on session_members.is_creator —
+    // InputEventController's Gate 0b rejects kind:'world' from anyone else.
+    // slotIndex used to be a nullable CLIENT-supplied field on both create and
+    // join, so the two predicates could name different members: a session
+    // created without one left slot 0 free for the first guest, who then
+    // believed itself host, drove the room's seat/stage/media arbitration, and
+    // had every one of its authoritative broadcasts 403'd into an
+    // SD_SESSION_EXPIRED reconnect storm — while the real creator, on slot 1,
+    // never broadcast at all, so nothing in the room ever synced.
+
+    @Test
+    void createPinsTheCreatorToSlotZeroWhateverTheClientAsked() {
+        StepVerifier.create(service.create("alice", "three-wizards", "Run", 4, "public", 1L, 7))
+                .assertNext(dto -> assertThat(dto.id()).isNotBlank())
+                .verifyComplete();
+
+        org.mockito.ArgumentCaptor<SessionMember> saved =
+                org.mockito.ArgumentCaptor.forClass(SessionMember.class);
+        org.mockito.Mockito.verify(members).save(saved.capture());
+        assertThat(saved.getValue().isCreator()).isTrue();
+        assertThat(saved.getValue().getSlotIndex())
+                .as("creator is seated at CREATOR_SLOT, not the requested slot 7")
+                .isEqualTo(GameSessionService.CREATOR_SLOT);
+    }
+
+    @Test
+    void createPinsTheCreatorToSlotZeroWhenNoSlotWasRequested() {
+        StepVerifier.create(service.create("alice", "three-wizards", "Run", 4, "public", 1L, null))
+                .assertNext(dto -> assertThat(dto.id()).isNotBlank())
+                .verifyComplete();
+
+        org.mockito.ArgumentCaptor<SessionMember> saved =
+                org.mockito.ArgumentCaptor.forClass(SessionMember.class);
+        org.mockito.Mockito.verify(members).save(saved.capture());
+        assertThat(saved.getValue().getSlotIndex())
+                .as("a null slotIndex must not leave slot 0 free for a guest")
+                .isEqualTo(GameSessionService.CREATOR_SLOT);
+    }
+
+    @Test
+    void joinRefusesTheCreatorSlotToANonCreator() {
+        GameSession s = sample();                          // creator is "alice"
+        when(sessions.findById(s.getId())).thenReturn(Mono.just(s));
+        lenient().when(members.findActive(s.getId(), "bob")).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.join(s.getId(), "bob", 2L, GameSessionService.CREATOR_SLOT))
+                .expectErrorSatisfies(err -> {
+                    assertThat(err).isInstanceOf(ResponseStatusException.class);
+                    assertThat(((ResponseStatusException) err).getStatusCode().value()).isEqualTo(409);
+                    assertThat(err.getMessage()).contains("reserved for the session creator");
+                })
+                .verify();
+        org.mockito.Mockito.verify(members, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void joinLetsANonCreatorTakeAnyOtherSlot() {
+        GameSession s = sample();
+        when(sessions.findById(s.getId())).thenReturn(Mono.just(s));
+        when(members.findActive(s.getId(), "bob")).thenReturn(Mono.empty());
+        when(members.countBySessionIdAndLeftAtIsNull(s.getId())).thenReturn(Mono.just(1L));
+
+        StepVerifier.create(service.join(s.getId(), "bob", 2L, 2))
+                .assertNext(dto -> assertThat(dto.id()).isEqualTo(s.getId()))
+                .verifyComplete();
+
+        org.mockito.ArgumentCaptor<SessionMember> saved =
+                org.mockito.ArgumentCaptor.forClass(SessionMember.class);
+        org.mockito.Mockito.verify(members).save(saved.capture());
+        assertThat(saved.getValue().getSlotIndex()).isEqualTo(2);
+        assertThat(saved.getValue().isCreator()).isFalse();
+    }
+
+    @Test
+    void joinPutsTheCreatorBackOnTheCreatorSlot() {
+        GameSession s = sample();                          // creator is "alice"
+        when(sessions.findById(s.getId())).thenReturn(Mono.just(s));
+        SessionMember existing = newMember(s.getId(), "alice", 1L,
+                GameSessionService.CREATOR_SLOT, true);
+        when(members.findActive(s.getId(), "alice")).thenReturn(Mono.just(existing));
+
+        // The creator re-launches with a stale/hand-edited slot in the URL.
+        StepVerifier.create(service.join(s.getId(), "alice", 1L, 5))
+                .assertNext(dto -> assertThat(dto.id()).isEqualTo(s.getId()))
+                .verifyComplete();
+        assertThat(existing.getSlotIndex())
+                .as("the creator can never leave the host slot")
+                .isEqualTo(GameSessionService.CREATOR_SLOT);
+    }
+
+    @Test
+    void joinReSeatsTheCreatorEvenWhenNoSlotWasRequested() {
+        GameSession s = sample();
+        when(sessions.findById(s.getId())).thenReturn(Mono.just(s));
+        // A legacy row created before the pin existed: creator on no slot.
+        SessionMember existing = newMember(s.getId(), "alice", 1L, null, true);
+        when(members.findActive(s.getId(), "alice")).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(service.join(s.getId(), "alice", 1L, null))
+                .assertNext(dto -> assertThat(dto.id()).isEqualTo(s.getId()))
+                .verifyComplete();
+        assertThat(existing.getSlotIndex())
+                .as("rejoining repairs a legacy creator row onto the host slot")
+                .isEqualTo(GameSessionService.CREATOR_SLOT);
     }
 
     @Test

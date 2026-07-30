@@ -114,6 +114,17 @@ func activate(surface_id: String) -> void:
 		surface_activated.emit(surface_id)
 
 
+## Surface-id allow-list. Callers that accept a surface id off the wire (the
+## session-mode SOTN_MEDIA action, the authoritative placement map) MUST filter
+## through this — SURFACE_NODES is the only set of ids that map to real nodes.
+func has_surface(surface_id: String) -> bool:
+	return SURFACE_NODES.has(surface_id)
+
+
+func surface_ids() -> Array:
+	return SURFACE_NODES.keys()
+
+
 func _mesh_for(surface_id: String) -> MeshInstance3D:
 	var node_name: String = SURFACE_NODES.get(surface_id, "")
 	if node_name == "":

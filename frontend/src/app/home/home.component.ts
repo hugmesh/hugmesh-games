@@ -302,13 +302,20 @@ export class HomeComponent implements OnInit {
     });
   }
 
-  /** Slot indexes 0..(maxPlayers-1) that aren't already claimed by an
-   *  active member. Used by the picker to suggest the lowest free slot. */
+  /** Slot indexes 1..(maxPlayers-1) that aren't already claimed by an
+   *  active member. Used by the picker to suggest the lowest free slot.
+   *
+   *  Slot 0 is deliberately skipped: it is the CREATOR's slot (the BFF pins
+   *  it on create and 409s any other member that asks for it), and it is what
+   *  host-authoritative Godot titles use to elect their in-game host. A guest
+   *  handed slot 0 would believe itself host and have every authoritative
+   *  broadcast rejected by the BFF. Legacy sessions whose creator row predates
+   *  the pin may leave 0 unclaimed — we still never hand it out. */
   private firstFreeSlot(s: GameSession): number {
     const claimed = new Set(
       s.members.filter(m => m.slotIndex !== null).map(m => m.slotIndex as number),
     );
-    for (let i = 0; i < s.maxPlayers; i++) {
+    for (let i = 1; i < s.maxPlayers; i++) {
       if (!claimed.has(i)) return i;
     }
     return -1;

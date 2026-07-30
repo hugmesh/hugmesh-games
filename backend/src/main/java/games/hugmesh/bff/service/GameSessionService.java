@@ -94,6 +94,25 @@ public class GameSessionService {
     /** Visibility constant — session visible only to the creator themselves. */
     private static final String VIS_PRIVATE = "private";
 
+    /**
+     * The session creator's multiplayer slot. Pinned, not requested.
+     *
+     * <p>Host-authoritative Godot titles elect their in-game host from the
+     * client-visible {@code slot_index} (shadows-of-the-net does
+     * {@code _is_host = slot_index == 0}), while the BFF grants authority on
+     * {@code session_members.is_creator} — {@code InputEventController}'s Gate
+     * 0b rejects {@code kind:'world'} from anyone else. Those two definitions
+     * used to be independent: {@code slotIndex} was a nullable client-supplied
+     * field on both create and join, so a session created without one left
+     * slot 0 free for the first guest, who then believed itself host, drove
+     * the room's seat/stage arbitration, and had every one of its authoritative
+     * broadcasts 403'd — while the real creator never broadcast at all.
+     *
+     * <p>Pinning the creator to slot 0 (here on create, enforced on join)
+     * makes {@code slot_index == 0} and {@code is_creator} the same predicate.
+     */
+    public static final int CREATOR_SLOT = 0;
+
     private final GameSessionRepository    sessions;
     private final SessionMemberRepository  members;
     private final RelationshipQuery  relationships;
@@ -169,7 +188,9 @@ public class GameSessionService {
      * @param visibility       {@code public}, {@code friends}, or {@code private};
      *                         defaults to {@code public} when null/blank/unrecognised
      * @param characterId      the creator's character id for this session
-     * @param slotIndex        optional multiplayer slot index for the creator
+     * @param slotIndex        IGNORED — the creator is always seated at
+     *                         {@link #CREATOR_SLOT}; kept on the signature so
+     *                         existing callers/DTOs don't have to change
      * @return a {@link Mono} emitting the new {@link GameSessionDto} including the
      *         creator as a member, or an error {@link Mono} with HTTP 400 when the
      *         name is invalid
@@ -206,7 +227,10 @@ public class GameSessionService {
         // markNew() sets the Persistable.isNew flag so R2DBC issues INSERT, not UPDATE.
         s.markNew();
 
-        SessionMember firstMember = newMember(s.getId(), creatorCasdoorId, characterId, slotIndex, true);
+        // The creator ALWAYS takes CREATOR_SLOT — the requested slotIndex is
+        // deliberately ignored so that "slot 0" and "may post kind:'world'"
+        // can never name different members (see CREATOR_SLOT).
+        SessionMember firstMember = newMember(s.getId(), creatorCasdoorId, characterId, CREATOR_SLOT, true);
 
         return sessions.save(s)
                 .flatMap(saved -> members.save(firstMember).thenReturn(saved))
@@ -362,10 +386,13 @@ public class GameSessionService {
      * @param sessionId   the session to join
      * @param casdoorId   the joining player's Casdoor subject
      * @param characterId the character the player is using
-     * @param slotIndex   optional multiplayer slot index to claim
+     * @param slotIndex   optional multiplayer slot index to claim; the creator
+     *                    is forced onto {@link #CREATOR_SLOT} and any other
+     *                    member asking for {@link #CREATOR_SLOT} is refused
      * @return a {@link Mono} emitting the updated {@link GameSessionDto}, or HTTP
      *         404 if the session does not exist, HTTP 410 if it is closed, or HTTP
-     *         409 if it is full or the slot is already claimed
+     *         409 if it is full, the slot is already claimed, or a non-creator
+     *         asked for the reserved creator slot
      */
     public Mono<GameSessionDto> join(
             String sessionId,
@@ -380,10 +407,22 @@ public class GameSessionService {
                     if (s.getClosedAt() != null) {
                         return Mono.error(new ResponseStatusException(HttpStatus.GONE, "session closed"));
                     }
+                    // CREATOR_SLOT is the host slot and belongs to the creator
+                    // alone: a guest that takes it becomes a false host in every
+                    // host-authoritative title (see CREATOR_SLOT). Refuse the
+                    // claim outright rather than silently re-slotting, so the
+                    // caller learns its request was not honoured. The creator
+                    // is always put back on it, whatever it asked for.
+                    boolean isCreator = casdoorId != null && casdoorId.equals(s.getCreatorCasdoorId());
+                    if (!isCreator && slotIndex != null && slotIndex == CREATOR_SLOT) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.CONFLICT,
+                                "slot " + CREATOR_SLOT + " is reserved for the session creator"));
+                    }
+                    Integer slot = isCreator ? CREATOR_SLOT : slotIndex;
                     return members.findActive(sessionId, casdoorId)
                             .flatMap(existing -> {
                                 // Already a member — idempotent; update slot/character if provided.
-                                if (slotIndex != null) existing.setSlotIndex(slotIndex);
+                                if (slot != null) existing.setSlotIndex(slot);
                                 if (characterId != null) existing.setCharacterId(characterId);
                                 return members.save(existing);
                             })
@@ -393,7 +432,7 @@ public class GameSessionService {
                                         if (count >= s.getMaxPlayers()) {
                                             return Mono.error(new ResponseStatusException(HttpStatus.CONFLICT, "session full"));
                                         }
-                                        return members.save(newMember(sessionId, casdoorId, characterId, slotIndex, false));
+                                        return members.save(newMember(sessionId, casdoorId, characterId, slot, false));
                                     }))
                             // Two simultaneous joins racing on the same slot produce a DB unique violation.
                             .onErrorMap(DuplicateKeyException.class,
