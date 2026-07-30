@@ -29,7 +29,7 @@ postMessages with the Angular `ApiBridgeService`.
 
 * **Seat/pose relay — movement channel.** Every member posts control actions
   (`POST /api/controls/{cid}`, echoed to the session as `PlayerMovement`):
-  * `SOTN_POSE|<x>|<z>|<yaw>|<seat>` — local pose, ≤10 Hz, on change.
+  * `SOTN_POSE|<x>|<z>|<yaw>` — local pose, ≤10 Hz, on change.
   * `SOTN_SEAT|<seat>` — seat request (host validates: first-come, `-1` releases).
   * `SOTN_STAGE|<0|1>` — stage request/release (host arbitrates, one at a time).
   * `SOTN_MEDIA|<surfaceId>` — surface place/clear toggle (host arbitrates:
@@ -40,10 +40,34 @@ postMessages with the Angular `ApiBridgeService`.
   by any member of the room. Only `<x>`/`<z>`/`<yaw>` are applied from the
   sender, and only after `AvatarManager.set_pose` rejects non-finite values and
   clamps into the chamber. Seat, stage and media placement come **exclusively**
-  from the host's authoritative broadcast; the `<seat>` field of `SOTN_POSE` is
-  the sender's own optimistic echo and is ignored for remote peers. Every verb
-  above has a producer in `room_controller.gd` — adding one without a producer
-  is how the stage grant originally shipped unreachable.
+  from the host's authoritative broadcast, which is why `SOTN_POSE` carries no
+  seat: a peer-declared one must never be honoured, and every legitimate seat
+  change already travels the arbitrated `SOTN_SEAT` channel (`_sync_local_seat`
+  covers the click, the walk-away and a host-driven sit alike). Parsing is
+  length-**tolerant** (`>= 4` fields) so a browser on a cached older bundle,
+  which still appends its seat, keeps working — the extra field is not read.
+  Every verb above has a producer in `room_controller.gd`, and no field is left
+  without a reader — a verb with no producer is how the stage grant originally
+  shipped unreachable, and a field with no reader is the same defect mirrored.
+  (Matrix mode is different and keeps its seat argument: there the host *page*
+  owns the seat map and reads it off `Chat3D.localPose(x,z,yaw,seat)`.)
+* **Membership — polled, not pushed.** Nothing the iframe receives announces a
+  *departure*. The host shell forwards six SSE channels (`ApiBridgeService
+  .SSE_CHANNELS` = movement / world / character / time / scene /
+  session-control); `session-control` carries only `SESSION_PAUSED|RESUMED`,
+  `PLAYER_PAUSED|RESUMED` (a tab takeover) and `SESSION_CLOSED` (the whole room
+  dying), `GameSessionService.leave` and `ModerationService.kickPlayer` stamp
+  `session_members.left_at` and emit nothing per member, and the typed
+  `WorldState` that shares the `world` event name is a per-*chapter* roster
+  built from a pod-lifetime map with no eviction on leave — it only grows, and
+  it pools characters from every session in that chapter. So the room *reads*
+  the authoritative answer instead: `session_bridge.request_roster()` GETs
+  `/api/sessions/{id}` every 5 s over the same `SD_API_REQUEST` channel the
+  controls and world posts use, and `members` (`left_at IS NULL`) drives
+  `_on_session_roster` → `AvatarManager.prune` plus, on the host, eviction of
+  the departed member's seat / placement / stage grant. Without it `_avatars`
+  never shrank and a long-lived room walked up to `MAX_AVATARS` on ghosts and
+  then refused real newcomers.
 * **Host-authoritative room state — worldNative.** Slot 0 (the session
   creator) broadcasts `kind:'world', type:'state'` with payload
   `{"type":"sotn.room","seats":{"<cid>":<seat>},"placements":{"<surfaceId>":<cid>},"stage":<cid|-1>,"tick":n}`

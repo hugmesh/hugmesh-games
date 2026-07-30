@@ -28,7 +28,7 @@ func suite_name() -> String:
 
 ## See test_case.plan() — pinned so an aborted suite cannot report green.
 func plan() -> int:
-	return 30
+	return 34
 
 
 func run() -> void:
@@ -178,6 +178,29 @@ func _world_403_demotes_the_host_instead_of_reconnecting() -> void:
 	not_ok(bool(room.get("_is_host")), "the room stands down as host")
 	eq(int(room.get("_seat_by_cid").size()), 0, "stale host-only seat map is dropped")
 	eq(int(room.get("_placements").size()), 0, "stale host-only placement map is dropped")
+
+	# The OWED BROADCAST goes with the state it described.
+	#
+	# `_host_assign_seat` above raised `_world_dirty`, and the flag used to
+	# survive the demotion. That is inert TODAY — `_flush_world` returns before
+	# it reads the flag when `_is_host` is false, and nothing ever sets
+	# `_is_host` back to true (`_setup_session` is the only writer and runs once
+	# from `_ready`; SD_SESSION_EXPIRED makes the host shell re-run
+	# connect/claimControl WITHOUT reloading the iframe, SESSION_RESUMED only
+	# unpauses the tree, and no host migration exists). It is pinned anyway
+	# because it stops being inert the instant a promotion path is added: the
+	# first flush would broadcast the maps this handler just EMPTIED, unseating
+	# the entire room and revoking every placement.
+	not_ok(bool(room.get("_world_dirty")), "the demoted host owes no broadcast")
+	var tick_before := int(room.get("_world_tick"))
+	room.call("_flush_world", 1.0)
+	eq(int(room.get("_world_tick")), tick_before, "a demoted host emits nothing")
+
+	# …and later room traffic cannot re-arm it either.
+	room.call("_on_movement", {"characterId": 8, "action": "SOTN_SEAT|2"})
+	not_ok(bool(room.get("_world_dirty")), "a demoted host does not re-arm the flag")
+	room.call("_flush_world", 1.0)
+	eq(int(room.get("_world_tick")), tick_before, "…and still emits nothing")
 	free_room(room)
 
 

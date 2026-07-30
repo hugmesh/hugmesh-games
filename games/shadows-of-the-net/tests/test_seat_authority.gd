@@ -23,10 +23,11 @@ func suite_name() -> String:
 
 ## See test_case.plan() — pinned so an aborted suite cannot report green.
 func plan() -> int:
-	return 32
+	return 37
 
 
 func run() -> void:
+	await _the_pose_carries_no_seat_field()
 	await _peer_cannot_self_assign_a_seat()
 	await _peer_cannot_squat_someone_elses_seat()
 	await _peer_cannot_unseat_itself_off_the_host_map()
@@ -75,6 +76,44 @@ func _seat_actions(rec: RecordingBridge) -> Array:
 
 func _seat_pos(room: Node3D, index: int) -> Vector3:
 	return (room.get_node("Seats").get_child(index) as Node3D).position
+
+
+## …and therefore the pose must not ADVERTISE one.
+##
+## SOTN_POSE used to ship a fifth `<seat>` field: every sender populated it and
+## no receiver ever read it — the branch below is exactly why it must never be
+## read. A field that looks load-bearing and isn't is the mirror image of a verb
+## with no producer (how the stage grant shipped unreachable): the next reader
+## has to re-derive from the code that it was decorative, and the wire claims an
+## authority the format does not have. It is gone. Parsing stays length-TOLERANT
+## so a browser holding a cached older bundle keeps working — its trailing seat
+## lands past the end of what `_parse_pose` reads.
+func _the_pose_carries_no_seat_field() -> void:
+	var room := _guest_room()
+	var rec := _with_recorder(room)
+	var avatars: Node3D = room.get_node("Avatars")
+
+	room.call("_on_local_pose", 1.25, -2.5, 0.75, 4)
+	var poses: Array = []
+	for action in rec.sent:
+		if action.begins_with("SOTN_POSE|"):
+			poses.append(action)
+	eq(poses, ["SOTN_POSE|1.25|-2.50|0.75"], "the pose is x/z/yaw and nothing else")
+	# The seat it no longer carries still reached the host — on its own channel.
+	eq(_seat_actions(rec), ["SOTN_SEAT|4"],
+			"the seat travels the arbitrated channel instead")
+
+	# A legacy five-field pose from a stale bundle is still applied…
+	room.call("_on_movement", {"characterId": 42, "action": "SOTN_POSE|3.00|1.00|0.50|9"})
+	await tree.process_frame
+	ok(bool(avatars.call("has_avatar", "42")), "a legacy five-field pose is still applied")
+	eq(int(avatars.call("seat_of", "42")), -1, "…and its trailing seat is still ignored")
+
+	# …but one too short to carry a position is dropped outright.
+	room.call("_on_movement", {"characterId": 43, "action": "SOTN_POSE|3.00|1.00"})
+	await tree.process_frame
+	not_ok(bool(avatars.call("has_avatar", "43")), "a truncated pose creates no avatar")
+	free_room(room)
 
 
 func _peer_cannot_self_assign_a_seat() -> void:

@@ -20,7 +20,7 @@ extends Node3D
 #     _setup_matrix() MUST emit that handshake (chat3d_bridge.emit_ready).
 #
 # Movement-channel action grammar (session mode; PlayerMovement.action):
-#   SOTN_POSE|<x>|<z>|<yaw>|<seat>   any member, ~10 Hz local pose
+#   SOTN_POSE|<x>|<z>|<yaw>          any member, ~10 Hz local pose
 #   SOTN_SEAT|<seat>                 seat request → host validates + rebroadcasts
 #   SOTN_STAGE|<0|1>                 stage request/release → host arbitrates
 #   SOTN_MEDIA|<surfaceId>           surface place/clear toggle → host arbitrates
@@ -28,18 +28,27 @@ extends Node3D
 # Every one of those four has a PRODUCER in this file — SEAT via
 # _sync_local_seat, STAGE via _on_local_stage_clicked, MEDIA via
 # _on_surface_activated, POSE via _on_local_pose. Adding a verb to the grammar
-# without one is how the stage grant shipped unreachable.
+# without one is how the stage grant shipped unreachable. The mirror-image
+# defect is a FIELD with no reader: SOTN_POSE used to carry a fifth <seat>
+# field that every sender populated and no receiver ever read (see below), so
+# the wire advertised an authority the format does not actually have. Parsing
+# stays length-TOLERANT (>= 4) so a browser holding a cached older bundle,
+# which still appends its seat, keeps working — the extra field is ignored.
 #
 # TRUST MODEL for the movement channel: the BFF relays a member's action string
 # VERBATIM to the whole session, so every field of every SOTN_* action is
 # attacker-controlled by any member of the room. Only <x>/<z>/<yaw> are applied
 # from the sender (sanitized in avatar_manager.set_pose); seat, stage and media
-# placement come EXCLUSIVELY from the host's authoritative world broadcast —
-# the <seat> field of SOTN_POSE is the sender's own optimistic echo and is
-# deliberately ignored for remote peers.
+# placement come EXCLUSIVELY from the host's authoritative world broadcast.
+# That is precisely why SOTN_POSE carries no seat: a peer-declared seat MUST
+# NOT be honoured (it would let any member teleport onto any anchor 10x/second,
+# see test_seat_authority), and every legitimate seat change already travels
+# the arbitrated SOTN_SEAT channel via _sync_local_seat. Matrix mode is
+# different and keeps its seat argument: there the host PAGE owns the seat map
+# and reads it off Chat3D.localPose(x,z,yaw,seat), which is a consumed field.
 #
 # COROLLARY — every seat change must travel the ARBITRATED channel. Because
-# peers ignore the pose's <seat>, a seat change that only ever appears there is
+# the pose carries no seat at all, a seat change that only ever appears there is
 # invisible to the room. local_controller drops the seat to -1 on ANY walk step
 # without emitting `seat_clicked`, so `_sync_local_seat` (driven off the pose
 # tick) is what turns "I walked away" into a real SOTN_SEAT|-1 release.
@@ -67,6 +76,10 @@ const MAX_SEATS := 16
 ## payload is FULL state, not a delta: a dropped intermediate tick loses
 ## nothing and the last write still converges everyone.
 const WORLD_BROADCAST_INTERVAL := 0.1
+## Number of `|`-separated fields a SOTN_POSE must carry to be applied:
+## SOTN_POSE|<x>|<z>|<yaw>. Trailing fields are tolerated (see the grammar
+## note above) — a legacy sender's <seat> lands past the end and is dropped.
+const POSE_MIN_PARTS := 4
 
 var mode: Mode = Mode.SESSION
 
@@ -184,6 +197,7 @@ func _setup_session() -> void:
 	_session.connect("world_received", _on_world)
 	_session.connect("session_control_received", _on_session_control)
 	_session.connect("world_forbidden", _on_world_forbidden)
+	_session.connect("roster_received", _on_session_roster)
 	# Slot 0 is the creator's slot — the BFF pins it there on create and
 	# refuses it to anyone else on join, so this election agrees with Gate 0b's
 	# isCreator() check. _on_world_forbidden is the belt-and-braces path for a
@@ -207,15 +221,17 @@ func _on_movement(payload: Dictionary) -> void:
 	var parts := action.split("|")
 	match parts[0]:
 		POSE_ACTION:
-			if parts.size() >= 5 and str(cid) != _local_key:
+			if parts.size() >= POSE_MIN_PARTS and str(cid) != _local_key:
 				var pose := _parse_pose(parts)
 				if pose.is_empty():
 					return
 				_avatars.call("ensure", str(cid))
-				# The SEAT comes from the authoritative map, NOT from parts[4]:
-				# the sender controls every byte of its own action string, so
-				# trusting its seat index would let any member teleport onto
-				# any seat 10x/second and override the host's arbitration.
+				# The SEAT comes from the authoritative map, and from nowhere
+				# else — the sender controls every byte of its own action
+				# string, so a seat index carried in the pose would let any
+				# member teleport onto any seat 10x/second and override the
+				# host's arbitration. A legacy sender's trailing field is
+				# simply not read.
 				_avatars.call("set_pose", str(cid),
 						pose[0], pose[1], pose[2], int(_seat_by_cid.get(cid, -1)))
 		SEAT_ACTION:
@@ -438,6 +454,72 @@ func _on_world_forbidden() -> void:
 	# from the real host. Forgetting what we "sent" makes the next pose tick
 	# re-announce the current seat over the wire.
 	_local_seat_sent = -1
+	# Drop the owed broadcast with the state it described.
+	#
+	# Verified, not assumed: this is INERT today. `_flush_world` returns before
+	# it reads the flag when `_is_host` is false, and there is no promotion path
+	# — `_is_host` is set true only in `_setup_session`, which runs once from
+	# `_ready`; SD_SESSION_EXPIRED makes the host shell re-run connect/
+	# claimControl WITHOUT reloading the iframe, SESSION_RESUMED only unpauses
+	# the tree, and no host migration exists. It is NOT inert under any future
+	# promotion, which is the reason to clear it rather than leave it: a
+	# re-promoted client would flush a broadcast describing the maps this
+	# function just emptied, i.e. unseat the entire room and revoke every
+	# placement on its first tick as host.
+	_world_dirty = false
+	_world_accum = 0.0
+
+
+## Reconcile the room against the session's CURRENT membership.
+##
+## Matrix mode has had this since day one — the host page pushes `roster(json)`
+## and `_on_roster` ends with `_avatars.prune(keys)`. Session mode had no
+## equivalent: an avatar was created by `ensure()` the first time a characterId
+## appeared on the movement channel and was NEVER removed, because no channel
+## the iframe receives announces a departure (see session_bridge.request_roster
+## for the full audit of why: session-control has no per-member verb, leave/kick
+## emit nothing, and the typed WorldState roster on the `world` event is a
+## chapter-scoped map that only grows). So `_avatars` filled toward MAX_AVATARS
+## with ghosts over a long-lived session and the room then REFUSED real
+## newcomers — `upsert()` legitimately declines past the cap.
+##
+## The seat / placement / stage maps are pruned in the SAME pass, host-only
+## (guests mirror all three from the authoritative echo). Not optional: `_on_world`
+## re-`ensure`s every cid named in `seats` and in `stage`, so a ghost that still
+## held a seat would be re-created on every client at the next broadcast — the
+## avatar prune alone would be undone by our own next tick — and the host would
+## go on refusing that anchor to everyone else for the life of the room.
+func _on_session_roster(character_ids: Array) -> void:
+	if character_ids.is_empty():
+		# We are ourselves a member, so an empty answer is never a true empty
+		# room — it is a body we failed to understand. Treat it as "no fresh
+		# roster this tick" rather than deleting every avatar in the chamber.
+		return
+	var keys: Array = []
+	for cid in character_ids:
+		keys.append(str(int(cid)))
+	# Never prune ourselves: `session_members.character_id` is nullable between
+	# join and slot-claim, so our own row can legitimately omit the id the
+	# launch URL gave us.
+	if _local_key != "" and not keys.has(_local_key):
+		keys.append(_local_key)
+	_avatars.call("prune", keys)
+	if not _is_host:
+		return
+	var changed := false
+	for cid in _seat_by_cid.keys():
+		if not keys.has(str(cid)):
+			_seat_by_cid.erase(cid)
+			changed = true
+	for surface_id in _placements.keys():
+		if not keys.has(str(int(_placements[surface_id]))):
+			_placements.erase(surface_id)
+			changed = true
+	if _stage_cid >= 0 and not keys.has(str(_stage_cid)):
+		_stage_cid = -1
+		changed = true
+	if changed:
+		_broadcast_world()
 
 
 func _on_session_control(action: String) -> void:
@@ -583,9 +665,12 @@ func _on_local_pose(x: float, z: float, yaw: float, seat: int) -> void:
 		_avatars.call("set_pose", _local_key, x, z, yaw, seat)
 	match mode:
 		Mode.SESSION:
+			# The seat travels the ARBITRATED channel (_sync_local_seat), never
+			# the pose: no receiver may honour a peer-declared seat, so
+			# shipping one would be a field with no reader.
 			_sync_local_seat(seat)
 			_session.call("send_control",
-					"%s|%.2f|%.2f|%.2f|%d" % [POSE_ACTION, x, z, yaw, seat])
+					"%s|%.2f|%.2f|%.2f" % [POSE_ACTION, x, z, yaw])
 		Mode.MATRIX:
 			# Matrix mode has no in-game arbiter: the host page owns the seat
 			# map and reads it straight off localPose, so no separate channel.
@@ -618,13 +703,14 @@ func _on_local_stage_clicked() -> void:
 
 ## Push a CHANGE of the local seat onto the arbitrated SEAT channel.
 ##
-## Peers deliberately ignore the <seat> field of a peer's SOTN_POSE (see the
-## trust model at the top), so a seat change that never reaches the host is
-## invisible to the whole room. Clicking a seat is not the only way to change
-## it: local_controller._process_desktop sets `seat = -1` on ANY walk step and
-## emits only `pose_changed`, and `_on_world` calls sit()/stand() on us when the
-## host arbitrates. Driving this off the pose tick therefore covers every
-## source. Without it, walking off a seat left the walker glued to their anchor
+## SOTN_POSE deliberately carries no seat (see the trust model at the top —
+## no receiver may honour a peer-declared one), so a seat change that never
+## reaches the host is invisible to the whole room. Clicking a seat is not the
+## only way to change it: local_controller._process_desktop sets `seat = -1` on
+## ANY walk step and emits only `pose_changed`, and `_on_world` calls
+## sit()/stand() on us when the host arbitrates. Driving this off the pose tick
+## therefore covers every source.
+## Without it, walking off a seat left the walker glued to their anchor
 ## on every OTHER client and leaked the seat in `_seat_by_cid` permanently —
 ## the host kept refusing that seat to everyone else for the rest of the room.
 ##
