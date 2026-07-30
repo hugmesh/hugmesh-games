@@ -541,6 +541,7 @@ func _on_session_control(action: String) -> void:
 func _setup_matrix() -> void:
 	_chat3d.connect("roster_received", _on_roster)
 	_chat3d.connect("avatar_received", _on_avatar)
+	_chat3d.connect("sticker_received", _on_sticker)
 	_chat3d.connect("pose_received", _on_pose)
 	_chat3d.connect("openness_received", _on_openness)
 	_chat3d.connect("blendshapes_received", _on_blendshapes)
@@ -583,6 +584,14 @@ func _on_roster(list: Array) -> void:
 
 func _on_avatar(user_id: String, config: Variant, meta: Dictionary = {}) -> void:
 	_avatars.call("upsert", user_id, config, meta)
+
+
+## The billboard sticker BYTES (§5 `sticker`). A pure forward: the ONE rule this
+## channel has that the others do not — never conjure an avatar from it — lives
+## at the choke point in avatar_manager.set_sticker, next to the dictionary it
+## would have to write into, rather than being re-stated by every caller.
+func _on_sticker(user_id: String, bytes: PackedByteArray) -> void:
+	_avatars.call("set_sticker", user_id, bytes)
 
 
 func _on_pose(user_id: String, x: float, z: float, yaw: float, seat: int) -> void:

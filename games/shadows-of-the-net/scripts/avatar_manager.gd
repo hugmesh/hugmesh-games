@@ -22,6 +22,10 @@ extends Node3D
 # config — which is the normal roster→avatar order, i.e. everyone.
 
 const CharacterAssembler := preload("res://scripts/character_assembler.gd")
+## Reused for its decoder, not for its nodes: sniff_format/decode_image are the
+## room's ONE place that turns bytes into an Image, so a billboard sticker and a
+## table placement accept exactly the same containers by construction.
+const MediaSurfaces := preload("res://scripts/media_surfaces.gd")
 
 const LERP_SPEED := 8.0
 const MAX_AVATARS := 16
@@ -30,6 +34,9 @@ const MAX_AVATARS := 16
 const ROOM_RADIUS := 8.6
 ## Longest nametag rendered above a participant.
 const MAX_NAMETAG := 24
+## The blank billboard plate: what a billboard participant looks like before
+## their sticker BYTES arrive, and what clearing a sticker restores.
+const BILLBOARD_BLANK := Color(0.12, 0.14, 0.22)
 
 var seats_root: Node3D = null
 var stage_anchor: Node3D = null
@@ -92,8 +99,8 @@ func upsert(key: String, config: Variant, meta: Dictionary = {}) -> void:
 	rig.assemble(config if config != null else CharacterAssembler.random_config(hash(key)))
 
 	# A flat sticker plane for billboard-mode participants — hidden until the
-	# avatar envelope says `mode:"billboard"`. See _apply_meta for the honest
-	# limit on the sticker IMAGE.
+	# avatar envelope says `mode:"billboard"` or a `sticker` payload arrives.
+	# It starts BLANK; set_sticker() is what puts a picture on it.
 	var billboard := MeshInstance3D.new()
 	billboard.name = "Billboard"
 	var billboard_mesh := QuadMesh.new()
@@ -102,7 +109,7 @@ func upsert(key: String, config: Variant, meta: Dictionary = {}) -> void:
 	var billboard_mat := StandardMaterial3D.new()
 	billboard_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	billboard_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	billboard_mat.albedo_color = Color(0.12, 0.14, 0.22)
+	billboard_mat.albedo_color = BILLBOARD_BLANK
 	billboard.material_override = billboard_mat
 	billboard.position = Vector3(0, 0.95, 0)
 	billboard.visible = false
@@ -135,7 +142,7 @@ func upsert(key: String, config: Variant, meta: Dictionary = {}) -> void:
 	_avatars[key] = {"root": root_node, "rig": rig,
 			"target_pos": Vector3.ZERO, "target_yaw": 0.0,
 			"seat": -1, "on_stage": false, "ring": ring, "label": label,
-			"billboard": billboard, "mode": "", "sticker": ""}
+			"billboard": billboard, "mode": "", "sticker": "", "has_sticker": false}
 	_apply_meta(key, meta)
 
 
@@ -147,12 +154,15 @@ func upsert(key: String, config: Variant, meta: Dictionary = {}) -> void:
 ## participant as a randomised 3D character — which is what happened while the
 ## fields were unreachable — misrepresents them.
 ##
-## HONEST LIMIT: `sticker` is an `mxc://` URL. Matrix media is authenticated and
-## lives on the HOST's origin; this wasm bundle runs on the games origin with no
-## access token, so it cannot fetch the image. The billboard therefore renders
-## as a blank plate carrying the participant's nametag until the host ships the
-## sticker BYTES (the placeMedia base64 precedent). The mxc is kept so that
-## channel can be added without another protocol change.
+## THE MXC IS STILL NOT AN IMAGE. `sticker` here is an `mxc://` URL; Matrix
+## media is authenticated and lives on the HOST's origin, and this wasm bundle
+## runs on the games origin with no access token, so it can never fetch one.
+## That has not changed and cannot. What changed is that the host now ships the
+## BYTES on their own §5 channel (`sticker(userId, b64, mime)` → set_sticker),
+## exactly as this docstring said it would need to — so a billboard participant
+## renders as a blank plate only until those bytes land, instead of forever. The
+## mxc is still kept because it is what the host DIFFS on, and because it is the
+## only durable identity a sticker has in room state.
 func _apply_meta(key: String, meta: Dictionary) -> void:
 	if meta.is_empty() or not _avatars.has(key):
 		return
@@ -170,11 +180,74 @@ func _apply_meta(key: String, meta: Dictionary) -> void:
 		return          # host said nothing — leave the current representation
 	av["mode"] = mode
 	av["sticker"] = str(meta.get("sticker", ""))
-	var is_billboard := mode == "billboard"
+	_show_billboard(av, mode == "billboard")
+
+
+## Flip a participant between their flat plate and their 3D rig. The ONE place
+## that decides which of the two is visible — the avatar envelope's `mode` slot
+## and the `sticker` byte channel are two producers for the same question, and
+## they must not each grow their own copy of the answer.
+func _show_billboard(av: Dictionary, on: bool) -> void:
 	var billboard: Variant = av["billboard"]
 	if is_instance_valid(billboard):
-		(billboard as MeshInstance3D).visible = is_billboard
-	(av["rig"] as Node3D).visible = not is_billboard
+		(billboard as MeshInstance3D).visible = on
+	(av["rig"] as Node3D).visible = not on
+
+
+## Put a participant's VN sticker on their billboard plate — the §5
+## `sticker(userId, b64, mime)` channel's landing spot.
+##
+## RECEIVING A STICKER *IS* THE BILLBOARD SIGNAL. `mode` deliberately does not
+## travel on this channel: bytes mean "render this member as their flat sticker",
+## EMPTY means "clear the plate and give them back the rig they have" (for a
+## billboard member that is the deterministic stand-in `ensure()` built them).
+## Neither side then has to keep a `mode` field in sync with the other.
+##
+## THIS MUTATOR MUST NEVER ensure(). Every other one here conjures a rig for an
+## unknown key, which is right for channels the host orders after the roster
+## row. A sticker is order-independent by contract — it may arrive before or
+## after that row — so conjuring from it would let ARRIVAL ORDER decide whether
+## a member exists, and a sticker for somebody who has left would resurrect
+## them. An unknown key is dropped; the host re-sends when they reappear.
+func set_sticker(key: String, bytes: PackedByteArray) -> void:
+	if not _avatars.has(key):
+		return
+	var av: Dictionary = _avatars[key]
+	var plate: Variant = av["billboard"]
+	if not is_instance_valid(plate):
+		return
+	var mat := (plate as MeshInstance3D).material_override as StandardMaterial3D
+	if mat == null:
+		return
+	if bytes.is_empty():
+		mat.albedo_texture = null
+		mat.albedo_color = BILLBOARD_BLANK
+		av["has_sticker"] = false
+		_show_billboard(av, false)
+		return
+	# The room's whole decoder surface, shared with placeMedia: the container is
+	# sniffed only to choose which of load_png/jpg/webp_from_buffer to try
+	# FIRST, so a sticker whose declared type and magic number disagree still
+	# renders if any decoder can read it.
+	var img := MediaSurfaces.decode_image(bytes)
+	if img == null:
+		# Undecodable bytes leave the participant EXACTLY as they were. Flipping
+		# them to a blank plate would replace a character somebody is looking at
+		# with a slab, which is a worse answer than "the new sticker did not
+		# arrive".
+		push_warning("[sotn] undecodable sticker for %s (not PNG/JPEG/WebP) — keeping the current look" % key)
+		return
+	mat.albedo_texture = ImageTexture.create_from_image(img)
+	mat.albedo_color = Color.WHITE
+	av["has_sticker"] = true
+	_show_billboard(av, true)
+
+
+## Whether this participant's plate is carrying a decoded sticker image
+## (test/diagnostic hook — a plate can also be shown BLANK, by the mxc-only
+## `mode:"billboard"` path, which is what happens before the bytes land).
+func has_sticker_image(key: String) -> bool:
+	return _avatars.has(key) and bool(_avatars[key]["has_sticker"])
 
 
 ## Set a participant's nametag from a host-supplied display name (roster row or
