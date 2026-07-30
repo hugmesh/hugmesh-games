@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                                       https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Dev fixture: the "Six Realms" reference RPG owned by the
+    `publisher-flatland` Casdoor seed user (owner_casdoor_id matches the
+    004 flatland fixture idiom: the Casdoor *username* `publisher-flatland`,
+    NOT the id tw-pub-flat-001 — the side-service stores whatever the
+    upload path carries as the owner claim, and 004 uses the username).
+
+    Six areas, one per biome theme (desert / forest / dungeon / cave /
+    town / castle), each with two evocative outdoor rooms. Intra-area
+    exits pair the two rooms; a cross-area E/W walk chain
+    desert -> forest -> dungeon -> cave -> town -> castle lets a player
+    walk the whole world border to border. The town (Bramblewick) hosts
+    an FF-style shopping district: eight buildings placed on a 10x10 grid
+    on the first town room, their interior floors/basements are real
+    rpg_rooms rows linked via building_id + floor_level, and shop stock
+    rows drive the generated buy/sell UI.
+
+    STRUCTURE — the 004 "everything in one changeset gated on a single
+    COUNT" idiom cannot be copied here because rpg_buildings.host_room_id
+    and rpg_rooms.building_id are mutually referencing (circular FKs).
+    Instead each table gets its own changeset in FK-safe order
+    (project -> areas -> outdoor rooms -> buildings -> interior rooms ->
+    exits -> npcs -> items -> stock), and EACH is gated by its own
+    six-realms-scoped sqlCheck precondition (COUNT = 0 of that table's
+    six-realms rows) so a partially-applied seed self-heals on rerun.
+
+    Fixed UUIDs (22222222-...-style) so e2e + docs have deterministic
+    content. gd_script is NULL everywhere: the renderer generates all
+    room/portal/NPC content from columns + exit rows, and any author
+    gd_script snippet would splice into the generated _ready() body and
+    risk a parse error. NPC flavour lives in dialogue_text only.
+  -->
+
+  <!-- ================================================================ -->
+  <!-- 1. Project                                                       -->
+  <!-- ================================================================ -->
+  <changeSet id="007-1-six-realms-project" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_projects WHERE slug = 'six-realms'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_projects (id, slug, display_name, description, owner_casdoor_id)
+      VALUES ('22222222-2222-4222-8222-222222222222',
+              'six-realms',
+              'Six Realms',
+              'Dev fixture: six biome realms - desert, forest, dungeon, cave, town, and castle - stitched into one walkable world with an FF-style town of shops.',
+              'publisher-flatland');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 2. Areas (one per biome theme, sort 0..5)                        -->
+  <!-- ================================================================ -->
+  <changeSet id="007-2-six-realms-areas" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_areas WHERE project_id = '22222222-2222-4222-8222-222222222222'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_areas (id, project_id, slug, name, sort_order, theme) VALUES
+        ('22222222-2222-4222-8222-010000000000', '22222222-2222-4222-8222-222222222222', 'scorched-dunes',   'Scorched Dunes',   0, 'desert'),
+        ('22222222-2222-4222-8222-020000000000', '22222222-2222-4222-8222-222222222222', 'verdant-wildwood', 'Verdant Wildwood', 1, 'forest'),
+        ('22222222-2222-4222-8222-030000000000', '22222222-2222-4222-8222-222222222222', 'sunken-halls',     'Sunken Halls',     2, 'dungeon'),
+        ('22222222-2222-4222-8222-040000000000', '22222222-2222-4222-8222-222222222222', 'echoing-caverns',  'Echoing Caverns',  3, 'cave'),
+        ('22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-222222222222', 'bramblewick',      'Bramblewick',      4, 'town'),
+        ('22222222-2222-4222-8222-060000000000', '22222222-2222-4222-8222-222222222222', 'highspire-keep',   'Highspire Keep',   5, 'castle');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 3. Outdoor rooms (2 per area; building_id / floor_level NULL)     -->
+  <!--    Room "A" = ...0X0100000000, room "B" = ...0X0200000000.        -->
+  <!-- ================================================================ -->
+  <changeSet id="007-3-six-realms-outdoor-rooms" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_rooms WHERE project_id = '22222222-2222-4222-8222-222222222222' AND building_id IS NULL</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_rooms (id, project_id, area_id, slug, name, description) VALUES
+        -- Scorched Dunes (desert)
+        ('22222222-2222-4222-8222-010100000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-010000000000',
+            'dunes-gate', 'Sun-Scoured Gate',
+            'Wind-carved sandstone arches mark the desert''s edge. Heat shimmers off endless dunes and a lone vulture wheels overhead.'),
+        ('22222222-2222-4222-8222-010200000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-010000000000',
+            'dunes-oasis', 'Mirage Oasis',
+            'A ring of date palms clings to a shrinking pool. Bleached bones and a half-buried caravan hint at travellers who never left.'),
+        -- Verdant Wildwood (forest)
+        ('22222222-2222-4222-8222-020100000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-020000000000',
+            'wildwood-eaves', 'Whispering Eaves',
+            'Ancient oaks lace their canopy into a green cathedral. Shafts of gold light pin dust motes to the loam.'),
+        ('22222222-2222-4222-8222-020200000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-020000000000',
+            'wildwood-hollow', 'Fernshadow Hollow',
+            'Ferns drown a sunken glen where toadstools glow faintly and something unseen rustles just past the tree line.'),
+        -- Sunken Halls (dungeon)
+        ('22222222-2222-4222-8222-030100000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-030000000000',
+            'halls-threshold', 'Drowned Threshold',
+            'Water-stained flagstones descend into dark. Broken chains hang from the vaulted ceiling, still swaying.'),
+        ('22222222-2222-4222-8222-030200000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-030000000000',
+            'halls-oubliette', 'The Oubliette',
+            'A pillared crypt where torchlight gutters against wet stone. The names worn from the sarcophagi are best left unread.'),
+        -- Echoing Caverns (cave)
+        ('22222222-2222-4222-8222-040100000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-040000000000',
+            'caverns-mouth', 'Yawning Mouth',
+            'The cavern breathes cold air across a floor of shattered stalagmites. Every footfall returns threefold.'),
+        ('22222222-2222-4222-8222-040200000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-040000000000',
+            'caverns-glowdeep', 'Glowdeep Grotto',
+            'Veins of luminous fungus paint the walls jade and amber. A subterranean stream mutters somewhere below.'),
+        -- Bramblewick (town) -- room A hosts the shopping district
+        ('22222222-2222-4222-8222-050100000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-square', 'Bramblewick Square',
+            'The heart of Bramblewick - cobbles worn smooth, a crystal well at the centre, and shopfronts crowding every side.'),
+        ('22222222-2222-4222-8222-050200000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-green', 'Miller''s Green',
+            'A grassy commons past the market where laundry lines snap in the breeze and children chase a runaway chocobo chick.'),
+        -- Highspire Keep (castle)
+        ('22222222-2222-4222-8222-060100000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-060000000000',
+            'keep-courtyard', 'Highspire Courtyard',
+            'Banners snap from crenellated walls above a flagstone court. Two braziers throw long shadows toward the great doors.'),
+        ('22222222-2222-4222-8222-060200000000', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-060000000000',
+            'keep-throne', 'The Throne Hall',
+            'A vaulting hall of cold marble. A vacant throne waits beneath a shattered stained-glass crest of the old crown.');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 4. Buildings (8, on the first Bramblewick room, 10x10 grid)      -->
+  <!--    host_room_id = bramblewick-square (...050100000000).           -->
+  <!--    Footprints (grid_x,grid_y .. +width,+depth) are non-overlap   -->
+  <!--    and within bounds (x+width<=10, y+depth<=10):                  -->
+  <!--      row y0-1: tonberry(0,0) gilgamesh(3,0) adamant(6,0)          -->
+  <!--      row y3-4: moogle(0,3) trinket(3,3 1x1) crystal(6,3)          -->
+  <!--      row y6-7: chocobos(0,6) laughing(3,6)                        -->
+  <!-- ================================================================ -->
+  <changeSet id="007-4-six-realms-buildings" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_buildings WHERE project_id = '22222222-2222-4222-8222-222222222222'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_buildings (id, project_id, area_id, host_room_id, slug, name, kind, grid_x, grid_y, width, depth, floors, basements) VALUES
+        ('22222222-2222-4222-8222-000000009001', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-050100000000',
+            'tonberry-goods',   'Tonberry Goods',         'item_shop',      0, 0, 2, 2, 1, 0),
+        ('22222222-2222-4222-8222-000000009002', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-050100000000',
+            'gilgamesh-arms',   'Gilgamesh Arms',         'weapon_shop',    3, 0, 2, 2, 1, 0),
+        ('22222222-2222-4222-8222-000000009003', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-050100000000',
+            'adamant-mail',     'Adamant Mail',           'armor_shop',     6, 0, 2, 2, 1, 0),
+        ('22222222-2222-4222-8222-000000009004', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-050100000000',
+            'moogle-arcana',    'Moogle Arcana',          'magic_shop',     0, 3, 2, 2, 1, 0),
+        ('22222222-2222-4222-8222-000000009005', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-050100000000',
+            'trinket-nook',     'Trinket Nook',           'accessory_shop', 3, 3, 1, 1, 1, 0),
+        ('22222222-2222-4222-8222-000000009006', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-050100000000',
+            'chocobos-rest',    'The Chocobo''s Rest',    'inn',            6, 3, 2, 2, 2, 0),
+        ('22222222-2222-4222-8222-000000009007', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-050100000000',
+            'laughing-cactuar', 'The Laughing Cactuar',   'tavern',         0, 6, 2, 2, 1, 1),
+        ('22222222-2222-4222-8222-000000009008', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000', '22222222-2222-4222-8222-050100000000',
+            'crystal-sanctum',  'Sanctum of the Crystal', 'church',         3, 6, 2, 2, 1, 0);
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 5. Interior rooms (one per floor/basement)                       -->
+  <!--    slug = <area>-<building>-f0 / -f1 / -b1 (namespaced).          -->
+  <!--    floor_level: 0 ground, 1 upper, -1 basement. building_id set   -->
+  <!--    so the (building_id IS NULL) = (floor_level IS NULL) CHECK     -->
+  <!--    holds. area_id = Bramblewick.                                  -->
+  <!-- ================================================================ -->
+  <changeSet id="007-5-six-realms-interior-rooms" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_rooms WHERE project_id = '22222222-2222-4222-8222-222222222222' AND building_id IS NOT NULL</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_rooms (id, project_id, area_id, slug, name, description, building_id, floor_level) VALUES
+        ('22222222-2222-4222-8222-000000910100', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-tonberry-goods-f0', 'Tonberry Goods',
+            'Shelves of potions and pouches crowd a cramped shop. A green-cloaked clerk waits behind the counter, lantern in hand.',
+            '22222222-2222-4222-8222-000000009001', 0),
+        ('22222222-2222-4222-8222-000000910200', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-gilgamesh-arms-f0', 'Gilgamesh Arms',
+            'Racks of blades line the walls. The smell of oil and whetstone hangs over the counter.',
+            '22222222-2222-4222-8222-000000009002', 0),
+        ('22222222-2222-4222-8222-000000910300', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-adamant-mail-f0', 'Adamant Mail',
+            'Suits of plate and stacked shields gleam under hanging lamps. The armorer sizes you up at a glance.',
+            '22222222-2222-4222-8222-000000009003', 0),
+        ('22222222-2222-4222-8222-000000910400', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-moogle-arcana-f0', 'Moogle Arcana',
+            'Floating tomes and softly glowing crystals fill this arcane parlor. A moogle bobs behind the counter, pom twitching.',
+            '22222222-2222-4222-8222-000000009004', 0),
+        ('22222222-2222-4222-8222-000000910500', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-trinket-nook-f0', 'Trinket Nook',
+            'A snug curio shop of rings, charms, and oddments arranged on velvet trays.',
+            '22222222-2222-4222-8222-000000009005', 0),
+        ('22222222-2222-4222-8222-000000910600', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-chocobos-rest-f0', 'The Chocobo''s Rest - Common Room',
+            'A warm hearth, long tables, and the front desk of Bramblewick''s inn. Stairs lead up to the guest rooms.',
+            '22222222-2222-4222-8222-000000009006', 0),
+        ('22222222-2222-4222-8222-000000910610', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-chocobos-rest-f1', 'The Chocobo''s Rest - Guest Rooms',
+            'A quiet upper landing of curtained beds. Rest here to mend body and mind.',
+            '22222222-2222-4222-8222-000000009006', 1),
+        ('22222222-2222-4222-8222-000000910700', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-laughing-cactuar-f0', 'The Laughing Cactuar - Taproom',
+            'A rowdy tavern of spilled ale and louder songs. A trapdoor behind the bar leads down to the cellar.',
+            '22222222-2222-4222-8222-000000009007', 0),
+        ('22222222-2222-4222-8222-000000910750', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-laughing-cactuar-b1', 'The Laughing Cactuar - Cellar',
+            'A cool brick cellar stacked with casks. Something scuttles between the barrels.',
+            '22222222-2222-4222-8222-000000009007', -1),
+        ('22222222-2222-4222-8222-000000910800', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050000000000',
+            'bramblewick-crystal-sanctum-f0', 'Sanctum of the Crystal',
+            'A hushed chapel lit by a great floating crystal. Kneel at the altar to be made whole.',
+            '22222222-2222-4222-8222-000000009008', 0);
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 6. Exits                                                          -->
+  <!--    (a) intra-area: room A east to B, B west to A (all 6 areas)    -->
+  <!--    (b) cross-area walk chain (E forward / W back):                -->
+  <!--        desert.B <-> forest.A <-> ... town.B <-> castle.A          -->
+  <!--    (c) building stairs: inn f0<->f1 (UP/DOWN),                    -->
+  <!--        tavern f0<->b1 (DOWN/UP).                                  -->
+  <!--    Every (from_room_id, direction) is unique.                     -->
+  <!-- ================================================================ -->
+  <changeSet id="007-6-six-realms-exits" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_exits WHERE project_id = '22222222-2222-4222-8222-222222222222'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_exits (project_id, from_room_id, to_room_id, direction, locked) VALUES
+        -- (a) intra-area pairs
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-010100000000', '22222222-2222-4222-8222-010200000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-010200000000', '22222222-2222-4222-8222-010100000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-020100000000', '22222222-2222-4222-8222-020200000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-020200000000', '22222222-2222-4222-8222-020100000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-030100000000', '22222222-2222-4222-8222-030200000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-030200000000', '22222222-2222-4222-8222-030100000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-040100000000', '22222222-2222-4222-8222-040200000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-040200000000', '22222222-2222-4222-8222-040100000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050100000000', '22222222-2222-4222-8222-050200000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050200000000', '22222222-2222-4222-8222-050100000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-060100000000', '22222222-2222-4222-8222-060200000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-060200000000', '22222222-2222-4222-8222-060100000000', 'W', false),
+        -- (b) cross-area chain: desert.B -> forest.A -> dungeon.A -> cave.A -> town.A -> castle.A
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-010200000000', '22222222-2222-4222-8222-020100000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-020100000000', '22222222-2222-4222-8222-010200000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-020200000000', '22222222-2222-4222-8222-030100000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-030100000000', '22222222-2222-4222-8222-020200000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-030200000000', '22222222-2222-4222-8222-040100000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-040100000000', '22222222-2222-4222-8222-030200000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-040200000000', '22222222-2222-4222-8222-050100000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050100000000', '22222222-2222-4222-8222-040200000000', 'W', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-050200000000', '22222222-2222-4222-8222-060100000000', 'E', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-060100000000', '22222222-2222-4222-8222-050200000000', 'W', false),
+        -- (c) building stairs
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000910600', '22222222-2222-4222-8222-000000910610', 'UP',   false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000910610', '22222222-2222-4222-8222-000000910600', 'DOWN', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000910700', '22222222-2222-4222-8222-000000910750', 'DOWN', false),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000910750', '22222222-2222-4222-8222-000000910700', 'UP',   false);
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 7. NPCs (default_room_id = the room they stand in; dialogue only) -->
+  <!-- ================================================================ -->
+  <changeSet id="007-7-six-realms-npcs" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_npcs WHERE project_id = '22222222-2222-4222-8222-222222222222'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_npcs (id, project_id, slug, name, default_room_id, dialogue_text) VALUES
+        ('22222222-2222-4222-8222-000000008001', '22222222-2222-4222-8222-222222222222', 'innkeeper', 'Innkeeper Fenwick',
+            '22222222-2222-4222-8222-000000910600',
+            'Welcome to the Chocobo''s Rest, traveller. A warm bed and a hot meal will set you right - rest as long as you need.'),
+        ('22222222-2222-4222-8222-000000008002', '22222222-2222-4222-8222-222222222222', 'chamberlain', 'Chamberlain Aldous',
+            '22222222-2222-4222-8222-060100000000',
+            'His Majesty is... indisposed. State your business at Highspire, and mind the throne - it is not yours to sit.'),
+        ('22222222-2222-4222-8222-000000008003', '22222222-2222-4222-8222-222222222222', 'keeper-tonberry', 'Clerk Pim',
+            '22222222-2222-4222-8222-000000910100',
+            'Potions, ethers, and sundries - all fairly priced. Step lively, I don''t haggle.'),
+        ('22222222-2222-4222-8222-000000008004', '22222222-2222-4222-8222-222222222222', 'keeper-gilgamesh', 'Smith Gilgamesh',
+            '22222222-2222-4222-8222-000000910200',
+            'Eight blades and counting, and each one''s a beauty. Bring me a ninth and I''ll make it worth your while.'),
+        ('22222222-2222-4222-8222-000000008005', '22222222-2222-4222-8222-222222222222', 'keeper-moogle', 'Moogle Mog',
+            '22222222-2222-4222-8222-000000910400',
+            'Kupo! Finest tomes and trinkets this side of the Sunken Halls, kupo!');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 8. Items                                                          -->
+  <!-- ================================================================ -->
+  <changeSet id="007-8-six-realms-items" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_items WHERE project_id = '22222222-2222-4222-8222-222222222222'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_items (id, project_id, slug, name, description) VALUES
+        ('22222222-2222-4222-8222-000000000001', '22222222-2222-4222-8222-222222222222', 'potion',         'Potion',
+            'A ruby draught that knits wounds closed. Restores a modest amount of HP.'),
+        ('22222222-2222-4222-8222-000000000002', '22222222-2222-4222-8222-222222222222', 'ether',          'Ether',
+            'A shimmering blue tonic that rekindles spent magic. Restores MP.'),
+        ('22222222-2222-4222-8222-000000000003', '22222222-2222-4222-8222-222222222222', 'bronze-sword',   'Bronze Sword',
+            'A dependable short blade of cast bronze. A hero''s first honest weapon.'),
+        ('22222222-2222-4222-8222-000000000004', '22222222-2222-4222-8222-222222222222', 'iron-dagger',    'Iron Dagger',
+            'A quick, keen-edged dirk favoured by those who strike from the shadows.'),
+        ('22222222-2222-4222-8222-000000000005', '22222222-2222-4222-8222-222222222222', 'leather-shield', 'Leather Shield',
+            'A hardened boiled-leather buckler. Light, cheap, and better than nothing.'),
+        ('22222222-2222-4222-8222-000000000006', '22222222-2222-4222-8222-222222222222', 'chain-vest',     'Chain Vest',
+            'Interlocking iron rings over a padded jerkin. Turns aside a glancing blow.'),
+        ('22222222-2222-4222-8222-000000000007', '22222222-2222-4222-8222-222222222222', 'fire-tome',      'Fire Tome',
+            'A scorched grimoire that teaches the Fire spell to any who dare read it aloud.'),
+        ('22222222-2222-4222-8222-000000000008', '22222222-2222-4222-8222-222222222222', 'lucky-charm',    'Lucky Charm',
+            'A worn rabbit-cactuar foot said to nudge fate a hair in your favour.');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 9. Shop stock (shop-kind buildings only; sell < buy, qty -1)     -->
+  <!-- ================================================================ -->
+  <changeSet id="007-9-six-realms-shop-stock" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_shop_stock WHERE project_id = '22222222-2222-4222-8222-222222222222'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_shop_stock (project_id, building_id, item_id, buy_price, sell_price, stock_qty) VALUES
+        -- Tonberry Goods (item_shop): potion, ether
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000009001', '22222222-2222-4222-8222-000000000001',  50,  25, -1),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000009001', '22222222-2222-4222-8222-000000000002', 150,  75, -1),
+        -- Gilgamesh Arms (weapon_shop): bronze-sword, iron-dagger
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000009002', '22222222-2222-4222-8222-000000000003', 200, 100, -1),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000009002', '22222222-2222-4222-8222-000000000004', 120,  60, -1),
+        -- Adamant Mail (armor_shop): leather-shield, chain-vest
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000009003', '22222222-2222-4222-8222-000000000005', 180,  90, -1),
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000009003', '22222222-2222-4222-8222-000000000006', 300, 150, -1),
+        -- Moogle Arcana (magic_shop): fire-tome
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000009004', '22222222-2222-4222-8222-000000000007', 500, 250, -1),
+        -- Trinket Nook (accessory_shop): lucky-charm
+        ('22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000009005', '22222222-2222-4222-8222-000000000008', 400, 200, -1);
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

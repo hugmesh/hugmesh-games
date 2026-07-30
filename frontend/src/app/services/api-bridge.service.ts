@@ -3,6 +3,8 @@ import { HttpClient, HttpHeaders, HttpResponse } from '@angular/common/http';
 import { firstValueFrom, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
 import { SessionService } from './session.service';
+import { AuthService } from './auth.service';
+import { openAuthenticatedSse, type AuthenticatedSse } from './authenticated-sse';
 
 interface ApiRequestPayload {
   requestId: number;
@@ -60,6 +62,7 @@ export class ApiBridgeService {
   private readonly zone = inject(NgZone);
   private readonly http = inject(HttpClient);
   private readonly session = inject(SessionService);
+  private readonly auth = inject(AuthService);
   private started = false;
 
   /**
@@ -70,7 +73,7 @@ export class ApiBridgeService {
    * Tearing down the EventSource is keyed by the source Window so
    * remounting an iframe (cave → field) closes the prior stream.
    */
-  private readonly sseStreams = new WeakMap<Window, EventSource>();
+  private readonly sseStreams = new WeakMap<Window, AuthenticatedSse>();
 
   start(): void {
     if (this.started || typeof window === 'undefined') return;
@@ -184,27 +187,33 @@ export class ApiBridgeService {
     const url = req.sessionId
       ? `/api/game/stream?sessionId=${encodeURIComponent(req.sessionId)}`
       : '/api/game/stream';
-    const source = new EventSource(url);
-    for (const channel of SSE_CHANNELS) {
-      source.addEventListener(channel, (ev: MessageEvent) => {
+    // MUST be the fetch-based reader, not `new EventSource(url)`: a
+    // session-scoped stream is gated on session membership (BOLA fix in
+    // GameStreamController), and EventSource cannot send Authorization —
+    // so the guest's subscription 401'd and no player ever saw another
+    // player move. See authenticated-sse.ts.
+    const source = openAuthenticatedSse(url, {
+      token: this.auth.getAccessToken(),
+      channels: SSE_CHANNELS,
+      onEvent: (channel, data) => {
         let parsed: unknown = null;
         try {
-          parsed = ev.data ? JSON.parse(ev.data as string) : null;
+          parsed = data ? JSON.parse(data) : null;
         } catch {
-          parsed = ev.data;
+          parsed = data;
         }
         target.postMessage({
           type: 'SD_SSE_EVENT',
           payload: { type: channel, payload: parsed },
         }, '*');
-      });
-    }
-    source.onerror = () => {
-      // EventSource auto-reconnects; only log so a transient blip
-      // doesn't drown the console.
-      // eslint-disable-next-line no-console
-      console.warn('[api-bridge] SSE stream error — auto-reconnecting');
-    };
+      },
+      onError: () => {
+        // The reader reconnects on a backoff; only log so a transient
+        // blip doesn't drown the console.
+        // eslint-disable-next-line no-console
+        console.warn('[api-bridge] SSE stream error — reconnecting');
+      },
+    });
     this.sseStreams.set(target, source);
   }
 

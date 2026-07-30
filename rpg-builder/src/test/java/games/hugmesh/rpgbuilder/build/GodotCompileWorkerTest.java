@@ -30,11 +30,21 @@ import static org.mockito.Mockito.when;
 /**
  * End-to-end specs for the {@link GodotCompileWorker} pipeline (render → export →
  * package → upload → status), driven with test-double collaborators (no Godot, no BFF,
- * no DB). Covers: the disabled-export stub path produces a registerable bundle and
- * reaches DONE; the enabled path actually calls {@link GodotExporter}; an export
- * failure marks the job FAILED; and the produced zip carries a correct manifest +
- * register.sql (games upsert + per-area chapter with the post-strip asset_url) and
- * forwards the originating user's bearer to the BFF.
+ * no DB). Covers:
+ * <ul>
+ *   <li>the disabled-export STUB path produces a registerable per-area bundle and
+ *       reaches DONE (unchanged dev contract);</li>
+ *   <li>the enabled path exports ONCE and produces the RESOLUTION-6 deduped shape:
+ *       {@code bundle/_engine/} holds the shared runtime, each area dir carries ONLY a
+ *       patched {@code index.html} referencing {@code ../_engine/}, and no per-area
+ *       {@code index.wasm};</li>
+ *   <li>{@code assertNoStubBundles} refuses an empty shared engine wasm AND an area html
+ *       that was never patched to {@code ../_engine/} (tamper case);</li>
+ *   <li>register.sql carries the games upsert, per-area chapters with the areas.json
+ *       human NAME + sort in the {@code ON CONFLICT DO UPDATE}, a default-open
+ *       {@code game_access} grant, and the post-strip asset_url; and forwards the
+ *       originating user's bearer.</li>
+ * </ul>
  */
 class GodotCompileWorkerTest {
 
@@ -43,17 +53,25 @@ class GodotCompileWorkerTest {
 
     // --- test doubles (concrete classes subclassed; Java-25 ByteBuddy can't mock them) ---
 
-    /** Writes a one-area godot-src tree so listAreaDirs() finds it, then returns it. */
+    /** Writes a one-area godot-src tree (scenes/rooms + areas.json sidecar) so the worker
+     *  reads a human area NAME distinct from the slug, then returns the rendered project. */
     private static final class FakeRenderer extends RpgGodotProjectRenderer {
         FakeRenderer() {
             super(mock(RpgAreaRepository.class), mock(RpgRoomRepository.class), mock(RpgExitRepository.class),
-                  mock(RpgItemRepository.class), mock(RpgNpcRepository.class), mock(RpgAssetRepository.class), "");
+                  mock(RpgItemRepository.class), mock(RpgNpcRepository.class), mock(RpgAssetRepository.class),
+                  mock(RpgBuildingRepository.class), mock(RpgShopStockRepository.class),
+                  mock(RpgAvatarConfigRepository.class), "");
         }
         @Override
         public Mono<RenderedProject> render(RpgProject project, Path workdir) {
             return Mono.fromCallable(() -> {
                 Path godotSrc = workdir.resolve("godot-src");
                 Files.createDirectories(godotSrc.resolve("scenes/rooms/lineland"));
+                // areas.json drives chapter name (human) + sort_order.
+                Files.writeString(godotSrc.resolve("areas.json"),
+                        "[\n  {\"slug\": \"lineland\", \"name\": \"Lineland\", \"sortOrder\": 0, "
+                        + "\"theme\": \"plain\", \"startRoomSlug\": \"town-square\"}\n]\n",
+                        StandardCharsets.UTF_8);
                 RpgArea a = new RpgArea();
                 a.setId(UUID.randomUUID());
                 a.setSlug("lineland");
@@ -63,29 +81,64 @@ class GodotCompileWorkerTest {
         }
     }
 
+    /** The engine files a real Godot Web export emits (everything but the per-area html). */
+    private static void writeEngineFiles(Path dir) throws IOException {
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("index.js"), "// engine loader");
+        Files.write(dir.resolve("index.wasm"), new byte[]{0, 'a', 's', 'm', 1, 2, 3, 4});
+        Files.write(dir.resolve("index.side.wasm"), new byte[]{0, 'a', 's', 'm', 9});
+        Files.write(dir.resolve("index.pck"), new byte[]{'P', 'C', 'K', 1});
+        Files.write(dir.resolve("index.png"), new byte[]{'P', 'N', 'G'});
+        Files.writeString(dir.resolve("index.audio.worklet.js"), "// audio");
+        Files.writeString(dir.resolve("index.audio.position.worklet.js"), "// audio pos");
+        Files.write(dir.resolve("hugmesh_bridge.wasm"), new byte[]{0, 'a', 's', 'm', 5});
+    }
+
+    /** A Godot-shaped index.html carrying every anchor {@code patchAreaHtml} rewrites. */
+    private static String godotIndexHtml() {
+        return "<!DOCTYPE html><html><head><title>x</title></head><body>"
+                + "<img id=\"status-splash\" src=\"index.png\" alt=\"\">"
+                + "<script src=\"index.js\"></script>"
+                + "<script>const GODOT_CONFIG = {\"executable\":\"index\","
+                + "\"fileSizes\":{\"index.pck\":4,\"index.wasm\":8},"
+                + "\"gdextensionLibs\":[\"hugmesh_bridge.wasm\"]};</script>"
+                + "</body></html>";
+    }
+
+    /** Real-ish whole-project export: writes the full engine set + a patchable index.html
+     *  into the export dir. The worker then dedups it into _engine/ + patched area html. */
     private static final class FakeExporter extends GodotExporter {
         final AtomicInteger calls = new AtomicInteger();
-        private final boolean fail;
-        FakeExporter(boolean fail) { super("godot", Duration.ofMinutes(1), "Web"); this.fail = fail; }
+        FakeExporter() { super("godot", Duration.ofMinutes(1), "Web", Duration.ofMinutes(1), true); }
         @Override
         public void exportWeb(Path godotSrc, Path outputIndexHtml) throws IOException {
             calls.incrementAndGet();
-            if (fail) throw new IOException("boom: export templates missing");
-            Files.createDirectories(outputIndexHtml.getParent());
-            Files.writeString(outputIndexHtml, "<html>real export</html>");
-            Files.writeString(outputIndexHtml.resolveSibling("index.wasm"), "\0\0realwasm");
+            Path out = outputIndexHtml.getParent();
+            writeEngineFiles(out);
+            Files.writeString(outputIndexHtml, godotIndexHtml(), StandardCharsets.UTF_8);
         }
     }
 
-    /** Faked exporter that "succeeds" but leaves an EMPTY index.wasm — i.e. a stub
-     *  sneaking past as a real export. The worker's stub-ship guard must catch it. */
+    /** Export "succeeds" but the shared engine wasm is EMPTY — a stub leaking through. */
     private static final class StubLeakingExporter extends GodotExporter {
-        StubLeakingExporter() { super("godot", Duration.ofMinutes(1), "Web"); }
+        StubLeakingExporter() { super("godot", Duration.ofMinutes(1), "Web", Duration.ofMinutes(1), true); }
         @Override
         public void exportWeb(Path godotSrc, Path outputIndexHtml) throws IOException {
-            Files.createDirectories(outputIndexHtml.getParent());
-            Files.writeString(outputIndexHtml, "<html>stub</html>");
-            Files.write(outputIndexHtml.resolveSibling("index.wasm"), new byte[]{});   // zero bytes
+            Path out = outputIndexHtml.getParent();
+            writeEngineFiles(out);
+            Files.write(out.resolve("index.wasm"), new byte[]{});   // zero-byte engine wasm
+            Files.writeString(outputIndexHtml, godotIndexHtml(), StandardCharsets.UTF_8);
+        }
+    }
+
+    /** Export produces a real engine wasm but an index.html with NO patch anchors, so the
+     *  staged area html never references ../_engine/ — the second stub-guard branch. */
+    private static final class UnpatchableHtmlExporter extends GodotExporter {
+        UnpatchableHtmlExporter() { super("godot", Duration.ofMinutes(1), "Web", Duration.ofMinutes(1), true); }
+        @Override
+        public void exportWeb(Path godotSrc, Path outputIndexHtml) throws IOException {
+            writeEngineFiles(outputIndexHtml.getParent());
+            Files.writeString(outputIndexHtml, "<html>no engine anchors here</html>", StandardCharsets.UTF_8);
         }
     }
 
@@ -140,7 +193,7 @@ class GodotCompileWorkerTest {
         RpgProject p = project();
         when(projects.findById(any(UUID.class))).thenReturn(Mono.just(p));
         CapturingBff bff = new CapturingBff();
-        FakeExporter exporter = new FakeExporter(false);
+        FakeExporter exporter = new FakeExporter();
         GodotCompileWorker w = worker(workdir, exporter, bff, false);   // godot disabled
 
         RpgBuildJob job = job(p.getId());
@@ -152,39 +205,74 @@ class GodotCompileWorkerTest {
         assertThat(bff.bearer.get()).isEqualTo("bearer-xyz");
 
         Map<String, byte[]> entries = unzip(bff.zip.get());
+        // STUB path shape is unchanged: per-area index.html + empty index.wasm, no _engine.
         assertThat(entries).containsKey("manifest.json").containsKey("register.sql")
                 .containsKey("bundle/lineland/index.html").containsKey("bundle/lineland/index.wasm");
+        assertThat(entries.keySet()).noneMatch(k -> k.startsWith("bundle/_engine/"));
         assertThat(new String(entries.get("manifest.json"), StandardCharsets.UTF_8))
                 .contains("\"schema_version\": 2").contains("\"slug\": \"flatland-rpg\"");
+
         String sql = new String(entries.get("register.sql"), StandardCharsets.UTF_8);
         assertThat(sql).contains("INSERT INTO games").contains("flatland-rpg")
-                .contains("INSERT INTO chapters").contains("'lineland/index.html', 'rpg'");
+                .contains("INSERT INTO chapters")
+                // areas.json-driven HUMAN name (not the slug) + sort, refreshed on conflict.
+                .contains("'Lineland', 0")
+                .contains("ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, sort_order = EXCLUDED.sort_order")
+                .contains("'lineland/index.html', 'rpg'")
+                // default-open visibility grant so a published game is playable.
+                .contains("INSERT INTO game_access")
+                .contains("'all'");
     }
 
     @Test
-    void enabledExportInvokesGodotAndProducesRealBundle(@TempDir Path workdir) throws IOException {
+    void enabledExportProducesDedupedEngineBundle(@TempDir Path workdir) throws IOException {
         RpgProject p = project();
         when(projects.findById(any(UUID.class))).thenReturn(Mono.just(p));
         CapturingBff bff = new CapturingBff();
-        FakeExporter exporter = new FakeExporter(false);
+        FakeExporter exporter = new FakeExporter();
         GodotCompileWorker w = worker(workdir, exporter, bff, true);    // godot enabled
 
         StepVerifier.create(w.execute(job(p.getId())))
                 .assertNext(j -> assertThat(j.getStatus()).isEqualTo(BuildStatus.DONE))
                 .verifyComplete();
 
-        assertThat(exporter.calls.get()).as("enabled export calls Godot once").isEqualTo(1);
+        assertThat(exporter.calls.get()).as("whole-project export runs exactly once").isEqualTo(1);
         Map<String, byte[]> entries = unzip(bff.zip.get());
-        assertThat(new String(entries.get("bundle/lineland/index.html"), StandardCharsets.UTF_8))
-                .contains("real export");
-        assertThat(entries.get("bundle/lineland/index.wasm")).isNotEmpty();   // real (non-stub) bytes
+
+        // Shared engine lives ONLY under bundle/_engine/ (no chapter row points at it).
+        assertThat(entries.get("bundle/_engine/index.wasm")).isNotEmpty();
+        assertThat(entries).containsKey("bundle/_engine/index.js")
+                .containsKey("bundle/_engine/index.side.wasm")
+                .containsKey("bundle/_engine/index.pck")
+                .containsKey("bundle/_engine/index.png")
+                .containsKey("bundle/_engine/hugmesh_bridge.wasm");
+
+        // Each area dir carries a patched index.html — no per-area ENGINE copy, but
+        // the GDExtension wasm IS duplicated next to each index.html: its
+        // gdextensionLibs entry must stay a BASENAME (the entry doubles as the
+        // emscripten LDSO registration key that Godot's descriptor dlopen matches
+        // by basename — a ../_engine/ path preloads but never matches).
+        assertThat(entries).containsKey("bundle/lineland/index.html");
+        assertThat(entries).doesNotContainKey("bundle/lineland/index.wasm");
+        assertThat(entries).doesNotContainKey("bundle/lineland/index.js");
+        assertThat(entries).containsKey("bundle/lineland/hugmesh_bridge.wasm");
+        String areaHtml = new String(entries.get("bundle/lineland/index.html"), StandardCharsets.UTF_8);
+        assertThat(areaHtml)
+                .contains("src=\"../_engine/index.js\"")
+                .contains("\"executable\":\"../_engine/index\"")
+                .contains("\"../_engine/index.pck\":").contains("\"../_engine/index.wasm\":")
+                .contains("src=\"../_engine/index.png\"")
+                .contains("\"gdextensionLibs\":[\"hugmesh_bridge.wasm\"]")
+                .doesNotContain("\"../_engine/hugmesh_bridge.wasm\"");
+
+        String sql = new String(entries.get("register.sql"), StandardCharsets.UTF_8);
+        assertThat(sql).contains("'lineland/index.html', 'rpg'").contains("INSERT INTO game_access");
     }
 
     @Test
-    void enabledExportRefusesToShipStubWasm(@TempDir Path workdir) {
-        // Real export ON, but the exporter "succeeds" with a zero-byte index.wasm
-        // (a stub leaking through). The worker's stub-ship guard must FAIL the job
-        // rather than upload a non-playable placeholder to the BFF.
+    void enabledExportRefusesEmptyEngineWasm(@TempDir Path workdir) {
+        // Real export ON, but the shared engine index.wasm is zero bytes (a stub leaking
+        // through). The stub-ship guard must FAIL the job before any BFF upload.
         RpgProject p = project();
         when(projects.findById(any(UUID.class))).thenReturn(Mono.just(p));
         CapturingBff bff = new CapturingBff();
@@ -200,16 +288,20 @@ class GodotCompileWorkerTest {
     }
 
     @Test
-    void exportFailureMarksJobFailed(@TempDir Path workdir) {
+    void enabledExportRefusesUnpatchedAreaHtml(@TempDir Path workdir) {
+        // The engine wasm is real, but the area html was never patched to ../_engine/
+        // (e.g. not actually a Godot export). The guard's second branch must catch it.
         RpgProject p = project();
         when(projects.findById(any(UUID.class))).thenReturn(Mono.just(p));
-        GodotCompileWorker w = worker(workdir, new FakeExporter(true), new CapturingBff(), true);
+        CapturingBff bff = new CapturingBff();
+        GodotCompileWorker w = worker(workdir, new UnpatchableHtmlExporter(), bff, true);
 
         StepVerifier.create(w.execute(job(p.getId())))
                 .assertNext(j -> {
                     assertThat(j.getStatus()).isEqualTo(BuildStatus.FAILED);
-                    assertThat(j.getErrorMessage()).contains("boom");
+                    assertThat(j.getErrorMessage()).containsIgnoringCase("stub");
                 })
                 .verifyComplete();
+        assertThat(bff.zip.get()).as("an unpatched bundle must never reach the BFF").isNull();
     }
 }

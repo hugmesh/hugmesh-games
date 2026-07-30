@@ -64,7 +64,15 @@ public class PublisherController {
     @Operation(summary = "List the games this caller owns as publisher")
     @GetMapping("/scopes")
     public Flux<PublisherGameScope> myScopes(@AuthenticationPrincipal Jwt jwt) {
-        return publisherScopes.findActiveByCasdoor(jwt.getSubject());
+        // Seeded scope rows key on the username (the subject is a UUID
+        // Casdoor re-mints every fresh boot); runtime grants key on the
+        // subject. Surface both, deduped per game.
+        String username = Roles.usernameOf(jwt);
+        Flux<PublisherGameScope> bySub = publisherScopes.findActiveByCasdoor(jwt.getSubject());
+        Flux<PublisherGameScope> byName = username == null || username.equals(jwt.getSubject())
+                ? Flux.empty()
+                : publisherScopes.findActiveByCasdoor(username);
+        return bySub.concatWith(byName).distinct(PublisherGameScope::getGameSlug);
     }
 
     @Operation(
@@ -81,7 +89,7 @@ public class PublisherController {
         return requireGameDomain(gameSlug, jwt)
                 // Flux.defer so the ownership check + query are only ASSEMBLED once the
                 // brand gate passes — a denied request short-circuits with no side work.
-                .thenMany(Flux.defer(() -> publisher.requireOwns(jwt.getSubject(), gameSlug)
+                .thenMany(Flux.defer(() -> publisher.requireOwns(jwt.getSubject(), Roles.usernameOf(jwt), gameSlug)
                         .thenMany(modScopes.findActiveByGame(gameSlug))));
     }
 
@@ -98,7 +106,8 @@ public class PublisherController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestBody GrantModRequest req) {
         return requireGameDomain(req.gameSlug(), jwt)
-                .then(Mono.defer(() -> publisher.grantMod(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug())));
+                .then(Mono.defer(() -> publisher.grantMod(
+                        jwt.getSubject(), Roles.usernameOf(jwt), req.targetCasdoorId(), req.gameSlug())));
     }
 
     @Operation(summary = "Revoke a user's mod role for a game I own")
@@ -107,6 +116,7 @@ public class PublisherController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestBody RevokeModRequest req) {
         return requireGameDomain(req.gameSlug(), jwt)
-                .then(Mono.defer(() -> publisher.revokeMod(jwt.getSubject(), req.targetCasdoorId(), req.gameSlug())));
+                .then(Mono.defer(() -> publisher.revokeMod(
+                        jwt.getSubject(), Roles.usernameOf(jwt), req.targetCasdoorId(), req.gameSlug())));
     }
 }

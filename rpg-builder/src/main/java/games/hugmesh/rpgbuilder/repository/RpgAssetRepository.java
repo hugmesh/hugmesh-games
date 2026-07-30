@@ -8,4 +8,7 @@ import java.util.UUID;
 
 public interface RpgAssetRepository extends ReactiveCrudRepository<RpgAsset, UUID> {
     Flux<RpgAsset> findByProjectIdOrderByUploadedAtDesc(UUID projectId);
+
+    /** Seed rows awaiting boot-time materialization ({@code seed:*}). */
+    Flux<RpgAsset> findByStoragePathStartingWith(String prefix);
 }

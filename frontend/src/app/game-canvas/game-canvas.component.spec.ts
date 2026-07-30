@@ -99,6 +99,85 @@ describe('GameCanvasComponent', () => {
   });
 
   /**
+   * Legacy-URL derivation (D7 host launch fix). Maker-built chapters
+   * register RELATIVE asset_urls ('desert/index.html') that only resolve
+   * under /api/assets/levels/<GAME slug>/... — these pins cover the three
+   * shapes: absolute passthrough (boot-shipped games, byte-for-byte
+   * unchanged), relative + launch uid (uid-gated URL with the full
+   * _webNativeUrl param set), and relative without a uid (ungated
+   * fallback, same params minus launch_uid). None of these render the
+   * template, so the raw `_frameUrl` string is inspected directly.
+   */
+  describe('_legacyUrl / gameSlug threading', () => {
+    function frameUrl(): string {
+      return (comp as unknown as { _frameUrl: string })._frameUrl;
+    }
+
+    it('keeps an ABSOLUTE assetUrl byte-for-byte — no session params even when inputs are set', () => {
+      comp.gameSlug = 'cave';
+      comp.launchUid = 'uid-should-not-appear';
+      comp.sessionId = 'sess-should-not-appear';
+      comp.slotIndex = 1;
+      comp.localCharacterId = 7;
+      comp.game = { id: 3, slug: 'cave', assetUrl: '/api/assets/levels/cave/index.html' };
+      comp.ngOnChanges();
+      expect(frameUrl()).toMatch(/^\/api\/assets\/levels\/cave\/index\.html\?chapter_id=3&t=\d+$/);
+    });
+
+    it('joins a RELATIVE assetUrl under the uid-gated route with the full param set', () => {
+      comp.gameSlug = 'six-realms';
+      comp.launchUid = 'uid-abc123';
+      comp.sessionId = 'sess-42';
+      comp.slotIndex = 2;
+      comp.localCharacterId = 5;
+      comp.game = { id: 9, slug: 'six-realms-desert', assetUrl: 'desert/index.html' };
+      comp.ngOnChanges();
+      const url = frameUrl();
+      expect(url.startsWith('/api/assets/levels/six-realms/uid-abc123/desert/index.html?')).toBeTrue();
+      const params = new URLSearchParams(url.split('?')[1]);
+      expect(params.get('chapter_id')).toBe('9');
+      expect(params.get('launch_uid')).toBe('uid-abc123');
+      expect(params.get('session_id')).toBe('sess-42');
+      expect(params.get('slot_index')).toBe('2');
+      expect(params.get('character_id')).toBe('5');
+      expect(params.get('t')).toMatch(/^\d+$/);
+    });
+
+    it('falls back to the ungated route (same params minus launch_uid) when no uid was minted', () => {
+      comp.gameSlug = 'six-realms';
+      comp.launchUid = null;
+      comp.sessionId = 'sess-42';
+      comp.slotIndex = 0;
+      comp.localCharacterId = 5;
+      comp.game = { id: 9, slug: 'six-realms-desert', assetUrl: 'desert/index.html' };
+      comp.ngOnChanges();
+      const url = frameUrl();
+      expect(url.startsWith('/api/assets/levels/six-realms/desert/index.html?')).toBeTrue();
+      const params = new URLSearchParams(url.split('?')[1]);
+      expect(params.has('launch_uid')).toBeFalse();
+      expect(params.get('chapter_id')).toBe('9');
+      expect(params.get('session_id')).toBe('sess-42');
+      expect(params.get('slot_index')).toBe('0');
+      expect(params.get('character_id')).toBe('5');
+    });
+
+    it('remounts exactly once when gameSlug/launchUid arrive asynchronously (mount key covers them)', () => {
+      comp.game = { id: 9, slug: 'six-realms-desert', assetUrl: 'desert/index.html' };
+      comp.ngOnChanges();
+      const mountSpy = spyOn<any>(comp, '_mountLevel').and.callThrough();
+      // The /launch POST resolves after the initial bind — home re-binds
+      // gameSlug + launchUid together.
+      comp.gameSlug = 'six-realms';
+      comp.launchUid = 'uid-abc123';
+      comp.ngOnChanges();
+      // Identical re-bind: must be a no-op (no iframe recycle).
+      comp.ngOnChanges();
+      expect(mountSpy).toHaveBeenCalledTimes(1);
+      expect(frameUrl().startsWith('/api/assets/levels/six-realms/uid-abc123/desert/index.html?')).toBeTrue();
+    });
+  });
+
+  /**
    * Keyboard-trap remediation coverage for the paused-overlay
    * (appFocusTrap on .paused-overlay). Unlike the specs above, these
    * render the real template so the directive actually runs against the

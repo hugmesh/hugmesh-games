@@ -18,6 +18,9 @@ public class VnBuildJob {
     @Column("output_zip_path") private String outputZipPath;
     @Column("error_message") private String errorMessage;
     @Column("owner_casdoor_id") private String ownerCasdoorId;
+    // Same contract as RpgBuildJob: build rows are echoed to the maker UI
+    // on enqueue + every poll — never serialize the caller's raw JWT out.
+    @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
     @Column("bearer_token") private String bearerToken;
     @Column("created_at") private OffsetDateTime createdAt;
     @Column("started_at") private OffsetDateTime startedAt;

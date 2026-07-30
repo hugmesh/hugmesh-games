@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -18,12 +19,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Specs for {@link GodotExporter} — the headless Godot Web-export orchestration. The
- * only OS-process call is isolated behind {@code runProcess}, so the success / failure
- * / timeout / no-bundle paths are exercised here with a fake process (no Godot binary
- * or export templates needed).
+ * Specs for {@link GodotExporter} — the headless Godot Web-export orchestration plus the
+ * defensive pre-export {@code --import} belt. The only OS-process call is isolated behind
+ * {@code runProcess}, so the success / failure / timeout / no-bundle / import paths are
+ * exercised here with a fake process (no Godot binary or export templates needed).
  */
 class GodotExporterTest {
+
+    private static final Duration EXPORT_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration IMPORT_TIMEOUT = Duration.ofMinutes(2);
 
     /** Minimal fake of {@link Process}. */
     private static final class FakeProcess extends Process {
@@ -43,19 +47,26 @@ class GodotExporterTest {
         @Override public Process destroyForcibly() { return this; }
     }
 
-    /** A GodotExporter whose "Godot run" is faked: optionally writes a non-empty bundle
-     *  (index.html + a non-empty sibling index.wasm — what a REAL Web export emits) at
-     *  the requested output path, and returns a process with the given exit code. */
+    private static void writeRealBundle(List<String> cmd) throws IOException {
+        Path out = Path.of(cmd.get(cmd.size() - 1));
+        Files.createDirectories(out.getParent());
+        Files.writeString(out, "<html>a real-ish bundle</html>");
+        // Real Web exports always emit a multi-MB index.wasm alongside.
+        Files.write(out.resolveSibling("index.wasm"), new byte[]{0, 'a', 's', 'm', 1, 2, 3, 4});
+    }
+
+    /** A GodotExporter whose "Godot run" is faked. The import pass (default on) always
+     *  succeeds; the EXPORT run optionally writes a real-shaped bundle and returns the
+     *  given exit / finishes. */
     private static GodotExporter fakeExporter(int exit, boolean writesBundle, boolean finishes) {
-        return new GodotExporter("godot", Duration.ofMinutes(5), "Web") {
+        return new GodotExporter("godot", EXPORT_TIMEOUT, "Web", IMPORT_TIMEOUT, true) {
             @Override
             protected Process runProcess(List<String> cmd) throws IOException {
+                if (cmd.contains("--import")) {
+                    return new FakeProcess(0, "Godot import log…", true);   // import OK
+                }
                 if (writesBundle) {
-                    Path out = Path.of(cmd.get(cmd.size() - 1));
-                    Files.createDirectories(out.getParent());
-                    Files.writeString(out, "<html>a real-ish bundle</html>");
-                    // Real Web exports always emit a multi-MB index.wasm alongside.
-                    Files.write(out.resolveSibling("index.wasm"), new byte[]{0, 'a', 's', 'm', 1, 2, 3, 4});
+                    writeRealBundle(cmd);
                 }
                 return new FakeProcess(exit, "Godot export log…", finishes);
             }
@@ -65,9 +76,12 @@ class GodotExporterTest {
     /** Faked run that writes index.html but a ZERO-BYTE index.wasm — the signature of a
      *  stub (or a broken export that only emitted the HTML). */
     private static GodotExporter stubWasmExporter() {
-        return new GodotExporter("godot", Duration.ofMinutes(5), "Web") {
+        return new GodotExporter("godot", EXPORT_TIMEOUT, "Web", IMPORT_TIMEOUT, true) {
             @Override
             protected Process runProcess(List<String> cmd) throws IOException {
+                if (cmd.contains("--import")) {
+                    return new FakeProcess(0, "Godot import log…", true);
+                }
                 Path out = Path.of(cmd.get(cmd.size() - 1));
                 Files.createDirectories(out.getParent());
                 Files.writeString(out, "<html>stub — replace once app.build.godot-enabled=true</html>");
@@ -121,5 +135,60 @@ class GodotExporterTest {
                 fakeExporter(0, true, false).exportWeb(dir.resolve("godot-src"), dir.resolve("out/index.html")))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("timed out");
+    }
+
+    // ---- pre-export import belt (RESOLUTION 7) ----------------------------
+
+    @Test
+    void importRunsBeforeExportWhenEnabled(@TempDir Path dir) throws IOException {
+        List<List<String>> calls = new ArrayList<>();
+        GodotExporter ex = new GodotExporter("godot", EXPORT_TIMEOUT, "Web", IMPORT_TIMEOUT, true) {
+            @Override
+            protected Process runProcess(List<String> cmd) throws IOException {
+                calls.add(List.copyOf(cmd));
+                if (!cmd.contains("--import")) writeRealBundle(cmd);
+                return new FakeProcess(0, "log", true);
+            }
+        };
+        ex.exportWeb(dir.resolve("godot-src"), dir.resolve("out/index.html"));
+
+        assertThat(calls).as("import then export").hasSize(2);
+        assertThat(calls.get(0)).contains("--import").doesNotContain("--export-release");
+        assertThat(calls.get(1)).contains("--export-release").doesNotContain("--import");
+    }
+
+    @Test
+    void importFailureFailsBuildBeforeExport(@TempDir Path dir) {
+        List<List<String>> calls = new ArrayList<>();
+        GodotExporter ex = new GodotExporter("godot", EXPORT_TIMEOUT, "Web", IMPORT_TIMEOUT, true) {
+            @Override
+            protected Process runProcess(List<String> cmd) {
+                calls.add(List.copyOf(cmd));
+                // import exits non-zero; export must never be reached.
+                return new FakeProcess(cmd.contains("--import") ? 3 : 0, "import boom", true);
+            }
+        };
+        assertThatThrownBy(() -> ex.exportWeb(dir.resolve("godot-src"), dir.resolve("out/index.html")))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("import failed");
+        assertThat(calls).as("export skipped after import failure").hasSize(1);
+        assertThat(calls.get(0)).contains("--import");
+    }
+
+    @Test
+    void importDisabledSkipsImportPass(@TempDir Path dir) throws IOException {
+        List<List<String>> calls = new ArrayList<>();
+        GodotExporter ex = new GodotExporter("godot", EXPORT_TIMEOUT, "Web", IMPORT_TIMEOUT, false) {
+            @Override
+            protected Process runProcess(List<String> cmd) throws IOException {
+                calls.add(List.copyOf(cmd));
+                writeRealBundle(cmd);
+                return new FakeProcess(0, "log", true);
+            }
+        };
+        ex.exportWeb(dir.resolve("godot-src"), dir.resolve("out/index.html"));
+
+        assertThat(calls).as("only the export runs").hasSize(1);
+        assertThat(calls.get(0)).contains("--export-release").doesNotContain("--import");
     }
 }

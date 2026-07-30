@@ -3,11 +3,11 @@
 #   docker build -f frontend/projects/admin/Dockerfile \
 #                -t hugmesh-admin ./frontend
 
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --silent --no-audit --no-fund
-COPY angular.json tsconfig.json federation-base.js ./
+COPY angular.json tsconfig.json federation-base.js federation-base.mjs ./
 COPY projects/admin projects/admin
 RUN npx ng build admin --configuration production
 

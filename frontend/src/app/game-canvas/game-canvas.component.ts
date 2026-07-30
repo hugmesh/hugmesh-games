@@ -70,6 +70,13 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
    */
   @Input() webNativeBaseUrl: string | null = null;
 
+  /** Umbrella GAME slug (games.slug) the mounted chapter belongs to.
+   *  Maker-built chapters register RELATIVE asset_urls (`desert/index.html`)
+   *  that only resolve under `/api/assets/levels/<gameSlug>/...` — the
+   *  chapter's own slug (`six-realms-desert`) is NOT the asset route key.
+   *  Null leaves the legacy absolute-assetUrl path byte-for-byte unchanged. */
+  @Input() gameSlug: string | null = null;
+
   /** Launch UID minted by `POST /api/games/{slug}/launch`. Threaded onto
    *  the web-native iframe URL as `?launch_uid=` for audit/traceability. */
   @Input() launchUid: string | null = null;
@@ -174,6 +181,7 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
     return [
       level.id,
       this.webNativeBaseUrl ?? '',
+      this.gameSlug ?? '',
       this.launchUid ?? '',
       this.sessionId ?? '',
       this.slotIndex ?? '',
@@ -345,9 +353,40 @@ export class GameCanvasComponent implements OnChanges, OnInit, OnDestroy {
     this.frameSrc = this.sanitizer.bypassSecurityTrustResourceUrl(url);
   }
 
-  /** Legacy path: derive the bundle URL from the level's assetUrl/slug. */
+  /** Legacy path: derive the bundle URL from the level's assetUrl/slug.
+   *
+   * Two shapes of assetUrl reach this path:
+   *  - ABSOLUTE (`/api/assets/levels/<slug>/index.html`) — boot-shipped
+   *    games (changelog 017-3 style). Behaviour is byte-for-byte what it
+   *    always was: assetUrl verbatim + `?chapter_id=&t=`.
+   *  - RELATIVE (`desert/index.html`) — maker-built chapters, whose
+   *    register.sql writes asset_url relative to the game's version dir.
+   *    A verbatim relative src would resolve against the SPA origin and
+   *    silently mount a nested copy of the shell, so instead we join it
+   *    under the BFF asset controller keyed by the GAME slug: uid-gated
+   *    `/api/assets/levels/<gameSlug>/<launchUid>/<assetUrl>` when the
+   *    launch mint succeeded, or the ungated
+   *    `/api/assets/levels/<gameSlug>/<assetUrl>` fallback when it
+   *    failed (works while app.assets.require-launch-uid=false). Both
+   *    forms carry the FULL session param set mirroring _webNativeUrl so
+   *    the bundle's bridge can scope onto the per-session SSE sinks.
+   */
   private _legacyUrl(level: PlayableGame): string {
-    const base = level.assetUrl
+    const assetUrl = level.assetUrl;
+    if (assetUrl && !assetUrl.startsWith('/') && this.gameSlug) {
+      const params = new URLSearchParams();
+      params.set('chapter_id', String(level.id));
+      if (this.launchUid) params.set('launch_uid', this.launchUid);
+      if (this.sessionId) params.set('session_id', this.sessionId);
+      if (this.slotIndex !== null) params.set('slot_index', String(this.slotIndex));
+      if (this.localCharacterId !== null) params.set('character_id', String(this.localCharacterId));
+      params.set('t', String(Date.now()));
+      const base = this.launchUid
+        ? `/api/assets/levels/${this.gameSlug}/${this.launchUid}/${assetUrl}`
+        : `/api/assets/levels/${this.gameSlug}/${assetUrl}`;
+      return `${base}?${params}`;
+    }
+    const base = assetUrl
       ?? (level.slug ? `/api/assets/levels/${level.slug}/index.html`
                       : '/api/assets/levels/cave/index.html');
     // Cache-bust on actual mount only — the timestamp changes only when the

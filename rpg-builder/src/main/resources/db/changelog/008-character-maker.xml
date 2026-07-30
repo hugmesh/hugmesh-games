@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  008: Character maker — per-project 3D hero avatar config + Six Realms seed
+  extension (a saturated-red hero for the e2e centre-crop scan, plus a greeter
+  NPC with a portrait wired to a seeded asset the boot-time
+  SeedAssetMaterializer resolves into real bytes).
+
+  Append-only (repo idiom): every changeset is gated with a preCondition so a
+  partial/rerun self-heals. The whitelist token sets in the CHECK constraints
+  are the CONTRACT mirrored by AvatarConfigService (SHAPES/HEADS/HATS) and the
+  renderer's avatar_factory.gd match arms — extend all three in lockstep, via a
+  new 00N changeset, the same discipline as the theme whitelist.
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                                       https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!-- ================================================================ -->
+  <!-- 1. rpg_avatar_config — one row per project (the 3D hero).        -->
+  <!--    Whitelisted parametric shape mirrored by DB CHECKs AND        -->
+  <!--    AvatarConfigService so bad input is a 400 field error, not a  -->
+  <!--    500 (ck_rpg_areas_theme / THEMES precedent). Colours are      -->
+  <!--    validated #rrggbb strings; the RENDERER converts hex->Color   -->
+  <!--    floats at bake time so no free-form string reaches GDScript.  -->
+  <!-- ================================================================ -->
+  <changeSet id="008-1-rpg-avatar-config" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="rpg_avatar_config"/></not>
+    </preConditions>
+    <createTable tableName="rpg_avatar_config">
+      <column name="id"           type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"   type="uuid"><constraints nullable="false" unique="true"
+                uniqueConstraintName="uq_rpg_avatar_config_project"
+                foreignKeyName="fk_rpg_avatar_config_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="body_shape"   type="varchar(16)" defaultValue="slim"><constraints nullable="false"/></column>
+      <column name="head_shape"   type="varchar(16)" defaultValue="round"><constraints nullable="false"/></column>
+      <column name="hat_type"     type="varchar(16)" defaultValue="none"><constraints nullable="false"/></column>
+      <column name="height_scale" type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="body_color"   type="varchar(7)" defaultValue="#3f59b3"><constraints nullable="false"/></column>
+      <column name="head_color"   type="varchar(7)" defaultValue="#e6c8a0"><constraints nullable="false"/></column>
+      <column name="hat_color"    type="varchar(7)" defaultValue="#202020"><constraints nullable="false"/></column>
+    </createTable>
+    <sql>
+      ALTER TABLE rpg_avatar_config
+        ADD CONSTRAINT ck_rpg_avatar_body  CHECK (body_shape IN ('slim','stocky','round')),
+        ADD CONSTRAINT ck_rpg_avatar_head  CHECK (head_shape IN ('round','square')),
+        ADD CONSTRAINT ck_rpg_avatar_hat   CHECK (hat_type IN ('none','cap','cone','top_hat')),
+        ADD CONSTRAINT ck_rpg_avatar_height CHECK (height_scale >= 0.700 AND height_scale &lt;= 1.400),
+        ADD CONSTRAINT ck_rpg_avatar_body_color CHECK (body_color ~ '^#[0-9a-fA-F]{6}$'),
+        ADD CONSTRAINT ck_rpg_avatar_head_color CHECK (head_color ~ '^#[0-9a-fA-F]{6}$'),
+        ADD CONSTRAINT ck_rpg_avatar_hat_color  CHECK (hat_color ~ '^#[0-9a-fA-F]{6}$');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 2. Six Realms hero: non-default, saturated RED body (#e21422) so -->
+  <!--    the @godot e2e centre-crop red-dominant pixel scan isolates   -->
+  <!--    the hero robe against every biome background.                 -->
+  <!-- ================================================================ -->
+  <changeSet id="008-2-six-realms-avatar" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_avatar_config WHERE project_id = '22222222-2222-4222-8222-222222222222'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_avatar_config (project_id, body_shape, head_shape, hat_type, height_scale, body_color, head_color, hat_color)
+      VALUES ('22222222-2222-4222-8222-222222222222', 'stocky', 'round', 'top_hat', 1.100, '#e21422', '#e6b58c', '#1a1a1a');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 3. Greeter portrait asset ROW with a sentinel storage_path.      -->
+  <!--    'seed:...' is resolved into real bytes on disk at boot by     -->
+  <!--    SeedAssetMaterializer (assets-dir is runtime config Liquibase -->
+  <!--    must not hard-code). Precondition gates on the COLLIDABLE     -->
+  <!--    unique key uq_rpg_assets_project_slug (project_id, slug), NOT -->
+  <!--    id — an id-only check passes while a same-slug/different-id   -->
+  <!--    row still trips the unique constraint and hard-fails the      -->
+  <!--    deploy, defeating the MARK_RAN self-heal.                     -->
+  <!-- ================================================================ -->
+  <changeSet id="008-3-six-realms-greeter-portrait-asset" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_assets WHERE project_id = '22222222-2222-4222-8222-222222222222' AND slug = 'greeter-portrait'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_assets (id, project_id, slug, kind, mime_type, byte_size, storage_path, uploaded_by)
+      VALUES ('22222222-2222-4222-8222-0000000000a1', '22222222-2222-4222-8222-222222222222',
+              'greeter-portrait', 'portrait', 'image/svg+xml', 0,
+              'seed:six-realms-greeter-portrait', 'publisher-flatland');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- 4. Greeter NPC in bramblewick-green (Miller's Green) — the       -->
+  <!--    ACTUAL town boot room: AREA_START picks the lexicographically -->
+  <!--    smallest OUTDOOR slug and 'bramblewick-green' <               -->
+  <!--    'bramblewick-square'; Green is also building-free (all 8      -->
+  <!--    buildings host on the Square), so the greeter is reachable    -->
+  <!--    with no portal crossing and no building occlusion. gd_script  -->
+  <!--    stays NULL (author snippets splice verbatim into _ready()).   -->
+  <!--    Precondition gates on uq_rpg_npcs_project_slug, not id.       -->
+  <!-- ================================================================ -->
+  <changeSet id="008-4-six-realms-greeter-npc" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">SELECT COUNT(*) FROM rpg_npcs WHERE project_id = '22222222-2222-4222-8222-222222222222' AND slug = 'town-greeter'</sqlCheck>
+    </preConditions>
+    <sql>
+      INSERT INTO rpg_npcs (id, project_id, slug, name, default_room_id, dialogue_text, portrait_asset_id) VALUES
+        ('22222222-2222-4222-8222-000000008006', '22222222-2222-4222-8222-222222222222',
+         'town-greeter', 'Guide Bramble',
+         '22222222-2222-4222-8222-050200000000',
+         'Well met, traveller! Bramblewick keeps the finest shops in the Six Realms. Press on and mind your coin.',
+         '22222222-2222-4222-8222-0000000000a1');
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

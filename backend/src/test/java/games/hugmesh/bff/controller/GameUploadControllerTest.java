@@ -139,6 +139,29 @@ class GameUploadControllerTest {
         assertForbidden(requireScope.apply("foreign"));
     }
 
+    @Test
+    void publisherRequireScopeMatchesSeededUsernameRow() {
+        // Liquibase-seeded scope rows key on the Casdoor *username* (the
+        // subject is a UUID re-minted every fresh boot), so ownership must
+        // also match the JWT name claim — the exact shape of the seeded
+        // publisher-flatland fixture uploading six-realms.
+        GameUploadController c = controllerFor(multiBrand());
+        Jwt pub = Jwt.withTokenValue("t").header("alg", "RS256")
+                .issuer(ISS_X).subject("8558e928-re-minted-uuid")
+                .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300))
+                .claim("roles", List.of("publisher"))
+                .claim("name", "publisher-flatland")
+                .build();
+        Function<String, Mono<Void>> requireScope = c.requireScope(pub, "brandx", false, false);
+
+        when(pubScopes.findActive(eq("8558e928-re-minted-uuid"), eq("six-realms"))).thenReturn(Mono.empty());
+        when(pubScopes.findActive(eq("publisher-flatland"), eq("six-realms")))
+                .thenReturn(Mono.just(new PublisherGameScope()));
+        // brand-new slug: no games row yet, so the brand guard passes.
+        when(gameRepo.findBySlug(eq("six-realms"))).thenReturn(Mono.empty());
+        StepVerifier.create(requireScope.apply("six-realms")).verifyComplete();
+    }
+
     // ----------------------------------------------------------------- fail-closed
 
     @Test

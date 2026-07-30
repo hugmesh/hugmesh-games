@@ -32,6 +32,12 @@ services:
         -Djavax.net.ssl.trustStore=/etc/api/certs/truststore.p12
         -Djavax.net.ssl.trustStoreType=PKCS12
         -Djavax.net.ssl.trustStorePassword=${KEYSTORE_PASSWORD:-threewizards}
+      # The legacy single-player session registry caps concurrent players
+      # (app.session.max-players, default 3). A suite run accumulates one
+      # entry per seed user and never logs out, so the later multi-user
+      # scenarios hit "Server is full" and 500. Raise it for e2e only —
+      # production keeps the default.
+      APP_SESSION_MAX_PLAYERS: "50"
       KEYSTORE_PATH: /etc/api/certs/keystore.p12
       KEYSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
       TRUSTSTORE_PATH: /etc/api/certs/truststore.p12

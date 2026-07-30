@@ -654,6 +654,11 @@
 						],
 						"tsConfig": "tsconfig.spec.json",
 						"karmaConfig": "karma.conf.js",
+						"include": [
+							"**/*.spec.ts",
+							"../projects/games-rpg-maker/src/app/rpg-maker-remote.component.spec.ts",
+							"../projects/publisher/src/app/publisher-remote.component.spec.ts"
+						],
 						"assets": [
 							{
 								"glob": "**/*",

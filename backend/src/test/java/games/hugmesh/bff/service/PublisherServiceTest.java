@@ -60,6 +60,40 @@ class PublisherServiceTest {
     }
 
     @Test
+    void requireOwnsFallsBackToUsernameKeyedRow() {
+        // Casdoor re-mints the subject UUID each fresh boot, so seeded
+        // scope rows key on the username; either identifier authorizes.
+        when(publisherScopes.findActive("8558e928-uuid", "six-realms")).thenReturn(Mono.empty());
+        when(publisherScopes.findActive("publisher-flatland", "six-realms"))
+                .thenReturn(Mono.just(scope("publisher-flatland", "six-realms")));
+
+        StepVerifier.create(service.requireOwns("8558e928-uuid", "publisher-flatland", "six-realms"))
+                .verifyComplete();
+    }
+
+    @Test
+    void requireOwnsWithBothIdentifiersStillDeniesUnownedGame() {
+        when(publisherScopes.findActive("8558e928-uuid", "six-realms")).thenReturn(Mono.empty());
+        when(publisherScopes.findActive("publisher-flatland", "six-realms")).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.requireOwns("8558e928-uuid", "publisher-flatland", "six-realms"))
+                .expectErrorSatisfies(err ->
+                        assertThat(((ResponseStatusException) err).getStatusCode().value()).isEqualTo(403))
+                .verify();
+    }
+
+    @Test
+    void requireOwnsToleratesNullUsername() {
+        // A token without a name claim degrades to subject-only matching.
+        when(publisherScopes.findActive("8558e928-uuid", "six-realms")).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.requireOwns("8558e928-uuid", null, "six-realms"))
+                .expectErrorSatisfies(err ->
+                        assertThat(((ResponseStatusException) err).getStatusCode().value()).isEqualTo(403))
+                .verify();
+    }
+
+    @Test
     void grantModSucceedsWhenOwned() {
         when(publisherScopes.findActive("twiat-pub", "three-wizards"))
                 .thenReturn(Mono.just(scope("twiat-pub", "three-wizards")));

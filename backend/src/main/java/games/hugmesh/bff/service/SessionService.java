@@ -58,7 +58,12 @@ import java.util.stream.Collectors;
  *
  * <h2>Capacity limit</h2>
  *
- * <p>At most {@value #MAX_SESSIONS} players may be concurrently connected.
+ * <p>At most {@code app.session.max-players} (default 3) players may be
+ * concurrently connected to this LEGACY single-player session registry.
+ * Real multiplayer sessions live in GameSessionService and are not bounded
+ * by it; the cap only guards this in-memory map. The e2e stack raises it
+ * because a suite run accumulates one entry per seed user and never logs
+ * out, which otherwise 500s the later multi-user scenarios.
  * {@link #tryConnect} returns an error {@link Mono} (rather than throwing) when the
  * server is full and the caller is not already connected — callers should
  * {@code .onErrorResume} or let the reactive chain propagate a 429.
@@ -82,7 +87,8 @@ public class SessionService {
     private static final Logger log = LoggerFactory.getLogger(SessionService.class);
 
     /** Maximum number of simultaneously connected players on this pod. */
-    private static final int MAX_SESSIONS = 3;
+    /** Cap on concurrently-connected players; see the class javadoc. */
+    private final int maxSessions;
 
     private final PlayerSessionRepository sessionRepo;
     private final PlayerCharacterRepository characterRepo;
@@ -101,10 +107,14 @@ public class SessionService {
      */
     private final AtomicReference<String> currentController = new AtomicReference<>();
 
-    public SessionService(PlayerSessionRepository sessionRepo, PlayerCharacterRepository characterRepo) {
+    public SessionService(PlayerSessionRepository sessionRepo, PlayerCharacterRepository characterRepo,
+                          @org.springframework.beans.factory.annotation.Value("${app.session.max-players:3}")
+                          int maxSessions) {
         this.sessionRepo   = sessionRepo;
         this.characterRepo = characterRepo;
+        this.maxSessions   = maxSessions;
     }
+
 
     // -------------------------------------------------------------------------
     // Connect / disconnect lifecycle
@@ -136,8 +146,8 @@ public class SessionService {
     public Mono<String> tryConnect(String casdoorId, Long characterId) {
         // Reject new connections when the server is full — allow reconnects
         // (player is already in the map) so a page reload doesn't lock the player out.
-        if (activeSessions.size() >= MAX_SESSIONS && !activeSessions.containsKey(casdoorId)) {
-            return Mono.error(new IllegalStateException("Server is full (max " + MAX_SESSIONS + " players)"));
+        if (activeSessions.size() >= maxSessions && !activeSessions.containsKey(casdoorId)) {
+            return Mono.error(new IllegalStateException("Server is full (max " + maxSessions + " players)"));
         }
 
         // Session token surfaces in the URL the iframe carries on
@@ -162,7 +172,7 @@ public class SessionService {
                 .then(sessionRepo.save(session))
                 .doOnNext(saved -> {
                     activeSessions.put(casdoorId, SessionDto.from(saved));
-                    log.info("Player connected: {} (sessions: {}/{})", casdoorId, activeSessions.size(), MAX_SESSIONS);
+                    log.info("Player connected: {} (sessions: {}/{})", casdoorId, activeSessions.size(), maxSessions);
                 })
                 .map(PlayerSession::getSessionToken);
     }
@@ -206,7 +216,7 @@ public class SessionService {
         activeSessions.remove(casdoorId);
         // Release the controller role only if this player currently holds it.
         currentController.compareAndSet(casdoorId, null);
-        log.info("Player disconnected: {} (sessions: {}/{})", casdoorId, activeSessions.size(), MAX_SESSIONS);
+        log.info("Player disconnected: {} (sessions: {}/{})", casdoorId, activeSessions.size(), maxSessions);
         // Mark the session ended; keep the row so session history stays intact.
         return sessionRepo.findByCasdoorId(casdoorId)
                 .flatMap(s -> {

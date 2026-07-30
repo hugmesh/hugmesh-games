@@ -11,7 +11,7 @@
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
-        gen-certs e2e e2e-bdd e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
+        gen-certs e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
         test test-rust test-backend test-frontend test-godot test-games-js \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
@@ -298,8 +298,7 @@ e2e-native: gen-certs build-backend-native
 	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"
 	@for i in $$(seq 1 60); do \
 	  api_ok=0; web_ok=0; \
-	  docker compose $(E2E_NATIVE_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
-	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && { api_ok=1; web_ok=1; }; \
 	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
 	  if [ $$((i % 6)) -eq 0 ]; then \
 	    echo "  … attempt $$i/60: api=$$api_ok web=$$web_ok"; \
@@ -483,8 +482,7 @@ e2e: gen-certs
 	@echo "→ Waiting for stack to become healthy (cassandra-init → api → frontend)…"
 	@for i in $$(seq 1 60); do \
 	  api_ok=0; web_ok=0; \
-	  docker compose $(E2E_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
-	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && { api_ok=1; web_ok=1; }; \
 	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
 	  if [ $$((i % 6)) -eq 0 ]; then \
 	    echo "  … attempt $$i/60: api=$$api_ok web=$$web_ok"; \
@@ -560,8 +558,7 @@ e2e-bdd: gen-certs
 	@echo "→ Waiting for stack to become healthy…"
 	@for i in $$(seq 1 60); do \
 	  api_ok=0; web_ok=0; \
-	  docker compose $(E2E_FILES) exec -T api sh -c 'wget -qO- http://localhost:8080/actuator/health' >/dev/null 2>&1 && api_ok=1; \
-	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && web_ok=1; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && { api_ok=1; web_ok=1; }; \
 	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
 	  if [ $$i -eq 60 ]; then echo "  ✗ stack failed to come up in 5 minutes"; exit 1; fi; \
 	  sleep 5; \
@@ -579,6 +576,46 @@ e2e-bdd: gen-certs
 	docker compose $(E2E_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
 	if [ $$status -eq 0 ]; then echo "✓ E2E-BDD PASSED"; \
 	else echo "✗ E2E-BDD FAILED (status $$status) — see e2e/results/"; exit $$status; fi
+
+# ── BDD e2e with REAL Godot exports (@godot scenarios) ───────────────────────
+# Same TLS stack as e2e-bdd PLUS the docker-compose.godot.yml overlay so the
+# rpg/vn builders run genuine Godot 4.6 Web exports (Six Realms build → biome
+# exploration → two-player session). Requires the host toolchain from
+# `make godot-export-tools`. Only the @godot-tagged scenarios run; the plain
+# e2e-bdd target skips them via the tagged Before hook (E2E_GODOT_ENABLED).
+E2E_GODOT_FILES := $(E2E_FILES) -f docker-compose.godot.yml
+
+e2e-godot: gen-certs
+	@echo "→ Checking Godot export toolchain…"
+	@test -x $(GODOT_TOOLS_DIR)/godot/godot || { echo "ERROR: $(GODOT_TOOLS_DIR)/godot/godot missing — run 'make godot-export-tools' first"; exit 1; }
+	@echo "→ Building images with TLS layer…"
+	docker compose $(E2E_GODOT_FILES) build api frontend e2e wasm-fragment rpg-builder vn-builder games-rpg-maker games-vn-maker
+	@echo "→ Starting stack with TLS + real Godot exports…"
+	docker compose $(E2E_GODOT_FILES) up -d postgres postgres-rpg-builder postgres-vn-builder cassandra cassandra-init casdoor api rpg-builder vn-builder frontend
+	@echo "→ Waiting for stack to become healthy…"
+	@for i in $$(seq 1 60); do \
+	  api_ok=0; web_ok=0; rpg_ok=0; \
+	  curl -ksf https://localhost:8080/api/games >/dev/null 2>&1 && { api_ok=1; web_ok=1; }; \
+	  rpg_code=$$(curl -ks -o /dev/null -w '%{http_code}' https://localhost:8080/api/rpg/projects 2>/dev/null); \
+	  [ "$$rpg_code" = "401" ] && rpg_ok=1; \
+	  if [ $$api_ok -eq 1 ] && [ $$web_ok -eq 1 ] && [ $$rpg_ok -eq 1 ]; then echo "  ✓ stack ready (attempt $$i)"; break; fi; \
+	  if [ $$i -eq 60 ]; then echo "  ✗ stack failed to come up in 5 minutes (api=$$api_ok web=$$web_ok rpg=$$rpg_ok/$$rpg_code)"; exit 1; fi; \
+	  sleep 5; \
+	done
+	@echo "→ Running Gherkin @godot suite (project=bdd, real exports)…"
+	@set +e; \
+	docker compose $(E2E_GODOT_FILES) run --rm \
+	  -e E2E_PLAYER_USERNAME="$(E2E_PLAYER_USER)" \
+	  -e E2E_PLAYER_PASSWORD="$(E2E_PLAYER_PASS)" \
+	  -e E2E_PASSWORD="$(E2E_PASSWORD)" \
+	  -e E2E_GODOT_ENABLED=true \
+	  e2e \
+	  npx playwright test --reporter=list --project=bdd --grep @godot; \
+	status=$$?; \
+	echo "→ Tearing down…"; \
+	docker compose $(E2E_GODOT_FILES) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	if [ $$status -eq 0 ]; then echo "✓ E2E-GODOT PASSED"; \
+	else echo "✗ E2E-GODOT FAILED (status $$status) — see e2e/results/"; exit $$status; fi
 
 # ── Per-project unit tests ───────────────────────────────────────────────────
 # Each subproject runs its own native test framework. `make test` runs them

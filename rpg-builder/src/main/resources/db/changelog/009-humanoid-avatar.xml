@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+  <!-- ================================================================ -->
+  <!-- Decision 028 — the parametric humanoid.                          -->
+  <!--                                                                  -->
+  <!-- 008 gave a project seven fields, which rendered as three         -->
+  <!-- floating primitives with NO limbs. This widens the row to the    -->
+  <!-- full CharacterSpec surface: twelve proportions, five shape       -->
+  <!-- tokens (incl. the N64 render style), five item slots, seven      -->
+  <!-- colour regions and an optional uploaded texture.                 -->
+  <!--                                                                  -->
+  <!-- APPEND-ONLY: 008 is never edited. The seven original columns     -->
+  <!-- keep their names, meanings and values — in particular the Six    -->
+  <!-- Realms hero stays #e21422 / stocky / top_hat, because the @godot -->
+  <!-- centre-crop pixel scan finds the hero by that exact red.         -->
+  <!--                                                                  -->
+  <!-- Every CHECK here mirrors a CharacterSpec whitelist or bound, so  -->
+  <!-- bad input is a 400 field error from the service AND a database   -->
+  <!-- constraint if anything ever writes around it.                    -->
+  <!-- ================================================================ -->
+
+  <changeSet id="009-1-humanoid-columns" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <not><columnExists tableName="rpg_avatar_config" columnName="render_style"/></not>
+    </preConditions>
+    <addColumn tableName="rpg_avatar_config">
+      <!-- Style + shape tokens. -->
+      <column name="render_style" type="varchar(16)" defaultValue="smooth"><constraints nullable="false"/></column>
+      <column name="hair_style"   type="varchar(16)" defaultValue="short"><constraints nullable="false"/></column>
+      <column name="outfit_type"  type="varchar(16)" defaultValue="robe"><constraints nullable="false"/></column>
+
+      <!-- Item slots. -->
+      <column name="held_main" type="varchar(16)" defaultValue="none"><constraints nullable="false"/></column>
+      <column name="held_off"  type="varchar(16)" defaultValue="none"><constraints nullable="false"/></column>
+      <column name="back_item" type="varchar(16)" defaultValue="none"><constraints nullable="false"/></column>
+      <column name="face_item" type="varchar(16)" defaultValue="none"><constraints nullable="false"/></column>
+
+      <!-- Proportions. height_scale already exists (008) and keeps its name. -->
+      <column name="head_scale"           type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="neck_scale"           type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="chest_scale"          type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="waist_scale"          type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="shoulder_scale"       type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="arm_length_scale"     type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="arm_thickness_scale"  type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="leg_length_scale"     type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="leg_thickness_scale"  type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="hand_scale"           type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+      <column name="foot_scale"           type="numeric(4,3)" defaultValueNumeric="1.000"><constraints nullable="false"/></column>
+
+      <!-- Colour regions. body/head/hat already exist (008). -->
+      <column name="hair_color"   type="varchar(7)" defaultValue="#3a2a1c"><constraints nullable="false"/></column>
+      <column name="accent_color" type="varchar(7)" defaultValue="#d8b45a"><constraints nullable="false"/></column>
+      <column name="item_color"   type="varchar(7)" defaultValue="#8a8f98"><constraints nullable="false"/></column>
+      <column name="eye_color"    type="varchar(7)" defaultValue="#2b2b33"><constraints nullable="false"/></column>
+
+      <!-- Uploaded skin/outfit texture. ON DELETE SET NULL: deleting an
+           asset must not cascade away the whole avatar config. -->
+      <column name="skin_texture_asset_id" type="uuid">
+        <constraints nullable="true"
+                     foreignKeyName="fk_rpg_avatar_texture"
+                     references="rpg_assets(id)"
+                     deleteCascade="false"/>
+      </column>
+    </addColumn>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- Constraints. head_shape and hat_type already carry CHECKs from   -->
+  <!-- 008 that only admit the OLD token sets, so they must be dropped  -->
+  <!-- and re-added — an ADD alone would leave the narrower constraint  -->
+  <!-- in force and every new token would fail at write time with a     -->
+  <!-- 500 rather than being accepted.                                  -->
+  <!-- ================================================================ -->
+  <changeSet id="009-2-humanoid-constraints" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT count(*) FROM pg_constraint WHERE conname = 'ck_rpg_avatar_render'
+      </sqlCheck>
+    </preConditions>
+    <sql>
+      ALTER TABLE rpg_avatar_config DROP CONSTRAINT IF EXISTS ck_rpg_avatar_head;
+      ALTER TABLE rpg_avatar_config DROP CONSTRAINT IF EXISTS ck_rpg_avatar_hat;
+
+      ALTER TABLE rpg_avatar_config
+        ADD CONSTRAINT ck_rpg_avatar_head CHECK (head_shape IN ('round','square','oval','tapered')),
+        ADD CONSTRAINT ck_rpg_avatar_hat  CHECK (hat_type IN ('none','cap','cone','top_hat','helm','crown','hood','bandana','straw')),
+
+        ADD CONSTRAINT ck_rpg_avatar_render CHECK (render_style IN ('smooth','lowpoly')),
+        ADD CONSTRAINT ck_rpg_avatar_hair   CHECK (hair_style IN ('none','short','long','ponytail','spiky','bun','braid')),
+        ADD CONSTRAINT ck_rpg_avatar_outfit CHECK (outfit_type IN ('robe','tunic','armor','dress','jumpsuit','bare')),
+
+        ADD CONSTRAINT ck_rpg_avatar_held_main CHECK (held_main IN ('none','sword','staff','axe','bow','wand','pickaxe','lantern','book')),
+        ADD CONSTRAINT ck_rpg_avatar_held_off  CHECK (held_off  IN ('none','shield','torch','book','lantern','orb')),
+        ADD CONSTRAINT ck_rpg_avatar_back      CHECK (back_item IN ('none','cape','backpack','wings','quiver','scabbard')),
+        ADD CONSTRAINT ck_rpg_avatar_face      CHECK (face_item IN ('none','glasses','mask','visor','eyepatch')),
+
+        ADD CONSTRAINT ck_rpg_avatar_head_scale      CHECK (head_scale          >= 0.700 AND head_scale          &lt;= 1.500),
+        ADD CONSTRAINT ck_rpg_avatar_neck_scale      CHECK (neck_scale          >= 0.600 AND neck_scale          &lt;= 1.600),
+        ADD CONSTRAINT ck_rpg_avatar_chest_scale     CHECK (chest_scale         >= 0.700 AND chest_scale         &lt;= 1.400),
+        ADD CONSTRAINT ck_rpg_avatar_waist_scale     CHECK (waist_scale         >= 0.600 AND waist_scale         &lt;= 1.500),
+        ADD CONSTRAINT ck_rpg_avatar_shoulder_scale  CHECK (shoulder_scale      >= 0.700 AND shoulder_scale      &lt;= 1.400),
+        ADD CONSTRAINT ck_rpg_avatar_arm_len         CHECK (arm_length_scale    >= 0.750 AND arm_length_scale    &lt;= 1.300),
+        ADD CONSTRAINT ck_rpg_avatar_arm_thick       CHECK (arm_thickness_scale >= 0.600 AND arm_thickness_scale &lt;= 1.500),
+        ADD CONSTRAINT ck_rpg_avatar_leg_len         CHECK (leg_length_scale    >= 0.750 AND leg_length_scale    &lt;= 1.300),
+        ADD CONSTRAINT ck_rpg_avatar_leg_thick       CHECK (leg_thickness_scale >= 0.600 AND leg_thickness_scale &lt;= 1.500),
+        ADD CONSTRAINT ck_rpg_avatar_hand_scale      CHECK (hand_scale          >= 0.600 AND hand_scale          &lt;= 1.600),
+        ADD CONSTRAINT ck_rpg_avatar_foot_scale      CHECK (foot_scale          >= 0.600 AND foot_scale          &lt;= 1.600),
+
+        ADD CONSTRAINT ck_rpg_avatar_hair_color   CHECK (hair_color   ~ '^#[0-9a-fA-F]{6}$'),
+        ADD CONSTRAINT ck_rpg_avatar_accent_color CHECK (accent_color ~ '^#[0-9a-fA-F]{6}$'),
+        ADD CONSTRAINT ck_rpg_avatar_item_color   CHECK (item_color   ~ '^#[0-9a-fA-F]{6}$'),
+        ADD CONSTRAINT ck_rpg_avatar_eye_color    CHECK (eye_color    ~ '^#[0-9a-fA-F]{6}$');
+    </sql>
+  </changeSet>
+
+  <!-- ================================================================ -->
+  <!-- Six Realms hero: give the demo character real limbs and gear so  -->
+  <!-- the seeded world shows off the generator. The RED body colour,   -->
+  <!-- stocky build and top_hat are LEFT UNTOUCHED — the @godot pixel   -->
+  <!-- proof depends on them.                                           -->
+  <!-- ================================================================ -->
+  <changeSet id="009-3-six-realms-hero-gear" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="1">
+        SELECT count(*) FROM rpg_avatar_config
+        WHERE project_id = '22222222-2222-2222-2222-222222222222'
+      </sqlCheck>
+    </preConditions>
+    <update tableName="rpg_avatar_config">
+      <column name="outfit_type" value="robe"/>
+      <column name="hair_style" value="short"/>
+      <column name="held_main" value="staff"/>
+      <column name="back_item" value="cape"/>
+      <column name="accent_color" value="#f2c14e"/>
+      <where>project_id = '22222222-2222-2222-2222-222222222222'</where>
+    </update>
+  </changeSet>
+
+</databaseChangeLog>

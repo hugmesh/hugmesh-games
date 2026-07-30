@@ -9,5 +9,9 @@
   <include file="db/changelog/003-build-jobs.xml"/>
   <include file="db/changelog/004-seed-flatland-fixture.xml"/>
   <include file="db/changelog/005-pause-aware-scenes.xml"/>
+  <include file="db/changelog/006-biome-themes-and-buildings.xml"/>
+  <include file="db/changelog/007-seed-six-realms-fixture.xml"/>
+  <include file="db/changelog/008-character-maker.xml"/>
+  <include file="db/changelog/009-humanoid-avatar.xml"/>
 
 </databaseChangeLog>

@@ -6,6 +6,11 @@ WORKDIR /work
 
 COPY package.json package-lock.json* ./
 RUN npm install --no-audit --no-fund
+# The base image bakes browsers for its own Playwright version (v1.49), but
+# package.json pins @playwright/test 1.55.x, which looks for a newer Chromium
+# build under /ms-playwright. Install the browser matching the pinned version
+# (OS deps from the base image are a superset, so no --with-deps needed).
+RUN npx playwright install chromium
 
 COPY playwright.config.ts ./
 COPY tests/ ./tests/

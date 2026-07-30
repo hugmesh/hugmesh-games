@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    Dev fixture: pre-grant the `publisher-flatland` Casdoor seed user
+    the publisher scope on the `six-realms` reference game. The actual
+    games row arrives when the publisher runs the maker pipeline
+    (register.sql in the produced bundle upserts games + chapters);
+    pre-seeding only the scope keeps the maker contract honest — the
+    publisher must drive the build for the catalog to update.
+
+    casdoor_id carries the Casdoor *username* (`publisher-flatland`),
+    NOT the seed id `tw-pub-flat-001`: PublisherService.requireOwns
+    matches rows against jwt.getSubject(), and this Casdoor's sub claim
+    is the username — the 032-3 seed rows (publisher-three-wizards,
+    publisher-dodecahedron) and the rpg/vn-builder owner_casdoor_id
+    fixtures all follow the same convention. 038 got this wrong (id
+    instead of username); 055-2 below repairs those shipped rows.
+
+    The rpg-builder side (rpg-builder changelog 007) seeds the Six Realms
+    *project* owned by the same user; this row is the BFF-side upload
+    scope so that build's `/api/admin/games/upload` passes the
+    publisher_game_scopes check.
+
+    Scope rows are append-only (revoked_at = NULL means active); the
+    preCondition guards against duplicates on a Liquibase rerun.
+  -->
+
+  <changeSet id="055-1-six-realms-scope" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM publisher_game_scopes
+        WHERE casdoor_id = 'publisher-flatland' AND game_slug = 'six-realms' AND revoked_at IS NULL
+      </sqlCheck>
+    </preConditions>
+    <insert tableName="publisher_game_scopes">
+      <column name="casdoor_id"            value="publisher-flatland"/>
+      <column name="game_slug"             value="six-realms"/>
+      <column name="granted_by_casdoor_id" value="tw-admin-001"/>
+    </insert>
+  </changeSet>
+
+  <!--
+    Repair the 038 flatland scope rows in place (append-only: 038 has
+    shipped, so its checksum must not change). Those rows keyed
+    casdoor_id on the Casdoor seed id `tw-pub-flat-001`, which never
+    matches jwt.getSubject() (the username) — so the flatland-rpg /
+    flatland-vn maker uploads always 403'd at requireOwns. Re-key them
+    to the username the sub claim actually carries.
+  -->
+  <changeSet id="055-2-flatland-scope-rekey" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <!-- LEAST(...,1) so ONE stale row still triggers the repair: an
+           admin can revoke a single flatland scope via the runtime API,
+           and expecting exactly 2 would MARK_RAN past the survivor. -->
+      <sqlCheck expectedResult="1">
+        SELECT LEAST(COUNT(*), 1) FROM publisher_game_scopes
+        WHERE casdoor_id = 'tw-pub-flat-001'
+          AND game_slug IN ('flatland-rpg', 'flatland-vn')
+          AND revoked_at IS NULL
+      </sqlCheck>
+    </preConditions>
+    <update tableName="publisher_game_scopes">
+      <column name="casdoor_id" value="publisher-flatland"/>
+      <where>casdoor_id = 'tw-pub-flat-001' AND game_slug IN ('flatland-rpg', 'flatland-vn') AND revoked_at IS NULL</where>
+    </update>
+  </changeSet>
+
+</databaseChangeLog>

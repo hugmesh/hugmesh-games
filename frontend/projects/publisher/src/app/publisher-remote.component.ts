@@ -77,9 +77,10 @@ interface ModGameScope {
       <section class="card">
         <h2>Build a new game</h2>
         <p class="muted">
-          Open one of the makers in a new tab to author and compile a
-          fresh game without leaving the portal. The compiled bundle
-          is auto-uploaded under your publisher scope.
+          Author rooms, items, shops &mdash; and design your playable
+          hero's 3D avatar and NPC dialogue portraits in the maker's
+          <strong>Characters</strong> pane. The compiled bundle is
+          auto-uploaded under your publisher scope.
         </p>
         <div class="launch-row">
           <button type="button" class="primary-btn"
@@ -91,6 +92,7 @@ interface ModGameScope {
             &#9672; Launch Visual Novel Maker
           </button>
         </div>
+        <p class="muted hint-line">Includes the Character Maker (hero avatar + dialogue portraits).</p>
       </section>
 
       <section class="card">
@@ -131,6 +133,7 @@ interface ModGameScope {
     .grant-row { margin-top: 0.6rem; display: flex; gap: 0.4rem; align-items: center; }
     .grant-row input { padding: 0.3rem; border-radius: 3px; border: 1px solid #aabddf; min-width: 18ch; }
     .launch-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.4rem; }
+    .hint-line { font-size: 0.8rem; margin-top: 0.5rem; margin-bottom: 0; }
     .muted { color: #5a6a8a; font-style: italic; }
     .error-banner { background: #f9d5d5; color: #8b1f1f; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
     .success-banner { background: #d5f9e0; color: #1f6b3a; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; }

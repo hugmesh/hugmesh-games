@@ -26,6 +26,11 @@ public class RpgBuildJob {
     private String errorMessage;
     @Column("owner_casdoor_id")
     private String ownerCasdoorId;
+    // Entities double as DTOs here, and build rows are echoed to the
+    // maker UI by the enqueue POST + every status poll — the caller's
+    // raw JWT must never ride along. WRITE_ONLY keeps the column
+    // round-tripping through R2DBC while Jackson omits it on the way out.
+    @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
     @Column("bearer_token")
     private String bearerToken;
     @Column("created_at")

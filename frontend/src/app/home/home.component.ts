@@ -110,6 +110,15 @@ export class HomeComponent implements OnInit {
   activeRemoteSlug: string | null = null;
   activeLaunchUid: string | null = null;
 
+  /** Umbrella GAME slug for the legacy/maker canvas path — captured from
+   *  the open modal before `selectChapter` tears it down, then threaded
+   *  into `<app-game-canvas [gameSlug]>` so the canvas can build the
+   *  uid-gated `/api/assets/levels/<gameSlug>/<uid>/<assetUrl>` URL for
+   *  the RELATIVE asset_urls maker-built bundles register (chapter rows
+   *  like `desert/index.html`). Null for federated / web-native launches
+   *  (those paths derive their URLs elsewhere). */
+  activeGameSlug: string | null = null;
+
   /** Web-native games (kind='wasm-game'), keyed by their game slug, read
    *  from the federation manifest at init. Empty until the manifest
    *  resolves; the launch decision (`isWebNative`) is driven entirely off
@@ -422,30 +431,42 @@ export class HomeComponent implements OnInit {
    *  multiplayer mode. */
   selectChapter(chapter: AvailableGame): void {
     if (!chapter.unlocked) return;
+    // Capture the umbrella game's slug BEFORE tearing the modal down —
+    // the legacy/maker branch below needs it for POST /api/games/{slug}/launch
+    // and the uid-gated asset URL, and `modalGame` is nulled right here.
+    const gameSlug = this.modalGame?.slug ?? null;
     this.modalGame = null;
     this.activeLevel = chapter;
     this.activeLaunchUid = null;
     this.activeWebNativeBaseUrl = null;
+    this.activeGameSlug = null;
     if (this.isFederated(chapter)) {
-      const gameSlug = SCENE_TYPE_TO_GAME_SLUG[chapter.sceneType];
-      this.activeRemoteSlug = gameSlug;
-      this.remoteLoader.loadGameRemote(gameSlug).subscribe({
+      const federatedSlug = SCENE_TYPE_TO_GAME_SLUG[chapter.sceneType];
+      this.activeRemoteSlug = federatedSlug;
+      this.remoteLoader.loadGameRemote(federatedSlug).subscribe({
         next: r => console.log(`[home] federated remote loaded: ${r.slug}`),
         error: e => console.warn('[home] federated remote load failed; falling back to iframe', e),
       });
-      this.mintLaunch(gameSlug);
+      this.mintLaunch(federatedSlug);
     } else if (this.isWebNative(chapter)) {
       // Web-native games are plain iframe bundles (no remoteEntry.json) —
       // mount the wasm-fragment URL via <app-game-canvas>, threading the
       // session params, instead of native-federation's loadGameRemote OR
       // the legacy assetUrl path. The /launch POST still fires first as a
       // defence-in-depth gate (mints + audits the launch_uid).
-      const gameSlug = this.webNativeSlug(chapter)!;
+      const nativeSlug = this.webNativeSlug(chapter)!;
       this.activeRemoteSlug = null;
       this.activeWebNativeBaseUrl = resolveWebNativeBaseUrl(chapter, this.webNativeByGameSlug);
-      this.mintLaunch(gameSlug);
+      this.mintLaunch(nativeSlug);
     } else {
+      // Legacy / maker-built ('rpg') chapters render through
+      // <app-game-canvas>. Mint the launch uid like the other branches —
+      // maker bundles register RELATIVE asset_urls that the canvas can
+      // only resolve as /api/assets/levels/<gameSlug>/<uid>/<assetUrl>,
+      // so without a mint the iframe would load a nested copy of the SPA.
       this.activeRemoteSlug = null;
+      this.activeGameSlug = gameSlug;
+      if (gameSlug) this.mintLaunch(gameSlug);
     }
     setTimeout(() => {
       this.canvasSection?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -490,6 +511,7 @@ export class HomeComponent implements OnInit {
     this.activeLevel = null;
     this.activeRemoteSlug = null;
     this.activeLaunchUid = null;
+    this.activeGameSlug = null;
     this.activeWebNativeBaseUrl = null;
     this.isFullscreen = false;
   }

@@ -1,17 +1,18 @@
-# Direction keymap used by world.gd.
+# Direction helpers shared by generated rooms + world.gd.
+#
+# world.gd no longer does key-navigation (game_bridge.gd owns keyboard input),
+# so this is NO LONGER a keycode map. It is the single source of direction
+# reciprocals used when a player walks through a portal: the ARRIVAL spawn in
+# the destination room is the reciprocal-direction doorway. Portal positions +
+# entry spawns themselves are baked into each room's ROOM data by the renderer
+# (RpgGodotProjectRenderer.Directions) so placement + spawns cannot disagree.
 extends RefCounted
 
-static func direction_for_keycode(k: int) -> String:
-    match k:
-        KEY_W, KEY_UP:    return "N"
-        KEY_S, KEY_DOWN:  return "S"
-        KEY_A, KEY_LEFT:  return "W"
-        KEY_D, KEY_RIGHT: return "E"
-        KEY_Q:            return "NW"
-        KEY_E:            return "NE"
-        KEY_Z:            return "SW"
-        KEY_C:            return "SE"
-        KEY_PAGEUP:       return "UP"
-        KEY_PAGEDOWN:     return "DOWN"
-        KEY_T:            return "TELEPORT"
-        _: return ""
+const RECIPROCAL := {
+    "N": "S", "S": "N", "E": "W", "W": "E",
+    "NE": "SW", "SW": "NE", "NW": "SE", "SE": "NW",
+    "UP": "DOWN", "DOWN": "UP", "TELEPORT": "TELEPORT",
+}
+
+static func reciprocal(dir: String) -> String:
+    return RECIPROCAL.get(dir, "TELEPORT")

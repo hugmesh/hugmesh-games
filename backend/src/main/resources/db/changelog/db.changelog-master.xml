@@ -76,5 +76,6 @@
       rows with explicit ids (012, 017, 044-048, 053, 055, 056). Registered last
       so the setval() reflects the final MAX(games.id).
     -->
-    <include file="db/changelog/054-advance-games-id-seq.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/057-advance-games-id-seq.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/058-six-realms-publisher-scope.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

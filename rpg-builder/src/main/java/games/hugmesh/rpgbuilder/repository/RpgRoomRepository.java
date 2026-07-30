@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface RpgRoomRepository extends ReactiveCrudRepository<RpgRoom, UUID> {
     Flux<RpgRoom> findByProjectIdOrderByNameAsc(UUID projectId);
     Flux<RpgRoom> findByAreaIdOrderByNameAsc(UUID areaId);
+    Flux<RpgRoom> findByBuildingIdOrderByFloorLevelAsc(UUID buildingId);
+    Flux<RpgRoom> findByProjectIdAndSlugIn(UUID projectId, java.util.Collection<String> slugs);
 }

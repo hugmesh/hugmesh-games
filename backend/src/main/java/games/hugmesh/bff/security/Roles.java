@@ -187,6 +187,22 @@ public final class Roles {
         return jwt == null ? null : jwt.getSubject();
     }
 
+    /**
+     * Casdoor username (the JWT {@code name} claim). The subject is a user
+     * UUID that Casdoor re-mints on every fresh DB boot, so rows seeded by
+     * Liquibase (e.g. {@code publisher_game_scopes}) key on the username —
+     * the only identifier stable across boots — while rows written at
+     * runtime key on the subject. Ownership checks against seedable tables
+     * must therefore accept either form (the rpg/vn-builder
+     * {@code Roles.ownerMatches} idiom).
+     *
+     * @param jwt the validated Casdoor JWT; may be {@code null}
+     * @return the Casdoor username, or {@code null} for a null JWT / absent claim
+     */
+    public static String usernameOf(Jwt jwt) {
+        return jwt == null ? null : jwt.getClaimAsString("name");
+    }
+
     // -------------------------------------------------------------------------
     // Domain-scoping helpers — aligned with hugmesh-gateway
     // {@code systems.hugmesh.gateway.security.Roles}. The games realm is

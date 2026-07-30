@@ -90,6 +90,72 @@ describe('HomeComponent helpers', () => {
     });
   });
 
+  /**
+   * D7 host launch fix: maker-built ('rpg') chapters take the ELSE branch
+   * of selectChapter — neither federated nor web-native. That branch must
+   * mint a launch uid for the umbrella GAME slug exactly like the other
+   * two, and the slug must be captured from `modalGame` BEFORE the modal
+   * is torn down (selectChapter nulls `modalGame` on entry).
+   */
+  describe('selectChapter — legacy/maker launch path', () => {
+    function makerGame(): GameWithChapters {
+      return {
+        id: 5, name: 'Six Realms', description: 'maker-built', slug: 'six-realms',
+        thumbnailUrl: null, sortOrder: 1, chapters: [],
+      };
+    }
+
+    function rpgChapter(): AvailableGame {
+      // scene_type 'rpg' is NOT in SCENE_TYPE_TO_GAME_SLUG and (with the
+      // default empty web-native map) not web-native either → else branch.
+      const c = level('six-realms-desert', 'rpg');
+      c.assetUrl = 'desert/index.html'; // maker register.sql shape (relative)
+      return c;
+    }
+
+    it('mints a launch for the game slug captured BEFORE the modal is nulled', () => {
+      const httpMock = TestBed.inject(HttpTestingController);
+      component.modalGame = makerGame();
+      component.selectChapter(rpgChapter());
+
+      // The modal is torn down synchronously…
+      expect(component.modalGame).toBeNull();
+      // …but the game slug survived the teardown and reached both the
+      // canvas binding and the /launch mint.
+      expect(component.activeGameSlug).toBe('six-realms');
+      const req = httpMock.expectOne('/api/games/six-realms/launch');
+      expect(req.request.method).toBe('POST');
+      req.flush({ uid: 'uid-abc123', expiresAt: '2099-01-01T00:00:00Z', gameSlug: 'six-realms' });
+      expect(component.activeLaunchUid).toBe('uid-abc123');
+      httpMock.verify();
+    });
+
+    it('does not mint a launch when there is no modal game to derive a slug from', () => {
+      const httpMock = TestBed.inject(HttpTestingController);
+      component.modalGame = null;
+      expect(() => component.selectChapter(rpgChapter())).not.toThrow();
+      expect(component.activeGameSlug).toBeNull();
+      httpMock.expectNone(r => r.url.endsWith('/launch'));
+      httpMock.verify();
+    });
+
+    it('closeLevel clears the threaded game slug alongside the launch uid', () => {
+      const httpMock = TestBed.inject(HttpTestingController);
+      component.modalGame = makerGame();
+      component.selectChapter(rpgChapter());
+      httpMock.expectOne('/api/games/six-realms/launch')
+        .flush({ uid: 'uid-abc123', expiresAt: '2099-01-01T00:00:00Z', gameSlug: 'six-realms' });
+
+      component.closeLevel();
+
+      expect(component.activeGameSlug).toBeNull();
+      expect(component.activeLaunchUid).toBeNull();
+      // Tearing down an active launch DELETEs the uid (existing behaviour).
+      httpMock.expectOne('/api/games/launches/uid-abc123').flush(null);
+      httpMock.verify();
+    });
+  });
+
   describe('onWindowMessage', () => {
     // The federation cutover put TW_CHAPTER_TRANSITION at the window
     // level on HomeComponent so it fires regardless of which renderer

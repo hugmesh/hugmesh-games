@@ -23,6 +23,10 @@ public class RpgArea {
     private int sortOrder;
     @Column("grid_mode")
     private boolean gridMode;
+    /** Biome theme: plain, desert, forest, dungeon, cave, town or
+     *  castle. Drives the generated 3D room look; 'plain' is the
+     *  pre-theme minimal-but-lit default. */
+    private String theme;
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
@@ -36,4 +40,6 @@ public class RpgArea {
     public void setSortOrder(int sortOrder) { this.sortOrder = sortOrder; }
     public boolean isGridMode() { return gridMode; }
     public void setGridMode(boolean gridMode) { this.gridMode = gridMode; }
+    public String getTheme() { return theme; }
+    public void setTheme(String theme) { this.theme = theme; }
 }

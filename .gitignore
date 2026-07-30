@@ -109,3 +109,12 @@ vn-builder/target/
 games/*/addons/hugmesh_bridge/
 games/dodecahedron-demo/addons/hugmesh_bridge/
 games/three-wizards-in-a-trenchcoat/addons/hugmesh_bridge/
+
+# Real-maker-build Godot toolchain (downloaded via make godot-export-tools)
+tools/godot-export/godot/
+tools/godot-export/templates/
+
+# Biome-worlds e2e evidence videos harvested from e2e/results by
+# docs/publishing/screenshots/harvest-from-e2e.py — review artefacts,
+# never committed (webm, tens of MB per run).
+docs/publishing/videos/

@@ -47,6 +47,18 @@ Before(async () => {
   resetRegistry();
 });
 
+// @godot scenarios drive REAL Godot web exports (Six Realms build +
+// per-biome exploration). They can only pass on a stack brought up
+// with the docker-compose.godot.yml overlay, so the plain
+// `make e2e-bdd` run skips them; `make e2e-godot` exports
+// E2E_GODOT_ENABLED=true (and greps for @godot) to run them.
+Before({ tags: '@godot' }, async ({ $testInfo }) => {
+  $testInfo.skip(
+    process.env.E2E_GODOT_ENABLED !== 'true',
+    '@godot scenario needs the real-export stack — run via `make e2e-godot`',
+  );
+});
+
 AfterStep(async ({ page, $step, $testInfo }) => {
   stepCounter += 1;
   // Path-based attach. Body-based attachments (in-memory Buffer)

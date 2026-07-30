@@ -1,10 +1,12 @@
 package games.hugmesh.bff.controller;
 
 import games.hugmesh.bff.model.ItemDto;
+import games.hugmesh.bff.model.PlayerCharacter;
 import games.hugmesh.bff.repository.CharacterEquipmentRepository;
 import games.hugmesh.bff.repository.CharacterItemRepository;
 import games.hugmesh.bff.repository.ItemRepository;
 import games.hugmesh.bff.repository.PlayerCharacterRepository;
+import games.hugmesh.bff.security.Roles;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -17,6 +19,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
+import java.util.Objects;
 
 @Tag(name = "Items", description = "Inventory and equipment management. Requires authentication.")
 @RestController
@@ -38,6 +41,28 @@ public class ItemController {
         this.playerCharRepo  = playerCharRepo;
     }
 
+    /**
+     * Object-level authorization gate (ASVS 4.1.3 / OWASP A01), mirroring
+     * {@code CharacterController.ownedCharacter}: loads the character by id and
+     * proves the caller may touch it before any read runs. The JWT subject must
+     * equal the character's owning {@code casdoorId}, OR the caller holds the
+     * {@code admin} role. Fails closed with 403 (404 first if the character
+     * doesn't exist, so ownership can't be probed as an enumeration oracle).
+     */
+    private Mono<PlayerCharacter> ownedCharacter(Long id, Jwt jwt) {
+        return playerCharRepo.findById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(c -> {
+                    String caller = jwt == null ? null : jwt.getSubject();
+                    boolean owns = caller != null && Objects.equals(caller, c.getCasdoorId());
+                    if (!owns && !Roles.isAdmin(jwt)) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                "character does not belong to the caller"));
+                    }
+                    return Mono.just(c);
+                });
+    }
+
     @Operation(
         summary = "Character inventory",
         description = """
@@ -52,11 +77,14 @@ public class ItemController {
                            ItemDto (with quantity)…
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/character/{characterId}/inventory")
-    public Flux<ItemDto> inventory(@PathVariable Long characterId) {
-        return charItemRepo.findByCharacterId(characterId)
-                .flatMap(ci -> itemRepo.findById(ci.getItemId())
-                        .map(item -> ItemDto.from(item, ci.getQuantity())));
+    public Flux<ItemDto> inventory(@PathVariable Long characterId,
+                                   @AuthenticationPrincipal Jwt jwt) {
+        return ownedCharacter(characterId, jwt)
+                .thenMany(charItemRepo.findByCharacterId(characterId)
+                        .flatMap(ci -> itemRepo.findById(ci.getItemId())
+                                .map(item -> ItemDto.from(item, ci.getQuantity()))));
     }
 
     @Operation(
@@ -77,13 +105,16 @@ public class ItemController {
                 …
             ```
             """)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/character/{characterId}/equipment")
-    public Flux<Map<String, Object>> equipment(@PathVariable Long characterId) {
-        return equipRepo.findByCharacterId(characterId)
-                .flatMap(ce -> ce.getItemId() == null
-                        ? Mono.just(Map.of("slot", ce.getSlot()))
-                        : itemRepo.findById(ce.getItemId())
-                                .map(item -> Map.of("slot", (Object) ce.getSlot(), "item", ItemDto.from(item))));
+    public Flux<Map<String, Object>> equipment(@PathVariable Long characterId,
+                                               @AuthenticationPrincipal Jwt jwt) {
+        return ownedCharacter(characterId, jwt)
+                .thenMany(equipRepo.findByCharacterId(characterId)
+                        .flatMap(ce -> ce.getItemId() == null
+                                ? Mono.just(Map.of("slot", ce.getSlot()))
+                                : itemRepo.findById(ce.getItemId())
+                                        .map(item -> Map.of("slot", (Object) ce.getSlot(), "item", ItemDto.from(item)))));
     }
 
     @Operation(

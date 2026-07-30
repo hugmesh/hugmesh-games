@@ -10,11 +10,11 @@
 # /api/federation/manifest and injects a <script> at runtime to mount
 # the remote's component.
 
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --silent --no-audit --no-fund
-COPY angular.json tsconfig.json federation-base.js ./
+COPY angular.json tsconfig.json federation-base.js federation-base.mjs ./
 COPY projects/games-dodecahedron projects/games-dodecahedron
 RUN npx ng build games-dodecahedron --configuration production
 

@@ -61,6 +61,27 @@ public class PublisherService {
     }
 
     /**
+     * {@link #requireOwns(String, String)} accepting both principal
+     * identifiers. Casdoor re-mints user UUIDs (the JWT subject) on every
+     * fresh DB boot, so Liquibase-seeded scope rows key on the *username*
+     * (the {@code name} claim) while runtime-granted rows key on the
+     * subject — a row matched by either identifier authorizes. Mirrors
+     * the rpg/vn-builder {@code Roles.ownerMatches} contract.
+     */
+    public Mono<Void> requireOwns(String publisherCasdoorId, String username, String gameSlug) {
+        Mono<PublisherGameScope> byUsername =
+                username == null || username.equals(publisherCasdoorId)
+                        ? Mono.empty()
+                        : publisherScopes.findActive(username, gameSlug);
+        return publisherScopes.findActive(publisherCasdoorId, gameSlug)
+                .switchIfEmpty(byUsername)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "publisher does not own game " + gameSlug)))
+                .then();
+    }
+
+    /**
      * Grant the {@code mod} role for {@code gameSlug} to the target
      * casdoor user. Caller must be a publisher who owns the game (or
      * an admin, gated upstream). Idempotent: re-granting an existing
@@ -70,7 +91,21 @@ public class PublisherService {
             String publisherCasdoorId,
             String targetCasdoorId,
             String gameSlug) {
-        return requireOwns(publisherCasdoorId, gameSlug)
+        return grantMod(publisherCasdoorId, null, targetCasdoorId, gameSlug);
+    }
+
+    /**
+     * {@link #grantMod(String, String, String)} accepting both principal
+     * identifiers, so a publisher whose scope row is Liquibase-seeded
+     * (keyed on the username) can manage mods too. The audit stamp
+     * ({@code granted_by_casdoor_id}) always records the subject.
+     */
+    public Mono<ModGameScope> grantMod(
+            String publisherCasdoorId,
+            String username,
+            String targetCasdoorId,
+            String gameSlug) {
+        return requireOwns(publisherCasdoorId, username, gameSlug)
                 .then(modScopes.findActive(targetCasdoorId, gameSlug))
                 .switchIfEmpty(Mono.defer(() -> {
                     ModGameScope row = new ModGameScope();
@@ -92,7 +127,17 @@ public class PublisherService {
             String publisherCasdoorId,
             String targetCasdoorId,
             String gameSlug) {
-        return requireOwns(publisherCasdoorId, gameSlug)
+        return revokeMod(publisherCasdoorId, null, targetCasdoorId, gameSlug);
+    }
+
+    /** Both-identifier variant of {@link #revokeMod(String, String, String)} —
+     *  see {@link #grantMod(String, String, String, String)} for why. */
+    public Mono<Void> revokeMod(
+            String publisherCasdoorId,
+            String username,
+            String targetCasdoorId,
+            String gameSlug) {
+        return requireOwns(publisherCasdoorId, username, gameSlug)
                 .then(modScopes.findActive(targetCasdoorId, gameSlug))
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "no active mod scope to revoke")))
                 .flatMap(row -> {

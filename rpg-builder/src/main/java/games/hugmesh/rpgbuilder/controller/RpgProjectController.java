@@ -152,8 +152,12 @@ public class RpgProjectController {
         return projects.createScript(pid, in, Roles.principalOf(auth));
     }
 
+    // Must return a Publisher: with @EnableReactiveMethodSecurity the
+    // class-level @PreAuthorize also proxies this method, and the
+    // reactive authorization interceptor rejects non-reactive return
+    // types (the old ResponseEntity shape 500'd instead of 400ing).
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<String> badArg(IllegalArgumentException e) {
-        return ResponseEntity.badRequest().body(e.getMessage());
+    public Mono<ResponseEntity<String>> badArg(IllegalArgumentException e) {
+        return Mono.just(ResponseEntity.badRequest().body(e.getMessage()));
     }
 }

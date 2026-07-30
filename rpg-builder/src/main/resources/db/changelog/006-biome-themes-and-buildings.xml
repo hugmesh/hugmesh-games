@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+      Biome Worlds: visual themes + FF-style town buildings.
+
+      1. `rpg_areas.theme` — one of seven biome themes. Drives the
+         generated Godot room look (textures, lighting, props). 'plain'
+         keeps the pre-theme minimal look, so existing areas render
+         unchanged-but-lit.
+
+      2. `rpg_rooms.theme` — optional per-room override; NULL means
+         "inherit the area theme".
+
+      3. `rpg_buildings` — buildings placed on a grid inside a
+         town-themed outdoor room (`host_room_id`). Each building's
+         interior floors are real `rpg_rooms` rows (auto-created by the
+         service) linked back via `rpg_rooms.building_id` +
+         `rpg_rooms.floor_level` (0 = ground, 1.. = upper, -1..- =
+         basements). Doors/stairs are derived by the renderer from
+         these columns + the auto-created UP/DOWN `rpg_exits` — never
+         from slug conventions. Grid is 10x10 cells; the service
+         enforces bounds and footprint non-overlap (inexpressible as a
+         DB constraint).
+
+      4. `rpg_shop_stock` — per-building item stock with server-side
+         prices. `stock_qty = -1` is the documented "unlimited"
+         sentinel. sell_price <= buy_price forbids infinite-gold loops.
+  -->
+
+  <changeSet id="006-1-rpg-areas-theme" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <not><columnExists tableName="rpg_areas" columnName="theme"/></not>
+    </preConditions>
+    <addColumn tableName="rpg_areas">
+      <column name="theme" type="varchar(32)" defaultValue="plain">
+        <constraints nullable="false"/>
+      </column>
+    </addColumn>
+    <sql>
+      ALTER TABLE rpg_areas
+        ADD CONSTRAINT ck_rpg_areas_theme
+        CHECK (theme IN ('plain','desert','forest','dungeon','cave','town','castle'));
+    </sql>
+  </changeSet>
+
+  <changeSet id="006-2-rpg-rooms-theme" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <not><columnExists tableName="rpg_rooms" columnName="theme"/></not>
+    </preConditions>
+    <addColumn tableName="rpg_rooms">
+      <column name="theme" type="varchar(32)"/>
+    </addColumn>
+    <sql>
+      ALTER TABLE rpg_rooms
+        ADD CONSTRAINT ck_rpg_rooms_theme
+        CHECK (theme IS NULL OR theme IN ('plain','desert','forest','dungeon','cave','town','castle'));
+    </sql>
+  </changeSet>
+
+  <changeSet id="006-3-rpg-buildings" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="rpg_buildings"/></not>
+    </preConditions>
+    <createTable tableName="rpg_buildings">
+      <column name="id"            type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"    type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_buildings_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="area_id"       type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_buildings_area" references="rpg_areas(id)" deleteCascade="true"/></column>
+      <column name="host_room_id"  type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_buildings_host_room" references="rpg_rooms(id)"/></column>
+      <column name="slug"          type="varchar(64)"><constraints nullable="false"/></column>
+      <column name="name"          type="varchar(128)"><constraints nullable="false"/></column>
+      <column name="kind"          type="varchar(32)"><constraints nullable="false"/></column>
+      <column name="grid_x"        type="integer"><constraints nullable="false"/></column>
+      <column name="grid_y"        type="integer"><constraints nullable="false"/></column>
+      <column name="width"         type="integer" defaultValueNumeric="1"><constraints nullable="false"/></column>
+      <column name="depth"         type="integer" defaultValueNumeric="1"><constraints nullable="false"/></column>
+      <column name="floors"        type="integer" defaultValueNumeric="1"><constraints nullable="false"/></column>
+      <column name="basements"     type="integer" defaultValueNumeric="0"><constraints nullable="false"/></column>
+    </createTable>
+    <sql>
+      ALTER TABLE rpg_buildings
+        ADD CONSTRAINT ck_rpg_buildings_kind
+        CHECK (kind IN ('item_shop','weapon_shop','armor_shop','magic_shop','accessory_shop','inn','tavern','church','house'));
+    </sql>
+    <addUniqueConstraint tableName="rpg_buildings"
+                         columnNames="project_id, slug"
+                         constraintName="uq_rpg_buildings_project_slug"/>
+    <createIndex tableName="rpg_buildings" indexName="idx_rpg_buildings_host_room">
+      <column name="host_room_id"/>
+    </createIndex>
+  </changeSet>
+
+  <changeSet id="006-4-rpg-rooms-building-link" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <not><columnExists tableName="rpg_rooms" columnName="building_id"/></not>
+    </preConditions>
+    <!-- NO deleteCascade here on purpose: interior-room lifecycle is
+         managed by the building service in an explicit delete order
+         (stock -> exits -> rooms -> building) so exits that point INTO
+         interior rooms never dangle. -->
+    <addColumn tableName="rpg_rooms">
+      <column name="building_id" type="uuid">
+        <constraints foreignKeyName="fk_rpg_rooms_building" references="rpg_buildings(id)"/>
+      </column>
+      <column name="floor_level" type="integer"/>
+    </addColumn>
+    <sql>
+      ALTER TABLE rpg_rooms
+        ADD CONSTRAINT ck_rpg_rooms_building_floor
+        CHECK ((building_id IS NULL) = (floor_level IS NULL));
+    </sql>
+    <createIndex tableName="rpg_rooms" indexName="idx_rpg_rooms_building">
+      <column name="building_id"/>
+    </createIndex>
+  </changeSet>
+
+  <changeSet id="006-5-rpg-shop-stock" author="hugmesh-rpg-builder">
+    <preConditions onFail="MARK_RAN">
+      <not><tableExists tableName="rpg_shop_stock"/></not>
+    </preConditions>
+    <createTable tableName="rpg_shop_stock">
+      <column name="id"           type="uuid" defaultValueComputed="uuid_generate_v4()"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="project_id"   type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_shop_stock_project" references="rpg_projects(id)" deleteCascade="true"/></column>
+      <column name="building_id"  type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_shop_stock_building" references="rpg_buildings(id)" deleteCascade="true"/></column>
+      <column name="item_id"      type="uuid"><constraints nullable="false" foreignKeyName="fk_rpg_shop_stock_item" references="rpg_items(id)" deleteCascade="true"/></column>
+      <column name="buy_price"    type="integer"><constraints nullable="false"/></column>
+      <column name="sell_price"   type="integer"><constraints nullable="false"/></column>
+      <column name="stock_qty"    type="integer" defaultValueNumeric="-1"><constraints nullable="false"/></column>
+    </createTable>
+    <sql>
+      ALTER TABLE rpg_shop_stock
+        ADD CONSTRAINT ck_rpg_shop_stock_buy_price CHECK (buy_price &gt; 0);
+      ALTER TABLE rpg_shop_stock
+        ADD CONSTRAINT ck_rpg_shop_stock_sell_price CHECK (sell_price &gt;= 0);
+      ALTER TABLE rpg_shop_stock
+        ADD CONSTRAINT ck_rpg_shop_stock_sell_lte_buy CHECK (sell_price &lt;= buy_price);
+    </sql>
+    <addUniqueConstraint tableName="rpg_shop_stock"
+                         columnNames="building_id, item_id"
+                         constraintName="uq_rpg_shop_stock_building_item"/>
+  </changeSet>
+
+</databaseChangeLog>

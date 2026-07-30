@@ -1,0 +1,308 @@
+{
+  "generated": "2026-07-15",
+  "source": "ambientCG (https://ambientcg.com) - all assets CC0 1.0 Universal",
+  "license": "CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/)",
+  "resolution": "1K JPG (1024x1024 or 1024x512 depending on asset aspect)",
+  "notes": "Color (albedo) and NormalGL maps extracted from official 1K-JPG zips. Some files re-encoded (JPEG quality 82-85) to meet size budget. No fallback sources needed; all assets from ambientCG.",
+  "files": [
+    {
+      "biome": "desert",
+      "role": "ground",
+      "assetId": "Ground080",
+      "description": "Desert sand (brown/yellow dunes)",
+      "assetPage": "https://ambientcg.com/view?id=Ground080",
+      "downloadUrl": "https://ambientcg.com/get?file=Ground080_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/desert/floor_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 1054251
+        },
+        {
+          "path": "biomes/desert/floor_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 231093
+        }
+      ]
+    },
+    {
+      "biome": "desert",
+      "role": "wall",
+      "assetId": "Rock061",
+      "description": "Sandstone rock cliff",
+      "assetPage": "https://ambientcg.com/view?id=Rock061",
+      "downloadUrl": "https://ambientcg.com/get?file=Rock061_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/desert/wall_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 960901
+        },
+        {
+          "path": "biomes/desert/wall_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 316064
+        }
+      ]
+    },
+    {
+      "biome": "forest",
+      "role": "ground",
+      "assetId": "Ground037",
+      "description": "Forest floor, grass and moss",
+      "assetPage": "https://ambientcg.com/view?id=Ground037",
+      "downloadUrl": "https://ambientcg.com/get?file=Ground037_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/forest/floor_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 660212
+        },
+        {
+          "path": "biomes/forest/floor_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 770737
+        }
+      ]
+    },
+    {
+      "biome": "forest",
+      "role": "accent",
+      "assetId": "Bark012",
+      "description": "Oak tree bark",
+      "assetPage": "https://ambientcg.com/view?id=Bark012",
+      "downloadUrl": "https://ambientcg.com/get?file=Bark012_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/forest/wall_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 466842
+        },
+        {
+          "path": "biomes/forest/wall_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 714224
+        }
+      ]
+    },
+    {
+      "biome": "dungeon",
+      "role": "floor",
+      "assetId": "Tiles093",
+      "description": "Dark old random stone tiles (flagstones)",
+      "assetPage": "https://ambientcg.com/view?id=Tiles093",
+      "downloadUrl": "https://ambientcg.com/get?file=Tiles093_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/dungeon/floor_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 1059920
+        },
+        {
+          "path": "biomes/dungeon/floor_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 466784
+        }
+      ]
+    },
+    {
+      "biome": "dungeon",
+      "role": "wall",
+      "assetId": "Bricks089",
+      "description": "Dark gray medieval random stone bricks",
+      "assetPage": "https://ambientcg.com/view?id=Bricks089",
+      "downloadUrl": "https://ambientcg.com/get?file=Bricks089_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/dungeon/wall_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 785031
+        },
+        {
+          "path": "biomes/dungeon/wall_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 1015747
+        }
+      ]
+    },
+    {
+      "biome": "cave",
+      "role": "floor",
+      "assetId": "Gravel040",
+      "description": "Rough slate gravel / rocky floor",
+      "assetPage": "https://ambientcg.com/view?id=Gravel040",
+      "downloadUrl": "https://ambientcg.com/get?file=Gravel040_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/cave/floor_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 404975
+        },
+        {
+          "path": "biomes/cave/floor_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 566324
+        }
+      ]
+    },
+    {
+      "biome": "cave",
+      "role": "wall",
+      "assetId": "Rock035",
+      "description": "Black/grey cave rock",
+      "assetPage": "https://ambientcg.com/view?id=Rock035",
+      "downloadUrl": "https://ambientcg.com/get?file=Rock035_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/cave/wall_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 1453569
+        },
+        {
+          "path": "biomes/cave/wall_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 786156
+        }
+      ]
+    },
+    {
+      "biome": "town",
+      "role": "ground",
+      "assetId": "PavingStones046",
+      "description": "Medieval cobblestone paving",
+      "assetPage": "https://ambientcg.com/view?id=PavingStones046",
+      "downloadUrl": "https://ambientcg.com/get?file=PavingStones046_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/town/floor_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 1083584
+        },
+        {
+          "path": "biomes/town/floor_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 488628
+        }
+      ]
+    },
+    {
+      "biome": "town",
+      "role": "wall",
+      "assetId": "Plaster007",
+      "description": "Old broken plaster wall",
+      "assetPage": "https://ambientcg.com/view?id=Plaster007",
+      "downloadUrl": "https://ambientcg.com/get?file=Plaster007_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/town/wall_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 1164937
+        },
+        {
+          "path": "biomes/town/wall_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 304667
+        }
+      ]
+    },
+    {
+      "biome": "castle",
+      "role": "floor",
+      "assetId": "Tiles130",
+      "description": "Broken medieval castle floor stone tiles",
+      "assetPage": "https://ambientcg.com/view?id=Tiles130",
+      "downloadUrl": "https://ambientcg.com/get?file=Tiles130_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/castle/floor_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 699001
+        },
+        {
+          "path": "biomes/castle/floor_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 718580
+        }
+      ]
+    },
+    {
+      "biome": "castle",
+      "role": "wall",
+      "assetId": "Bricks100",
+      "description": "Beige medieval large stone brick wall",
+      "assetPage": "https://ambientcg.com/view?id=Bricks100",
+      "downloadUrl": "https://ambientcg.com/get?file=Bricks100_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/castle/wall_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 727003
+        },
+        {
+          "path": "biomes/castle/wall_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 830327
+        }
+      ]
+    },
+    {
+      "biome": "_shared",
+      "role": "door",
+      "assetId": "Planks037A",
+      "description": "Wood planks (portal/door marker)",
+      "assetPage": "https://ambientcg.com/view?id=Planks037A",
+      "downloadUrl": "https://ambientcg.com/get?file=Planks037A_1K-JPG.zip",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedDate": "2026-07-15",
+      "extractedFiles": [
+        {
+          "path": "biomes/_shared/door_albedo.jpg",
+          "map": "Color",
+          "size_bytes": 1317443
+        },
+        {
+          "path": "biomes/_shared/door_normal.jpg",
+          "map": "NormalGL",
+          "size_bytes": 986087
+        }
+      ]
+    }
+  ]
+}

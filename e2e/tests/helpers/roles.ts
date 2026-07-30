@@ -45,12 +45,13 @@ export const SEED_USERS: SeedUser[] = [
   { username: 'publisher',                passwordEnv: 'E2E_PUBLISHER_PASSWORD', kind: 'publisher' },
   { username: 'publisher-three-wizards',  passwordEnv: 'E2E_PUB_TWIAT_PASSWORD', kind: 'publisher', scopedGame: 'three-wizards' },
   { username: 'publisher-dodecahedron',   passwordEnv: 'E2E_PUB_DODEC_PASSWORD', kind: 'publisher', scopedGame: 'dodecahedron'  },
-  // Dev fixture owner — Casdoor seed (id tw-pub-flat-001) holds the
+  // Dev fixture owner — this Casdoor seed user holds the
   // pre-populated Flatland projects in the rpg-builder + vn-builder
-  // DBs (Liquibase 004 in each), and the BFF (Liquibase 038) grants
-  // publisher scope on both flatland-rpg + flatland-vn slugs ahead
-  // of any actual upload. Lets a maker e2e scenario log in and find
-  // pre-existing projects ready to build.
+  // DBs (Liquibase 004 in each, keyed on the username: the Casdoor
+  // sub claim is the username, not the seed id), and the BFF
+  // (Liquibase 038, re-keyed by 055-2) grants publisher scope on both
+  // flatland-rpg + flatland-vn slugs ahead of any actual upload. Lets
+  // a maker e2e scenario log in and find projects ready to build.
   { username: 'publisher-flatland',       passwordEnv: 'E2E_PUB_FLAT_PASSWORD',  kind: 'publisher' },
 ];
 
@@ -68,11 +69,27 @@ export const SEED_USERS: SeedUser[] = [
  *
  * Specs that need multiple users in parallel (friends, multiplayer,
  * isolation) MUST call this instead of `browser.newContext()`.
+ *
+ * Same non-inheritance pitfall applies to `video: 'on'` — manual
+ * contexts record NOTHING unless `recordVideo` is passed explicitly.
+ * Scenarios that want webm evidence for manually-created contexts
+ * (e.g. the two-player biome scenario) pass
+ * `{ recordVideo: { dir: testInfo.outputDir } }` and must close the
+ * context (videos are only finalised on context close — register it
+ * in ctxRegistry so the After hook does that).
  */
-export async function newE2eContext(browser: Browser): Promise<BrowserContext> {
+export interface E2eContextOptions {
+  recordVideo?: { dir: string; size?: { width: number; height: number } };
+}
+
+export async function newE2eContext(
+  browser: Browser,
+  opts: E2eContextOptions = {},
+): Promise<BrowserContext> {
   return await browser.newContext({
     ignoreHTTPSErrors: true,
     baseURL: process.env.E2E_BASE_URL ?? 'https://frontend:8443',
+    ...opts,
   });
 }
 

@@ -15,6 +15,7 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -290,6 +291,10 @@ public class GameUploadService {
                 : domain.trim();
 
         return Mono.fromCallable(() -> stageAndValidate(zipBytes))
+                // stageAndValidate is blocking I/O (unzip + file writes + SHA-256 over
+                // the whole bundle — seconds for a real multi-MB zip). subscribeOn moves
+                // it off the Netty event-loop thread onto the blocking-work pool.
+                .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(staged -> requireScope.apply(staged.slug())
                         .onErrorResume(err -> {
                             // Authorization rejected — clean up the staging dir before

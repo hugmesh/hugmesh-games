@@ -27,6 +27,16 @@ public class RpgRoom {
     private String gdScript;
     @Column("pause_on_enter")
     private boolean pauseOnEnter;
+    /** Per-room biome override; NULL inherits the area theme. */
+    private String theme;
+    /** Set only on auto-created building interior rooms; the service
+     *  rejects user writes to these two fields. */
+    @Column("building_id")
+    private UUID buildingId;
+    /** 0 = ground floor, 1.. = upper floors, -1.. = basements. NULL
+     *  exactly when {@code buildingId} is NULL (DB CHECK). */
+    @Column("floor_level")
+    private Integer floorLevel;
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
@@ -54,4 +64,10 @@ public class RpgRoom {
     public void setGdScript(String gdScript) { this.gdScript = gdScript; }
     public boolean isPauseOnEnter() { return pauseOnEnter; }
     public void setPauseOnEnter(boolean pauseOnEnter) { this.pauseOnEnter = pauseOnEnter; }
+    public String getTheme() { return theme; }
+    public void setTheme(String theme) { this.theme = theme; }
+    public UUID getBuildingId() { return buildingId; }
+    public void setBuildingId(UUID buildingId) { this.buildingId = buildingId; }
+    public Integer getFloorLevel() { return floorLevel; }
+    public void setFloorLevel(Integer floorLevel) { this.floorLevel = floorLevel; }
 }

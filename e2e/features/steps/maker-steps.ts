@@ -338,7 +338,8 @@ Then('the asset gallery shows {string}', async ({}, slug: string) => {
 Then('the projects list contains {string}', async ({ page }, displayName: string) => {
   // Polls the maker's project pane for the seeded fixture name. The
   // fixture is materialised by Liquibase 004 in each builder service,
-  // owned by tw-pub-flat-001, so logging in as publisher-flatland
+  // owner_casdoor_id = 'publisher-flatland' (the Casdoor sub claim is
+  // the username, not the seed id), so logging in as publisher-flatland
   // surfaces it in the GET /api/{rpg|vn}/projects response.
   await expect(page.locator('.row-list', { hasText: displayName }).first())
       .toBeVisible({ timeout: 10_000 });

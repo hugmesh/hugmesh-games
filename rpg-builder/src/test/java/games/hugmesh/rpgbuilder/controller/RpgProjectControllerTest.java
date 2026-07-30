@@ -86,6 +86,22 @@ class RpgProjectControllerTest {
     }
 
     @Test
+    void post_area_unknownTheme_returns400ViaExceptionHandler() {
+        // The theme whitelist throws IllegalArgumentException
+        // SYNCHRONOUSLY (a Mono.error would bypass @ExceptionHandler
+        // and surface as a 500) — pin the 400 wire contract here.
+        when(svc.createArea(any(), any(), anyString()))
+                .thenThrow(new IllegalArgumentException("unknown theme 'lava'"));
+
+        web.mutateWith(csrf()).mutateWith(asPublisher())
+                .post().uri("/api/rpg/projects/" + UUID.randomUUID() + "/areas")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"slug\":\"lava-land\",\"name\":\"Lava Land\",\"theme\":\"lava\"}")
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
     void unauthenticated_isRejected() {
         web.get().uri("/api/rpg/projects")
                 .exchange()

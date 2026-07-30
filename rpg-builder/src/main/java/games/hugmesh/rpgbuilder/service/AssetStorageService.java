@@ -154,6 +154,12 @@ public class AssetStorageService {
     public Mono<byte[]> read(UUID projectId, UUID assetId, String ownerCasdoorId) {
         return projects.get(projectId, ownerCasdoorId)
                 .flatMap(p -> assets.findById(assetId))
+                // Cross-project read IDOR guard (parity with the
+                // createNpc portrait check): an asset id belonging to
+                // ANOTHER project is invisible through this project's
+                // path — same empty/404 shape as a missing asset, never
+                // the foreign bytes.
+                .filter(a -> projectId.equals(a.getProjectId()))
                 .flatMap(a -> Mono.fromCallable(() -> Files.readAllBytes(Path.of(a.getStoragePath())))
                         .subscribeOn(Schedulers.boundedElastic()))
                 .onErrorMap(IOException.class, e ->

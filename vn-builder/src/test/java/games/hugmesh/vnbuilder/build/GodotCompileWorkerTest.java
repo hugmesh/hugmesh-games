@@ -64,7 +64,7 @@ class GodotCompileWorkerTest {
     /** Real-ish export: writes index.html + a non-empty index.wasm. */
     private static final class RealExporter extends GodotExporter {
         final AtomicInteger calls = new AtomicInteger();
-        RealExporter() { super("godot", Duration.ofMinutes(1), "Web"); }
+        RealExporter() { super("godot", Duration.ofMinutes(1), "Web", Duration.ofMinutes(1), true); }
         @Override
         public void exportWeb(Path godotSrc, Path outputIndexHtml) throws IOException {
             calls.incrementAndGet();
@@ -76,7 +76,7 @@ class GodotCompileWorkerTest {
 
     /** "Succeeds" but leaves a zero-byte index.wasm — a stub leaking through. */
     private static final class StubLeakingExporter extends GodotExporter {
-        StubLeakingExporter() { super("godot", Duration.ofMinutes(1), "Web"); }
+        StubLeakingExporter() { super("godot", Duration.ofMinutes(1), "Web", Duration.ofMinutes(1), true); }
         @Override
         public void exportWeb(Path godotSrc, Path outputIndexHtml) throws IOException {
             Files.createDirectories(outputIndexHtml.getParent());

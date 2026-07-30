@@ -38,6 +38,8 @@ import reactor.core.publisher.Flux;
  *  /actuator/health/**     │ permitAll   │ permitAll
  *  /actuator/info          │ permitAll   │ permitAll
  *  /actuator/**            │ GAME-MASTER │ GAME-MASTER
+ *  /api/admin/games/upload │ ADMIN|PUBLISHER │ ADMIN|PUBLISHER
+ *  /api/admin/games/{slug}/uploads (glob) │ ADMIN|PUBLISHER │ ADMIN|PUBLISHER
  *  /api/admin/**           │ ADMIN       │ ADMIN
  *  /api/realtime/**        │ authenticated│ authenticated
  *  /api/characters/**      │ authenticated│ authenticated
@@ -264,6 +266,15 @@ public class SecurityConfig {
                     ex.pathMatchers("/api/auth/**").permitAll();
                     ex.pathMatchers(INFRA_PROBES_PUBLIC).permitAll();
                     ex.pathMatchers(INFRA_GATED).hasRole("GAME-MASTER");
+                    // Publisher-reachable carve-outs under /api/admin — MUST precede
+                    // the blanket ADMIN rule (first matching pathMatcher wins). The
+                    // endpoint's own @PreAuthorize + PublisherService.requireOwns
+                    // (publisher_game_scopes) enforce per-game scope; this rule only
+                    // widens the ROUTE so a publisher token reaches the controller
+                    // instead of dying at the filter chain with an empty-body 403
+                    // (which made publisher maker-build uploads impossible).
+                    ex.pathMatchers("/api/admin/games/upload").hasAnyRole("ADMIN", "PUBLISHER");
+                    ex.pathMatchers("/api/admin/games/*/uploads").hasAnyRole("ADMIN", "PUBLISHER");
                     ex.pathMatchers("/api/admin/**").hasRole("ADMIN");
                     ex.pathMatchers(PLAYER_PATHS).authenticated();
                     ex.pathMatchers(SPEC_PATHS).permitAll();
@@ -299,6 +310,10 @@ public class SecurityConfig {
                     ex.pathMatchers("/api/auth/**").permitAll();
                     ex.pathMatchers(INFRA_PROBES_PUBLIC).permitAll();
                     ex.pathMatchers(INFRA_GATED).hasRole("GAME-MASTER");
+                    // Same publisher carve-outs as the dev chain — see the comment
+                    // there; per-game scope is enforced by the endpoint itself.
+                    ex.pathMatchers("/api/admin/games/upload").hasAnyRole("ADMIN", "PUBLISHER");
+                    ex.pathMatchers("/api/admin/games/*/uploads").hasAnyRole("ADMIN", "PUBLISHER");
                     ex.pathMatchers("/api/admin/**").hasRole("ADMIN");
                     ex.pathMatchers(SPEC_PATHS).hasRole("ADMIN");
                     ex.pathMatchers(PLAYER_PATHS).authenticated();

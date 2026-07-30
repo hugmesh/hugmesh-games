@@ -135,6 +135,34 @@ class GameUploadControllerHttpAuthzTest {
         verify(uploadService).install(any(), anyString(), anyString(), any());
     }
 
+    @Test
+    void upload_publisher_reachesController_is200() {
+        // The maker pipeline uploads with the ORIGINATING PUBLISHER's bearer.
+        // The /api/admin/games/upload route must therefore be reachable by
+        // ROLE_PUBLISHER (the carve-out ahead of the blanket /api/admin/**
+        // ADMIN rule) — without it every publisher maker build died at the
+        // filter chain with an empty-body 403 and the per-game scope check
+        // inside the endpoint was unreachable dead code. Per-game scoping is
+        // pinned separately in GameUploadControllerTest.requireScope specs.
+        installRunsRealRegisterSqlPolicy();
+        postBundle(web.mutateWith(SecuritySliceSupport.publisher("publisher-flatland")).mutateWith(csrf()),
+                legitZip())
+                .expectStatus().isOk();
+        verify(uploadService).install(any(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void publisher_isStillForbidden_onOtherAdminRoutes() {
+        // The carve-out widens ONLY the upload surface; the rest of
+        // /api/admin/** keeps the blanket ADMIN rule (path rules run before
+        // routing, so even an unmapped-in-this-slice admin URL must 403,
+        // never 404, for a publisher token).
+        web.mutateWith(SecuritySliceSupport.publisher("publisher-flatland")).mutateWith(csrf())
+                .get().uri("/api/admin/role-grants/anything")
+                .exchange()
+                .expectStatus().isForbidden();
+    }
+
     // ── register.sql smuggle → 4xx (PR #77 regression) ────────────────────────
 
     @Test

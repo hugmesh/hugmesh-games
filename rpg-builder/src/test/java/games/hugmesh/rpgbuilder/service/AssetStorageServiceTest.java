@@ -52,7 +52,9 @@ class AssetStorageServiceTest {
                 mock(RpgExitRepository.class),
                 mock(RpgItemRepository.class),
                 mock(RpgNpcRepository.class),
-                mock(RpgScriptRepository.class));
+                mock(RpgScriptRepository.class),
+                mock(RpgBuildingRepository.class),
+                assets);
         svc = new AssetStorageService(assetsDir.toString(), assets, projectSvc, new ProceduralAssetService());
     }
 
@@ -146,6 +148,62 @@ class AssetStorageServiceTest {
 
         verify(assets, never()).save(any());
         assertThat(Files.exists(assetsDir.resolve(pid.toString()))).isFalse();
+    }
+
+    // ── read(): cross-project IDOR guard ───────────────────────────────────
+
+    /** Read-path parity with the createNpc portrait check: an asset id
+     *  belonging to ANOTHER project must be invisible through a project
+     *  the caller owns — the empty/404 shape, never the foreign bytes. */
+    @Test void read_rejectsForeignProjectAssetAndNeverStreamsBytes() throws Exception {
+        UUID ownedPid = UUID.randomUUID();
+        RpgProject owned = new RpgProject();
+        owned.setId(ownedPid);
+        owned.setOwnerCasdoorId("alice");
+        when(projects.findById(ownedPid)).thenReturn(Mono.just(owned));
+
+        // A real file on disk proves the guard fires BEFORE any byte read.
+        Path foreignBytes = assetsDir.resolve("foreign-secret");
+        Files.writeString(foreignBytes, "top-secret-foreign-art");
+        RpgAsset foreign = asset(UUID.randomUUID(), "foreign-portrait", OffsetDateTime.now());
+        foreign.setStoragePath(foreignBytes.toString());
+        when(assets.findById(foreign.getId())).thenReturn(Mono.just(foreign));
+
+        // Empty completion = the same wire shape as a missing asset (404
+        // at the controller), with zero bytes emitted.
+        StepVerifier.create(svc.read(ownedPid, foreign.getId(), "alice"))
+                .verifyComplete();
+    }
+
+    @Test void read_returnsBytesForSameProjectAsset() throws Exception {
+        UUID pid = UUID.randomUUID();
+        RpgProject p = new RpgProject();
+        p.setId(pid);
+        p.setOwnerCasdoorId("alice");
+        when(projects.findById(pid)).thenReturn(Mono.just(p));
+
+        Path stored = assetsDir.resolve("mine");
+        Files.writeString(stored, "<svg/>");
+        RpgAsset mine = asset(pid, "greeter-portrait", OffsetDateTime.now());
+        mine.setStoragePath(stored.toString());
+        when(assets.findById(mine.getId())).thenReturn(Mono.just(mine));
+
+        StepVerifier.create(svc.read(pid, mine.getId(), "alice"))
+                .assertNext(bytes -> assertThat(new String(bytes)).isEqualTo("<svg/>"))
+                .verifyComplete();
+    }
+
+    @Test void read_missingAssetCompletesEmpty() {
+        UUID pid = UUID.randomUUID();
+        RpgProject p = new RpgProject();
+        p.setId(pid);
+        p.setOwnerCasdoorId("alice");
+        when(projects.findById(pid)).thenReturn(Mono.just(p));
+        UUID missing = UUID.randomUUID();
+        when(assets.findById(missing)).thenReturn(Mono.empty());
+
+        StepVerifier.create(svc.read(pid, missing, "alice"))
+                .verifyComplete();
     }
 
     private static RpgAsset asset(UUID projectId, String slug, OffsetDateTime uploadedAt) {

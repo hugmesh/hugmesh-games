@@ -6,7 +6,9 @@
   },
   "include": [
     "src/**/*.spec.ts",
-    "src/**/*.d.ts"
+    "src/**/*.d.ts",
+    "projects/games-rpg-maker/src/app/rpg-maker-remote.component.spec.ts",
+    "projects/publisher/src/app/publisher-remote.component.spec.ts"
   ],
   "angularCompilerOptions": {
     "extendedDiagnostics": {

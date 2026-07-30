@@ -5,6 +5,7 @@ import games.hugmesh.rpgbuilder.repository.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.io.IOException;
@@ -19,11 +20,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Specs for {@link RpgGodotProjectRenderer} — proves the emitted Godot 4 project tree is
- * structurally complete + playable: interpolated project.godot, per-room scripts with an
- * exits map, the generated room_index.gd (room UUID → scene path, the fix that makes
- * room-to-room navigation work), and the hugmesh-bridge bin/ baked in. Plus the
- * no-areas / no-rooms guard rails.
+ * Specs for {@link RpgGodotProjectRenderer} — proves the emitted Godot 4 project
+ * is a structurally-complete, playable, THEMED 3D world: a baked {@code const
+ * ROOM} consumed by room_builder.gd (floor/light/env per theme + portals per
+ * exit from the shared direction table), the full template glue (player /
+ * remote_avatars / game_bridge / shop_ui), biome textures + .import sidecars for
+ * ONLY the used themes, areas.json, room_index (ROOM_SCENES + AREA_START), and
+ * town buildings (door portal → floor-0, interior exit portal → host room,
+ * stairs at UP/DOWN exits, baked SHOP_STOCK). Repository interfaces are mocked
+ * (interfaces, not concrete classes).
  */
 class RpgGodotProjectRendererTest {
 
@@ -33,6 +38,9 @@ class RpgGodotProjectRendererTest {
     private final RpgItemRepository items = mock(RpgItemRepository.class);
     private final RpgNpcRepository npcs = mock(RpgNpcRepository.class);
     private final RpgAssetRepository assets = mock(RpgAssetRepository.class);
+    private final RpgBuildingRepository buildings = mock(RpgBuildingRepository.class);
+    private final RpgShopStockRepository shopStock = mock(RpgShopStockRepository.class);
+    private final RpgAvatarConfigRepository avatarConfigs = mock(RpgAvatarConfigRepository.class);
 
     private static RpgProject project() {
         RpgProject p = new RpgProject();
@@ -43,12 +51,13 @@ class RpgGodotProjectRendererTest {
         return p;
     }
 
-    private static RpgArea area(UUID projectId, String slug) {
+    private static RpgArea area(UUID projectId, String slug, String theme) {
         RpgArea a = new RpgArea();
         a.setId(UUID.randomUUID());
         a.setProjectId(projectId);
         a.setSlug(slug);
         a.setName(slug);
+        a.setTheme(theme);
         return a;
     }
 
@@ -71,22 +80,51 @@ class RpgGodotProjectRendererTest {
         return x;
     }
 
-    private void stub(RpgProject p, List<RpgArea> areaList, List<RpgRoom> roomList, List<RpgExit> exitList) {
-        stub(p, areaList, roomList, exitList, List.of());
+    private static RpgBuilding building(UUID projectId, UUID areaId, UUID hostRoomId, String slug, String kind,
+                                        int gx, int gy, int floors) {
+        RpgBuilding b = new RpgBuilding();
+        b.setId(UUID.randomUUID());
+        b.setProjectId(projectId);
+        b.setAreaId(areaId);
+        b.setHostRoomId(hostRoomId);
+        b.setSlug(slug);
+        b.setName(slug);
+        b.setKind(kind);
+        b.setGridX(gx);
+        b.setGridY(gy);
+        b.setWidth(1);
+        b.setDepth(1);
+        b.setFloors(floors);
+        b.setBasements(0);
+        return b;
     }
 
-    private void stub(RpgProject p, List<RpgArea> areaList, List<RpgRoom> roomList, List<RpgExit> exitList,
-                      List<RpgAsset> assetList) {
-        when(areas.findByProjectIdOrderBySortOrderAscNameAsc(any())).thenReturn(Flux.fromIterable(areaList));
-        when(rooms.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.fromIterable(roomList));
-        when(exits.findByProjectId(any())).thenReturn(Flux.fromIterable(exitList));
-        when(items.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.empty());
-        when(npcs.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.empty());
-        when(assets.findByProjectIdOrderByUploadedAtDesc(any())).thenReturn(Flux.fromIterable(assetList));
+    private static RpgRoom interiorRoom(UUID projectId, UUID areaId, UUID buildingId, String slug, int floorLevel) {
+        RpgRoom r = room(projectId, areaId, slug);
+        r.setBuildingId(buildingId);
+        r.setFloorLevel(floorLevel);
+        return r;
     }
 
-    private RpgGodotProjectRenderer renderer(String bridgeDir) {
-        return new RpgGodotProjectRenderer(areas, rooms, exits, items, npcs, assets, bridgeDir);
+    private static RpgItem item(UUID projectId, String slug) {
+        RpgItem it = new RpgItem();
+        it.setId(UUID.randomUUID());
+        it.setProjectId(projectId);
+        it.setSlug(slug);
+        it.setName(slug);
+        return it;
+    }
+
+    private static RpgShopStock stock(UUID projectId, UUID buildingId, UUID itemId, int buy, int sell, int qty) {
+        RpgShopStock s = new RpgShopStock();
+        s.setId(UUID.randomUUID());
+        s.setProjectId(projectId);
+        s.setBuildingId(buildingId);
+        s.setItemId(itemId);
+        s.setBuyPrice(buy);
+        s.setSellPrice(sell);
+        s.setStockQty(qty);
+        return s;
     }
 
     private static RpgAsset asset(UUID projectId, String slug, String kind, String mime, String storagePath) {
@@ -100,15 +138,80 @@ class RpgGodotProjectRendererTest {
         return a;
     }
 
+    private void stub(List<RpgArea> areaList, List<RpgRoom> roomList, List<RpgExit> exitList) {
+        stub(areaList, roomList, exitList, List.of(), List.of(), List.of(), List.of());
+    }
+
+    private void stub(List<RpgArea> areaList, List<RpgRoom> roomList, List<RpgExit> exitList,
+                      List<RpgAsset> assetList, List<RpgBuilding> buildingList, List<RpgShopStock> stockList,
+                      List<RpgItem> itemList) {
+        when(areas.findByProjectIdOrderBySortOrderAscNameAsc(any())).thenReturn(Flux.fromIterable(areaList));
+        when(rooms.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.fromIterable(roomList));
+        when(exits.findByProjectId(any())).thenReturn(Flux.fromIterable(exitList));
+        when(items.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.fromIterable(itemList));
+        when(npcs.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.empty());
+        when(assets.findByProjectIdOrderByUploadedAtDesc(any())).thenReturn(Flux.fromIterable(assetList));
+        when(buildings.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.fromIterable(buildingList));
+        when(shopStock.findByProjectId(any())).thenReturn(Flux.fromIterable(stockList));
+        // Default: no avatar-config row → the renderer must still bake a
+        // default scripts/avatar_config.gd (template preload never dangles).
+        when(avatarConfigs.findByProjectId(any())).thenReturn(Mono.empty());
+    }
+
+    private RpgGodotProjectRenderer renderer(String bridgeDir) {
+        return new RpgGodotProjectRenderer(areas, rooms, exits, items, npcs, assets,
+                buildings, shopStock, avatarConfigs, bridgeDir);
+    }
+
     @Test
-    void rendersCompletePlayableTree(@TempDir Path work) throws IOException {
+    void escapesControlCharsInNpcDialogueSoRoomScriptStaysParseable(@TempDir Path work) throws IOException {
+        // A multi-line NPC dialogue must not emit a raw newline inside the GDScript
+        // double-quoted string literal in const ROOM — that would be an unterminated
+        // literal and fail the whole room script's parse (and the export).
         RpgProject p = project();
-        RpgArea lineland = area(p.getId(), "lineland");
+        RpgArea area = area(p.getId(), "lineland", null);
+        RpgRoom square = room(p.getId(), area.getId(), "town-square");
+        RpgNpc greeter = new RpgNpc();
+        greeter.setId(UUID.randomUUID());
+        greeter.setProjectId(p.getId());
+        greeter.setSlug("greeter");
+        greeter.setName("Old\tGreeter");
+        greeter.setDefaultRoomId(square.getId());
+        greeter.setDialogueText("Hello, traveller.\nMind the \"gap\".\r\nSafe travels.");
+        stub(List.of(area), List.of(square), List.of());
+        when(npcs.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.just(greeter));
+
+        renderer("").render(p, work).block();
+
+        String gd = Files.readString(work.resolve("godot-src/scripts/rooms/lineland/town-square.gd"));
+        // Escaped forms present, raw control chars absent from the baked dialogue.
+        assertThat(gd)
+                .contains("Hello, traveller.\\nMind the \\\"gap\\\".\\r\\nSafe travels.")
+                .contains("Old\\tGreeter");
+        // The dialogue value itself must not carry a real newline (would break parse).
+        int dlgIdx = gd.indexOf("Mind the");
+        assertThat(dlgIdx).isGreaterThan(0);
+        assertThat(gd.substring(dlgIdx - 40, dlgIdx)).doesNotContain("\n");
+        // The richer npc entry still lands the escaped dialogue in ONE dict
+        // alongside the new uuid + portrait keys ("" — no portrait staged).
+        assertThat(gd)
+                .contains("\"uuid\": \"" + greeter.getId() + "\"")
+                .contains("\"portrait\": \"\"");
+        int entryStart = gd.indexOf("{\"slug\": \"greeter\"");
+        int entryEnd = gd.indexOf("},", entryStart);
+        assertThat(entryStart).isGreaterThan(0);
+        String entry = gd.substring(entryStart, entryEnd);
+        assertThat(entry).contains("\"uuid\":").contains("\"dialogue\":").contains("\"portrait\":");
+    }
+
+    @Test
+    void rendersCompletePlayableThemedTree(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea lineland = area(p.getId(), "lineland", null);   // no theme → plain
         RpgRoom square = room(p.getId(), lineland.getId(), "town-square");
         RpgRoom palace = room(p.getId(), lineland.getId(), "palace");
-        // an exit town-square --N--> palace, stored as the destination room UUID.
         RpgExit north = exit(square.getId(), palace.getId(), Direction.N);
-        stub(p, List.of(lineland), List.of(square, palace), List.of(north));
+        stub(List.of(lineland), List.of(square, palace), List.of(north));
 
         StepVerifier.create(renderer("").render(p, work))
                 .assertNext(r -> assertThat(r.orderedAreas()).hasSize(1))
@@ -116,107 +219,386 @@ class RpgGodotProjectRendererTest {
 
         Path root = work.resolve("godot-src");
 
-        // project.godot interpolated.
         String pg = Files.readString(root.resolve("project.godot"));
         assertThat(pg).contains("Flatland RPG").doesNotContain("{{slug}}").doesNotContain("{{displayName}}");
 
-        // per-room script with the exits map keyed by direction → destination UUID.
+        // room script bakes a const ROOM consumed by room_builder — theme, floor,
+        // env/light (via builder) and a per-exit portal from the shared table.
         String squareGd = Files.readString(root.resolve("scripts/rooms/lineland/town-square.gd"));
-        assertThat(squareGd).contains("var exits :=").contains("\"N\": \"" + palace.getId() + "\"");
+        assertThat(squareGd)
+                .contains("RoomBuilder.build(self, ROOM)")
+                .contains("\"theme\": \"plain\"")          // plain still gets floor/light/env (never black)
+                .contains("\"floor_size\": 28.0")
+                .contains("\"entry_spawns\"")
+                .contains("\"dir\": \"N\", \"target\": \"" + palace.getId() + "\"")
+                .contains("\"target_name\": \"palace\"")
+                .contains("\"portal\": Vector3(");
 
-        // room_index.gd resolves BOTH rooms' UUIDs to their scene paths.
+        // room_index resolves both rooms + AREA_START picks the lexicographically
+        // smallest outdoor room (palace < town-square).
         String roomIndex = Files.readString(root.resolve("scripts/room_index.gd"));
-        assertThat(roomIndex).contains("const ROOM_SCENES");
+        assertThat(roomIndex).contains("const ROOM_SCENES").contains("const AREA_START");
         assertThat(roomIndex).contains("\"" + palace.getId() + "\": \"res://scenes/rooms/lineland/palace.tscn\"");
-        assertThat(roomIndex).contains("\"" + square.getId() + "\": \"res://scenes/rooms/lineland/town-square.tscn\"");
+        assertThat(roomIndex).contains("\"lineland\": \"res://scenes/rooms/lineland/palace.tscn\"");
 
-        // scenes emitted per room.
+        // scenes emitted per room (trivial root + script — geometry is runtime-built).
         assertThat(Files.exists(root.resolve("scenes/rooms/lineland/town-square.tscn"))).isTrue();
-        assertThat(Files.exists(root.resolve("scenes/rooms/lineland/palace.tscn"))).isTrue();
 
-        // the gdextension descriptor + a bin/ (placeholder when no bridge-dir).
+        // full template glue present in the tree.
+        assertThat(Files.exists(root.resolve("scripts/player.gd"))).isTrue();
+        assertThat(Files.exists(root.resolve("scenes/player.tscn"))).isTrue();
+        assertThat(Files.exists(root.resolve("scripts/remote_avatars.gd"))).isTrue();
+        assertThat(Files.exists(root.resolve("scripts/game_bridge.gd"))).isTrue();
+        assertThat(Files.exists(root.resolve("scripts/room_builder.gd"))).isTrue();
+        assertThat(Files.exists(root.resolve("scripts/shop_ui.gd"))).isTrue();
+
+        // main.tscn topology: RemoteAvatars + Player instance, NO MultiplayerLobby.
+        String main = Files.readString(root.resolve("scenes/main.tscn"));
+        assertThat(main)
+                .contains("name=\"GameBridge\"")
+                .contains("name=\"HostBridge\"")
+                .contains("name=\"RemoteAvatars\"")
+                .contains("name=\"Player\"")
+                .contains("name=\"ShopUI\"")
+                .doesNotContain("MultiplayerLobby");
+
+        // areas.json sidecar shape.
+        String areasJson = Files.readString(root.resolve("areas.json"));
+        assertThat(areasJson)
+                .contains("\"slug\": \"lineland\"")
+                .contains("\"theme\": \"plain\"")
+                .contains("\"startRoomSlug\": \"palace\"");
+
         assertThat(Files.exists(root.resolve("hugmesh_bridge.gdextension"))).isTrue();
         assertThat(Files.exists(root.resolve("bin/README.md"))).isTrue();
-
-        // the runtime art loader + the (empty here) asset index are always staged.
-        assertThat(Files.exists(root.resolve("scripts/room_visuals.gd"))).isTrue();
-        String assetIndex = Files.readString(root.resolve("scripts/asset_index.gd"));
-        assertThat(assetIndex).contains("const ASSETS");
-        // no rooms carry an icon asset here → no floor art applied.
+        // no icon asset here → no floor-art override on top of the biome floor.
         assertThat(squareGd).doesNotContain("apply_floor");
     }
 
     @Test
-    void materializesReferencedRoomIconBytesIntoStagedTree(@TempDir Path work, @TempDir Path store) throws IOException {
+    void copiesTexturesAndImportSidecarsForUsedThemesOnly(@TempDir Path work) throws IOException {
         RpgProject p = project();
-        RpgArea lineland = area(p.getId(), "lineland");
-        RpgRoom square = room(p.getId(), lineland.getId(), "town-square");
+        RpgArea caves = area(p.getId(), "caves", "cave");
+        RpgArea halls = area(p.getId(), "halls", "dungeon");
+        RpgRoom c1 = room(p.getId(), caves.getId(), "c1");
+        RpgRoom d1 = room(p.getId(), halls.getId(), "d1");
+        stub(List.of(caves, halls), List.of(c1, d1), List.of());
 
-        // A real SVG asset on disk (as AssetStorageService would have stored it).
+        renderer("").render(p, work).block();
+        Path root = work.resolve("godot-src");
+
+        // cave + dungeon textures copied WITH a .import sidecar each.
+        for (String theme : new String[]{"cave", "dungeon"}) {
+            Path albedo = root.resolve("assets/biomes/" + theme + "/floor_albedo.jpg");
+            assertThat(Files.exists(albedo)).as(theme + " albedo copied").isTrue();
+            String imp = Files.readString(Path.of(albedo + ".import"));
+            assertThat(imp)
+                    .contains("importer=\"texture\"")
+                    .contains("type=\"CompressedTexture2D\"")
+                    .contains("compress/mode=1")
+                    .contains("compress/lossy_quality=0.8")
+                    .contains("mipmaps/generate=true")
+                    .contains("detect_3d/compress_to=0");
+        }
+        // shared door art copied too.
+        assertThat(Files.exists(root.resolve("assets/biomes/_shared/door_albedo.jpg"))).isTrue();
+        // UNUSED themes are NOT copied.
+        assertThat(Files.exists(root.resolve("assets/biomes/forest"))).isFalse();
+        assertThat(Files.exists(root.resolve("assets/biomes/desert"))).isFalse();
+
+        // deliberate cave↔dungeon theme divergence baked so the e2e colour assert
+        // separates them.
+        assertThat(Files.readString(root.resolve("scripts/rooms/caves/c1.gd"))).contains("\"theme\": \"cave\"");
+        assertThat(Files.readString(root.resolve("scripts/rooms/halls/d1.gd"))).contains("\"theme\": \"dungeon\"");
+    }
+
+    @Test
+    void rendersTownBuildingsInteriorsShopStockAndStairs(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea town = area(p.getId(), "bramblewick", "town");
+        RpgRoom market = room(p.getId(), town.getId(), "market");
+
+        // A one-floor item shop with stock, and a two-floor inn with stairs.
+        RpgBuilding goods = building(p.getId(), town.getId(), market.getId(), "goods", "item_shop", 1, 1, 1);
+        RpgRoom goodsF0 = interiorRoom(p.getId(), town.getId(), goods.getId(), "goods-f0", 0);
+        RpgItem potion = item(p.getId(), "potion");
+        RpgShopStock potionStock = stock(p.getId(), goods.getId(), potion.getId(), 50, 25, -1);
+
+        RpgBuilding inn = building(p.getId(), town.getId(), market.getId(), "inn", "inn", 4, 4, 2);
+        RpgRoom innF0 = interiorRoom(p.getId(), town.getId(), inn.getId(), "inn-f0", 0);
+        RpgRoom innF1 = interiorRoom(p.getId(), town.getId(), inn.getId(), "inn-f1", 1);
+        RpgExit up = exit(innF0.getId(), innF1.getId(), Direction.UP);
+        RpgExit down = exit(innF1.getId(), innF0.getId(), Direction.DOWN);
+
+        stub(List.of(town), List.of(market, goodsF0, innF0, innF1), List.of(up, down),
+                List.of(), List.of(goods, inn), List.of(potionStock), List.of(potion));
+
+        renderer("").render(p, work).block();
+        Path root = work.resolve("godot-src");
+
+        // host room: town floor (44) + a door portal per building → its floor-0 interior.
+        String marketGd = Files.readString(root.resolve("scripts/rooms/bramblewick/market.gd"));
+        assertThat(marketGd)
+                .contains("\"floor_size\": 44.0")
+                .contains("\"buildings\": [")
+                .contains("\"kind\": \"item_shop\"")
+                .contains("\"door_target\": \"" + goodsF0.getId() + "\"")
+                .contains("\"door_target\": \"" + innF0.getId() + "\"");
+
+        // shop floor-0: baked SHOP_STOCK + shop dict + an exit door back to the host.
+        String goodsGd = Files.readString(root.resolve("scripts/rooms/bramblewick/goods-f0.gd"));
+        assertThat(goodsGd)
+                .contains("const SHOP_STOCK := [")
+                .contains("\"slug\": \"potion\"")
+                .contains("\"buy\": 50")
+                .contains("\"sell\": 25")
+                .contains("\"shop\": {\"kind\": \"item_shop\"")
+                .contains("\"exit_door\": {\"dir\": \"EXIT_DOOR\", \"target\": \"" + market.getId() + "\"");
+
+        // inn floor-0: rest beat + UP stair portal to floor-1.
+        String innF0Gd = Files.readString(root.resolve("scripts/rooms/bramblewick/inn-f0.gd"));
+        assertThat(innF0Gd)
+                .contains("\"rest\": true")
+                .contains("\"dir\": \"UP\", \"target\": \"" + innF1.getId() + "\"");
+
+        // inn floor-1: DOWN stair portal back to floor-0.
+        String innF1Gd = Files.readString(root.resolve("scripts/rooms/bramblewick/inn-f1.gd"));
+        assertThat(innF1Gd).contains("\"dir\": \"DOWN\", \"target\": \"" + innF0.getId() + "\"");
+
+        // interior rooms are never a boot target — AREA_START points at the outdoor room.
+        String roomIndex = Files.readString(root.resolve("scripts/room_index.gd"));
+        assertThat(roomIndex).contains("\"bramblewick\": \"res://scenes/rooms/bramblewick/market.tscn\"");
+    }
+
+    @Test
+    void portalAndSpawnDeriveFromOneSharedDirectionTable(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea a = area(p.getId(), "a1", "desert");
+        RpgRoom r1 = room(p.getId(), a.getId(), "r1");
+        RpgRoom r2 = room(p.getId(), a.getId(), "r2");
+        // N exit: portal at -Z wall, and the reciprocal-arrival (S) spawn is inward on +Z.
+        RpgExit n = exit(r1.getId(), r2.getId(), Direction.N);
+        stub(List.of(a), List.of(r1, r2), List.of(n));
+
+        renderer("").render(p, work).block();
+        String r1gd = Files.readString(work.resolve("godot-src/scripts/rooms/a1/r1.gd"));
+
+        // 28 m floor → half-extent 14; N portal at z=-(14-0.6)=-13.4; S arrival spawn at z=+(14-4)=+10.
+        assertThat(r1gd)
+                .contains("\"dir\": \"N\"")
+                .contains("\"portal\": Vector3(0.000, 1.500, -13.400)")
+                .contains("\"S\": Vector3(0.000, 1.000, 10.000)")  // entry spawn for arriving from N (reciprocal S)
+                .contains("\"N\": Vector3(0.000, 1.000, -10.000)");
+    }
+
+    @Test
+    void iconAssetStillWinsAsFloorArtOnTopOfBiomeFloor(@TempDir Path work, @TempDir Path store) throws IOException {
+        RpgProject p = project();
+        RpgArea lineland = area(p.getId(), "lineland", "cave");
+        RpgRoom square = room(p.getId(), lineland.getId(), "town-square");
         byte[] svgBytes = "<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>".getBytes();
         Path svgOnDisk = store.resolve("floor-bytes");
         Files.write(svgOnDisk, svgBytes);
         RpgAsset floor = asset(p.getId(), "cave-floor", "tileset", "image/svg+xml", svgOnDisk.toString());
         square.setIconAssetId(floor.getId());
+        stub(List.of(lineland), List.of(square), List.of(), List.of(floor), List.of(), List.of(), List.of());
 
-        stub(p, List.of(lineland), List.of(square), List.of(), List.of(floor));
         renderer("").render(p, work).block();
-
         Path root = work.resolve("godot-src");
 
-        // (gap 1) the actual bytes land at the stable res:// path, byte-identical.
-        Path stagedArt = root.resolve("assets/" + floor.getId() + ".svg");
-        assertThat(Files.exists(stagedArt)).isTrue();
-        assertThat(Files.readAllBytes(stagedArt)).isEqualTo(svgBytes);
-
-        // asset_index.gd maps the asset UUID → its staged res:// path.
-        String assetIndex = Files.readString(root.resolve("scripts/asset_index.gd"));
-        assertThat(assetIndex)
-                .contains("\"" + floor.getId() + "\": \"res://assets/" + floor.getId() + ".svg\"");
-
-        // (gap 2) the room script resolves + applies that art as its floor.
+        assertThat(Files.readAllBytes(root.resolve("assets/" + floor.getId() + ".svg"))).isEqualTo(svgBytes);
         String squareGd = Files.readString(root.resolve("scripts/rooms/lineland/town-square.gd"));
-        assertThat(squareGd).contains("RoomVisuals.apply_floor(self, AssetIndex.ASSETS.get(\"" + floor.getId() + "\"");
-        assertThat(squareGd).contains("preload(\"res://scripts/room_visuals.gd\")");
-    }
-
-    @Test
-    void skipsMissingAssetBytesGracefully(@TempDir Path work) throws IOException {
-        RpgProject p = project();
-        RpgArea lineland = area(p.getId(), "lineland");
-        RpgRoom square = room(p.getId(), lineland.getId(), "town-square");
-        // Row references a storage path that does not exist on disk.
-        RpgAsset ghost = asset(p.getId(), "ghost", "tileset", "image/svg+xml", "/no/such/file/here");
-        square.setIconAssetId(ghost.getId());
-
-        stub(p, List.of(lineland), List.of(square), List.of(), List.of(ghost));
-        renderer("").render(p, work).block();   // must not throw
-
-        Path root = work.resolve("godot-src");
-        // nothing staged, no floor call, empty index — but the render still succeeds.
-        assertThat(Files.exists(root.resolve("assets/" + ghost.getId() + ".svg"))).isFalse();
-        String squareGd = Files.readString(root.resolve("scripts/rooms/lineland/town-square.gd"));
-        assertThat(squareGd).doesNotContain("apply_floor");
+        // biome floor is the default (RoomBuilder), icon art wins on top via room_visuals.
+        assertThat(squareGd)
+                .contains("RoomBuilder.build(self, ROOM)")
+                .contains("RoomVisuals.apply_floor(self, AssetIndex.ASSETS.get(\"" + floor.getId() + "\"");
     }
 
     @Test
     void bakesBridgeBinaryWhenBridgeDirProvided(@TempDir Path work, @TempDir Path bridge) throws IOException {
         Files.writeString(bridge.resolve("hugmesh_bridge.wasm"), "\0fake-wasm");
         RpgProject p = project();
-        RpgArea a = area(p.getId(), "a1");
-        stub(p, List.of(a), List.of(room(p.getId(), a.getId(), "r1")), List.of());
+        RpgArea a = area(p.getId(), "a1", null);
+        stub(List.of(a), List.of(room(p.getId(), a.getId(), "r1")), List.of());
 
         renderer(bridge.toString()).render(p, work).block();
 
         Path bin = work.resolve("godot-src/bin");
         assertThat(Files.exists(bin.resolve("hugmesh_bridge.wasm"))).isTrue();
-        assertThat(Files.exists(bin.resolve("README.md"))).isFalse();   // real binary, no placeholder
+        assertThat(Files.exists(bin.resolve("README.md"))).isFalse();
+    }
+
+    // ── Character maker: avatar config + dialogue templates + portraits ─────
+
+    private static RpgAvatarConfig avatarRow(UUID projectId, String body, String head, String hat,
+                                             double height, String bodyColor, String headColor,
+                                             String hatColor) {
+        RpgAvatarConfig c = new RpgAvatarConfig();
+        c.setId(UUID.randomUUID());
+        c.setProjectId(projectId);
+        c.setBodyShape(body);
+        c.setHeadShape(head);
+        c.setHatType(hat);
+        c.setHeightScale(height);
+        c.setBodyColor(bodyColor);
+        c.setHeadColor(headColor);
+        c.setHatColor(hatColor);
+        return c;
+    }
+
+    @Test
+    void bakesAvatarConfigWithColorsAsFloatsNeverRawHex(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea a = area(p.getId(), "a1", null);
+        stub(List.of(a), List.of(room(p.getId(), a.getId(), "r1")), List.of());
+        when(avatarConfigs.findByProjectId(any())).thenReturn(Mono.just(
+                avatarRow(p.getId(), "stocky", "round", "top_hat", 1.1, "#e21422", "#e6b58c", "#1a1a1a")));
+
+        renderer("").render(p, work).block();
+
+        String cfg = Files.readString(work.resolve("godot-src/scripts/avatar_config.gd"));
+        assertThat(cfg)
+                .contains("\"body_shape\": \"stocky\"")
+                .contains("\"head_shape\": \"round\"")
+                .contains("\"hat_type\": \"top_hat\"")
+                .contains("\"height_scale\": 1.100")
+                // #e21422 → floats; the raw hex string never reaches GDScript.
+                .contains("\"body_color\": Color(0.886, 0.078, 0.133)")
+                // The skin tone lives in the head_color COLUMN but bakes under
+                // its accurate spec name — avatar_factory.gd reads the RIG now,
+                // so the AVATAR dict is informational and can be named honestly.
+                .contains("\"skin_color\": Color(0.902, 0.710, 0.549)")
+                .contains("\"hat_color\": Color(0.102, 0.102, 0.102)")
+                .doesNotContain("#e21422").doesNotContain("#e6b58c").doesNotContain("#1a1a1a");
+    }
+
+    @Test
+    void writesDefaultAvatarConfigWhenNoRowSoPreloadNeverDangles(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea a = area(p.getId(), "a1", null);
+        stub(List.of(a), List.of(room(p.getId(), a.getId(), "r1")), List.of());
+        // stub() default: avatarConfigs.findByProjectId → Mono.empty()
+
+        renderer("").render(p, work).block();
+
+        String cfg = Files.readString(work.resolve("godot-src/scripts/avatar_config.gd"));
+        assertThat(cfg)
+                .contains("const AVATAR := {")
+                .contains("\"body_shape\": \"slim\"")
+                .contains("\"head_shape\": \"round\"")
+                .contains("\"hat_type\": \"none\"")
+                .contains("\"height_scale\": 1.000")
+                .contains("\"body_color\": Color(");
+    }
+
+    @Test
+    void avatarConfigDefenceInDepthFallsBackOffWhitelistTokensAndClampsHeight(@TempDir Path work)
+            throws IOException {
+        // Impossible past the DB CHECKs, but the renderer must never bake
+        // arbitrary text: off-whitelist tokens fall back to the default
+        // token, an off-range height is clamped, a malformed colour falls
+        // back to the default palette.
+        RpgProject p = project();
+        RpgArea a = area(p.getId(), "a1", null);
+        stub(List.of(a), List.of(room(p.getId(), a.getId(), "r1")), List.of());
+        when(avatarConfigs.findByProjectId(any())).thenReturn(Mono.just(
+                avatarRow(p.getId(), "gigantic\"]; evil()", "round", "fedora", 9.9,
+                        "#zzzzzz", "#e6b58c", "not-a-colour")));
+
+        renderer("").render(p, work).block();
+
+        String cfg = Files.readString(work.resolve("godot-src/scripts/avatar_config.gd"));
+        assertThat(cfg)
+                .contains("\"body_shape\": \"slim\"")
+                .contains("\"hat_type\": \"none\"")
+                .contains("\"height_scale\": 1.400")
+                .doesNotContain("gigantic").doesNotContain("fedora")
+                .doesNotContain("#zzzzzz").doesNotContain("not-a-colour");
+    }
+
+    @Test
+    void shipsCharacterTemplatesAndDialogueUiNode(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea a = area(p.getId(), "a1", null);
+        stub(List.of(a), List.of(room(p.getId(), a.getId(), "r1")), List.of());
+
+        renderer("").render(p, work).block();
+        Path root = work.resolve("godot-src");
+
+        assertThat(Files.exists(root.resolve("scripts/avatar_factory.gd"))).isTrue();
+        assertThat(Files.exists(root.resolve("scripts/dialogue_ui.gd"))).isTrue();
+        // main.tscn gained the DialogueUI CanvasLayer sibling of ShopUI.
+        String main = Files.readString(root.resolve("scenes/main.tscn"));
+        assertThat(main)
+                .contains("name=\"DialogueUI\"")
+                .contains("res://scripts/dialogue_ui.gd");
+        // player + remote avatars assemble visuals via the shared factory.
+        String player = Files.readString(root.resolve("scripts/player.gd"));
+        assertThat(player).contains("AvatarFactory").contains("AvatarConfig.AVATAR");
+        String remote = Files.readString(root.resolve("scripts/remote_avatars.gd"));
+        assertThat(remote).contains("AvatarFactory").contains("AvatarConfig.AVATAR");
+        // TALK_NPC control + SD_DIALOGUE_EVENT with controlled fields only.
+        String bridge = Files.readString(root.resolve("scripts/game_bridge.gd"));
+        assertThat(bridge).contains("TALK_NPC:").contains("SD_DIALOGUE_EVENT").contains("portraitLoaded");
+    }
+
+    @Test
+    void npcPortraitIsStagedThreadedIntoRoomAndSidecarredLossless(@TempDir Path work, @TempDir Path store)
+            throws IOException {
+        RpgProject p = project();
+        RpgArea town = area(p.getId(), "bramblewick", "town");
+        RpgRoom green = room(p.getId(), town.getId(), "bramblewick-green");
+        byte[] svgBytes = "<svg xmlns='http://www.w3.org/2000/svg'><circle/></svg>".getBytes();
+        Path svgOnDisk = store.resolve("portrait-bytes");
+        Files.write(svgOnDisk, svgBytes);
+        RpgAsset portrait = asset(p.getId(), "greeter-portrait", "portrait", "image/svg+xml",
+                svgOnDisk.toString());
+        RpgNpc greeter = new RpgNpc();
+        greeter.setId(UUID.randomUUID());
+        greeter.setProjectId(p.getId());
+        greeter.setSlug("town-greeter");
+        greeter.setName("Guide Bramble");
+        greeter.setDefaultRoomId(green.getId());
+        greeter.setDialogueText("Well met, traveller!");
+        greeter.setPortraitAssetId(portrait.getId());
+        stub(List.of(town), List.of(green), List.of(), List.of(portrait), List.of(), List.of(), List.of());
+        when(npcs.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.just(greeter));
+
+        renderer("").render(p, work).block();
+        Path root = work.resolve("godot-src");
+
+        // bytes staged + baked ROOM entry carries uuid AND the staged res:// path.
+        String resPath = "res://assets/" + portrait.getId() + ".svg";
+        assertThat(Files.readAllBytes(root.resolve("assets/" + portrait.getId() + ".svg")))
+                .isEqualTo(svgBytes);
+        String gd = Files.readString(root.resolve("scripts/rooms/bramblewick/bramblewick-green.gd"));
+        assertThat(gd)
+                .contains("\"uuid\": \"" + greeter.getId() + "\"")
+                .contains("\"portrait\": \"" + resPath + "\"");
+
+        // portrait .import sidecar: the 2D UI class — LOSSLESS, no mipmaps,
+        // never treated as a 3D surface; svg pins its import scale.
+        String imp = Files.readString(root.resolve("assets/" + portrait.getId() + ".svg.import"));
+        assertThat(imp)
+                .contains("importer=\"texture\"")
+                .contains("type=\"CompressedTexture2D\"")
+                .contains("source_file=\"" + resPath + "\"")
+                .contains("compress/mode=0")
+                .contains("mipmaps/generate=false")
+                .contains("detect_3d/compress_to=0")
+                .contains("svg/scale=1.0")
+                .doesNotContain("compress/mode=1");
+
+        // The 3D biome-texture sidecar profile is untouched (lossy + mipmaps).
+        String biomeImp = Files.readString(
+                root.resolve("assets/biomes/town/floor_albedo.jpg.import"));
+        assertThat(biomeImp).contains("compress/mode=1").contains("mipmaps/generate=true");
     }
 
     @Test
     void failsWhenProjectHasNoAreas(@TempDir Path work) {
         RpgProject p = project();
-        stub(p, List.of(), List.of(), List.of());
+        stub(List.of(), List.of(), List.of());
         StepVerifier.create(renderer("").render(p, work))
                 .expectErrorSatisfies(e -> assertThat(e).hasMessageContaining("no areas"))
                 .verify();
@@ -225,7 +607,7 @@ class RpgGodotProjectRendererTest {
     @Test
     void failsWhenProjectHasNoRooms(@TempDir Path work) {
         RpgProject p = project();
-        stub(p, List.of(area(p.getId(), "a1")), List.of(), List.of());
+        stub(List.of(area(p.getId(), "a1", null)), List.of(), List.of());
         StepVerifier.create(renderer("").render(p, work))
                 .expectErrorSatisfies(e -> assertThat(e).hasMessageContaining("no rooms"))
                 .verify();
