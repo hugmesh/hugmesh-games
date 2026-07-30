@@ -99,23 +99,41 @@ interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
 
 * In: `roster(json)`,
   `avatar(userId, configJson, mode, sticker, name)`,
+  `sticker(userId, b64, mime)`,
   `pose(userId,x,z,yaw,seat)`,
   `openness(userId,f)`, `blendshapes(userId, base64-uint8[52])`,
   `speaking(userId,bool)`, `expression(userId,label)`,
   `placeMedia(surfaceId, metaJson, pngBase64|null)`, `clearMedia(surfaceId)`,
   `stage(userId,bool)`, `setLocal(userId)`, `enterVR()`.
-* **`avatar` carries five slots, not DESIGN §5's two.** `mode` is one of
+* **`avatar` carries five slots here, not DESIGN §5's two — and the two
+  signature tables are COMPATIBLE, not identical.** `mode` is one of
   `forge` / `guest` / `billboard`; a billboard participant has
   `configJson === null` and is described entirely by `mode` + `sticker`
   (an `mxc://` URL) + `name`. Those three used to ride *outside* the signature,
-  which made them unreachable (the decode path takes `args` verbatim when it is
+  which made them unreachable (the decode path took `args` verbatim when it was
   an array), so billboard participants were rendered as randomised 3D
-  characters. Both sides now declare all five; a short `args` array from an
-  un-upgraded host is backfilled from the signature-named fields.
-  *Honest limit:* the sticker is an `mxc://` URL that this wasm bundle (games
-  origin, no access token) cannot fetch, so the billboard renders as a blank
-  plate with the participant's nametag until the host ships sticker **bytes**
-  the way it already does for `placeMedia`.
+  characters. matrix-ui deliberately keeps the 2-slot §5 row: it has nothing
+  honest to put in the other three, because `name` rides in every roster row
+  and the sticker rides as bytes on its own channel (below). The interlock is
+  the shim's short-`args` backfill — a 2-slot envelope decodes here to
+  `[userId, cfg, null, null, null]`, and an absent `mode` means "keep the rig
+  you have" — so the host changes nothing it did not speak about. Every *other*
+  row, `sticker` included, is byte-for-byte matrix-ui's.
+* **`sticker(userId, b64, mime)` is the billboard BYTE channel.** An `mxc://`
+  is unusable from the games origin (no access token, not an HTTP URL), so a
+  sticker can only ever reach the room as bytes; the host dereferences the mxc
+  against its authenticated media route and ships the base64. It is a channel
+  of its own rather than three more `avatar` slots because `avatar` is diffed
+  and re-pushed on every avatar-state change while a sticker changes
+  essentially never — megabytes do not belong on a hot path. Receiving one *is*
+  the billboard signal (`mode` never travels on it, so neither side has a mode
+  field to keep in sync), an empty payload clears the plate and gives the
+  member back their rig, and it is the one inbound channel that refuses to
+  `ensure()` an unknown participant: it may arrive before or after that
+  member's roster row, so conjuring from it would let arrival order decide who
+  is in the room. `mime` is allow-listed to the room's three decoders
+  (`image/png` / `image/jpeg` / `image/webp`) and the payload is re-checked
+  against `MAX_MEDIA_BYTES` on receive — both enforced on the sending side too.
 * **`roster` rows carry `name`, and it is what the nametag says** — the mxid
   localpart is only the fallback for an empty one. Names are sanitised with the
   BFF's display-name rule (control / bidi-override / invisible code points
