@@ -11,8 +11,12 @@ import reactor.test.StepVerifier;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -29,6 +33,11 @@ import static org.mockito.Mockito.when;
  * town buildings (door portal → floor-0, interior exit portal → host room,
  * stairs at UP/DOWN exits, baked SHOP_STOCK). Repository interfaces are mocked
  * (interfaces, not concrete classes).
+ *
+ * <p>GDScript cannot be executed here, so the template scripts are covered by
+ * the properties that ARE checkable off the rendered tree: every preload
+ * resolves, NPCs route through the shared avatar factory, and the gesture verb
+ * relays off ONE whitelist on a key nothing else claims.
  */
 class RpgGodotProjectRendererTest {
 
@@ -540,6 +549,145 @@ class RpgGodotProjectRendererTest {
         // TALK_NPC control + SD_DIALOGUE_EVENT with controlled fields only.
         String bridge = Files.readString(root.resolve("scripts/game_bridge.gd"));
         assertThat(bridge).contains("TALK_NPC:").contains("SD_DIALOGUE_EVENT").contains("portraitLoaded");
+    }
+
+    /** Every {@code .gd} shipped in the rendered tree, template-copied or baked. */
+    private static List<Path> shippedScripts(Path root) throws IOException {
+        try (Stream<Path> walk = Files.walk(root.resolve("scripts"))) {
+            return walk.filter(f -> f.toString().endsWith(".gd")).sorted().toList();
+        }
+    }
+
+    @Test
+    void everyPreloadInAShippedScriptResolvesInTheRenderedTree(@TempDir Path work) throws IOException {
+        // A dangling preload is a HARD parse error in the produced bundle, not a
+        // soft fallback — it takes the whole game down at boot. The template
+        // scripts preload each other AND the baked avatar_config.gd, so the set
+        // copyTemplateTree emits has to be closed under preload.
+        RpgProject p = project();
+        RpgArea a = area(p.getId(), "a1", "town");
+        stub(List.of(a), List.of(room(p.getId(), a.getId(), "r1")), List.of());
+
+        renderer("").render(p, work).block();
+        Path root = work.resolve("godot-src");
+
+        Pattern preload = Pattern.compile("preload\\(\"res://([^\"]+)\"\\)");
+        List<String> dangling = new ArrayList<>();
+        for (Path gd : shippedScripts(root)) {
+            Matcher m = preload.matcher(Files.readString(gd));
+            while (m.find()) {
+                if (!Files.exists(root.resolve(m.group(1)))) {
+                    dangling.add(root.relativize(gd) + " -> " + m.group(1));
+                }
+            }
+        }
+        assertThat(dangling).as("preloads with no target in the rendered tree").isEmpty();
+        // Guard against the assertion passing vacuously on an empty walk.
+        assertThat(shippedScripts(root)).hasSizeGreaterThan(10);
+    }
+
+    @Test
+    void npcsAreBuiltByTheSharedGeneratorWithPerNpcVariation(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea town = area(p.getId(), "bramblewick", "town");
+        RpgRoom green = room(p.getId(), town.getId(), "bramblewick-green");
+        RpgNpc guide = new RpgNpc();
+        guide.setId(UUID.randomUUID());
+        guide.setProjectId(p.getId());
+        guide.setSlug("guide");
+        guide.setName("Guide Bramble");
+        guide.setDefaultRoomId(green.getId());
+        RpgNpc smith = new RpgNpc();
+        smith.setId(UUID.randomUUID());
+        smith.setProjectId(p.getId());
+        smith.setSlug("smith");
+        smith.setName("Smith Thorn");
+        smith.setDefaultRoomId(green.getId());
+        stub(List.of(town), List.of(green), List.of());
+        when(npcs.findByProjectIdOrderByNameAsc(any())).thenReturn(Flux.just(guide, smith));
+
+        renderer("").render(p, work).block();
+        Path root = work.resolve("godot-src");
+
+        String builder = Files.readString(root.resolve("scripts/room_builder.gd"));
+        // NPCs come off the SAME factory as the hero and the remote avatars,
+        // not the old hard-coded cylinder body + sphere head.
+        assertThat(builder)
+                .contains("AvatarFactory.build(AvatarConfig.AVATAR")
+                .doesNotContain("Color(0.5, 0.4, 0.6)");
+        // The dialogue/TALK_NPC flow hangs off these three exactly as before.
+        assertThat(builder)
+                .contains("var holder := Area3D.new()")
+                .contains("shape.radius = 3.0")
+                .contains("name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED")
+                .contains("ui.set_active_npc(npc)")
+                .contains("ui.clear_active_npc()");
+        // Variation is seeded from baked data, never from runtime randomness.
+        assertThat(builder).contains("_npc_variation(str(n.get(\"uuid\", \"\"))");
+        int npcSection = builder.indexOf("static func _build_npc");
+        assertThat(builder.substring(npcSection, builder.indexOf("static func _npc_variation")))
+                .doesNotContain("RandomNumberGenerator").doesNotContain("randf");
+
+        // Both NPCs bake a distinct uuid — that IS the per-NPC seed.
+        String gd = Files.readString(root.resolve("scripts/rooms/bramblewick/bramblewick-green.gd"));
+        assertThat(gd)
+                .contains("\"uuid\": \"" + guide.getId() + "\"")
+                .contains("\"uuid\": \"" + smith.getId() + "\"");
+        assertThat(guide.getId()).isNotEqualTo(smith.getId());
+
+        // room_builder now preloads the baked config, so the symbols it reads
+        // have to be in the file the renderer writes.
+        String cfg = Files.readString(root.resolve("scripts/avatar_config.gd"));
+        assertThat(cfg).contains("const AVATAR := {").contains("const RIG := ").contains("const STYLE := ");
+    }
+
+    @Test
+    void gestureVerbRelaysThroughOneWhitelistOnAnUncontestedKey(@TempDir Path work) throws IOException {
+        RpgProject p = project();
+        RpgArea a = area(p.getId(), "a1", null);
+        stub(List.of(a), List.of(room(p.getId(), a.getId(), "r1")), List.of());
+
+        renderer("").render(p, work).block();
+        Path root = work.resolve("godot-src");
+
+        String poser = Files.readString(root.resolve("scripts/avatar_poser.gd"));
+        assertThat(poser).contains(
+                "const GESTURES := [\"wave\", \"point\", \"nod\", \"bow\", \"clap\", \"shrug\", \"cheer\", \"dance\"]");
+
+        // Emitted as a control verb on the EXISTING transport (send_control →
+        // /api/controls → movement echo), like TALK_NPC and SHOP_BUY.
+        String bridge = Files.readString(root.resolve("scripts/game_bridge.gd"));
+        assertThat(bridge)
+                .contains("send_control(\"GESTURE:\" + gesture, true)")
+                .contains("if not AvatarPoser.GESTURES.has(gesture):")
+                .doesNotContain("SD_GESTURE");
+
+        // Received on both sides of the echo: own body and every remote avatar.
+        assertThat(Files.readString(root.resolve("scripts/player.gd")))
+                .contains("action.begins_with(\"GESTURE:\")")
+                .contains("_poser.play_gesture(action.substr(\"GESTURE:\".length()))");
+        assertThat(Files.readString(root.resolve("scripts/remote_avatars.gd")))
+                .contains("action.begins_with(\"GESTURE:\")")
+                .contains("poser.play_gesture(action.substr(\"GESTURE:\".length()))");
+
+        // The eight names live in exactly ONE file. A second copy is a second
+        // whitelist, and the copy is what drifts.
+        List<String> withNames = new ArrayList<>();
+        for (Path gd : shippedScripts(root)) {
+            if (Files.readString(gd).contains("\"wave\"")) withNames.add(gd.getFileName().toString());
+        }
+        assertThat(withNames).containsExactly("avatar_poser.gd");
+
+        // The emote key is bound and collides with nothing: a duplicate key in
+        // the KEY_ACTIONS literal silently drops the earlier action.
+        int mapStart = bridge.indexOf("const KEY_ACTIONS := {");
+        assertThat(mapStart).isGreaterThan(0);
+        String keyMap = bridge.substring(mapStart, bridge.indexOf("}", mapStart));
+        List<String> bound = new ArrayList<>();
+        Matcher m = Pattern.compile("(KEY_[A-Z0-9_]+):").matcher(keyMap);
+        while (m.find()) bound.add(m.group(1));
+        assertThat(bound).contains("KEY_G").doesNotHaveDuplicates();
+        assertThat(keyMap).contains("KEY_G: \"GESTURE\"");
     }
 
     @Test

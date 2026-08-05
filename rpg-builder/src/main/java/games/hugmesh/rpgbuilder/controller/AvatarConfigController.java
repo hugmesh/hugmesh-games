@@ -3,6 +3,7 @@ package games.hugmesh.rpgbuilder.controller;
 import games.hugmesh.character.AvatarSvgRenderer;
 import games.hugmesh.character.CharacterDocument;
 import games.hugmesh.character.CharacterSpec;
+import games.hugmesh.character.GlbExporter;
 import games.hugmesh.rpgbuilder.entity.RpgAvatarConfig;
 import games.hugmesh.rpgbuilder.security.Roles;
 import games.hugmesh.rpgbuilder.service.AvatarConfigService;
@@ -71,6 +72,26 @@ public class AvatarConfigController {
                 .map(spec -> svg(portrait
                         ? AvatarSvgRenderer.renderPortrait(spec, expr, width, height)
                         : AvatarSvgRenderer.renderExpression(spec, expr, width, height)));
+    }
+
+    /**
+     * The saved character as a binary glTF 2.0 asset.
+     *
+     * <p>Served as an attachment because this one is a file to open in Blender
+     * or import into another engine, not something to render inline. The rig's
+     * joint hierarchy survives the export, so what lands there is still an
+     * articulated character rather than a frozen picture of one.
+     */
+    @GetMapping(value = "/projects/{pid}/avatar.glb", produces = GlbExporter.MIME_TYPE)
+    public Mono<ResponseEntity<byte[]>> avatarGlb(@PathVariable UUID pid, Authentication auth) {
+        return avatars.spec(pid, Roles.principalOf(auth))
+                .map(spec -> ResponseEntity.ok()
+                        .contentType(MediaType.valueOf(GlbExporter.MIME_TYPE))
+                        // The id is a UUID, so nothing caller-controlled reaches
+                        // the header value.
+                        .header("Content-Disposition", "attachment; filename=\"avatar-" + pid + ".glb\"")
+                        .header("Cache-Control", "no-cache")
+                        .body(GlbExporter.export(spec, "avatar-" + pid)));
     }
 
     /** The portable Character Document — export for another generator or game. */

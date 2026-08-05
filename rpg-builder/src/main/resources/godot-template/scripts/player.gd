@@ -76,8 +76,16 @@ func _on_movement(payload_json: String) -> void:
         return
     if not state.has("action") or state["action"] == null:
         return
+    var action := str(state["action"])
+    # A gesture rides the same authoritative echo as movement, so the local
+    # hero plays its own emote at the moment everyone else does rather than
+    # ahead of them. play_gesture whitelists the name (avatar_poser.GESTURES).
+    if action.begins_with("GESTURE:"):
+        if _poser != null:
+            _poser.play_gesture(action.substr("GESTURE:".length()))
+        return
     var pressed: bool = state.get("pressed", false)
-    match state["action"]:
+    match action:
         "MOVE_FORWARD":  _dir.z = -1.0 if pressed else 0.0
         "MOVE_BACKWARD": _dir.z =  1.0 if pressed else 0.0
         "MOVE_LEFT":     _dir.x = -1.0 if pressed else 0.0

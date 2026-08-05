@@ -1,9 +1,9 @@
-import { AfterViewChecked, Component, ElementRef, OnInit, ViewChild, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { EMPTY, Observable, Subject, of, timer } from 'rxjs';
-import { catchError, switchMap, takeUntil } from 'rxjs/operators';
+import { catchError, debounceTime, switchMap, takeUntil } from 'rxjs/operators';
 
 interface RpgProject     { id: string; slug: string; displayName: string; description?: string; ownerCasdoorId?: string; updatedAt?: string; }
 interface RpgArea        { id: string; projectId: string; slug: string; name: string; sortOrder: number; gridMode: boolean; theme?: string; }
@@ -17,14 +17,31 @@ interface RpgBuildJob    { id: string; status: string; progressPct: number; logT
 // side service auto-creates interior floor rooms + UP/DOWN stair exits.
 interface RpgBuilding    { id: string; projectId: string; areaId: string; hostRoomId: string; slug: string; name: string; kind: string; gridX: number; gridY: number; width: number; depth: number; floors: number; basements: number; }
 interface RpgShopStock   { id: string; projectId: string; buildingId: string; itemId: string; buyPrice: number; sellPrice: number; stockQty: number; }
-// One 3D hero per project; every field is a whitelisted token, a clamped
-// range, or a #rrggbb colour — mirrors rpg_avatar_config's DB CHECKs and
-// AvatarConfigService on the side service. id is null until first save
-// (the GET synthesises a non-persisted default so the composer always
-// has something to render).
-interface RpgAvatarConfig { id?: string | null; projectId?: string;
-  bodyShape: string; headShape: string; hatType: string;
-  heightScale: number; bodyColor: string; headColor: string; hatColor: string; }
+/** The 12 proportion columns. Always `<CharacterSpec key>Scale` — the rule
+ *  `CharacterSpec.wireName(key)` encodes on the Java side. */
+type ScaleField =
+  'heightScale' | 'headScale' | 'neckScale' | 'chestScale' | 'waistScale' | 'shoulderScale' |
+  'armLengthScale' | 'armThicknessScale' | 'legLengthScale' | 'legThicknessScale' |
+  'handScale' | 'footScale';
+/** The 7 colour columns. `headColor` is the SKIN tone — a historic column
+ *  name that predates the slot vocabulary and is deliberately NOT renamed. */
+type ColorField =
+  'bodyColor' | 'headColor' | 'hatColor' | 'hairColor' | 'accentColor' | 'itemColor' | 'eyeColor';
+// One parametric humanoid hero per project; every field is a whitelisted
+// token, a bounded proportion, or a #rrggbb colour — mirrors
+// rpg_avatar_config's DB CHECKs, AvatarConfigService and CharacterSpec on
+// the side service. id is null until first save (the GET synthesises a
+// non-persisted default so the composer always has something to render).
+interface RpgAvatarConfig extends Record<ScaleField, number>, Record<ColorField, string> {
+  id?: string | null; projectId?: string;
+  renderStyle: string; bodyShape: string; headShape: string; hairStyle: string; outfitType: string;
+  hatType: string; heldMain: string; heldOff: string; backItem: string; faceItem: string;
+  skinTextureAssetId?: string | null;
+}
+/** A tunable proportion: `CharacterSpec.Bound` plus its wire field name. */
+interface Proportion { key: string; wire: ScaleField; min: number; max: number; dflt: number; label: string; }
+/** A recolourable region: `CharacterSpec.ColorSlot` plus its wire field name. */
+interface ColorSlotDef { key: string; wire: ColorField; dflt: string; label: string; }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DIRECTIONS = ['N','S','E','W','NE','NW','SE','SW','UP','DOWN','TELEPORT'] as const;
@@ -44,15 +61,64 @@ const GRID = 10;
 const FOOTPRINT_SIZES = [1, 2, 3] as const;
 const FLOOR_CHOICES = [1, 2, 3, 4, 5] as const;
 const BASEMENT_CHOICES = [0, 1, 2, 3] as const;
-// 3D hero avatar whitelists — kept in lockstep with the rpg_avatar_config
-// DB CHECK constraints + AvatarConfigService.SHAPES/HEADS/HATS (the theme
-// whitelist discipline: adding a token = DB changeset + service + renderer
-// match arm + this UI option, together).
-const BODY_SHAPES = ['slim', 'stocky', 'round'] as const;
-const HEAD_SHAPES = ['round', 'square'] as const;
-const HAT_TYPES   = ['none', 'cap', 'cone', 'top_hat'] as const;
-const HEIGHT_MIN = 0.7;
-const HEIGHT_MAX = 1.4;
+// ── Parametric humanoid hero (decision 028) ─────────────────────────────────
+// These mirror games.hugmesh.character.CharacterSpec exactly. GROWING A
+// WHITELIST MOVES FIVE THINGS TOGETHER, and every one of them is tested:
+//   1. CharacterSpec          — the canonical token set / Bound / ColorSlot
+//   2. the Liquibase changeset — rpg-builder 009+, append-only: drop and
+//                                re-add the column CHECK with the new member
+//   3. HumanoidRig            — the geometry arm that actually builds it
+//   4. the const below        — what this maker knows exists
+//   5. the control below      — the <select>/<input> that exposes it
+// avatar_factory.gd is DELIBERATELY NOT one of them: since 028 it walks the
+// rig GdRigBaker bakes in Java, so GDScript never re-derives a dimension and
+// 2D/3D parity is structural rather than a review obligation.
+const RENDER_STYLES = ['smooth', 'lowpoly'] as const;
+const BODY_SHAPES   = ['slim', 'stocky', 'round'] as const;
+const HEAD_SHAPES   = ['round', 'square', 'oval', 'tapered'] as const;
+const HAIR_STYLES   = ['none', 'short', 'long', 'ponytail', 'spiky', 'bun', 'braid'] as const;
+const OUTFIT_TYPES  = ['robe', 'tunic', 'armor', 'dress', 'jumpsuit', 'bare'] as const;
+const HAT_TYPES     = ['none', 'cap', 'cone', 'top_hat', 'helm', 'crown', 'hood', 'bandana', 'straw'] as const;
+const HELD_MAIN     = ['none', 'sword', 'staff', 'axe', 'bow', 'wand', 'pickaxe', 'lantern', 'book'] as const;
+const HELD_OFF      = ['none', 'shield', 'torch', 'book', 'lantern', 'orb'] as const;
+const BACK_ITEMS    = ['none', 'cape', 'backpack', 'wings', 'quiver', 'scabbard'] as const;
+const FACE_ITEMS    = ['none', 'glasses', 'mask', 'visor', 'eyepatch'] as const;
+// Render-time face pose, never saved geometry — so it drives the preview
+// request and is absent from the PUT payload.
+const EXPRESSIONS   = ['neutral', 'happy', 'sad', 'angry', 'surprised',
+                       'wink', 'sleepy', 'determined', 'shout'] as const;
+/** The humanoid bounds — CharacterSpec.PROPORTIONS, same order. */
+const PROPORTIONS: readonly Proportion[] = [
+  { key: 'height',       wire: 'heightScale',       min: 0.70, max: 1.40, dflt: 1.00, label: 'Height' },
+  { key: 'head',         wire: 'headScale',         min: 0.70, max: 1.50, dflt: 1.00, label: 'Head size' },
+  { key: 'neck',         wire: 'neckScale',         min: 0.60, max: 1.60, dflt: 1.00, label: 'Neck' },
+  { key: 'chest',        wire: 'chestScale',        min: 0.70, max: 1.40, dflt: 1.00, label: 'Chest' },
+  { key: 'waist',        wire: 'waistScale',        min: 0.60, max: 1.50, dflt: 1.00, label: 'Waist' },
+  { key: 'shoulder',     wire: 'shoulderScale',     min: 0.70, max: 1.40, dflt: 1.00, label: 'Shoulders' },
+  { key: 'armLength',    wire: 'armLengthScale',    min: 0.75, max: 1.30, dflt: 1.00, label: 'Arm length' },
+  { key: 'armThickness', wire: 'armThicknessScale', min: 0.60, max: 1.50, dflt: 1.00, label: 'Arm thickness' },
+  { key: 'legLength',    wire: 'legLengthScale',    min: 0.75, max: 1.30, dflt: 1.00, label: 'Leg length' },
+  { key: 'legThickness', wire: 'legThicknessScale', min: 0.60, max: 1.50, dflt: 1.00, label: 'Leg thickness' },
+  { key: 'hand',         wire: 'handScale',         min: 0.60, max: 1.60, dflt: 1.00, label: 'Hands' },
+  { key: 'foot',         wire: 'footScale',         min: 0.60, max: 1.60, dflt: 1.00, label: 'Feet' },
+];
+/** CharacterSpec.COLORS — note `skin` writes the historic `head_color`. */
+const COLOR_SLOTS: readonly ColorSlotDef[] = [
+  { key: 'body',   wire: 'bodyColor',   dflt: '#3f59b3', label: 'Outfit' },
+  { key: 'skin',   wire: 'headColor',   dflt: '#e6c8a0', label: 'Skin' },
+  { key: 'hat',    wire: 'hatColor',    dflt: '#202020', label: 'Hat' },
+  { key: 'hair',   wire: 'hairColor',   dflt: '#3a2a1c', label: 'Hair' },
+  { key: 'accent', wire: 'accentColor', dflt: '#d8b45a', label: 'Trim' },
+  { key: 'item',   wire: 'itemColor',   dflt: '#8a8f98', label: 'Items' },
+  { key: 'eye',    wire: 'eyeColor',    dflt: '#2b2b33', label: 'Eyes' },
+];
+// Dragging a slider fires an ngModelChange per pixel; debounce so the render
+// service sees ONE request per gesture instead of forty.
+const PREVIEW_DEBOUNCE_MS = 250;
+// Within AvatarSvgRenderer's [16, 1024] clamp; the <img> is CSS-sized, this
+// is just the SVG viewport the server draws into.
+const PREVIEW_W = 256;
+const PREVIEW_H = 384;
 // Distinct swatch per kind so placed footprints read at a glance.
 const KIND_COLORS: Record<string, string> = {
   item_shop: '#c0603a', weapon_shop: '#8b3a3a', armor_shop: '#3a5a8b',
@@ -394,59 +460,177 @@ const MAX_POLL_ERRORS = 5;
           }
         </section>
 
-        <!-- Characters pane — 3D hero composer + 2D NPC portrait roster -->
+        <!-- Characters pane — parametric hero composer (one model drives the
+             3D rig, this 2D preview and the export) + NPC portrait roster -->
         @if (selectedProject) {
           <section class="pane characters-pane">
             <h2>Characters</h2>
 
             <fieldset>
-              <legend>Hero avatar composer (3D)</legend>
+              <legend>Hero character composer</legend>
               <p class="hint">the playable hero every player of this game embodies —
-                baked into the export (remote players get a hue-shifted variant).</p>
+                baked into the export (remote players get a hue-shifted variant).
+                The preview comes from the same server-side renderer that draws the
+                shipped art, so what you see here is what the game shows.</p>
               <div class="avatar-composer">
-                <canvas #avatarCanvas class="avatar-preview" width="120" height="180"
-                        aria-label="Hero avatar live preview"></canvas>
-                <div>
-                  <label>Body shape
-                    <select name="avatarBody" [(ngModel)]="avatarConfig.bodyShape"
-                            (ngModelChange)="avatarChanged()">
-                      @for (s of bodyShapes; track s) { <option [value]="s">{{ s }}</option> }
+                <div class="avatar-preview-wrap">
+                  @if (previewSrc) {
+                    <img class="avatar-preview" [src]="previewSrc"
+                         alt="Hero character preview" />
+                  } @else {
+                    <p class="avatar-preview avatar-preview-empty" role="status">rendering&hellip;</p>
+                  }
+                  <!-- aria-hidden: this flips on every slider tick and a live
+                       region would machine-gun a screen reader. -->
+                  @if (previewPending) { <span class="preview-chip" aria-hidden="true">updating&hellip;</span> }
+                  <label>Expression
+                    <select name="avatarExpression" [ngModel]="previewExpression"
+                            (ngModelChange)="setExpression($event)">
+                      @for (e of expressions; track e) { <option [value]="e">{{ e }}</option> }
                     </select>
                   </label>
-                  <label>Head shape
-                    <select name="avatarHead" [(ngModel)]="avatarConfig.headShape"
-                            (ngModelChange)="avatarChanged()">
-                      @for (s of headShapes; track s) { <option [value]="s">{{ s }}</option> }
-                    </select>
-                  </label>
-                  <label>Hat
-                    <select name="avatarHat" [(ngModel)]="avatarConfig.hatType"
-                            (ngModelChange)="avatarChanged()">
-                      @for (h of hatTypes; track h) { <option [value]="h">{{ h }}</option> }
-                    </select>
-                  </label>
-                  <label>Height <span class="height-readout">{{ heightLabel() }}</span>
-                    <input type="range" name="avatarHeight" min="0.7" max="1.4" step="0.05"
-                           [(ngModel)]="avatarConfig.heightScale"
-                           (ngModelChange)="onHeightChange($event)" />
-                  </label>
+                  <p class="hint">preview only — an expression is a render-time face
+                    pose, never saved geometry.</p>
+                  @if (previewError) { <p class="field-error" role="alert">{{ previewError }}</p> }
+                </div>
+
+                <div class="avatar-controls">
+                  <fieldset class="control-group">
+                    <legend>Style</legend>
+                    <fieldset class="segmented">
+                      <legend>Render style</legend>
+                      @for (s of renderStyles; track s) {
+                        <label class="radio-row">
+                          <input type="radio" name="avatarRenderStyle" [value]="s"
+                                 [checked]="avatarConfig.renderStyle === s"
+                                 (change)="setRenderStyle(s)" />
+                          {{ renderStyleLabel(s) }}
+                        </label>
+                      }
+                    </fieldset>
+                    <div class="grid-2">
+                      <label>Body shape
+                        <select name="avatarBody" [(ngModel)]="avatarConfig.bodyShape"
+                                (ngModelChange)="avatarChanged()">
+                          @for (s of bodyShapes; track s) { <option [value]="s">{{ s }}</option> }
+                        </select>
+                      </label>
+                      <label>Head shape
+                        <select name="avatarHead" [(ngModel)]="avatarConfig.headShape"
+                                (ngModelChange)="avatarChanged()">
+                          @for (s of headShapes; track s) { <option [value]="s">{{ s }}</option> }
+                        </select>
+                      </label>
+                      <label>Hair
+                        <select name="avatarHair" [(ngModel)]="avatarConfig.hairStyle"
+                                (ngModelChange)="avatarChanged()">
+                          @for (s of hairStyles; track s) { <option [value]="s">{{ s }}</option> }
+                        </select>
+                      </label>
+                      <label>Outfit
+                        <select name="avatarOutfit" [(ngModel)]="avatarConfig.outfitType"
+                                (ngModelChange)="avatarChanged()">
+                          @for (s of outfitTypes; track s) { <option [value]="s">{{ s }}</option> }
+                        </select>
+                      </label>
+                    </div>
+                  </fieldset>
+
+                  <fieldset class="control-group">
+                    <legend>Proportions</legend>
+                    <p class="hint">every slider is bounded to stay recognisably
+                      humanoid — the server rejects anything outside the range
+                      rather than quietly clamping it.</p>
+                    <!-- [attr.name], not [name]: with ngModel present a plain
+                         [name] binds the DIRECTIVE's input and never reaches
+                         the DOM, so the control has no name attribute at all. -->
+                    <div class="grid-2">
+                      @for (p of proportions; track p.key) {
+                        <label>{{ p.label }} <span class="scale-readout">{{ proportionLabel(p) }}</span>
+                          <input type="range" [attr.name]="'avatar-' + p.wire"
+                                 [min]="p.min" [max]="p.max" step="0.01"
+                                 [ngModel]="avatarConfig[p.wire]"
+                                 (ngModelChange)="setProportion(p, $event)" />
+                        </label>
+                      }
+                    </div>
+                  </fieldset>
+
+                  <fieldset class="control-group">
+                    <legend>Items</legend>
+                    <div class="grid-2">
+                      <label>Hat
+                        <select name="avatarHat" [(ngModel)]="avatarConfig.hatType"
+                                (ngModelChange)="avatarChanged()">
+                          @for (h of hatTypes; track h) { <option [value]="h">{{ h }}</option> }
+                        </select>
+                      </label>
+                      <label>Face item
+                        <select name="avatarFaceItem" [(ngModel)]="avatarConfig.faceItem"
+                                (ngModelChange)="avatarChanged()">
+                          @for (i of faceItems; track i) { <option [value]="i">{{ i }}</option> }
+                        </select>
+                      </label>
+                      <label>Right hand
+                        <select name="avatarHeldMain" [(ngModel)]="avatarConfig.heldMain"
+                                (ngModelChange)="avatarChanged()">
+                          @for (i of heldMain; track i) { <option [value]="i">{{ i }}</option> }
+                        </select>
+                      </label>
+                      <label>Left hand
+                        <select name="avatarHeldOff" [(ngModel)]="avatarConfig.heldOff"
+                                (ngModelChange)="avatarChanged()">
+                          @for (i of heldOff; track i) { <option [value]="i">{{ i }}</option> }
+                        </select>
+                      </label>
+                      <label>Back
+                        <select name="avatarBackItem" [(ngModel)]="avatarConfig.backItem"
+                                (ngModelChange)="avatarChanged()">
+                          @for (i of backItems; track i) { <option [value]="i">{{ i }}</option> }
+                        </select>
+                      </label>
+                    </div>
+                  </fieldset>
+
+                  <fieldset class="control-group">
+                    <legend>Colours</legend>
+                    <div class="color-grid">
+                      @for (c of colorSlots; track c.key) {
+                        <label>{{ c.label }}
+                          <input type="color" [attr.name]="'avatar-' + c.wire"
+                                 [ngModel]="avatarConfig[c.wire]"
+                                 (ngModelChange)="setColor(c, $event)" />
+                        </label>
+                      }
+                    </div>
+                  </fieldset>
                 </div>
               </div>
-              <div class="grid-2">
-                <label>Body colour
-                  <input type="color" name="avatarBodyColor" [(ngModel)]="avatarConfig.bodyColor"
-                         (ngModelChange)="avatarChanged()" />
-                </label>
-                <label>Head colour
-                  <input type="color" name="avatarHeadColor" [(ngModel)]="avatarConfig.headColor"
-                         (ngModelChange)="avatarChanged()" />
-                </label>
-                <label>Hat colour
-                  <input type="color" name="avatarHatColor" [(ngModel)]="avatarConfig.hatColor"
-                         (ngModelChange)="avatarChanged()" />
-                </label>
+
+              <div class="btn-row">
+                <button type="button" class="primary-btn" (click)="saveAvatarConfig()">Save hero character</button>
+                <button type="button" class="btn" (click)="resetAvatarConfig()">Reset to defaults</button>
               </div>
-              <button type="button" class="primary-btn" (click)="saveAvatarConfig()">Save hero avatar</button>
+            </fieldset>
+
+            <fieldset>
+              <legend>Transfer <small>(portable Character Document)</small></legend>
+              <p class="hint">the interchange format other generators, games and
+                services read — export it, edit it, bring it back.</p>
+              <button type="button" class="primary-btn" (click)="downloadCharacter()">
+                &#8595; Download character (.json)
+              </button>
+              <label>Paste a character document
+                <textarea name="avatarImportDoc" [(ngModel)]="importDoc" rows="4"
+                          placeholder='&#123;"schemaVersion":1,"kind":"hugmesh.character",&hellip;&#125;'></textarea>
+              </label>
+              <label>&hellip;or load one from a file
+                <input type="file" name="avatarImportFile" accept="application/json,.json"
+                       (change)="onImportFile($event)" />
+              </label>
+              @if (importError) { <p class="field-error" role="alert">{{ importError }}</p> }
+              <button type="button" class="primary-btn" (click)="importCharacter()"
+                      [disabled]="!importDoc.trim()">Import character</button>
             </fieldset>
 
             <h3>NPC dialogue portraits (2D)</h3>
@@ -753,9 +937,22 @@ const MAX_POLL_ERRORS = 5;
     .danger-btn { padding: 0.4rem 0.9rem; border-radius: 4px; border: 1px solid #8b1f1f;
       background: #f9d5d5; color: #8b1f1f; cursor: pointer; margin-top: 0.4rem; }
     .avatar-composer { display: flex; gap: 0.8rem; align-items: flex-start; }
-    .avatar-composer > div { flex: 1; }
-    .avatar-preview { background: #f5f9ff; border: 1px solid #8aa8d8; border-radius: 4px; flex: none; }
-    .height-readout { font-weight: 600; margin-left: 0.3rem; }
+    .avatar-preview-wrap { position: relative; flex: none; width: 9rem; }
+    .avatar-controls { flex: 1; min-width: 0; }
+    .avatar-preview { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: contain;
+      background: #f5f9ff; border: 1px solid #8aa8d8; border-radius: 4px; margin: 0; }
+    .avatar-preview-empty { display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; color: #20448c; }
+    .preview-chip { position: absolute; top: 0.25rem; right: 0.25rem; padding: 0 0.3rem;
+      border-radius: 3px; background: rgba(255,255,255,0.88); color: #20448c; font-size: 0.65rem; }
+    .control-group { margin: 0.3rem 0 0.6rem; }
+    .segmented { display: flex; flex-wrap: wrap; gap: 0.2rem 0.8rem; align-items: center; }
+    .radio-row { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0.2rem 0; }
+    .radio-row input { width: auto; }
+    .color-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr)); gap: 0 0.5rem; }
+    .color-grid input { height: 1.8rem; padding: 0.1rem; }
+    .scale-readout { font-weight: 600; margin-left: 0.3rem; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
     .npc-roster .npc-row { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0.35rem 0; }
     .portrait-thumb { width: 3rem; height: 3rem; object-fit: cover; border-radius: 4px;
       border: 1px solid #aabddf; background: #fff; flex: none; }
@@ -765,16 +962,30 @@ const MAX_POLL_ERRORS = 5;
     .npc-meta p.hint { margin: 0.1rem 0 0.3rem; }
   `],
 })
-export class RpgMakerRemoteComponent implements OnInit, AfterViewChecked {
+export class RpgMakerRemoteComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
+  // NOTE: destroy$ is the BUILD-POLL cancel signal, not a component-lifetime
+  // one — pollBuild() nexts it whenever a build reaches DONE/FAILED. Anything
+  // that must outlive a build (the preview pipeline) uses destroyed$ instead.
   private destroy$ = new Subject<void>();
+  private destroyed$ = new Subject<void>();
   readonly directions = DIRECTIONS;
   readonly assetKinds = ASSET_KINDS;
   readonly generateKinds = GENERATE_KINDS;
   readonly themes = THEMES;
+  readonly renderStyles = RENDER_STYLES;
   readonly bodyShapes = BODY_SHAPES;
   readonly headShapes = HEAD_SHAPES;
+  readonly hairStyles = HAIR_STYLES;
+  readonly outfitTypes = OUTFIT_TYPES;
   readonly hatTypes = HAT_TYPES;
+  readonly heldMain = HELD_MAIN;
+  readonly heldOff = HELD_OFF;
+  readonly backItems = BACK_ITEMS;
+  readonly faceItems = FACE_ITEMS;
+  readonly expressions = EXPRESSIONS;
+  readonly proportions = PROPORTIONS;
+  readonly colorSlots = COLOR_SLOTS;
   readonly buildingKinds = BUILDING_KINDS;
   readonly footprintSizes = FOOTPRINT_SIZES;
   readonly floorChoices = FLOOR_CHOICES;
@@ -811,13 +1022,26 @@ export class RpgMakerRemoteComponent implements OnInit, AfterViewChecked {
   buildInFlight = false;
   currentBuild: RpgBuildJob | null = null;
 
-  // ── Characters pane state (hero avatar + NPC portrait roster) ──────────
-  @ViewChild('avatarCanvas') avatarCanvas?: ElementRef<HTMLCanvasElement>;
+  // ── Characters pane state (hero character + NPC portrait roster) ───────
   avatarConfig: RpgAvatarConfig = this.defaultAvatarConfig();
-  // The pane's <canvas> appears one change-detection pass AFTER the load /
-  // save subscribe fires (the section is @if-gated on selectedProject), so
-  // a dirty flag lets ngAfterViewChecked repaint once it exists.
-  private avatarPreviewDirty = false;
+  /**
+   * Data URI of the last SVG the SERVER rendered.
+   *
+   * <p>An &lt;img src="data:image/svg+xml,…"&gt; rather than [innerHTML]:
+   * image context can neither run script nor pull subresources, so no
+   * DomSanitizer bypass is needed for markup the service produced, and the
+   * host CSP already allows `img-src 'self' data: blob:`. It also makes
+   * "keep the old frame while the new one renders" a one-line rule — the
+   * src simply isn't reassigned until the next SVG arrives.
+   */
+  previewSrc = '';
+  previewPending = false;
+  previewError = '';
+  /** Render-time only (decision 028) — never part of the saved geometry. */
+  previewExpression: string = EXPRESSIONS[0];
+  importDoc = '';
+  importError = '';
+  private previewRequests$ = new Subject<void>();
 
   // ── Buildings pane state (town-themed areas) ────────────────────────────
   buildings: RpgBuilding[] = [];
@@ -829,7 +1053,9 @@ export class RpgMakerRemoteComponent implements OnInit, AfterViewChecked {
   buildingFormError = '';
   private pollErrors = 0;
 
-  ngOnInit(): void { this.refreshProjects(); }
+  ngOnInit(): void { this.wirePreview(); this.refreshProjects(); }
+
+  ngOnDestroy(): void { this.destroyed$.next(); this.destroyed$.complete(); }
 
   refreshProjects(): void {
     this.errorBanner = ''; this.successBanner = '';
@@ -855,6 +1081,10 @@ export class RpgMakerRemoteComponent implements OnInit, AfterViewChecked {
     this.items = []; this.npcs = []; this.assets = []; this.assetUrls = {};
     this.buildings = []; this.selectedHostRoom = null; this.selectedBuilding = null; this.stock = [];
     this.avatarConfig = this.defaultAvatarConfig();
+    // Drop the outgoing project's hero rather than leave its face on screen
+    // while the new project's config loads.
+    this.previewSrc = ''; this.previewError = ''; this.previewPending = false;
+    this.importDoc = ''; this.importError = '';
     this.loadAvatarConfig();
     this.http.get<RpgBuilding[]>(`/api/rpg/projects/${p.id}/buildings`).subscribe({
       next: b => this.buildings = b,
@@ -968,20 +1198,89 @@ export class RpgMakerRemoteComponent implements OnInit, AfterViewChecked {
     });
   }
 
-  // ── Characters pane (hero avatar composer + NPC portrait roster) ────────
-
-  ngAfterViewChecked(): void {
-    // First paint after the @if-gated canvas mounts (see avatarPreviewDirty).
-    if (this.avatarPreviewDirty && this.avatarCanvas) this.drawAvatarPreview();
-  }
+  // ── Characters pane (hero character composer + NPC portrait roster) ─────
 
   /** Column defaults of rpg_avatar_config — what the server synthesises
-   *  for a project that has no saved row yet. */
+   *  for a project that has no saved row yet. Derived from PROPORTIONS /
+   *  COLOR_SLOTS so a new field cannot be forgotten here. */
   defaultAvatarConfig(): RpgAvatarConfig {
-    return {
-      id: null, bodyShape: 'slim', headShape: 'round', hatType: 'none',
-      heightScale: 1.0, bodyColor: '#3f59b3', headColor: '#e6c8a0', hatColor: '#202020',
+    const c: Partial<RpgAvatarConfig> = {
+      id: null, renderStyle: 'smooth', bodyShape: 'slim', headShape: 'round',
+      hairStyle: 'short', outfitType: 'robe', hatType: 'none', heldMain: 'none',
+      heldOff: 'none', backItem: 'none', faceItem: 'none', skinTextureAssetId: null,
     };
+    for (const p of PROPORTIONS) c[p.wire] = p.dflt;
+    for (const s of COLOR_SLOTS) c[s.wire] = s.dflt;
+    return c as RpgAvatarConfig;
+  }
+
+  /**
+   * One debounced render pipeline for the whole pane.
+   *
+   * <p>switchMap drops a superseded render, so a slider drag costs ONE
+   * request rather than one per pixel, and the last good data URI stays on
+   * screen until the next SVG lands — the preview never flickers to blank.
+   *
+   * <p>Deliberately NOT on destroy$: that subject doubles as the build-poll
+   * cancel signal, so sharing it would silently kill the preview for the
+   * rest of the session the first time a build finished.
+   */
+  private wirePreview(): void {
+    this.previewRequests$.pipe(
+      debounceTime(PREVIEW_DEBOUNCE_MS),
+      switchMap(() => this.renderPreview()),
+      takeUntil(this.destroyed$),
+    ).subscribe(svg => {
+      this.previewPending = false;
+      this.previewError = '';
+      this.previewSrc = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    });
+  }
+
+  /**
+   * Render the CURRENT (unsaved) config through the same renderer that
+   * produces the shipped art — decision 028's parity mechanism. Nothing is
+   * persisted, and no geometry is computed client-side: a second drawing
+   * routine here is exactly the drift the decision removed.
+   */
+  private renderPreview(): Observable<string> {
+    const params = new HttpParams()
+      .set('expression', this.previewExpression)
+      .set('w', PREVIEW_W)
+      .set('h', PREVIEW_H);
+    return this.http.post('/api/rpg/avatar-preview.svg', this.avatarPayload(),
+                          { params, responseType: 'text' }).pipe(
+      catchError(e => {
+        this.previewPending = false;
+        // Inline next to the controls that caused it — the server's own
+        // whitelist message ("unknown hairStyle 'x'") IS the useful part.
+        this.previewError = this.fmt(e, 'render preview');
+        return EMPTY;   // last good frame stays on screen
+      }));
+  }
+
+  /** Queue a debounced re-render. Every control in the pane calls this. */
+  avatarChanged(): void {
+    this.previewPending = true;
+    this.previewRequests$.next();
+  }
+
+  /**
+   * Exactly the whitelisted wire fields. Shared by the PUT and the preview
+   * POST so the two can never describe different characters — the server
+   * stamps id/projectId itself and 400s anything off-whitelist.
+   */
+  private avatarPayload(): Record<string, unknown> {
+    const c = this.avatarConfig;
+    const body: Record<string, unknown> = {
+      renderStyle: c.renderStyle, bodyShape: c.bodyShape, headShape: c.headShape,
+      hairStyle: c.hairStyle, outfitType: c.outfitType, hatType: c.hatType,
+      heldMain: c.heldMain, heldOff: c.heldOff, backItem: c.backItem, faceItem: c.faceItem,
+      skinTextureAssetId: c.skinTextureAssetId ?? null,
+    };
+    for (const p of PROPORTIONS) body[p.wire] = this.clampProportion(p, c[p.wire]);
+    for (const s of COLOR_SLOTS) body[s.wire] = c[s.wire];
+    return body;
   }
 
   /** GET always answers (saved row, or a synthesised default with id null),
@@ -989,116 +1288,146 @@ export class RpgMakerRemoteComponent implements OnInit, AfterViewChecked {
   loadAvatarConfig(): void {
     if (!this.selectedProject) return;
     this.http.get<RpgAvatarConfig>(`/api/rpg/projects/${this.selectedProject.id}/avatar-config`).subscribe({
-      next: c => { this.avatarConfig = { ...this.defaultAvatarConfig(), ...c }; this.avatarChanged(); },
+      next: c => this.adoptConfig(c),
       error: e => this.errorBanner = this.fmt(e, 'load avatar config'),
     });
   }
 
-  /** PUT upsert — sends exactly the whitelisted fields (the server stamps
-   *  id/projectId itself and 400s any off-whitelist token). */
+  /** Fold a server row over the defaults so a column the service hasn't
+   *  learned yet still renders, then re-preview. */
+  private adoptConfig(c: Partial<RpgAvatarConfig>): void {
+    this.avatarConfig = { ...this.defaultAvatarConfig(), ...c };
+    this.previewError = '';
+    this.avatarChanged();
+  }
+
+  /** PUT upsert — the whole whitelisted payload in one shot. */
   saveAvatarConfig(): void {
     if (!this.selectedProject) return;
-    const body = {
-      bodyShape: this.avatarConfig.bodyShape,
-      headShape: this.avatarConfig.headShape,
-      hatType: this.avatarConfig.hatType,
-      heightScale: this.clampHeight(this.avatarConfig.heightScale),
-      bodyColor: this.avatarConfig.bodyColor,
-      headColor: this.avatarConfig.headColor,
-      hatColor: this.avatarConfig.hatColor,
-    };
-    this.http.put<RpgAvatarConfig>(`/api/rpg/projects/${this.selectedProject.id}/avatar-config`, body).subscribe({
-      next: c => {
-        this.avatarConfig = { ...this.defaultAvatarConfig(), ...c };
-        this.successBanner = 'Hero avatar saved.';
-        this.avatarChanged();
-      },
+    this.http.put<RpgAvatarConfig>(`/api/rpg/projects/${this.selectedProject.id}/avatar-config`,
+                                   this.avatarPayload()).subscribe({
+      next: c => { this.adoptConfig(c); this.successBanner = 'Hero character saved.'; },
       error: e => this.errorBanner = this.fmt(e, 'save avatar config'),
     });
   }
 
-  /** Clamp to the server's CHECK range [0.7, 1.4]; non-numeric → 1.0. */
-  clampHeight(v: number): number {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return 1.0;
-    return Math.min(HEIGHT_MAX, Math.max(HEIGHT_MIN, n));
+  /**
+   * Back to the column defaults. id / projectId survive because row identity
+   * is the server's to stamp, and so does skinTextureAssetId: this pane has
+   * no texture control, so clearing one the author cannot see would be
+   * silent data loss rather than a reset.
+   */
+  resetAvatarConfig(): void {
+    this.avatarConfig = {
+      ...this.defaultAvatarConfig(),
+      id: this.avatarConfig.id,
+      projectId: this.avatarConfig.projectId,
+      skinTextureAssetId: this.avatarConfig.skinTextureAssetId ?? null,
+    };
+    this.previewError = '';
+    this.avatarChanged();
+    this.successBanner = 'Character reset to defaults — save to keep it.';
   }
 
-  onHeightChange(v: number): void {
-    this.avatarConfig.heightScale = this.clampHeight(v);
+  /** Clamp to the humanoid bound; non-numeric → that bound's default. The
+   *  server REJECTS an out-of-range value rather than clamping it, so a
+   *  rogue assignment must never leave here. */
+  clampProportion(p: Proportion, v: unknown): number {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return p.dflt;
+    return Math.min(p.max, Math.max(p.min, n));
+  }
+
+  setProportion(p: Proportion, v: unknown): void {
+    this.avatarConfig[p.wire] = this.clampProportion(p, v);
     this.avatarChanged();
   }
 
-  heightLabel(): string {
-    return `${this.clampHeight(this.avatarConfig.heightScale).toFixed(2)}×`;
+  proportionLabel(p: Proportion): string {
+    return `${this.clampProportion(p, this.avatarConfig[p.wire]).toFixed(2)}×`;
+  }
+
+  setColor(s: ColorSlotDef, v: string): void {
+    this.avatarConfig[s.wire] = v;
+    this.avatarChanged();
+  }
+
+  setRenderStyle(v: string): void {
+    this.avatarConfig.renderStyle = v;
+    this.avatarChanged();
+  }
+
+  /** Expression changes the PREVIEW only — it is a render-time face pose,
+   *  so it is absent from the saved payload entirely. */
+  setExpression(v: string): void {
+    this.previewExpression = v;
+    this.avatarChanged();
+  }
+
+  renderStyleLabel(s: string): string {
+    return s === 'lowpoly' ? 'lowpoly — retro N64 look' : 'smooth';
+  }
+
+  /**
+   * Export the portable Character Document — decision 028's interchange
+   * format, readable by another generator, game or service.
+   */
+  downloadCharacter(): void {
+    if (!this.selectedProject) return;
+    this.importError = '';
+    this.http.get(`/api/rpg/projects/${this.selectedProject.id}/avatar.json`,
+                  { responseType: 'blob' }).subscribe({
+      next: (blob: Blob) => {
+        this.saveBlob(blob, `${this.selectedProject!.slug}-character.json`);
+        this.successBanner = 'Character document downloaded.';
+      },
+      error: e => this.errorBanner = this.fmt(e, 'download character'),
+    });
+  }
+
+  /** Load a .json file into the paste box so both import routes go through
+   *  the same parse + POST. */
+  onImportFile(ev: Event): void {
+    const file = (ev.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    this.importError = '';
+    file.text().then(
+      t => this.importDoc = t,
+      () => this.importError = 'could not read that file.',
+    );
+  }
+
+  /**
+   * POST a portable Character Document. Parsed locally first so a typo is an
+   * immediate inline message instead of a round-trip; anything that parses
+   * is still fully validated server-side — an import is not a way past the
+   * whitelist.
+   */
+  importCharacter(): void {
+    if (!this.selectedProject) return;
+    this.importError = '';
+    let doc: unknown;
+    try {
+      doc = JSON.parse(this.importDoc);
+    } catch {
+      this.importError = 'that is not valid JSON.';
+      return;
+    }
+    this.http.post<RpgAvatarConfig>(
+      `/api/rpg/projects/${this.selectedProject.id}/avatar.json`, doc).subscribe({
+      next: c => {
+        this.adoptConfig(c);
+        this.importDoc = '';
+        this.successBanner = 'Character document imported.';
+      },
+      error: e => this.importError = this.fmt(e, 'import character'),
+    });
   }
 
   dialogueSnippet(n: RpgNpc): string {
     const t = (n.dialogueText || '').trim();
     if (!t) return '(no dialogue)';
     return t.length > 80 ? `${t.slice(0, 77)}…` : t;
-  }
-
-  avatarChanged(): void {
-    this.avatarPreviewDirty = true;
-    this.drawAvatarPreview();
-  }
-
-  /**
-   * Canvas-drawn live preview of the parametric hero — pure presentation
-   * (no engine): robe trapezoid sized by body shape, circle/square head,
-   * optional hat, all in the picked colours, scaled by height.
-   */
-  drawAvatarPreview(): void {
-    const canvas = this.avatarCanvas?.nativeElement;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;   // pane not rendered yet — repainted via ngAfterViewChecked
-    this.avatarPreviewDirty = false;
-    const cfg = this.avatarConfig;
-    const w = canvas.width, h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-    const scale = this.clampHeight(cfg.heightScale);
-    const bodyW = cfg.bodyShape === 'stocky' ? 46 : cfg.bodyShape === 'round' ? 54 : 34;
-    const bodyH = 70 * scale;
-    const headR = 16;
-    const cx = w / 2;
-    const groundY = h - 12;
-    const bodyTop = groundY - bodyH;
-    // Robe.
-    ctx.fillStyle = cfg.bodyColor;
-    ctx.beginPath();
-    ctx.moveTo(cx - bodyW / 2, groundY);
-    ctx.lineTo(cx - bodyW / 3, bodyTop);
-    ctx.lineTo(cx + bodyW / 3, bodyTop);
-    ctx.lineTo(cx + bodyW / 2, groundY);
-    ctx.closePath();
-    ctx.fill();
-    // Head.
-    const headCy = bodyTop - headR + 4;
-    ctx.fillStyle = cfg.headColor;
-    if (cfg.headShape === 'square') {
-      ctx.fillRect(cx - headR, headCy - headR, headR * 2, headR * 2);
-    } else {
-      ctx.beginPath();
-      ctx.arc(cx, headCy, headR, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // Hat.
-    ctx.fillStyle = cfg.hatColor;
-    const hatBase = headCy - headR + 2;
-    if (cfg.hatType === 'cap') {
-      ctx.fillRect(cx - headR - 2, hatBase - 6, headR * 2 + 4, 8);
-    } else if (cfg.hatType === 'cone') {
-      ctx.beginPath();
-      ctx.moveTo(cx - headR, hatBase);
-      ctx.lineTo(cx + headR, hatBase);
-      ctx.lineTo(cx, hatBase - 26);
-      ctx.closePath();
-      ctx.fill();
-    } else if (cfg.hatType === 'top_hat') {
-      ctx.fillRect(cx - headR - 4, hatBase - 2, headR * 2 + 8, 5);
-      ctx.fillRect(cx - headR + 5, hatBase - 22, headR * 2 - 10, 20);
-    }
   }
 
   uploadAsset(): void {
@@ -1177,18 +1506,23 @@ export class RpgMakerRemoteComponent implements OnInit, AfterViewChecked {
     this.http.get(`/api/rpg/projects/${this.selectedProject.id}/godot-zip`,
                   { responseType: 'blob' }).subscribe({
       next: (blob: Blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${this.selectedProject!.slug}-godot.zip`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
+        this.saveBlob(blob, `${this.selectedProject!.slug}-godot.zip`);
         this.successBanner = 'Godot source downloaded.';
       },
       error: e => this.errorBanner = this.fmt(e, 'download godot zip'),
     });
+  }
+
+  /** Hand a fetched blob to the browser's downloader. */
+  private saveBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   enqueueBuild(): void {
@@ -1386,9 +1720,31 @@ export class RpgMakerRemoteComponent implements OnInit, AfterViewChecked {
 
   private fmt(err: unknown, action: string): string {
     if (err instanceof HttpErrorResponse) {
-      const detail = (err.error && (err.error.message || err.error.detail)) || err.message;
-      return `${action} failed (${err.status}): ${detail}`;
+      return `${action} failed (${err.status}): ${this.serverMessage(err)}`;
     }
     return `${action} failed: ${String(err)}`;
+  }
+
+  /**
+   * The message the SERVER actually sent, whatever shape it arrived in.
+   *
+   * <p>The builder's {@code @ExceptionHandler} answers a whitelist rejection
+   * with a text/plain body ("unknown hairStyle 'x'"), which lands as a raw
+   * string on a text request and as {@code {error: SyntaxError, text: '…'}}
+   * when Angular tried and failed to JSON.parse it. Neither shape carries
+   * .message or .detail, so the previous lookup fell through to Angular's
+   * generic "Http failure response for …" and the author never learned WHY
+   * their character was rejected.
+   */
+  private serverMessage(err: HttpErrorResponse): string {
+    const body: unknown = err.error;
+    if (typeof body === 'string' && body.trim()) return body;
+    if (body && typeof body === 'object') {
+      const o = body as { message?: unknown; detail?: unknown; text?: unknown };
+      for (const v of [o.message, o.detail, o.text]) {
+        if (typeof v === 'string' && v.trim()) return v;
+      }
+    }
+    return err.message;
   }
 }

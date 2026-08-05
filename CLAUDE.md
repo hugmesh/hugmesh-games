@@ -261,6 +261,26 @@ E2E BDD coverage: [`e2e/features/makers/rpg-maker.feature`](e2e/features/makers/
 
 **Godot-source download per project.** Both makers expose a "Download Godot source" button next to "Build & upload" that hits `GET /api/{rpg|vn}/projects/{id}/godot-zip` on the side service. The endpoint runs the project renderer to produce the same Godot 4 source tree the build worker would feed to `godot --export-release`, zips it, and streams it back so the publisher can open the project in the Godot editor directly to tweak art/scenes the maker UI doesn't yet surface. Re-uploading after editing is just the normal publisher-console flow.
 
+### Character model: canonical in `rpg-builder`, synced into the others
+
+Decision: see [`docs/wiki/decisions/028-parametric-humanoid-avatars.md`](docs/wiki/decisions/028-parametric-humanoid-avatars.md).
+
+The canonical package is [`rpg-builder/src/main/java/games/hugmesh/character/`](rpg-builder/src/main/java/games/hugmesh/character/) — `CharacterSpec` (validated params + humanoid bounds) → `HumanoidRig` (the *only* geometry table) → `GdRigBaker` / `AvatarSvgRenderer` / `GlbExporter` / `CharacterDocument`. No Spring, no third-party deps, so it copies verbatim.
+
+`backend/` and `vn-builder/` carry **generated copies**, refreshed by `make sync-character-model` (the `make sync-bridge-addon` idiom — three independent Maven projects, each Dockerised with its own directory as build context, so a shared module means repo-wide build surgery). **Never hand-edit a copy**: each consumer's byte-identity sync test fails the build when its tree drifts from the canonical one.
+
+**Growing a whitelist moves five things together**, and every one is tested:
+
+1. `CharacterSpec` — the token set / `Bound` / `ColorSlot`.
+2. A new Liquibase changeset under `rpg-builder/src/main/resources/db/changelog/` (append-only; drop and re-add the column CHECK with the new member).
+3. `HumanoidRig` — the geometry arm that actually builds it.
+4. The mirrored `const` in [`frontend/projects/games-rpg-maker/src/app/rpg-maker-remote.component.ts`](frontend/projects/games-rpg-maker/src/app/rpg-maker-remote.component.ts).
+5. The maker control (`<select>` / slider) that exposes it.
+
+`avatar_factory.gd` is deliberately **not** one of them — since 028 it walks the rig `GdRigBaker` baked in Java, so GDScript never re-derives a dimension and 2D/3D parity is structural rather than a review obligation. Same reason the maker's live preview POSTs `/api/rpg/avatar-preview.svg` instead of drawing on a canvas: preview and final art come from one renderer.
+
+⚠ On the wire, `headColor` is the **skin** tone — a historic column name from the seven-field maker that predates the rig. Don't "fix" it.
+
 ## Postgres read replica routing (decision 022)
 
 ### Activation in compose (optional)

@@ -71,6 +71,17 @@ func _on_movement(payload_json: String) -> void:
         _rooms[cid] = action.substr("ENTER_ROOM:".length())
         _refresh_visibility()
         return
+    if action.begins_with("GESTURE:"):
+        # Spawn on first sight the way a movement does — an emote can be the
+        # first thing we ever hear from a player who has not walked yet. The
+        # name is whitelisted inside play_gesture (avatar_poser.GESTURES), so
+        # a forged control off the SSE channel reaches nothing else: it is
+        # never used to build a node path or anything executable.
+        _ensure_avatar(cid)
+        var poser = _posers.get(cid)
+        if poser != null:
+            poser.play_gesture(action.substr("GESTURE:".length()))
+        return
     var avatar := _ensure_avatar(cid)
     match action:
         "MOVE_FORWARD":  avatar.set_meta("dz", -1.0 if pressed else 0.0)

@@ -15,6 +15,11 @@
 #     not keep walking behind the panel.
 extends Node
 
+# The gesture whitelist is avatar_poser's, referenced rather than copied: a
+# second list here could drift, and this one gates what reaches send_control's
+# eval'd JS.
+const AvatarPoser := preload("res://scripts/avatar_poser.gd")
+
 var _host_bridge: Node = null
 var _character_id := 1
 # Session id from the launch URL (?session_id=), threaded onto every control
@@ -25,6 +30,7 @@ var _session_id := ""
 var _shop_open := false
 var _dialogue_open := false
 var _held := {}             # action -> true while pressed
+var _gesture_index := 0     # next index into AvatarPoser.GESTURES for the emote key
 var _max_hp := 100
 var _max_mp := 50
 
@@ -35,6 +41,9 @@ const KEY_ACTIONS := {
     KEY_D: "MOVE_RIGHT",    KEY_RIGHT: "MOVE_RIGHT",
     KEY_SPACE: "JUMP",
     KEY_E: "INTERACT",
+    # G is the emote key. E is INTERACT, Esc/Enter belong to the shop and
+    # dialogue panels, so G is the nearest unused one.
+    KEY_G: "GESTURE",
 }
 
 const MOVE_ACTIONS := ["MOVE_FORWARD", "MOVE_BACKWARD", "MOVE_LEFT", "MOVE_RIGHT"]
@@ -129,6 +138,10 @@ func _unhandled_input(event: InputEvent) -> void:
         _on_interact()
         get_viewport().set_input_as_handled()
         return
+    if action == "GESTURE" and key_ev.pressed:
+        _on_gesture()
+        get_viewport().set_input_as_handled()
+        return
     if key_ev.pressed:
         _held[action] = true
     else:
@@ -148,6 +161,18 @@ func _on_interact() -> void:
     if dlg != null and dlg.has_method("has_active_npc") and dlg.has_active_npc():
         _release_movement()
         dlg.toggle()
+
+# One key steps through the whitelist so all eight emotes reach the wire
+# without spending eight bindings. Deliberately does NOT call
+# _release_movement() the way _on_interact does: a gesture is an overlay the
+# poser applies over locomotion, so held movement keys keep the player walking
+# while it plays.
+func _on_gesture() -> void:
+    if AvatarPoser.GESTURES.is_empty():
+        return
+    var gesture: String = AvatarPoser.GESTURES[_gesture_index % AvatarPoser.GESTURES.size()]
+    _gesture_index += 1
+    play_gesture(gesture)
 
 # Public — world.gd (ENTER_ROOM), shop_ui.gd all drive controls through here.
 func send_control(action: String, pressed: bool) -> void:
@@ -239,6 +264,23 @@ func talk_npc(npc_uuid: String, portrait_loaded: bool) -> void:
         JavaScriptBridge.eval("""
 (function(){ try { window.parent.postMessage(%s, '*'); } catch (e) {} })();
 """ % payload)
+
+# Emotes relay exactly like TALK_NPC / SHOP_BUY: ONE control POST, which the
+# BFF echoes on the movement channel, where player.gd (this character id) and
+# remote_avatars.gd (everyone else) turn it back into poser.play_gesture().
+# No second transport and no postMessage — an emote is a world event, and
+# nothing on the host page has anything to do with it.
+#
+# The name is matched against avatar_poser's whitelist BEFORE it reaches
+# send_control, which %-splices the action into eval'd JS: only those eight
+# bare-word literals can ever reach that source, and an off-list name is
+# DROPPED rather than escaped. Same rule the SD_DIALOGUE_EVENT comment states.
+# The receivers whitelist it a second time, so a forged control off the SSE
+# channel can still only pick one of the eight.
+func play_gesture(gesture: String) -> void:
+    if not AvatarPoser.GESTURES.has(gesture):
+        return
+    send_control("GESTURE:" + gesture, true)
 
 # Shop transactions are game-local (v1) but ALSO posted as a control so the
 # server observes them and player 2's iframe sees the event (the e2e assertion).

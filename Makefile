@@ -17,6 +17,7 @@ SHELL := /bin/bash
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
         docs-userguides docs-openapi-spec docs-openapi-latex \
         lan-info lan-up lan-up-tls lan-down \
+        sync-character-model \
         pentest pentest-sca pentest-dast
 
 # ── LAN-access helpers (read lan.properties at repo root) ────────────────
@@ -235,6 +236,36 @@ build-with-godot:
 	@test -x $(GODOT_TOOLS_DIR)/godot/godot || { echo "ERROR: $(GODOT_TOOLS_DIR)/godot/godot missing — run 'make godot-export-tools' first"; exit 1; }
 	docker compose -f docker-compose.yml -f docker-compose.godot.yml up -d --build rpg-builder vn-builder
 	@echo "✓ rpg-builder + vn-builder running with app.build.godot-enabled=true"
+
+# ── Shared character model (canonical copy lives in rpg-builder) ─────────────
+# `games.hugmesh.character` is the single source of truth for every rendition
+# of a character (Godot rig, SVG, glTF, portable document — decision 028), so
+# backend/ and vn-builder/ must run the SAME code, not a lookalike.
+#
+# It is copied rather than extracted into a shared Maven module because
+# backend/, rpg-builder/ and vn-builder/ are three independent Maven projects,
+# each Dockerised with ITS OWN DIRECTORY as the build context
+# (`build: ./rpg-builder` in docker-compose.yml) — a library would need an
+# aggregator pom, a repo-root build context for all three images, and an
+# `mvn install` ordering step. That is repo-wide build surgery for one
+# dependency-free package. Same trade-off sync-bridge-addon makes.
+#
+# The copies are generated: never hand-edit one. Each consumer carries a test
+# asserting its copy is byte-identical to the canonical tree, so drift fails
+# the build instead of quietly producing two different characters.
+CHARACTER_PKG       = src/main/java/games/hugmesh/character
+CHARACTER_SRC       = rpg-builder/$(CHARACTER_PKG)
+CHARACTER_CONSUMERS = $(BACKEND_DIR) vn-builder
+
+sync-character-model:
+	@echo "→ Syncing games.hugmesh.character into backend + vn-builder..."
+	@for svc in $(CHARACTER_CONSUMERS); do \
+	  mkdir -p $$svc/$(CHARACTER_PKG); \
+	  rsync -a --delete \
+	    $(CHARACTER_SRC)/ \
+	    $$svc/$(CHARACTER_PKG)/ ; \
+	done
+	@echo "✓ games.hugmesh.character synced"
 
 # ── Post-export index.html patches ───────────────────────────────────────────
 # Godot regenerates index.html on every export. This target re-applies custom

@@ -15,6 +15,8 @@
 extends RefCounted
 
 const Exits := preload("res://scripts/exits.gd")
+const AvatarConfig := preload("res://scripts/avatar_config.gd")
+const AvatarFactory := preload("res://scripts/avatar_factory.gd")
 
 const MAX_TORCHES := 8
 const BIOME_ROOT := "res://assets/biomes/"
@@ -443,23 +445,27 @@ static func _build_building(room: Node3D, theme: String, b: Dictionary) -> void:
 
 # --- NPCs + items -----------------------------------------------------------
 
+# Body-height spread of a town's NPCs, as a multiplier on the generated rig.
+# Bounded so the tallest still fits under the name Label3D at y=2.3.
+const NPC_HEIGHT_MIN := 0.92
+const NPC_HEIGHT_SPAN := 0.14
+
 static func _build_npc(room: Node3D, n: Dictionary) -> void:
     var holder := Area3D.new()
     holder.name = "Npc_" + str(n.get("slug", "npc"))
     holder.position = n.get("pos", Vector3(0, 0, 0))
-    var body := _cylinder(Color(0.5, 0.4, 0.6), 0.2, 0.4, 1.5)
-    body.position = Vector3(0, 0.8, 0)
-    holder.add_child(body)
-    var head := MeshInstance3D.new()
-    var sm := SphereMesh.new()
-    sm.radius = 0.22
-    sm.height = 0.44
-    head.mesh = sm
-    var hmat := StandardMaterial3D.new()
-    hmat.albedo_color = Color(0.9, 0.78, 0.66)
-    head.material_override = hmat
-    head.position = Vector3(0, 1.75, 0)
-    holder.add_child(head)
+    # NPCs are the SAME parametric humanoid as the hero and every remote
+    # avatar (decision 028). They were the one body in the world the character
+    # generator never touched — a cylinder and a sphere, next to a rig that
+    # could already produce a person.
+    var variation := _npc_variation(str(n.get("uuid", "")) + str(n.get("slug", "")))
+    var avatar := AvatarFactory.build(AvatarConfig.AVATAR, variation)
+    avatar.scale = Vector3.ONE * (NPC_HEIGHT_MIN + fposmod(variation * 7.0, 1.0) * NPC_HEIGHT_SPAN)
+    # Facing spread as well as colour and height: a row of identically-oriented
+    # townsfolk reads as a shop display rather than a town. The multipliers
+    # decorrelate the three draws from the one hash.
+    avatar.rotate_y(fposmod(variation * 13.0, 1.0) * TAU)
+    holder.add_child(avatar)
     var name_label := Label3D.new()
     name_label.text = str(n.get("name", ""))
     name_label.font_size = 40
@@ -494,6 +500,20 @@ static func _build_npc(room: Node3D, n: Dictionary) -> void:
         if ui != null and ui.has_method("clear_active_npc"):
             ui.clear_active_npc())
     room.add_child(holder)
+
+# Per-NPC visual variation in [0, 1), seeded from the server-minted uuid.
+#
+# Plain modular arithmetic rather than String.hash() so the spread is a
+# property of the BAKED DATA: every client and every rebuild colours a given
+# NPC identically, without an engine internal becoming part of the contract.
+# The modulo each step keeps the accumulator far from int64 overflow. The slug
+# is folded in by the caller so a fixture NPC with no uuid still differs from
+# its neighbours instead of collapsing onto the hero's exact colours.
+static func _npc_variation(seed_text: String) -> float:
+    var h := 0
+    for i in seed_text.length():
+        h = (h * 31 + seed_text.unicode_at(i)) % 100003
+    return float(h) / 100003.0
 
 static func _dialogue_ui(room: Node3D) -> Node:
     var world := room.get_parent()
