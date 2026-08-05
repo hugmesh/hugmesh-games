@@ -32,6 +32,30 @@ import java.time.Instant;
  * table by {@code SessionPresenceService} so the admin SSE stream and the
  * session-picker presence dot stay accurate across pods.
  *
+ * <h2>Member liveness</h2>
+ *
+ * <p>{@code session_members.left_at} used to be stamped only by an explicit
+ * {@code DELETE /api/sessions/{id}/me} or by {@code ModerationService.kickPlayer},
+ * so a closed tab / crash / dropped network held a seat and an avatar slot
+ * against the room's cap forever. {@link #heartbeat} now records a
+ * {@code last_seen_at} on the two signals a seated member produces — the
+ * roster poll ({@code GET /api/sessions/{id}}) and every authorized control
+ * write ({@link #authorizeControl}) — and {@link #reapStaleMembers} releases
+ * the seats whose signal went quiet.
+ *
+ * <p>The roster poll is what makes the reaper safe for a player who is
+ * THINKING rather than pressing keys, and it comes from the Angular host
+ * shell ({@code SessionHeartbeatService}, every 20 s while a tab holds a
+ * seat), NOT from the games. Only {@code shadows-of-the-net} polls on its own
+ * ({@code session_bridge.gd}, every 5 s); the other nineteen games in the
+ * repo emit nothing at all between player actions, so treating a game-side
+ * poll as the general signal is what would let a sweep reap two people
+ * halfway through a game of chess.
+ *
+ * <p>The complementary client-side leg is a {@code keepalive} DELETE fired
+ * from the browser's {@code pagehide} handler, which covers a clean tab close
+ * without waiting out the reaper's timeout.
+ *
  * <h2>Caller-role matrix</h2>
  *
  * <pre>
@@ -132,11 +156,49 @@ public class GameSessionService {
     /**
      * Ephemeral record capturing the state of a per-player tab-takeover pause.
      *
+     * <p>Note on {@code supersededLaunchUid}: the name is a misnomer inherited
+     * from the wire contract. The frontend fills it from
+     * {@code TakeoverMessage.launchUid}, which {@code SessionControlService
+     * .claimTakeover} sets to the launch UID of the <em>new</em> tab — so the
+     * field actually carries the UID of the tab that is <em>doing</em> the
+     * superseding, not the one being displaced. The old tab never tells the BFF
+     * its own UID. Nothing keys off the value (it is echoed onto the
+     * PLAYER_PAUSED event for observers); the takeover guards below therefore
+     * key off the <em>presence</em> of the record, which is unambiguous.
+     *
      * @param reason              human-readable pause reason (e.g. {@code "tab-takeover"})
-     * @param supersededLaunchUid the launch UID of the old tab being displaced
+     * @param supersededLaunchUid the launch UID carried on the takeover claim — see above
      * @param pausedAt            when the pause was recorded
      */
     private record PausedPlayer(String reason, String supersededLaunchUid, Instant pausedAt) {}
+
+    /**
+     * In-memory map of {@code sessionId\0casdoorId → last DB heartbeat write}.
+     *
+     * <p>The liveness signals fire far more often than the reaper needs: the
+     * roster poll is every 20 s per seated tab (every 5 s on top of that in
+     * shadows-of-the-net, which polls from the game as well) and
+     * {@link #authorizeControl} runs on every single control write. Writing
+     * {@code last_seen_at} on each one would put an UPDATE on the game's hot
+     * path for no extra safety, so a member is written through at most once
+     * per {@link #heartbeatMinInterval}. Per-pod state by design — each pod
+     * independently rate-limits its own writes and they all target the same
+     * row.
+     *
+     * <p>The interval must stay BELOW the host shell's poll period, or a beat
+     * lands inside the suppression window, is dropped, and the member's
+     * effective heartbeat period silently doubles.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, Instant> lastHeartbeatWrite =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * How long a member's heartbeat write is suppressed for after the previous
+     * one. Must stay well under {@code app.sessions.member-timeout-ms} (the
+     * reaper's staleness window) or a live player could be reaped between two
+     * suppressed heartbeats.
+     */
+    private final java.time.Duration heartbeatMinInterval;
 
     /**
      * Optional Kafka tap. When {@code app.kafka.enabled=true} the audit
@@ -154,13 +216,19 @@ public class GameSessionService {
                               RelationshipQuery relationships,
                               games.hugmesh.bff.service.GameStateService gameState,
                               java.util.Optional<games.hugmesh.bff.audit.GameAuditPublisher> audit,
-                              java.util.Optional<games.hugmesh.bff.audit.SessionTopicManager> topicManager) {
+                              java.util.Optional<games.hugmesh.bff.audit.SessionTopicManager> topicManager,
+                              @org.springframework.beans.factory.annotation.Value(
+                                      "${app.sessions.heartbeat-min-interval-ms:15000}")
+                              long heartbeatMinIntervalMs) {
         this.sessions      = sessions;
         this.members       = members;
         this.relationships = relationships;
         this.gameState     = gameState;
         this.audit         = audit;
         this.topicManager  = topicManager;
+        // Clamp to >= 0 so a misconfigured 0/negative value degrades to
+        // "write every signal" rather than to a nonsensical future instant.
+        this.heartbeatMinInterval = java.time.Duration.ofMillis(Math.max(0L, heartbeatMinIntervalMs));
     }
 
     // -------------------------------------------------------------------------
@@ -482,16 +550,77 @@ public class GameSessionService {
      * @return a {@link Mono} that completes when all side-effects are done
      */
     public Mono<Void> leave(String sessionId, String casdoorId) {
+        return leave(sessionId, casdoorId, false);
+    }
+
+    /**
+     * {@link #leave} with the unload hint that carries the superseded-tab
+     * guard.
+     *
+     * <p>{@code fromUnload} marks a leave the browser fired from its
+     * {@code pagehide} handler rather than one the player asked for. The two
+     * must be told apart because of the tab-takeover flow: when a player opens
+     * the running game in a second tab, {@code SessionControlService
+     * .onTakeoverMessage} freezes the OLD tab but leaves it open — and a frozen
+     * tab still fires {@code pagehide} when the player eventually closes it,
+     * or when the browser discards it to reclaim memory. That unload-leave
+     * would stamp {@code left_at} on the membership row the NEW tab is actively
+     * playing under, evicting a player who is sitting right there. So while a
+     * takeover is pending for this member, an unload-leave is dropped.
+     *
+     * <p>An explicit leave is never dropped: it is the player saying so, and
+     * the "leave" control only exists in the tab they are looking at.
+     *
+     * <p>Dropping the unload-leave costs nothing durable — the shelter only
+     * lasts until {@link #resumePlayer} clears the record, and a player who
+     * really did close every tab is collected by
+     * {@link #reapStaleMembers} one staleness window later.
+     *
+     * <p><b>This guard is a backstop, not the fix.</b> Both tabs authenticate
+     * as the same Casdoor subject with the same JWT, so once the takeover
+     * resolves — the new tab loaded, {@link #resumePlayer} dropped the record —
+     * the BFF has nothing left to tell them apart with, and the old tab may
+     * stay open for hours before its {@code pagehide} finally fires. The
+     * authoritative guard is therefore client-side: {@code
+     * SessionControlService.superseded} is a one-way latch set on the tab that
+     * RECEIVES a {@code takeover-claim} (BroadcastChannel does not deliver to
+     * the sender, so a receiver is by definition the old tab), and
+     * {@code SessionLeaveOnUnloadService} never fires from a latched tab. What
+     * this guard covers is the narrow, common window the latch cannot: an old
+     * tab closed while the new one is still compiling WASM.
+     *
+     * @param sessionId  the session being left
+     * @param casdoorId  the leaving player's Casdoor subject
+     * @param fromUnload {@code true} when the browser fired this from
+     *                   {@code pagehide}, {@code false} when the player asked
+     * @return a {@link Mono} that completes when all side-effects are done
+     */
+    public Mono<Void> leave(String sessionId, String casdoorId, boolean fromUnload) {
+        if (fromUnload && hasPendingTakeover(sessionId, casdoorId)) {
+            log.debug("[member-liveness] ignoring unload-leave from superseded tab: session={} member={}",
+                    sessionId, casdoorId);
+            return Mono.empty();
+        }
         return members.findActive(sessionId, casdoorId)
-                .flatMap(existing -> {
-                    boolean wasCreator = existing.isCreator();
-                    existing.setLeftAt(Instant.now());
-                    return members.save(existing).then()
-                            .doOnSuccess(v -> audit.ifPresent(a -> a.emit(
+                .flatMap(existing -> members
+                        // Guarded stamp, not a read-modify-save(): the reaper
+                        // may be stamping this very row from another pod. Only
+                        // the caller that actually flips left_at may go on to
+                        // fire the close paths, or the session gets two
+                        // SESSION_CLOSED events and two `session.left` audits
+                        // for one departure.
+                        .stampLeftIfActive(existing.getId(), Instant.now())
+                        .defaultIfEmpty(0)
+                        .flatMap(stamped -> {
+                            if (stamped == null || stamped == 0) return Mono.<Boolean>empty();
+                            // The seat is gone; stop rate-limiting a member
+                            // that no longer exists (see lastHeartbeatWrite).
+                            forgetMember(sessionId, casdoorId);
+                            audit.ifPresent(a -> a.emit(
                                     null, sessionId, casdoorId, "session.left",
-                                    java.util.Map.of("wasCreator", wasCreator))))
-                            .thenReturn(wasCreator);
-                })
+                                    java.util.Map.of("wasCreator", existing.isCreator())));
+                            return Mono.just(existing.isCreator());
+                        }))
                 .flatMap(wasCreator -> {
                     if (wasCreator) {
                         // Host-drop path — fan SESSION_CLOSED to every
@@ -502,14 +631,44 @@ public class GameSessionService {
                     }
                     return Mono.<Void>empty();
                 })
-                .then(members.countBySessionIdAndLeftAtIsNull(sessionId))
+                .then(closeIfEmpty(sessionId, "auto-empty"));
+    }
+
+    /**
+     * True while a tab-takeover pause is on record for this member — i.e. the
+     * player has a second tab that just claimed the session. Reads the same
+     * ephemeral map {@link #pausePlayer} writes and {@link #resumePlayer}
+     * clears.
+     */
+    private boolean hasPendingTakeover(String sessionId, String casdoorId) {
+        if (sessionId == null || casdoorId == null) return false;
+        var perSession = playerPauses.get(sessionId);
+        return perSession != null && perSession.containsKey(casdoorId);
+    }
+
+    /**
+     * Close {@code sessionId} if no active member remains. Shared tail of
+     * {@link #leave} and of the reaper's non-creator path so both emit the
+     * same SESSION_CLOSED wire event and perform the same cleanup.
+     *
+     * <p>The SSE reason is {@code last-member-left} either way — the client
+     * behaviour is identical and the audit {@code reason} carries the
+     * distinction (a human leave vs. a reaped ghost) for the ledger.
+     *
+     * @param sessionId   the session to consider closing
+     * @param auditReason the reason recorded on the {@code session.closed}
+     *                    audit event ({@code auto-empty} / {@code auto-empty-reaped})
+     * @return a {@link Mono} that completes when the close (if any) is persisted
+     */
+    private Mono<Void> closeIfEmpty(String sessionId, String auditReason) {
+        return members.countBySessionIdAndLeftAtIsNull(sessionId)
                 .flatMap(remaining -> {
                     // If there are still active members, the session stays open.
-                    if (remaining > 0) return Mono.empty();
+                    if (remaining > 0) return Mono.<Void>empty();
                     return sessions.findById(sessionId)
                             .flatMap(s -> {
                                 // Guard against double-close (host-drop may have beaten us here).
-                                if (s.getClosedAt() != null) return Mono.empty();
+                                if (s.getClosedAt() != null) return Mono.<Void>empty();
                                 s.setClosedAt(Instant.now());
                                 log.info("Session auto-closed (no active members): {}", sessionId);
                                 return sessions.save(s).then()
@@ -523,11 +682,10 @@ public class GameSessionService {
                                             audit.ifPresent(a -> a.emit(
                                                     s.getGameSlug(), sessionId, null,
                                                     "session.closed",
-                                                    java.util.Map.of("reason", "auto-empty")));
+                                                    java.util.Map.of("reason", auditReason)));
                                             topicManager.ifPresent(tm ->
                                                     tm.deleteForSession(sessionId));
-                                            // Drop ephemeral per-player pause state for this session.
-                                            playerPauses.remove(sessionId);
+                                            forgetSession(sessionId);
                                         });
                             });
                 });
@@ -555,9 +713,14 @@ public class GameSessionService {
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
                 .flatMap(s -> {
                     // Idempotent: if already closed, nothing to do.
-                    if (s.getClosedAt() != null) return Mono.empty();
+                    if (s.getClosedAt() != null) return Mono.<Void>empty();
                     s.setClosedAt(Instant.now());
-                    return sessions.save(s).then()
+                    return sessions.save(s)
+                            // A closed session has no active members — release
+                            // every seat the close would otherwise have left
+                            // stamped `left_at IS NULL` forever.
+                            .then(members.stampAllActiveLeft(sessionId, Instant.now()))
+                            .then()
                             .doOnSuccess(v -> {
                                 // Fan out the close event before cleaning up Kafka.
                                 gameState.emitSessionControl(
@@ -571,7 +734,7 @@ public class GameSessionService {
                                         java.util.Map.of("reason", "force-close")));
                                 topicManager.ifPresent(tm ->
                                         tm.deleteForSession(sessionId));
-                                playerPauses.remove(sessionId);
+                                forgetSession(sessionId);
                             });
                 });
     }
@@ -643,7 +806,28 @@ public class GameSessionService {
                     s.setPausedAt(null);
                     s.setPausedByCasdoorId(null);
                     s.setPauseReason(null);
-                    return sessions.save(s);
+                    // Re-stamp liveness for the whole room BEFORE it becomes
+                    // reapable again. A pause can silence a room's game-side
+                    // signal wholesale (shadows-of-the-net sets tree.paused =
+                    // true on SESSION_PAUSED, which halts session_bridge's own
+                    // roster poll), so on a client whose game half is the only
+                    // thing signalling, every member is arbitrarily stale by
+                    // the time somebody resumes.
+                    //
+                    // ORDER IS LOAD-BEARING: the touch must be committed while
+                    // the row still reads paused_at IS NOT NULL, because that
+                    // predicate is the only thing keeping findStaleActive off
+                    // this room. Stamping after the save leaves a window in
+                    // which the session is unpaused AND every member is stale
+                    // — a sweep landing there reaps the room it just resumed,
+                    // which is precisely the failure this method exists to
+                    // avoid. Clearing the suppression stamps first likewise
+                    // guarantees the touch is a real write, not a rate-limited
+                    // no-op.
+                    Instant now = Instant.now();
+                    forgetHeartbeatWrites(s.getId());
+                    return members.touchAllActive(s.getId(), now)
+                            .then(sessions.save(s));
                 })
                 .doOnSuccess(s -> {
                     gameState.emitSessionControl(new games.hugmesh.bff.model.SessionControlEvent(
@@ -690,7 +874,10 @@ public class GameSessionService {
                 supersededLaunchUid,
                 reason == null ? "tab-takeover" : reason,
                 Instant.now()));
-        return Mono.empty();
+        // A takeover pause is itself proof of life — the player is mid-move
+        // between two of their own tabs, and the frozen old tab will stop
+        // polling the roster while the new one is still compiling WASM.
+        return touchNow(sessionId, casdoorId);
     }
 
     /**
@@ -712,7 +899,9 @@ public class GameSessionService {
                 sessionId,
                 games.hugmesh.bff.model.SessionControlEvent.Action.PLAYER_RESUMED,
                 casdoorId, null, null, Instant.now()));
-        return Mono.empty();
+        // The new tab is loaded and about to start polling — hand the member a
+        // full staleness window so the reaper doesn't catch them in the gap.
+        return touchNow(sessionId, casdoorId);
     }
 
     // -------------------------------------------------------------------------
@@ -734,12 +923,33 @@ public class GameSessionService {
      *         SSE event is emitted
      */
     public Mono<Void> closeOnHostDrop(String sessionId) {
+        return closeOnHostDropReporting(sessionId).then();
+    }
+
+    /**
+     * {@link #closeOnHostDrop} that says whether it actually closed anything.
+     *
+     * <p>{@code true} when THIS call stamped {@code closed_at} and fired the
+     * SESSION_CLOSED fan-out; {@code false} when the session was already
+     * closed (or gone) and the whole body short-circuited. Callers that record
+     * a consequence of the close — an audit row, a sweep count — must key off
+     * this rather than off the {@code Mono<Void>} completing, which it does
+     * either way.
+     *
+     * @param sessionId the session whose creator just left
+     * @return {@code true} iff this call performed the close
+     */
+    private Mono<Boolean> closeOnHostDropReporting(String sessionId) {
         return sessions.findById(sessionId)
                 // Skip if already closed (leave path may have raced ahead).
                 .filter(s -> s.getClosedAt() == null)
                 .flatMap(s -> {
                     s.setClosedAt(Instant.now());
-                    return sessions.save(s).then()
+                    return sessions.save(s)
+                            // Same as close(): the guests the host just
+                            // stranded are no longer active members.
+                            .then(members.stampAllActiveLeft(s.getId(), Instant.now()))
+                            .then()
                             .doOnSuccess(v -> {
                                 gameState.emitSessionControl(new games.hugmesh.bff.model.SessionControlEvent(
                                         s.getId(),
@@ -750,10 +960,316 @@ public class GameSessionService {
                                         "session.closed",
                                         java.util.Map.of("reason", "host-disconnected")));
                                 topicManager.ifPresent(tm -> tm.deleteForSession(s.getId()));
-                                playerPauses.remove(s.getId());
-                            });
+                                forgetSession(s.getId());
+                            })
+                            .thenReturn(true);
+                })
+                .defaultIfEmpty(false);
+    }
+
+    // -------------------------------------------------------------------------
+    // Member liveness — heartbeat + reaper
+    // -------------------------------------------------------------------------
+
+    /**
+     * Record that {@code casdoorId} is still alive inside {@code sessionId}.
+     *
+     * <p>Called from the two signals an <em>identified</em> member produces:
+     * <ol>
+     *   <li>{@code GET /api/sessions/{id}} — the roster poll, independent of
+     *       whether the player is touching the keyboard. This is the one that
+     *       keeps a THINKING player alive, and it comes from the Angular host
+     *       shell ({@code SessionHeartbeatService}, every 20 s while the tab
+     *       holds a seat) for every game. {@code shadows-of-the-net}
+     *       additionally polls from inside the game
+     *       ({@code session_bridge.gd ROSTER_POLL_INTERVAL}, 5 s) — that is
+     *       specific to that title and is NOT where the general guarantee
+     *       comes from.</li>
+     *   <li>{@link #authorizeControl} — every {@code POST /api/controls/{cid}}
+     *       and {@code POST /api/input/{cid}} carrying {@code X-Session-Id}.
+     *       Player-action-driven, so on its own it reaps anyone who stops to
+     *       think; it is a supplement to the poll, never a substitute.</li>
+     * </ol>
+     *
+     * <p>The SSE stream is deliberately NOT a signal: the frontend opens its
+     * {@code EventSource} with no credentials and {@code /api/game/**} is a
+     * public path, so the stream controller has no member identity to
+     * attribute a heartbeat to.
+     *
+     * <p>Rate-limited per pod to one DB write per member per
+     * {@code app.sessions.heartbeat-min-interval-ms} — see
+     * {@link #lastHeartbeatWrite}. Never fails the caller: a heartbeat is
+     * bookkeeping, and dropping one costs at most one interval of freshness,
+     * whereas propagating its error would 403 a legitimate control write.
+     *
+     * @param sessionId the session the signal arrived for; null/blank is a no-op
+     * @param casdoorId the member that produced it; null/blank is a no-op
+     * @return a {@link Mono} that completes when the write (if any) is done
+     */
+    public Mono<Void> heartbeat(String sessionId, String casdoorId) {
+        if (sessionId == null || sessionId.isBlank() || casdoorId == null || casdoorId.isBlank()) {
+            return Mono.empty();
+        }
+        Instant now = Instant.now();
+        Instant suppressBefore = now.minus(heartbeatMinInterval);
+        // compute() so two concurrent controls for the same member can't both
+        // decide to write — the loser sees the winner's stamp already in place.
+        java.util.concurrent.atomic.AtomicBoolean write = new java.util.concurrent.atomic.AtomicBoolean(false);
+        lastHeartbeatWrite.compute(heartbeatKey(sessionId, casdoorId), (k, prev) -> {
+            if (prev != null && prev.isAfter(suppressBefore)) return prev;
+            write.set(true);
+            return now;
+        });
+        if (!write.get()) return Mono.empty();
+        return members.touchLastSeen(sessionId, casdoorId, now)
+                .onErrorResume(err -> {
+                    log.warn("[member-liveness] heartbeat write failed for {}/{}", sessionId, casdoorId, err);
+                    // Drop the suppression stamp so the next signal retries
+                    // instead of waiting out the interval on a failed write.
+                    lastHeartbeatWrite.remove(heartbeatKey(sessionId, casdoorId));
+                    return Mono.empty();
                 })
                 .then();
+    }
+
+    /**
+     * Unconditional heartbeat — bypasses the rate limiter.
+     *
+     * <p>Used by the pause/resume transitions, where the point is precisely to
+     * hand the member a full fresh staleness window at a moment when the
+     * ordinary signals are about to stop (or have just restarted).
+     *
+     * @param sessionId the session; null/blank is a no-op
+     * @param casdoorId the member; null/blank is a no-op
+     * @return a {@link Mono} that completes when the write is done
+     */
+    private Mono<Void> touchNow(String sessionId, String casdoorId) {
+        if (sessionId == null || sessionId.isBlank() || casdoorId == null || casdoorId.isBlank()) {
+            return Mono.empty();
+        }
+        Instant now = Instant.now();
+        lastHeartbeatWrite.put(heartbeatKey(sessionId, casdoorId), now);
+        return members.touchLastSeen(sessionId, casdoorId, now)
+                .onErrorResume(err -> {
+                    log.warn("[member-liveness] forced heartbeat failed for {}/{}", sessionId, casdoorId, err);
+                    lastHeartbeatWrite.remove(heartbeatKey(sessionId, casdoorId));
+                    return Mono.empty();
+                })
+                .then();
+    }
+
+    /**
+     * Release the seats of members whose liveness signal went quiet before
+     * {@code cutoff} — the server-side half of the closed-tab fix, and the
+     * only half that catches a crash, a closed lid, or a dropped network
+     * (none of which get to run an unload handler).
+     *
+     * <p><b>Safe only because every seated tab polls.</b> The reaper decides
+     * who is gone from the absence of a signal, so it is exactly as correct as
+     * the assumption that a present player produces one. The games do not:
+     * only {@code shadows-of-the-net} polls the roster from inside the game,
+     * and the other nineteen emit nothing between player actions, which for a
+     * turn-based board means both players go quiet while one of them thinks.
+     * The guarantee comes from the Angular host shell's
+     * {@code SessionHeartbeatService} instead — it owns the session for every
+     * game and beats every 20 s while a tab holds a seat. If that leg is ever
+     * removed, this sweep starts deleting live rooms; the
+     * {@code app.sessions.reap-enabled} kill-switch on
+     * {@link SessionMemberReaper} exists so an operator can stop it without a
+     * release.
+     *
+     * <p>Two candidates are deliberately spared:
+     * <ul>
+     *   <li><b>Members of a paused or already-closed session</b> — a pause can
+     *       silence a room's game-side signal wholesale (shadows-of-the-net
+     *       sets {@code tree.paused = true} on SESSION_PAUSED, which halts
+     *       {@code session_bridge._process} and with it its roster poll), so
+     *       every member of one can look stale at once. Excluded twice: in SQL by
+     *       {@code SessionMemberRepository.findStaleActive} so the sweep stays
+     *       index-friendly, and again per candidate in {@link #reapOne},
+     *       because the sweep consumes its candidate list over time and a
+     *       session can be paused after its rows were selected.</li>
+     *   <li><b>A member mid tab-takeover</b> — their old tab is frozen and
+     *       their new tab may still be compiling WASM, so neither is polling.
+     *       The pause record only shelters them for one staleness window, so a
+     *       new tab that never finishes loading cannot pin the seat open
+     *       forever.</li>
+     * </ul>
+     *
+     * <p>The creator is reaped through {@link #closeOnHostDrop}, exactly as a
+     * real host leave would be, NOT with a bare {@code left_at} stamp: the
+     * creator's {@code is_creator} flag is read off
+     * {@code findActiveOwnerInSession} by {@code InputEventController}'s Gate
+     * 0b, so a stamped-but-still-open room 403s the host's own controls into an
+     * SD_SESSION_EXPIRED loop and 403s its {@code kind:'world'} broadcasts into
+     * a stand-down — leaving a hostless room that never closes.
+     *
+     * <p>Candidates are reaped sequentially ({@code concatMap}) so two members
+     * of the same session cannot race each other's close check.
+     *
+     * <p>The candidate list is drained into memory before the first write.
+     * Reaping straight off the streaming {@code Flux} would hold that cursor
+     * open across every subsequent round-trip of the sweep — a re-read, an
+     * UPDATE and a count per candidate — pinning one pooled connection for the
+     * whole sweep. Buffering costs nothing: the set is bounded by the number of
+     * seats on the cluster, and {@link #reapOne} re-reads the session state
+     * anyway precisely because the list is a snapshot.
+     *
+     * @param cutoff members whose newest liveness signal predates this instant
+     *               are reaped
+     * @return a {@link Mono} emitting the number of rows this call actually
+     *         stamped (a row a concurrent leave already stamped does not count)
+     */
+    public Mono<Long> reapStaleMembers(Instant cutoff) {
+        return members.findStaleActive(cutoff)
+                .filter(m -> !isPauseSheltered(m, cutoff))
+                .collectList()
+                .flatMapMany(Flux::fromIterable)
+                .concatMap(this::reapOne)
+                .filter(Boolean::booleanValue)
+                .count();
+    }
+
+    /**
+     * Reap one stale member. Returns {@code false} without side effects when
+     * the session got paused or closed after the candidate list was selected,
+     * or when the row was already stamped by a concurrent leave / kick.
+     */
+    private Mono<Boolean> reapOne(SessionMember m) {
+        return sessions.findById(m.getSessionId())
+                // Re-read the session state at reap time, not at select time:
+                // pausing a room must protect every one of its members, even
+                // the ones further down a candidate list that was assembled
+                // while the room was still running.
+                .filter(s -> s.getClosedAt() == null && s.getPausedAt() == null)
+                .flatMap(s -> m.isCreator() ? reapCreator(m) : reapGuest(m))
+                .defaultIfEmpty(false);
+    }
+
+    /**
+     * Reap the session creator by closing the whole room, exactly as a real
+     * host leave does.
+     *
+     * <p>Deliberately does NOT stamp {@code left_at} on the creator's own row
+     * first. {@code InputEventController}'s Gate 0b resolves "is this caller
+     * the host?" through {@code findActiveOwnerInSession}, whose predicate is
+     * {@code left_at IS NULL} — so a creator stamped while the room is still
+     * open 403s its own controls into an SD_SESSION_EXPIRED loop and 403s its
+     * {@code kind:'world'} broadcasts into a host stand-down. The room is then
+     * hostless, still open, and nothing left alive in it will ever close it:
+     * strictly worse than the ghost seat we came to collect.
+     *
+     * <p>{@link #closeOnHostDrop} closes the session and only then stamps
+     * every active seat ({@code stampAllActiveLeft}), so the ordering makes
+     * that state unreachable — if the stamp half fails, the fallout is a
+     * closed session with unstamped rows, which is inert and is exactly the
+     * pre-existing condition this changeset also fixes.
+     *
+     * <p>Exactly-once falls out of {@code closeOnHostDrop}'s own
+     * {@code closed_at IS NULL} filter rather than from a row claim — which is
+     * why the audit and the sweep count come AFTER it and are conditional on
+     * what it reports. Announcing the departure first would emit a
+     * {@code session.left} row and inflate the sweep count for a close that a
+     * concurrent force-close had already performed and this call then skipped.
+     *
+     * <p>The losing side of that race needs one thing doing: the concurrent
+     * close ran its own {@code stampAllActiveLeft}, but if it did not (a
+     * {@code closeIfEmpty} that saw the room as already empty, a close whose
+     * stamp half failed), the creator's row is left active inside a CLOSED
+     * session — and {@code findStaleActive} requires {@code s.closed_at IS
+     * NULL}, so no future sweep would ever see it again. That is the exact
+     * orphan class this changeset exists to eliminate, so the row is stamped
+     * directly in that branch. The Gate 0b hazard that forbids stamping a LIVE
+     * creator does not apply: the room is already closed, so there are no
+     * controls left to 403.
+     */
+    private Mono<Boolean> reapCreator(SessionMember m) {
+        return closeOnHostDropReporting(m.getSessionId())
+                .flatMap(closed -> Boolean.TRUE.equals(closed)
+                        ? Mono.just(true)
+                        // Lost the race — recover the row rather than orphan it.
+                        : members.stampLeftIfActive(m.getId(), Instant.now())
+                                .defaultIfEmpty(0)
+                                .map(stamped -> stamped != null && stamped > 0))
+                .map(reaped -> {
+                    if (reaped) {
+                        logReap(m);
+                        audit.ifPresent(a -> a.emit(
+                                null, m.getSessionId(), m.getCasdoorId(), "session.left",
+                                java.util.Map.of("wasCreator", true, "reason", "stale-heartbeat")));
+                        forgetMember(m.getSessionId(), m.getCasdoorId());
+                    }
+                    return reaped;
+                });
+    }
+
+    /**
+     * Reap a non-creator member: claim the row, then close the room if that
+     * emptied it. Returns {@code false} without side effects when the row was
+     * already stamped by a concurrent leave or kick.
+     */
+    private Mono<Boolean> reapGuest(SessionMember m) {
+        return members.stampLeftIfActive(m.getId(), Instant.now())
+                .defaultIfEmpty(0)
+                .flatMap(stamped -> {
+                    // Zero rows ⇒ somebody else already ended this membership.
+                    // Firing the close path again would double-emit
+                    // SESSION_CLOSED and re-audit a departure that already
+                    // happened, so bail out silently.
+                    if (stamped == null || stamped == 0) return Mono.just(false);
+                    logReap(m);
+                    audit.ifPresent(a -> a.emit(
+                            null, m.getSessionId(), m.getCasdoorId(), "session.left",
+                            java.util.Map.of("wasCreator", false, "reason", "stale-heartbeat")));
+                    forgetMember(m.getSessionId(), m.getCasdoorId());
+                    return closeIfEmpty(m.getSessionId(), "auto-empty-reaped").thenReturn(true);
+                });
+    }
+
+    /** One log line per released seat — the operator's record of who was collected and why. */
+    private void logReap(SessionMember m) {
+        log.info("[member-reaper] released stale seat: session={} member={} creator={} lastSeen={}",
+                m.getSessionId(), m.getCasdoorId(), m.isCreator(),
+                m.getLastSeenAt() != null ? m.getLastSeenAt() : m.getJoinedAt());
+    }
+
+    /**
+     * True when a pending tab-takeover pause should shelter this member from
+     * the reaper. The shelter expires with the same staleness window as the
+     * heartbeat itself so a new tab that never finishes loading cannot hold
+     * the seat open indefinitely.
+     */
+    private boolean isPauseSheltered(SessionMember m, Instant cutoff) {
+        var perSession = playerPauses.get(m.getSessionId());
+        if (perSession == null) return false;
+        PausedPlayer paused = perSession.get(m.getCasdoorId());
+        return paused != null && paused.pausedAt().isAfter(cutoff);
+    }
+
+    /** Composite key for {@link #lastHeartbeatWrite} — NUL can't occur in either id. */
+    private static String heartbeatKey(String sessionId, String casdoorId) {
+        return sessionId + '\0' + casdoorId;
+    }
+
+    /** Drop one member's heartbeat suppression stamp. */
+    private void forgetMember(String sessionId, String casdoorId) {
+        lastHeartbeatWrite.remove(heartbeatKey(sessionId, casdoorId));
+    }
+
+    /** Drop every heartbeat suppression stamp belonging to one session. */
+    private void forgetHeartbeatWrites(String sessionId) {
+        String prefix = sessionId + "\0";
+        lastHeartbeatWrite.keySet().removeIf(k -> k.startsWith(prefix));
+    }
+
+    /**
+     * Drop all ephemeral per-session state — pause records and heartbeat
+     * suppression stamps. Called from every close path so neither map leaks
+     * an entry for a session that no longer exists.
+     */
+    private void forgetSession(String sessionId) {
+        playerPauses.remove(sessionId);
+        forgetHeartbeatWrites(sessionId);
     }
 
     // -------------------------------------------------------------------------
@@ -816,7 +1332,12 @@ public class GameSessionService {
                     if (!casdoorId.equals(m.getCasdoorId())) {
                         return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "character not owned by caller"));
                     }
-                    return Mono.just(m);
+                    // An authorized control write is proof the player is alive.
+                    // This is the one chokepoint every game's hot path crosses
+                    // (ControlController AND InputEventController), so it is
+                    // where the liveness signal belongs; the write itself is
+                    // rate-limited and never fails the control.
+                    return heartbeat(m.getSessionId(), m.getCasdoorId()).thenReturn(m);
                 });
     }
 
@@ -893,7 +1414,12 @@ public class GameSessionService {
         m.setCharacterId(characterId);
         m.setSlotIndex(slotIndex);
         m.setCreator(creator);
-        m.setJoinedAt(Instant.now());
+        Instant now = Instant.now();
+        m.setJoinedAt(now);
+        // Joining IS a liveness signal — seed last_seen_at so a member who is
+        // still loading their WASM bundle (30 s on a cold image, before the
+        // first roster poll fires) is never a reaper candidate.
+        m.setLastSeenAt(now);
         return m;
     }
 }

@@ -18,6 +18,14 @@ import java.time.Instant;
  *
  * <p>{@code characterId} is the character a player is driving in this
  * session. May be null briefly between joining and slot-claim.
+ *
+ * <p>{@code lastSeenAt} is the most recent liveness signal the BFF saw from
+ * this member (roster poll or authorized control write — see Liquibase 059).
+ * {@code SessionMemberReaper} stamps {@code leftAt} on rows whose signal has
+ * gone stale, which is the only thing that releases the seat of a player who
+ * closed their tab, crashed, or lost the network. May be null on rows written
+ * before migration 059 backfilled it; readers must fall back to
+ * {@code joinedAt}.
  */
 @Table("session_members")
 public class SessionMember {
@@ -38,6 +46,8 @@ public class SessionMember {
     private Instant joinedAt;
     @Column("left_at")
     private Instant leftAt;
+    @Column("last_seen_at")
+    private Instant lastSeenAt;
 
     public Long    getId() { return id; }
     public String  getSessionId() { return sessionId; }
@@ -47,6 +57,7 @@ public class SessionMember {
     public boolean isCreator() { return creator; }
     public Instant getJoinedAt() { return joinedAt; }
     public Instant getLeftAt() { return leftAt; }
+    public Instant getLastSeenAt() { return lastSeenAt; }
 
     public void setId(Long id) { this.id = id; }
     public void setSessionId(String sessionId) { this.sessionId = sessionId; }
@@ -56,4 +67,5 @@ public class SessionMember {
     public void setCreator(boolean creator) { this.creator = creator; }
     public void setJoinedAt(Instant joinedAt) { this.joinedAt = joinedAt; }
     public void setLeftAt(Instant leftAt) { this.leftAt = leftAt; }
+    public void setLastSeenAt(Instant lastSeenAt) { this.lastSeenAt = lastSeenAt; }
 }
