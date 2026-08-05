@@ -291,9 +291,21 @@ public final class GlbExporter {
             return unit == null ? v(0, 1, 0) : unit;
         }
 
-        /** UV sphere, scaled per axis — the rig's spheres are rarely round. */
+        /**
+         * UV sphere, scaled per axis — the rig's spheres are rarely round.
+         *
+         * <p><b>{@code rings + 1}, not {@code rings}.</b> Godot's
+         * {@code SphereMesh} walks {@code for (j = 0; j <= rings + 1; j++)},
+         * i.e. {@code rings + 2} vertex rows and therefore {@code rings + 1}
+         * latitude BANDS — whereas this loop treats its counter as the band
+         * count directly. Feeding it the raw constant produced a head faceted
+         * into 3 bands in the .glb against 4 in-game: the same integer, a
+         * different solid. On a lowpoly character, whose entire point is a
+         * visible faceted silhouette, that is exactly the drift decision 028
+         * exists to remove.
+         */
         private void ellipsoid(MeshBuf m, double rx, double ry, double rz) {
-            int seg = radial(), stacks = rings();
+            int seg = radial(), stacks = rings() + 1;
             for (int j = 0; j < stacks; j++) {
                 double p0 = Math.PI * j / stacks, p1 = Math.PI * (j + 1) / stacks;
                 for (int i = 0; i < seg; i++) {

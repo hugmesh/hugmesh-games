@@ -50,7 +50,7 @@ import reactor.core.publisher.Flux;
  *  /api/relationships/**   │ authenticated│ authenticated
  *  /v3/api-docs/**         │ permitAll   │ ADMIN
  *  /swagger-ui/**          │ permitAll   │ ADMIN
- *  anyExchange             │ permitAll   │ permitAll
+ *  anyExchange             │ authenticated│ authenticated
  * </pre>
  *
  * <h2>JWT resource-server wiring</h2>

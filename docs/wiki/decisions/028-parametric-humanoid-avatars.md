@@ -70,9 +70,16 @@ build surgery.
 Instead the model is **canonical in `rpg-builder`** and synced into the consumers
 by `make sync-character-model`, mirroring the existing `make sync-bridge-addon`
 idiom. The package is deliberately `games.hugmesh.character` (not
-`…rpgbuilder.…`) to mark it portable, it has **no Spring and no third-party
-dependencies**, and each consumer carries a `CharacterModelSyncTest` asserting its
-copy is byte-identical to the canonical tree. Drift fails the build.
+`…rpgbuilder.…`) to mark it portable, and it has **no Spring and no third-party
+dependencies**, so it copies verbatim.
+
+> **Status: live.** `backend/` and `vn-builder/` both carry the copy, each
+> guarded by a byte-identical `CharacterModelSyncTest` that fails the service's
+> own test run on any divergence — changed bytes, missing files, files added at
+> any depth, or a missing canonical tree (fail, never skip). `build-backend`
+> runs the sync as a prerequisite. The converse cost of the contract: editing a
+> canonical file without re-running `make sync-character-model` turns both
+> consumers' suites red — which is the guard doing its job.
 
 ## The parameter set
 

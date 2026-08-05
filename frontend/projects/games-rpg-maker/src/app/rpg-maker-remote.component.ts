@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { EMPTY, Observable, Subject, of, timer } from 'rxjs';
-import { catchError, debounceTime, switchMap, takeUntil } from 'rxjs/operators';
+import { catchError, switchMap, takeUntil } from 'rxjs/operators';
 
 interface RpgProject     { id: string; slug: string; displayName: string; description?: string; ownerCasdoorId?: string; updatedAt?: string; }
 interface RpgArea        { id: string; projectId: string; slug: string; name: string; sortOrder: number; gridMode: boolean; theme?: string; }
@@ -1041,7 +1041,10 @@ export class RpgMakerRemoteComponent implements OnInit, OnDestroy {
   previewExpression: string = EXPRESSIONS[0];
   importDoc = '';
   importError = '';
-  private previewRequests$ = new Subject<void>();
+  /** 'render' = debounced re-draw of the current config; 'cancel' = abort an
+   *  in-flight render whose target pane is gone (project switch). Routed
+   *  through ONE subject so switchMap in wirePreview() does the cancelling. */
+  private previewRequests$ = new Subject<'render' | 'cancel'>();
 
   // ── Buildings pane state (town-themed areas) ────────────────────────────
   buildings: RpgBuilding[] = [];
@@ -1082,8 +1085,14 @@ export class RpgMakerRemoteComponent implements OnInit, OnDestroy {
     this.buildings = []; this.selectedHostRoom = null; this.selectedBuilding = null; this.stock = [];
     this.avatarConfig = this.defaultAvatarConfig();
     // Drop the outgoing project's hero rather than leave its face on screen
-    // while the new project's config loads.
+    // while the new project's config loads. Clearing previewSrc alone is not
+    // enough: a render issued for the OLD project may still be in flight, and
+    // switchMap only cancels it on a new emission — which a bare field clear
+    // never produces — so the old hero landed AFTER this clear and repainted
+    // itself over the new project's pane. The 'cancel' goes through the same
+    // subject precisely so switchMap is the thing that aborts that request.
     this.previewSrc = ''; this.previewError = ''; this.previewPending = false;
+    this.previewRequests$.next('cancel');
     this.importDoc = ''; this.importError = '';
     this.loadAvatarConfig();
     this.http.get<RpgBuilding[]>(`/api/rpg/projects/${p.id}/buildings`).subscribe({
@@ -1227,8 +1236,18 @@ export class RpgMakerRemoteComponent implements OnInit, OnDestroy {
    */
   private wirePreview(): void {
     this.previewRequests$.pipe(
-      debounceTime(PREVIEW_DEBOUNCE_MS),
-      switchMap(() => this.renderPreview()),
+      // The debounce is NESTED (timer → request) rather than a debounceTime
+      // stage ahead of the switchMap, because switchMap only unsubscribes
+      // its inner observable when a new emission REACHES it. With the
+      // debounce in front, a 'cancel' would idle in the debounce window for
+      // 250 ms while the very request it was sent to kill landed anyway —
+      // the stale-hero repaint on project switch. Nested, every emission
+      // hits switchMap synchronously: 'cancel' aborts an in-flight render
+      // on the spot, and 'render' restarts the timer, so a slider drag
+      // still costs ONE request exactly as debounceTime made it.
+      switchMap(req => req === 'cancel'
+        ? EMPTY
+        : timer(PREVIEW_DEBOUNCE_MS).pipe(switchMap(() => this.renderPreview()))),
       takeUntil(this.destroyed$),
     ).subscribe(svg => {
       this.previewPending = false;
@@ -1262,7 +1281,7 @@ export class RpgMakerRemoteComponent implements OnInit, OnDestroy {
   /** Queue a debounced re-render. Every control in the pane calls this. */
   avatarChanged(): void {
     this.previewPending = true;
-    this.previewRequests$.next();
+    this.previewRequests$.next('render');
   }
 
   /**

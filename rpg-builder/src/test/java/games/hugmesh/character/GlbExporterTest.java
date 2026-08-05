@@ -409,12 +409,40 @@ class GlbExporterTest {
     }
 
     @Test
+    void theExportedSphereHasTheSAMEBandCountGodotBuilds() throws Exception {
+        // Matching string literals is NOT the property that matters — the two
+        // languages spelling the same integer says nothing about the resulting
+        // solids. Godot's SphereMesh walks `for (j = 0; j <= rings + 1; j++)`,
+        // so `rings = N` yields N+1 latitude BANDS; this exporter's loop treats
+        // its counter as the band count. Feeding it the raw constant shipped a
+        // head faceted into 3 bands in the .glb against 4 in-game.
+        //
+        // Counted from the geometry, so it stays true if either side is retuned.
+        for (boolean lowPoly : new boolean[]{true, false}) {
+            int radial = lowPoly ? GlbExporter.LOWPOLY_RADIAL : GlbExporter.SMOOTH_RADIAL;
+            int godotBands = (lowPoly ? GlbExporter.LOWPOLY_RINGS : GlbExporter.SMOOTH_RINGS) + 1;
+
+            // A lone sphere part, so the triangle count is attributable.
+            HumanoidRig.Joint solo = new HumanoidRig.Joint("Root", HumanoidRig.Vec3.ZERO);
+            solo.parts.add(HumanoidRig.Part.sphere("Ball", HumanoidRig.Vec3.ZERO,
+                    new HumanoidRig.Vec3(1, 1, 1), "#808080", "none"));
+
+            int tris = triangleCount(GlbExporter.export(solo, "sphere-probe", lowPoly));
+            // A UV sphere: 2 triangles per quad, minus one per pole band which
+            // degenerates to a single triangle.
+            int expected = radial * godotBands * 2 - radial * 2;
+            assertThat(tris).as("sphere bands at lowPoly=%s (radial=%s, godot bands=%s)",
+                    lowPoly, radial, godotBands).isEqualTo(expected);
+        }
+    }
+
+    @Test
     void quadPartsTessellate() {
         // Shape.QUAD is part of the contract but no rig part uses one yet, so
         // without this it would ship untested until the first one does.
         Joint root = new Joint("Root", Vec3.ZERO);
         root.add(new Part("Banner", Shape.QUAD, new Vec3(0, 1, 0), new Vec3(0.5, 0.8, 0.02),
-                Vec3.ZERO, 1.0, "#ff0000", "none"));
+                Vec3.ZERO, 1.0, "#ff0000", "none", Part.SLOT_BODY));
 
         byte[] glb = GlbExporter.export(root, "Banner", false);
         validate(glb);
@@ -601,6 +629,19 @@ class GlbExporterTest {
         }
         return fail("node %s has no child named %s",
                 nodes.get(parent).path("name").asText(), name);
+    }
+
+    /** Triangles across every primitive — the tessellation actually emitted. */
+    private static int triangleCount(byte[] glb) {
+        Glb g = parse(glb);
+        int total = 0;
+        for (JsonNode mesh : g.json.path("meshes")) {
+            for (JsonNode prim : mesh.path("primitives")) {
+                total += g.json.path("accessors")
+                        .get(prim.get("indices").asInt()).get("count").asInt() / 3;
+            }
+        }
+        return total;
     }
 
     private static long vertexCount(CharacterSpec spec) {

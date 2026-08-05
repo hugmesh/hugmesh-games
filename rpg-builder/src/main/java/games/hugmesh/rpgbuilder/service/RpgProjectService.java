@@ -71,7 +71,16 @@ public class RpgProjectService {
     }
 
     public Mono<RpgProject> get(UUID id, String ownerCasdoorId) {
-        return projects.findById(id).flatMap(p -> ownsOrFail(p, ownerCasdoorId));
+        // switchIfEmpty is load-bearing: flatMap never invokes its mapper on an
+        // empty source, so ownsOrFail's own null-check could never run and an
+        // unknown project id completed EMPTY. Callers returning Mono<T> then
+        // answered 200 with a zero-length body instead of 404 — harmless-looking
+        // for JSON, but `curl .../avatar.glb -o hero.glb` wrote an empty file
+        // that Blender rejects as corrupt, with no status code to explain it.
+        return projects.findById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "project not found")))
+                .flatMap(p -> ownsOrFail(p, ownerCasdoorId));
     }
 
     public Mono<RpgProject> create(RpgProject in, String ownerCasdoorId) {

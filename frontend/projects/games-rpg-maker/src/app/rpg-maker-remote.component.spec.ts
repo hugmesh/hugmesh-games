@@ -16,6 +16,7 @@ describe('RpgMakerRemoteComponent (Characters pane)', () => {
   let httpMock: HttpTestingController;
 
   const PROJECT = { id: 'p1', slug: 'six-realms', displayName: 'Six Realms' } as any;
+  const PROJECT_B = { id: 'p2', slug: 'flatland', displayName: 'Flatland' } as any;
   const PREVIEW_URL = '/api/rpg/avatar-preview.svg';
   // A predicate, not the bare string: HttpClientTestingBackend matches a
   // string against urlWithParams, and the preview carries ?expression&w&h.
@@ -77,25 +78,26 @@ describe('RpgMakerRemoteComponent (Characters pane)', () => {
   }
 
   /**
-   * Select the fixture project and flush the per-project fan-out GETs
-   * selectProject() issues — including the avatar-config load.
+   * Select a project (the p1 fixture by default) and flush the per-project
+   * fan-out GETs selectProject() issues — including the avatar-config load.
    */
-  function selectProject(opts: { npcs?: unknown[]; assets?: unknown[]; avatar?: unknown } = {}): void {
-    comp.selectProject(PROJECT);
-    httpMock.expectOne('/api/rpg/projects/p1/buildings').flush([]);
-    httpMock.expectOne('/api/rpg/projects/p1/areas').flush([]);
-    httpMock.expectOne('/api/rpg/projects/p1/rooms').flush([]);
-    httpMock.expectOne('/api/rpg/projects/p1/exits').flush([]);
-    httpMock.expectOne('/api/rpg/projects/p1/items').flush([]);
-    httpMock.expectOne('/api/rpg/projects/p1/npcs').flush(opts.npcs ?? []);
-    httpMock.expectOne('/api/rpg/projects/p1/assets').flush(opts.assets ?? []);
-    const avatarReq = httpMock.expectOne('/api/rpg/projects/p1/avatar-config');
+  function selectProject(opts: { npcs?: unknown[]; assets?: unknown[]; avatar?: unknown } = {},
+                         project: { id: string } = PROJECT): void {
+    comp.selectProject(project as any);
+    httpMock.expectOne(`/api/rpg/projects/${project.id}/buildings`).flush([]);
+    httpMock.expectOne(`/api/rpg/projects/${project.id}/areas`).flush([]);
+    httpMock.expectOne(`/api/rpg/projects/${project.id}/rooms`).flush([]);
+    httpMock.expectOne(`/api/rpg/projects/${project.id}/exits`).flush([]);
+    httpMock.expectOne(`/api/rpg/projects/${project.id}/items`).flush([]);
+    httpMock.expectOne(`/api/rpg/projects/${project.id}/npcs`).flush(opts.npcs ?? []);
+    httpMock.expectOne(`/api/rpg/projects/${project.id}/assets`).flush(opts.assets ?? []);
+    const avatarReq = httpMock.expectOne(`/api/rpg/projects/${project.id}/avatar-config`);
     expect(avatarReq.request.method).toBe('GET');
     avatarReq.flush(opts.avatar ?? DEFAULT_AVATAR);
     // Image-kind assets each trigger a preview-bytes GET (object URL).
     for (const a of (opts.assets ?? []) as { id: string; mimeType: string }[]) {
       if (a.mimeType?.startsWith('image/')) {
-        httpMock.expectOne(`/api/rpg/projects/p1/assets/${a.id}`).flush(new Blob(['<svg/>']));
+        httpMock.expectOne(`/api/rpg/projects/${project.id}/assets/${a.id}`).flush(new Blob(['<svg/>']));
       }
     }
     fixture.detectChanges();
@@ -197,6 +199,40 @@ describe('RpgMakerRemoteComponent (Characters pane)', () => {
     inFlight.flush('<svg xmlns="http://www.w3.org/2000/svg" id="second"/>');
     fixture.detectChanges();
     expect(decodeURIComponent(previewImg()!.getAttribute('src')!)).toContain('id="second"');
+  }));
+
+  it('switching projects cancels the in-flight render — the old hero never paints on the new pane', fakeAsync(() => {
+    boot();
+    selectProject();
+    flushPreview('<svg xmlns="http://www.w3.org/2000/svg" id="hero-a"/>');
+
+    // A render for project A goes out and is still in flight...
+    comp.setRenderStyle('lowpoly');
+    tick(DEBOUNCE_MS);
+    const inFlightA = httpMock.expectOne(isPreview);
+
+    // ...when the author switches to project B. The switch must abort A's
+    // request THROUGH the pipeline: clearing previewSrc alone cannot, because
+    // switchMap only cancels its inner request on a new emission — which is
+    // exactly how A's late response used to escape and repaint A's hero over
+    // B's pane until B's config GET + debounce + a second round trip elapsed.
+    selectProject({ avatar: { ...DEFAULT_AVATAR, projectId: 'p2', bodyShape: 'stocky' } }, PROJECT_B);
+    expect(inFlightA.cancelled).toBeTrue();
+
+    // A's response landing late must not reach the pane. (Guarded flush so a
+    // response-filtering fix is exercised the same way; under the cancelling
+    // fix the backend forbids flushing an aborted request.)
+    if (!inFlightA.cancelled) {
+      inFlightA.flush('<svg xmlns="http://www.w3.org/2000/svg" id="hero-a"/>');
+    }
+    fixture.detectChanges();
+    const afterSwitch = previewImg()?.getAttribute('src') ?? '';
+    expect(decodeURIComponent(afterSwitch)).not.toContain('id="hero-a"');
+
+    // B's own render — issued from B's freshly-loaded config — lands and shows.
+    const reqB = flushPreview('<svg xmlns="http://www.w3.org/2000/svg" id="hero-b"/>');
+    expect((reqB.request.body as Record<string, unknown>)['bodyShape']).toBe('stocky');
+    expect(decodeURIComponent(previewImg()!.getAttribute('src')!)).toContain('id="hero-b"');
   }));
 
   it('surfaces a preview 400 in role="alert" and keeps the last good frame', fakeAsync(() => {
@@ -508,7 +544,11 @@ describe('RpgMakerRemoteComponent (Characters pane)', () => {
   it('loads a .json file into the paste box', async () => {
     const file = new File(['{"kind":"hugmesh.character"}'], 'hero.json', { type: 'application/json' });
     comp.onImportFile({ target: { files: [file] } } as unknown as Event);
-    await new Promise(r => setTimeout(r, 10));
+    // Poll rather than a fixed wait: file.text() resolves on its own
+    // schedule, and a 10 ms bet loses on a loaded CI box.
+    for (let i = 0; i < 100 && !comp.importDoc; i++) {
+      await new Promise(r => setTimeout(r, 10));
+    }
     expect(comp.importDoc).toContain('hugmesh.character');
   });
 

@@ -1,11 +1,15 @@
 package games.hugmesh.vnbuilder.service;
 
+import games.hugmesh.character.AvatarSvgRenderer;
+import games.hugmesh.character.CharacterDocument;
+import games.hugmesh.character.CharacterSpec;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Deterministic, house-style placeholder art generator.
@@ -26,6 +30,12 @@ import java.util.Locale;
  *       on a tinted backdrop, derived from the character's colour (a hex
  *       {@code theme}) or a hue seeded from the slug, with a seeded hair
  *       accent.</li>
+ *   <li><b>character-portrait</b> — a head-and-shoulders render of the
+ *       platform's canonical parametric humanoid ({@code games.hugmesh.character},
+ *       decision 028), driven by an optional portable Character Document so a
+ *       VN portrait can be the SAME character every other surface renders.
+ *       Without a document it falls back to the default spec with the outfit
+ *       colour seeded exactly the way the flat portrait seeds its hue.</li>
  * </ul>
  *
  * <p>Every generated SVG carries a {@code data-seed} attribute equal to the
@@ -60,25 +70,38 @@ public class ProceduralAssetService {
 
     private static final Theme[] THEMES = Theme.values();
 
+    /** {@link #generate(String, String, String, Map)} without a Character
+     *  Document — the shape every pre-028 call site uses. */
+    public byte[] generate(String kind, String slug, String theme) {
+        return generate(kind, slug, theme, null);
+    }
+
     /**
      * Produce house-style placeholder SVG bytes.
      *
-     * @param kind  "background" or "portrait" (case-insensitive)
-     * @param slug  the asset slug — part of the deterministic seed
-     * @param theme optional theme/seed. For backgrounds: a theme name
-     *              (dawn/dusk/interior/forest/void) or any seed string (an
-     *              unrecognized value picks a theme deterministically). For
-     *              portraits: a {@code #rgb}/{@code #rrggbb} base colour, or
-     *              any seed string (colour derived from the seed hue).
+     * @param kind      "background", "portrait" or "character-portrait"
+     *                  (case-insensitive)
+     * @param slug      the asset slug — part of the deterministic seed
+     * @param theme     optional theme/seed. For backgrounds: a theme name
+     *                  (dawn/dusk/interior/forest/void) or any seed string (an
+     *                  unrecognized value picks a theme deterministically). For
+     *                  portraits: a {@code #rgb}/{@code #rrggbb} base colour, or
+     *                  any seed string (colour derived from the seed hue).
+     * @param character optional portable Character Document (character-portrait
+     *                  only) — the {@code hugmesh.character} interchange map
+     * @throws ResponseStatusException 400 on an unknown kind or an invalid
+     *         document — thrown synchronously, BEFORE any reactive pipeline, so
+     *         it can never surface as a 500 out of a subscribed Mono
      */
-    public byte[] generate(String kind, String slug, String theme) {
+    public byte[] generate(String kind, String slug, String theme, Map<String, ?> character) {
         String k = kind == null ? "" : kind.trim().toLowerCase(Locale.ROOT);
         long seed = seed(slug, theme);
         String svg = switch (k) {
             case "background" -> background(seed, theme);
             case "portrait" -> portrait(seed, theme);
+            case "character-portrait" -> characterPortrait(seed, theme, character);
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "kind must be one of: background, portrait");
+                    "kind must be one of: background, portrait, character-portrait");
         };
         return svg.getBytes(StandardCharsets.UTF_8);
     }
@@ -253,6 +276,37 @@ public class ProceduralAssetService {
           .append(" Z\" fill=\"").append(accent).append("\"/>");
         sb.append("</svg>");
         return sb.toString();
+    }
+
+    // ---- canonical character portraits -------------------------------------
+
+    /**
+     * Head-and-shoulders render of the canonical parametric humanoid, at the
+     * exact dimensions the flat bust portrait uses so the two are drop-in
+     * interchangeable anywhere a VN portrait slots in.
+     *
+     * <p>An absent (or empty — it carries no choices) document falls back to
+     * the default spec, with the 'body' (outfit) colour going through the SAME
+     * seed path as the flat portrait's base colour: a hex {@code theme} wins,
+     * otherwise a hue seeded from the slug. A character keeps its signature
+     * colour whether the project uses flat or canonical portraits.
+     */
+    private String characterPortrait(long seed, String theme, Map<String, ?> character) {
+        CharacterSpec spec;
+        if (character == null || character.isEmpty()) {
+            spec = CharacterSpec.builder()
+                    .color("body", rgbToHex(baseColour(theme, seed)))
+                    .build();
+        } else {
+            try {
+                spec = CharacterDocument.fromMap(character);
+            } catch (IllegalArgumentException e) {
+                // fromMap's whole point is strict values; rethrow as the 400 the
+                // API contract promises rather than an anonymous 500.
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+            }
+        }
+        return AvatarSvgRenderer.renderPortrait(spec, spec.expression(), PT_W, PT_H);
     }
 
     // ---- colour helpers ----------------------------------------------------

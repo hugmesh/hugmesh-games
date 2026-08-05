@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -51,13 +52,18 @@ public class AssetController {
      * {@link VnAsset} (mime image/svg+xml) through the same storage layout an
      * upload uses, so it materializes + renders identically. Same authz +
      * project-ownership guard as {@link #upload}.
+     *
+     * <p>The generate call stays OUTSIDE the returned Mono on purpose: its
+     * validation failures (unknown kind, invalid Character Document) throw
+     * synchronously and surface as the 400 they carry — signalled inside the
+     * Mono they would become a 500.
      */
     @PostMapping(path = "/projects/{pid}/assets/generate", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<VnAsset> generate(@PathVariable UUID pid,
                                   @RequestBody GenerateAssetRequest req,
                                   Authentication a) {
-        byte[] svg = procedural.generate(req.kind(), req.slug(), req.theme());
+        byte[] svg = procedural.generate(req.kind(), req.slug(), req.theme(), req.character());
         return storage.storeGenerated(pid, req.slug(), req.kind(),
                 ProceduralAssetService.SVG_MIME, svg, Roles.principalOf(a));
     }
@@ -68,6 +74,9 @@ public class AssetController {
                 .map(bytes -> ResponseEntity.ok().header("Cache-Control", "no-cache").body(bytes));
     }
 
-    /** Body for {@code POST /projects/{pid}/assets/generate}. */
-    public record GenerateAssetRequest(String slug, String kind, String theme) {}
+    /** Body for {@code POST /projects/{pid}/assets/generate}. {@code character}
+     *  is the optional portable Character Document ({@code hugmesh.character}
+     *  interchange JSON) honoured by kind {@code character-portrait}. */
+    public record GenerateAssetRequest(String slug, String kind, String theme,
+                                       Map<String, Object> character) {}
 }

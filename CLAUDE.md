@@ -267,7 +267,9 @@ Decision: see [`docs/wiki/decisions/028-parametric-humanoid-avatars.md`](docs/wi
 
 The canonical package is [`rpg-builder/src/main/java/games/hugmesh/character/`](rpg-builder/src/main/java/games/hugmesh/character/) — `CharacterSpec` (validated params + humanoid bounds) → `HumanoidRig` (the *only* geometry table) → `GdRigBaker` / `AvatarSvgRenderer` / `GlbExporter` / `CharacterDocument`. No Spring, no third-party deps, so it copies verbatim.
 
-`backend/` and `vn-builder/` carry **generated copies**, refreshed by `make sync-character-model` (the `make sync-bridge-addon` idiom — three independent Maven projects, each Dockerised with its own directory as build context, so a shared module means repo-wide build surgery). **Never hand-edit a copy**: each consumer's byte-identity sync test fails the build when its tree drifts from the canonical one.
+`make sync-character-model` copies it into `backend/` and `vn-builder/` (the `make sync-bridge-addon` idiom — three independent Maven projects, each Dockerised with its own directory as build context, so a shared module means repo-wide build surgery).
+
+Both consumers now carry the copy, and each carries a **byte-identical `CharacterModelSyncTest`** (deliberately the same file in both — per-service guard variants could themselves drift) that fails that service's test run on ANY divergence: changed bytes, a missing file, an added file **at any depth** (a fork hiding in `character/sub/` was exactly the blindspot an adversarial pass found in the first flat-listing version), or a missing canonical tree (fail, never skip). `build-backend` runs the sync as a prerequisite (the `sync-bridge-addon` → `build-rust` idiom). **Never hand-edit a copy** — and note the converse cost: editing a CANONICAL file means re-running `make sync-character-model` or both consumers' suites go red.
 
 **Growing a whitelist moves five things together**, and every one is tested:
 

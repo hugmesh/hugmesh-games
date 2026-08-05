@@ -23,6 +23,10 @@ public class PlayerCharacter {
     private int magicPower;
     private Long currentChapterId;
     private String casdoorId;
+    // user_avatars.id (Crypto.mintUid shape) — the per-character avatar
+    // override; null falls back to the account's active avatar. The FK is
+    // ON DELETE SET NULL so deleting an avatar never deletes the character.
+    private String avatarId;
     private Instant createdAt;
 
     public Long getId() { return id; }
@@ -40,6 +44,7 @@ public class PlayerCharacter {
     public int getMagicPower() { return magicPower; }
     public Long getCurrentChapterId() { return currentChapterId; }
     public String getCasdoorId() { return casdoorId; }
+    public String getAvatarId() { return avatarId; }
     public Instant getCreatedAt() { return createdAt; }
 
     public void setLevel(int level) { this.level = level; }
@@ -55,4 +60,5 @@ public class PlayerCharacter {
     public void setMagicPower(int magicPower) { this.magicPower = magicPower; }
     public void setCurrentChapterId(Long currentChapterId) { this.currentChapterId = currentChapterId; }
     public void setCasdoorId(String casdoorId) { this.casdoorId = casdoorId; }
+    public void setAvatarId(String avatarId) { this.avatarId = avatarId; }
 }

@@ -447,6 +447,8 @@ static func _build_building(room: Node3D, theme: String, b: Dictionary) -> void:
 
 # Body-height spread of a town's NPCs, as a multiplier on the generated rig.
 # Bounded so the tallest still fits under the name Label3D at y=2.3.
+# Mirrors HumanoidRig.EQUIPMENT_SLOTS.
+const NPC_EXCLUDED_SLOTS := ["hat", "face", "back", "held_main", "held_off"]
 const NPC_HEIGHT_MIN := 0.92
 const NPC_HEIGHT_SPAN := 0.14
 
@@ -459,7 +461,11 @@ static func _build_npc(room: Node3D, n: Dictionary) -> void:
     # generator never touched — a cylinder and a sphere, next to a rig that
     # could already produce a person.
     var variation := _npc_variation(str(n.get("uuid", "")) + str(n.get("slug", "")))
-    var avatar := AvatarFactory.build(AvatarConfig.AVATAR, variation)
+    # NPCs share the project's rig but NOT the hero's gear — otherwise every
+    # shopkeeper wears the crown and carries the sword the author equipped.
+    # Hair is deliberately kept; it reads as part of the person, not equipment.
+    var avatar := AvatarFactory.build_rig(AvatarConfig.RIG, str(AvatarConfig.STYLE),
+        variation, NPC_EXCLUDED_SLOTS)
     avatar.scale = Vector3.ONE * (NPC_HEIGHT_MIN + fposmod(variation * 7.0, 1.0) * NPC_HEIGHT_SPAN)
     # Facing spread as well as colour and height: a row of identically-oriented
     # townsfolk reads as a shop display rather than a town. The multipliers

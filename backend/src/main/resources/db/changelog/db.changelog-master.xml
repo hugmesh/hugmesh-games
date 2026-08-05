@@ -78,4 +78,5 @@
     -->
     <include file="db/changelog/057-advance-games-id-seq.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/058-six-realms-publisher-scope.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/059-user-avatars.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

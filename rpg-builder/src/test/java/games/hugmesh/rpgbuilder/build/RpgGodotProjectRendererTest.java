@@ -613,8 +613,16 @@ class RpgGodotProjectRendererTest {
         // NPCs come off the SAME factory as the hero and the remote avatars,
         // not the old hard-coded cylinder body + sphere head.
         assertThat(builder)
-                .contains("AvatarFactory.build(AvatarConfig.AVATAR")
+                .contains("AvatarFactory.build_rig(AvatarConfig.RIG")
                 .doesNotContain("Color(0.5, 0.4, 0.6)");
+        // …but NOT wearing the hero's gear. Instantiating the rig verbatim put
+        // the author's crown on every shopkeeper and the author's sword in
+        // every hand; equipment slots are excluded, hair deliberately is not
+        // (it reads as part of the person, not as kit).
+        assertThat(builder)
+                .contains("NPC_EXCLUDED_SLOTS")
+                .contains("\"hat\", \"face\", \"back\", \"held_main\", \"held_off\"")
+                .doesNotContain("\"hair\", \"hat\"");
         // The dialogue/TALK_NPC flow hangs off these three exactly as before.
         assertThat(builder)
                 .contains("var holder := Area3D.new()")

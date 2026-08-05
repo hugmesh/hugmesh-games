@@ -90,15 +90,21 @@ class AssetStorageServiceTest {
         verify(assets, never()).findByProjectIdOrderByUploadedAtDesc(any());
     }
 
-    // A missing project makes the ownership guard's findById emit empty, so the
-    // flatMapMany never runs: list() completes empty (same shape as read()) and
-    // the asset repo is never touched. (Not a thrown 404 — empty completion.)
-    @Test void list_missingProjectCompletesEmptyWithoutTouchingAssetRepo() {
+    // A missing project is a 404 from the ownership guard, and the asset repo is
+    // never reached. This used to complete EMPTY instead — flatMap does not run
+    // its mapper on an empty source, so the guard's own null-check was dead code
+    // and every /api/rpg read answered 200 with a zero-length body for an unknown
+    // id. Harmless-looking for JSON, but it made `avatar.glb` download an empty
+    // file that Blender rejects as corrupt with no status code to explain it.
+    @Test void list_missingProjectIs404WithoutTouchingAssetRepo() {
         UUID pid = UUID.randomUUID();
         when(projects.findById(pid)).thenReturn(Mono.empty());
 
         StepVerifier.create(svc.list(pid, "alice"))
-                .verifyComplete();
+                .expectErrorSatisfies(e -> assertThat(e)
+                        .isInstanceOf(ResponseStatusException.class)
+                        .hasMessageContaining("404"))
+                .verify();
 
         verify(assets, never()).findByProjectIdOrderByUploadedAtDesc(any());
     }

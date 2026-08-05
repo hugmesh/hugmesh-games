@@ -293,7 +293,10 @@ patch-godot:
 
 # ── Spring Boot Backend ───────────────────────────────────────────────────────
 
-build-backend:
+# sync-character-model is a prerequisite (the sync-bridge-addon → build-rust
+# idiom): the normal build path refreshes the consumer copies, and each
+# consumer's CharacterModelSyncTest fails its test run if they ever drift.
+build-backend: sync-character-model
 	@echo "→ Building Spring Boot API..."
 	@command -v mvn >/dev/null 2>&1 || { echo "ERROR: mvn not found"; exit 1; }
 	cd $(BACKEND_DIR) && ./mvnw -q package -DskipTests

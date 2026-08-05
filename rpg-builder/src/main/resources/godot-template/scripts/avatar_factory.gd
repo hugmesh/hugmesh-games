@@ -33,29 +33,36 @@ const SMOOTH_RINGS := 8
 # dictionary is accepted (and ignored) so those call sites did not have to
 # change when the rig moved into the baked data.
 static func build(cfg: Dictionary, hue_shift: float) -> Node3D:
-    return build_rig(AvatarConfig.RIG, str(AvatarConfig.STYLE), hue_shift)
+    return build_rig(AvatarConfig.RIG, str(AvatarConfig.STYLE), hue_shift, [])
 
 
-static func build_rig(rig: Dictionary, style: String, hue_shift: float) -> Node3D:
+# exclude_slots drops equipment the caller does not want — NPCs share the
+# project's rig, and without this every shopkeeper in town wore the hero's
+# crown and swung the hero's sword.
+static func build_rig(rig: Dictionary, style: String, hue_shift: float,
+        exclude_slots: Array = []) -> Node3D:
     var holder := Node3D.new()
     holder.name = "Avatar"
     # The rig faces +Z; Godot's convention is -Z forward. Rotating the whole
     # holder keeps the character's own left hand its left hand.
     holder.rotate_y(PI)
-    holder.add_child(_build_joint(rig, style, hue_shift))
+    holder.add_child(_build_joint(rig, style, hue_shift, exclude_slots))
     return holder
 
 
-static func _build_joint(joint: Dictionary, style: String, hue_shift: float) -> Node3D:
+static func _build_joint(joint: Dictionary, style: String, hue_shift: float,
+        exclude_slots: Array) -> Node3D:
     var node := Node3D.new()
     node.name = str(joint.get("name", "Joint"))
     node.position = joint.get("pos", Vector3.ZERO)
     for part in joint.get("parts", []):
+        if exclude_slots.has(str(part.get("slot", "body"))):
+            continue
         var mesh_node := _build_part(part, style, hue_shift)
         if mesh_node != null:
             node.add_child(mesh_node)
     for child in joint.get("children", []):
-        node.add_child(_build_joint(child, style, hue_shift))
+        node.add_child(_build_joint(child, style, hue_shift, exclude_slots))
     return node
 
 

@@ -48,6 +48,19 @@ public final class HumanoidRig {
     /** Sole height above y=0, so a walk cycle has room to lift a foot. */
     public static final double GROUND = 0.06;
 
+    // Equipment slots. A consumer can rebuild the same character without any
+    // subset of these — see Part#slot.
+    public static final String SLOT_HAIR = "hair";
+    public static final String SLOT_HAT = "hat";
+    public static final String SLOT_FACE = "face";
+    public static final String SLOT_BACK = "back";
+    public static final String SLOT_HELD_MAIN = "held_main";
+    public static final String SLOT_HELD_OFF = "held_off";
+
+    /** Everything an author equipped — what an NPC should NOT inherit. */
+    public static final List<String> EQUIPMENT_SLOTS =
+            List.of(SLOT_HAT, SLOT_FACE, SLOT_BACK, SLOT_HELD_MAIN, SLOT_HELD_OFF);
+
     public record Vec3(double x, double y, double z) {
         public static final Vec3 ZERO = new Vec3(0, 0, 0);
         public Vec3 plus(Vec3 o) { return new Vec3(x + o.x, y + o.y, z + o.z); }
@@ -67,28 +80,42 @@ public final class HumanoidRig {
      *               {@code outfit} or {@code none}
      */
     public record Part(String name, Shape shape, Vec3 pos, Vec3 size, Vec3 rot,
-                       double taper, String color, String tex) {
+                       double taper, String color, String tex, String slot) {
+
+        /**
+         * Parts that are the BODY carry {@link #SLOT_BODY}; anything an author
+         * equipped carries its item slot, so a consumer can rebuild the same
+         * character WITHOUT its gear. NPCs need exactly that: they share the
+         * project's rig, and without slots every shopkeeper in town wore the
+         * hero's crown and swung the hero's sword.
+         */
+        public static final String SLOT_BODY = "body";
 
         public static Part box(String n, Vec3 pos, Vec3 size, String color, String tex) {
-            return new Part(n, Shape.BOX, pos, size, Vec3.ZERO, 1.0, color, tex);
+            return new Part(n, Shape.BOX, pos, size, Vec3.ZERO, 1.0, color, tex, SLOT_BODY);
         }
 
         public static Part cyl(String n, Vec3 pos, double dia, double len, String color, String tex) {
-            return new Part(n, Shape.CYL, pos, new Vec3(dia, len, dia), Vec3.ZERO, 1.0, color, tex);
+            return new Part(n, Shape.CYL, pos, new Vec3(dia, len, dia), Vec3.ZERO, 1.0, color, tex, SLOT_BODY);
         }
 
         public static Part taperedCyl(String n, Vec3 pos, double botDia, double topDia,
                                       double len, String color, String tex) {
             double t = botDia == 0 ? 1.0 : topDia / botDia;
-            return new Part(n, Shape.CYL, pos, new Vec3(botDia, len, botDia), Vec3.ZERO, t, color, tex);
+            return new Part(n, Shape.CYL, pos, new Vec3(botDia, len, botDia), Vec3.ZERO, t, color, tex, SLOT_BODY);
         }
 
         public static Part sphere(String n, Vec3 pos, Vec3 size, String color, String tex) {
-            return new Part(n, Shape.SPHERE, pos, size, Vec3.ZERO, 1.0, color, tex);
+            return new Part(n, Shape.SPHERE, pos, size, Vec3.ZERO, 1.0, color, tex, SLOT_BODY);
         }
 
         public Part rotated(Vec3 r) {
-            return new Part(name, shape, pos, size, r, taper, color, tex);
+            return new Part(name, shape, pos, size, r, taper, color, tex, slot);
+        }
+
+        /** Same primitive, tagged as belonging to an equipment slot. */
+        public Part inSlot(String s) {
+            return new Part(name, shape, pos, size, rot, taper, color, tex, s);
         }
     }
 
@@ -210,12 +237,14 @@ public final class HumanoidRig {
         torso.child(chest);
         chest.add(new Part("Chest", Shape.BOX, new Vec3(0, chestLen / 2, 0),
                 new Vec3(chestW, chestLen, chestD), Vec3.ZERO, 1.0,
-                bare ? skin : outfit, bare ? "skin" : "outfit"));
+                bare ? skin : outfit, bare ? "skin" : "outfit", Part.SLOT_BODY));
         if (!bare) {
             chest.add(Part.box("Trim", new Vec3(0, chestLen * 0.30, chestD * 0.5),
                     new Vec3(chestW * 0.22, chestLen * 0.60, 0.02), accent, "outfit"));
         }
+        int backMark = chest.parts.size();
         backItem(chest, s, chestW, chestLen, chestD, accent);
+        tagAdded(chest, backMark, SLOT_BACK);
 
         // ── Head ─────────────────────────────────────────────────────────────
         Joint neck = new Joint("Neck", new Vec3(0, chestLen, 0));
@@ -226,9 +255,15 @@ public final class HumanoidRig {
         neck.child(head);
         skull(head, s, skullW, skullH, skullD, skin);
         face(head, s, skullH, skullD, hd);
+        int mark = head.parts.size();
         hair(head, s, skullW, skullH, skullD);
+        tagAdded(head, mark, SLOT_HAIR);
+        mark = head.parts.size();
         hat(head, s, skullW, skullH);
+        tagAdded(head, mark, SLOT_HAT);
+        mark = head.parts.size();
         faceItem(head, s, skullW, skullH, skullD);
+        tagAdded(head, mark, SLOT_FACE);
 
         // ── Arms ─────────────────────────────────────────────────────────────
         for (int side = 0; side < 2; side++) {
@@ -259,8 +294,14 @@ public final class HumanoidRig {
             hand.add(Part.box("Hand" + sfx, new Vec3(0, -handLen / 2, 0),
                     new Vec3(handW, handLen, handW * 0.7), skin, "skin"));
 
-            if (left) heldOff(hand, s, handLen);
-            else heldMain(hand, s, handLen, h);
+            int handMark = hand.parts.size();
+            if (left) {
+                heldOff(hand, s, handLen);
+                tagAdded(hand, handMark, SLOT_HELD_OFF);
+            } else {
+                heldMain(hand, s, handLen, h);
+                tagAdded(hand, handMark, SLOT_HELD_MAIN);
+            }
         }
 
         // ── Legs ─────────────────────────────────────────────────────────────
@@ -286,6 +327,20 @@ public final class HumanoidRig {
         }
 
         return root;
+    }
+
+    /**
+     * Retags everything a sub-assembly just appended.
+     *
+     * <p>Cheaper and far less error-prone than threading a slot through every
+     * {@code add()} inside the item builders, where one missed call would leave
+     * a stray sword blade attached to a character that is supposed to be
+     * unarmed.
+     */
+    private static void tagAdded(Joint j, int from, String slot) {
+        for (int i = from; i < j.parts.size(); i++) {
+            j.parts.set(i, j.parts.get(i).inSlot(slot));
+        }
     }
 
     // ── Head sub-assemblies ─────────────────────────────────────────────────

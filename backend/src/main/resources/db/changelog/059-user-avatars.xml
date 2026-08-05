@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Cross-service user avatars (decision 028). Each row is one saved avatar:
+      a name plus the portable Character Document (jsonb) the canonical
+      games.hugmesh.character package reads and writes. Ids are app-assigned
+      Crypto.mintUid tokens (43 chars — varchar(64) matches the 036 widening),
+      so the entity implements Persistable. The per-user avatar COUNT cap is
+      enforced in UserAvatarService, not here — the refusal needs a human
+      message, not a constraint violation.
+    -->
+
+    <changeSet id="059-1-user-avatars" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="user_avatars"/></not>
+        </preConditions>
+        <createTable tableName="user_avatars">
+            <column name="id" type="varchar(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="casdoor_id" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="document" type="jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="059-2-user-avatars-casdoor-idx" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <not><indexExists indexName="idx_user_avatars_casdoor_id"/></not>
+        </preConditions>
+        <createIndex tableName="user_avatars" indexName="idx_user_avatars_casdoor_id">
+            <column name="casdoor_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!--
+      AT MOST ONE active avatar per user, enforced by the database itself.
+      The select endpoint's single-statement swap (UPDATE ... SET is_active =
+      (id = :id) WHERE casdoor_id = :me) is the primary mechanism; this partial
+      unique index is the backstop that makes two-actives impossible even if a
+      future code path regresses to read-then-write. Raw <sql> because
+      Liquibase's <createIndex> cannot express a partial (WHERE) index.
+    -->
+    <changeSet id="059-3-user-avatars-one-active" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <not><indexExists indexName="uq_user_avatars_one_active"/></not>
+        </preConditions>
+        <sql>CREATE UNIQUE INDEX uq_user_avatars_one_active ON user_avatars (casdoor_id) WHERE is_active</sql>
+    </changeSet>
+
+    <!--
+      Per-character avatar override. ON DELETE SET NULL: deleting an avatar
+      must never delete (or orphan-block) the character wearing it — the
+      character just falls back to having no bound avatar.
+    -->
+    <changeSet id="059-4-player-characters-avatar-id" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="player_characters" columnName="avatar_id"/></not>
+        </preConditions>
+        <addColumn tableName="player_characters">
+            <column name="avatar_id" type="varchar(64)"/>
+        </addColumn>
+        <addForeignKeyConstraint
+            baseTableName="player_characters" baseColumnNames="avatar_id"
+            constraintName="fk_player_characters_avatar_id"
+            referencedTableName="user_avatars" referencedColumnNames="id"
+            onDelete="SET NULL"/>
+    </changeSet>
+
+</databaseChangeLog>

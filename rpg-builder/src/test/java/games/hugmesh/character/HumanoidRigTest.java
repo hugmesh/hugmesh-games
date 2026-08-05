@@ -331,6 +331,47 @@ class HumanoidRigTest {
     }
 
     @Test
+    void equipmentCarriesItsSlotSoAConsumerCanStripIt() {
+        // NPCs share the project's rig. Without slots they inherited the hero's
+        // gear verbatim — every shopkeeper in the crown, every hand on the
+        // sword. Body parts must stay SLOT_BODY or stripping equipment would
+        // also strip the character.
+        CharacterSpec s = CharacterSpec.builder()
+                .hatType("crown").faceItem("visor").backItem("cape")
+                .heldMain("sword").heldOff("shield").hairStyle("ponytail").build();
+        Map<String, List<Placed>> parts = flatten(HumanoidRig.of(s));
+
+        assertThat(parts.get("CrownBand").get(0).part().slot()).isEqualTo(HumanoidRig.SLOT_HAT);
+        assertThat(parts.get("Visor").get(0).part().slot()).isEqualTo(HumanoidRig.SLOT_FACE);
+        assertThat(parts.get("Cape").get(0).part().slot()).isEqualTo(HumanoidRig.SLOT_BACK);
+        assertThat(parts.get("SwordBlade").get(0).part().slot()).isEqualTo(HumanoidRig.SLOT_HELD_MAIN);
+        assertThat(parts.get("Shield").get(0).part().slot()).isEqualTo(HumanoidRig.SLOT_HELD_OFF);
+        assertThat(parts.get("Ponytail").get(0).part().slot()).isEqualTo(HumanoidRig.SLOT_HAIR);
+
+        for (String body : List.of("Pelvis", "Chest", "Skull", "UpperArmL", "ThighR", "FootL",
+                "HandR", "EyeL", "Mouth")) {
+            assertThat(parts.get(body).get(0).part().slot())
+                    .as("%s is body, not equipment", body).isEqualTo(Part.SLOT_BODY);
+        }
+    }
+
+    @Test
+    void strippingEquipmentLeavesAWholeCharacter() {
+        CharacterSpec armed = CharacterSpec.builder()
+                .hatType("crown").backItem("cape").heldMain("sword").heldOff("shield").build();
+        Map<String, List<Placed>> all = flatten(HumanoidRig.of(armed));
+
+        List<String> keptIfStripped = all.values().stream().flatMap(List::stream)
+                .filter(pl -> !HumanoidRig.EQUIPMENT_SLOTS.contains(pl.part().slot()))
+                .map(pl -> pl.part().name()).toList();
+
+        // Every limb survives; nothing the author equipped does.
+        assertThat(keptIfStripped).contains("Pelvis", "Chest", "Skull",
+                "UpperArmL", "ForearmR", "HandL", "ThighL", "ShinR", "FootL", "Mouth");
+        assertThat(keptIfStripped).doesNotContain("CrownBand", "Cape", "SwordBlade", "Shield");
+    }
+
+    @Test
     void renderStyleDoesNotChangeTheRig() {
         // Style is a materialisation concern (segment counts, flat shading), so
         // 2D/3D/glTF parity must hold identically across both.

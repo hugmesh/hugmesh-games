@@ -125,6 +125,7 @@ public final class GdRigBaker {
                 .append(", \"taper\": ").append(f(p.taper()))
                 .append(", \"color\": ").append(color(p.color()))
                 .append(", \"tex\": \"").append(p.tex())
+                .append("\", \"slot\": \"").append(p.slot())
                 .append("\"}");
     }
 
