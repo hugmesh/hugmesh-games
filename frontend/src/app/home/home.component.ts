@@ -19,6 +19,8 @@ import {
 } from '../services/multiplayer-session.service';
 import { NotificationService } from '../services/notification.service';
 import { SessionControlService } from '../services/session-control.service';
+import { SessionLeaveOnUnloadService } from '../services/session-leave-on-unload.service';
+import { SessionHeartbeatService } from '../services/session-heartbeat.service';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { GameCanvasComponent } from '../game-canvas/game-canvas.component';
 import { GameHudComponent } from '../game-hud/game-hud.component';
@@ -88,6 +90,8 @@ export class HomeComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly notify = inject(NotificationService);
   private readonly sessionControl = inject(SessionControlService);
+  private readonly leaveOnUnload = inject(SessionLeaveOnUnloadService);
+  private readonly heartbeat = inject(SessionHeartbeatService);
 
   characterId = 1;
   /** True when characterId was pinned by the `?characterId=` URL override
@@ -248,8 +252,11 @@ export class HomeComponent implements OnInit {
     const closed = this.sessionControl.sessionClosed();
     if (!closed) return;
     if (this.activeSessionId && closed.sessionId === this.activeSessionId && this.activeLevel) {
+      // Drop the seat locally FIRST. The room is already gone server-side, so
+      // closeLevel()'s leave() would be a DELETE against a closed session —
+      // harmless but pointless, and it would race the close it is reacting to.
+      this.forgetSeat();
       this.closeLevel();
-      this.activeSessionId = null;
     }
   });
 
@@ -343,7 +350,9 @@ export class HomeComponent implements OnInit {
     // success-side state updates here.
     this.multiplayer.join(s.id, { characterId: this.characterId, slotIndex: slot }).subscribe({
       next: updated => {
-        this.activeSessionId = updated.id;
+        // From here on a closed tab releases the seat instead of ghosting it,
+        // and a quiet one keeps it instead of being reaped.
+        this.holdSeat(updated.id);
         this.activeSlotIndex = slot;
         this.notify.success(`Joined "${updated.name}"`);
         this.refreshModalSessions(s.gameSlug);
@@ -371,7 +380,7 @@ export class HomeComponent implements OnInit {
       slotIndex: 0,
     }).subscribe({
       next: created => {
-        this.activeSessionId = created.id;
+        this.holdSeat(created.id);
         this.activeSlotIndex = 0;
         this.newSessionName = '';
         this.notify.success(`Session "${created.name}" created`);
@@ -500,6 +509,29 @@ export class HomeComponent implements OnInit {
       });
   }
 
+  /**
+   * Close the open chapter and release the seat that went with it.
+   *
+   * <p>The leave used to be missing entirely:
+   * `MultiplayerSessionService.leave()` had no caller anywhere in the
+   * frontend, so even this — a clean, deliberate, in-app exit — left the
+   * membership row `left_at IS NULL` forever and ghosted the player against
+   * the room's 16-avatar cap. Closing the tab was only the loudest symptom of
+   * a seat nothing ever released.
+   *
+   * <p><b>The superseded check is not optional.</b> A tab-takeover freezes the
+   * OLD tab's iframe but leaves the tab — and this toolbar — fully interactive:
+   * `paused` gates the game, not the Close button, and the frozen tab still
+   * holds `activeSessionId`. `left_at` is per MEMBER, not per tab, so a leave
+   * fired from here would stamp the row the NEW tab is actively playing under
+   * and evict a player sitting in front of a running game. The BFF cannot
+   * catch it either: `GameSessionService.leave` deliberately never drops an
+   * EXPLICIT leave (only `unload=true` ones, and only while a takeover is
+   * still pending), and if the superseded member is the creator the resulting
+   * `closeOnHostDrop` destroys the room for everybody. So the frozen tab tears
+   * itself down locally and says nothing to the server — the seat stays with
+   * the tab that is really playing, which is the whole point of the latch.
+   */
   closeLevel(): void {
     if (this.isFullscreen) document.exitFullscreen();
     if (this.activeLaunchUid) {
@@ -508,12 +540,54 @@ export class HomeComponent implements OnInit {
         catchError(() => of(null)),
       ).subscribe();
     }
+    const sessionId = this.activeSessionId;
+    if (sessionId) {
+      const superseded = this.sessionControl.superseded();
+      // Forget the seat before the request goes out so a tab closed while the
+      // DELETE is still in flight doesn't fire a second one from pagehide.
+      this.forgetSeat();
+      if (!superseded) {
+        // Errors are swallowed rather than toasted: the player asked to close
+        // the chapter and the UI has already done so. A leave that didn't land
+        // is collected by the BFF's SessionMemberReaper.
+        this.multiplayer.leave(sessionId).pipe(catchError(() => of(null))).subscribe();
+      }
+    }
     this.activeLevel = null;
     this.activeRemoteSlug = null;
     this.activeLaunchUid = null;
     this.activeGameSlug = null;
     this.activeWebNativeBaseUrl = null;
     this.isFullscreen = false;
+  }
+
+  /**
+   * Record that this tab now holds `sessionId`, and start both legs that keep
+   * the seat honest: the liveness heartbeat that stops the BFF's reaper
+   * collecting a quiet-but-live player, and the unload watcher that releases
+   * the seat when the tab goes away.
+   *
+   * <p>Single entry point on purpose — the two legs read the same id and a
+   * call site that updated one and forgot the other would either ghost a seat
+   * or reap a live one, silently.
+   */
+  private holdSeat(sessionId: string): void {
+    this.activeSessionId = sessionId;
+    this.leaveOnUnload.track(sessionId);
+    this.heartbeat.track(sessionId);
+  }
+
+  /**
+   * Drop the local record of the seat this tab holds — the heartbeat that
+   * keeps it alive and the one {@link SessionLeaveOnUnloadService} would
+   * release on `pagehide`. Purely local — the caller decides whether the
+   * server also needs telling. Exact inverse of {@link holdSeat}.
+   */
+  private forgetSeat(): void {
+    this.activeSessionId = null;
+    this.activeSlotIndex = null;
+    this.leaveOnUnload.track(null);
+    this.heartbeat.track(null);
   }
 
   toggleFullscreen(): void {

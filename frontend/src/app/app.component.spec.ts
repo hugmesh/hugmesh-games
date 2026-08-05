@@ -5,6 +5,10 @@ import { provideRouter, Router, NavigationError, NavigationStart } from '@angula
 import { Subject } from 'rxjs';
 
 import { AppComponent } from './app.component';
+import { SessionLeaveOnUnloadService } from './services/session-leave-on-unload.service';
+import { GamepadService } from './services/gamepad.service';
+import { ApiBridgeService } from './services/api-bridge.service';
+import { AdminActionsListenerService } from './services/admin-actions-listener.service';
 
 // Specs for the federation NavigationError banner. AppComponent
 // subscribes to Router.events so that a loadComponent() rejection on
@@ -94,5 +98,53 @@ describe('AppComponent', () => {
       component.retryFederationLoad();
       expect(navSpy).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * Bootstrap activation of the browser-tier services.
+ *
+ * These are pure side-effect `start()` calls with no return value and no
+ * component state, which is exactly why they were unasserted — and why
+ * deleting `this.leaveOnUnload.start()` kept the whole suite green while
+ * making the entire closed-tab fix inert: with no `pagehide` listener
+ * attached, `SessionLeaveOnUnloadService.track()` still records a session id
+ * that nothing will ever act on, and every closed tab ghosts its seat again.
+ * The activation, not just the service's own behaviour, has to be pinned.
+ *
+ * A fresh component is built here rather than reusing the outer suite's,
+ * because the spy has to exist BEFORE `ngOnInit` runs.
+ */
+describe('AppComponent bootstrap activation', () => {
+  function bootWithSpies() {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
+    });
+    const spies = {
+      leaveOnUnload: spyOn(TestBed.inject(SessionLeaveOnUnloadService), 'start'),
+      gamepads:      spyOn(TestBed.inject(GamepadService), 'start'),
+      apiBridge:     spyOn(TestBed.inject(ApiBridgeService), 'start'),
+      adminActions:  spyOn(TestBed.inject(AdminActionsListenerService), 'start'),
+    };
+    const component = TestBed.createComponent(AppComponent).componentInstance;
+    component.ngOnInit();
+    return spies;
+  }
+
+  it('attaches the unload seat-release listener at bootstrap', () => {
+    expect(bootWithSpies().leaveOnUnload).toHaveBeenCalled();
+  });
+
+  it('starts the other host-shell services it owns', () => {
+    // Same failure mode as the one above — assert the whole set so the next
+    // service added here inherits the pin instead of repeating the mistake.
+    const spies = bootWithSpies();
+    expect(spies.gamepads).toHaveBeenCalled();
+    expect(spies.apiBridge).toHaveBeenCalled();
+    expect(spies.adminActions).toHaveBeenCalled();
   });
 });

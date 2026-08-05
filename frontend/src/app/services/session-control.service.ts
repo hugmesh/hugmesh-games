@@ -80,6 +80,46 @@ export class SessionControlService implements OnDestroy {
    *  the iframe + shows a toast. */
   readonly sessionClosed = signal<{ sessionId: string; reason: string } | null>(null);
 
+  /**
+   * Latch: true while ANOTHER tab of this player holds the game, i.e. this
+   * tab is the stale one.
+   *
+   * `BroadcastChannel` never delivers a message to the context that posted
+   * it, so a tab that RECEIVES a `takeover-claim` for itself is by definition
+   * the OLD tab — that receipt is the only unambiguous "I am superseded"
+   * signal either side gets.
+   *
+   * <h3>What does NOT clear it</h3>
+   *
+   * No BFF-driven event does. `PLAYER_RESUMED` is broadcast to every
+   * subscriber of the session and matches on `casdoorId`, so the old tab
+   * un-pauses on it too; treating that as "I'm live again" would hand the
+   * latch straight back to the tab it was raised against. And the BFF cannot
+   * re-raise it afterwards — both tabs carry the same subject and the same
+   * JWT, so it has nothing left to tell them apart with.
+   *
+   * <h3>What DOES clear it</h3>
+   *
+   * Exactly one thing: {@link claimTakeover}, i.e. THIS tab launching a
+   * chapter. That is the mirror image of how the latch is raised — the tab
+   * that posts the claim is, by the same BroadcastChannel asymmetry, the new
+   * live tab, and the sibling that receives it latches in its place. Without
+   * this the latch would be permanent for the document: a player who was
+   * superseded, went back to the first tab and re-launched would be live in a
+   * tab that still refuses to release its seat, and every exit from it —
+   * Close button or tab close — would ghost the seat for the full reaper
+   * window this fix exists to avoid.
+   *
+   * <h3>Who reads it</h3>
+   *
+   * {@link SessionLeaveOnUnloadService} (the `pagehide` leg) and
+   * `HomeComponent.closeLevel` (the Close button). `left_at` is per MEMBER,
+   * not per tab, so a leave sent from a superseded tab evicts the player the
+   * NEW tab is playing as — strictly worse than the ghost seat. Both exits
+   * must check this, not just the unload one.
+   */
+  readonly superseded = signal(false);
+
   private channel: BroadcastChannel | null = null;
 
   constructor() {
@@ -140,8 +180,21 @@ export class SessionControlService implements OnDestroy {
    * Called by a NEW tab right after `POST /api/games/{slug}/launch`
    * resolves. Broadcasts to sibling tabs of the same player so they
    * can pause their WASM iframe.
+   *
+   * <p>Also releases {@link superseded}: this tab is the one posting the
+   * claim, and BroadcastChannel does not deliver to the sender, so by the
+   * same asymmetry that raises the latch on a receiver, a sender is the live
+   * tab. The re-claim path is real — a player superseded by a second tab can
+   * come back to the first one and launch again — and leaving the latch set
+   * there would make every exit from the now-live tab ghost its seat.
+   *
+   * <p>Cleared before the early return so the release does not depend on
+   * whether a channel exists: with no BroadcastChannel the latch can never
+   * have been raised in the first place (nothing else sets it), so clearing
+   * it is a no-op there rather than a hole.
    */
   claimTakeover(opts: { gameSlug: string; launchUid: string; sessionId: string | null }): void {
+    this.superseded.set(false);
     const me = (this.auth.getClaims()?.['sub'] as string | undefined) ?? null;
     if (!me || !this.channel) return;
     const msg: TakeoverMessage = {
@@ -189,6 +242,10 @@ export class SessionControlService implements OnDestroy {
     if (msg.kind === 'takeover-claim') {
       // I'm the OLD tab — freeze and notify the BFF so other subscribers
       // see the PLAYER_PAUSED event.
+      // Latch first: `paused` flips back off when the new tab's
+      // PLAYER_RESUMED reaches this tab, but "superseded" is permanent for
+      // the lifetime of this document — see the signal's doc comment.
+      this.superseded.set(true);
       this.paused.set(true);
       this.pauseReason.set('view moved to another tab');
       if (msg.sessionId) {
