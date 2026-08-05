@@ -67,8 +67,11 @@ signal avatar_received(user_id: String, config: Variant, meta: Dictionary)
 ##
 ## Applied only to a member the roster already admitted, and DROPPED otherwise
 ## (avatar_manager.set_sticker). That makes the channel lossy, so contract §4
-## puts ordering AND recovery on the host: it keeps its pre-handshake queue in
-## produced order, and re-sends every plate a roster names.
+## (v4) puts ordering AND recovery on the host: its pre-handshake queue stays
+## in produced order and flushes the admitting roster first, a newly ADMITTED
+## member's plate is re-sent (keyed on the member set — a rename re-sends
+## nothing), and a queue eviction rolls the host's sent-bookkeeping back so
+## the drop is re-sent rather than permanent.
 ##
 ## The declared `mime` is deliberately NOT carried onward: it is validated at
 ## this boundary (see STICKER_MIME_TYPES) and then has no reader — the decoder

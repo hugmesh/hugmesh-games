@@ -21,15 +21,18 @@ extends "res://tests/test_case.gd"
 #      a buffer would be a second, hidden roster nobody prunes.
 #
 #      THAT DROP IS LOSSY, AND ORDERING IS THE HOST'S JOB — contract §4, amended
-#      to v3 after both halves shipped. v1/v2 called this channel
+#      to v4 after both halves shipped. v1/v2 called this channel
 #      "order-independent", which reads as "either order is fine"; it is not
 #      what a silent drop is. Nothing on this channel reports one, so a sticker
 #      that outran its roster row was simply never seen again — an adversarial
 #      verifier reproduced a member with no plate, for anybody, for a whole
 #      session. The host now keeps its pre-handshake queue in produced order
-#      (§4a) and re-sends every plate a roster names (§4c). This side's rule is
-#      unchanged: refuse, and let the host re-send. What changed is that the
-#      re-send is now GUARANTEED rather than hoped for, and
+#      (§4a), flushes the admitting roster ahead of any sticker (§4b), re-sends
+#      a plate when its member is newly ADMITTED — keyed on the member set, so
+#      a rename re-sends nothing (§4c) — and rolls its sent-bookkeeping back
+#      when its queue evicts a sticker under byte/count pressure (§4d). This
+#      side's rule is unchanged: refuse, and let the host re-send. What changed
+#      is that the re-send is now GUARANTEED rather than hoped for, and
 #      `_the_hosts_lossy_interleave_recovers_on_the_next_roster` below drives
 #      the exact interleave the verifier found.
 #   3. THE CONTAINER ALLOW-LIST AND THE BYTE CAP ARE ENFORCED ON BOTH SIDES.
@@ -213,7 +216,7 @@ func _a_sticker_before_the_roster_row_is_dropped_not_buffered() -> void:
 	var png_b64 := Marshalls.raw_to_base64(_png())
 
 	# EARLY MEANS LOST, NOT HELD. The recovery path is a host re-send: contract
-	# §4(c) makes every roster push re-arm the plates it names, so the roster row
+	# §4(c) re-arms a plate when its member is newly ADMITTED, so the roster row
 	# that admits this member is itself what brings the bytes back. A queue here
 	# would be a second roster nobody prunes, and it would paint a plate onto
 	# whoever next claimed that mxid.
@@ -247,15 +250,21 @@ func _a_sticker_before_the_roster_row_is_dropped_not_buffered() -> void:
 ##
 ## The suite above drives this channel in the CORRECT order everywhere, which is
 ## exactly why nothing here caught it. What this pins is the two halves of the
-## v3 answer as they land on THIS side:
+## contract's answer (v4) as they land on THIS side:
 ##
 ##   * the loss is real and this side does not paper over it — @bob is plated
 ##     because his roster row preceded his sticker, @bill is not, and no
 ##     `avatar` rescues him: for a billboard member the host sends
 ##     `avatar(uid, null)` with no `mode`, and `_dispatch` only emits when
 ##     `cfg is Dictionary or meta["mode"] != ""`, so nothing upserts;
-##   * the recovery is a plain re-send after a roster (§4c) and needs no buffer,
-##     no ensure(), and no new message type on this side.
+##   * the recovery is a plain re-send after the roster that ADMITS the member
+##     (§4c — and §4d for a plate the host's own queue evicted) and needs no
+##     buffer, no ensure(), and no new message type on this side.
+##
+## A v4 host can no longer PRODUCE this flush order at all — §4(a) keeps its
+## queue in produced order and §4(b) flushes the admitting roster first — but
+## this side must stay honest against ANY host, so the interleave is pinned
+## as raw envelopes.
 func _the_hosts_lossy_interleave_recovers_on_the_next_roster() -> void:
 	var room := make_room()
 	var avatars: Node3D = room.get_node("Avatars")
@@ -287,10 +296,11 @@ func _the_hosts_lossy_interleave_recovers_on_the_next_roster() -> void:
 	ok((bill_entry["rig"] as Node3D).visible,
 			"…so he stands as his deterministic stand-in rig, looking like a deliberate choice")
 
-	# §4(c). The host does not learn about the drop — nothing on this channel
-	# tells it — so the recovery cannot be an ack. It is unconditional: the
-	# roster it just pushed is what ADMITS these members, so it re-sends every
-	# plate that roster names, and @bill's lands on the second attempt.
+	# §4(c)/(d). The host does not learn about the drop — nothing on this
+	# channel tells it — so the recovery cannot be an ack. It is keyed on what
+	# the host CAN see: a member it newly admitted (§4c) or a sticker its own
+	# queue evicted (§4d) is owed a (re-)send, and @bill's lands on the second
+	# attempt.
 	bridge.call("_dispatch", "sticker", [bill, png_b64, "image/png"])
 	ok(bool(avatars.call("has_sticker_image", bill)),
 			"the roster-triggered re-send plates @bill — the drop is not permanent")

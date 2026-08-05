@@ -136,16 +136,21 @@ interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
   against `MAX_MEDIA_BYTES` on receive — both enforced on the sending side too.
   An over-cap payload is refused on its base64 LENGTH before it is decoded, so
   the defence-in-depth leg never allocates the buffer it exists to reject.
-* **That drop is lossy, and ordering is matrix-ui's job (contract §4, v3).**
+* **That drop is lossy, and ordering is matrix-ui's job (contract §4, v4).**
   Earlier revisions called this channel "order-independent", which reads as
   "either order is fine"; it is not what a silent drop is. Nothing on this
   channel reports one, so a sticker that outran its roster row was never seen
   again — one member joining during the 15-30 s wasm cold-compile could reorder
   the host's pre-handshake queue and leave another member with no plate, for
   anybody, for the whole session. The host now keeps that queue in produced
-  order and re-sends every plate a roster names, which is what makes the drop
-  here recoverable. The rule on this side is unchanged: refuse, and let the
-  host re-send. `tests/test_chat3d_sticker.gd` drives the exact interleave.
+  order (§4a), flushes the admitting roster ahead of everything else (§4b),
+  re-sends a plate when its member is newly ADMITTED — keyed on the member
+  set, so a display-name change re-sends nothing (§4c; v3's re-arm on "any
+  roster change" let one member renaming re-drive every sticker in the room)
+  — and rolls its sent-bookkeeping back when its queue evicts under byte or
+  count pressure, so a dropped plate is re-sent instead of lost (§4d). The
+  rule on this side is unchanged: refuse, and let the host re-send.
+  `tests/test_chat3d_sticker.gd` drives the exact interleave.
 * **`roster` rows carry `name`, and it is what the nametag says** — the mxid
   localpart is only the fallback for an empty one. Names are sanitised with the
   BFF's display-name rule (control / bidi-override / invisible code points
