@@ -2,9 +2,9 @@
 
 > Mirror of [`chapters/01-overview.tex`](../../publishing/architecture/chapters/01-overview.tex).
 
-**HugMesh Games** is a browser-native multi-game portal: one Angular shell loads an 18-title catalog on demand, with a Spring Boot BFF streaming game state and controls over Server-Sent Events. Authentication runs through Casdoor (OAuth2 / OIDC) behind a federated login remote.
+**HugMesh Games** is a browser-native multi-game portal: one Angular shell loads a 19-title catalog on demand, with a Spring Boot BFF streaming game state and controls over Server-Sent Events. Authentication runs through Casdoor (OAuth2 / OIDC) behind a federated login remote.
 
-The catalog ships **two delivery models** (see [The two game families](#the-two-game-families)): **Godot 4 WASM** titles (*Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)*, *Connect Four (Godot)*) and **web-native Rust→wasm32** titles (14 board / puzzle / duel games) that run host-authoritative over the SSE relay.
+The catalog ships **two delivery models** (see [The two game families](#the-two-game-families)): **Godot 4 WASM** titles (*Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)*, *Connect Four (Godot)*, *Shadows of the Net – CHAT*) and **web-native Rust→wasm32** titles (14 board / puzzle / duel games) that run host-authoritative over the SSE relay.
 
 ## Three sentences
 
@@ -18,7 +18,7 @@ Each game lives in its own project under [`games/<slug>/`](../../../games/), exp
 
 | Family | Titles | Engine + delivery | Authority |
 |---|---|---|---|
-| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)*, *Connect Four (Godot)* | Godot 4.6 project → self-contained WASM bundle, loaded via a per-game `remote-game` Angular Web Component (or legacy iframe); *Chess (Godot)* / *Connect Four (Godot)* federate via a `wasm-game` row (changelogs 053 / 055) and each reuses its matching deterministic Rust core through the bridge (*Connect Four (Godot)*'s own merge commit flags the WASM export as not yet verified) | server (BFF) holds canonical game state |
+| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)*, *Connect Four (Godot)*, *Shadows of the Net – CHAT* | Godot 4.6 project → self-contained WASM bundle, loaded via a per-game `remote-game` Angular Web Component (or legacy iframe); *Chess (Godot)* / *Connect Four (Godot)* / *Shadows of the Net – CHAT* federate via a `wasm-game` row (changelogs 053 / 055 / 056) — *Chess (Godot)* and *Connect Four (Godot)* each reuse their matching deterministic Rust core through the bridge (*Connect Four (Godot)*'s own merge commit flags the WASM export as not yet verified), while *Shadows of the Net – CHAT* is pure GDScript with no Rust bridge at all | server (BFF) holds canonical game state |
 | **Web-native Rust→wasm32** | chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three (14) | pure-Rust engine in `extensions/hugmesh-<game>/` + a `-wasm` shim compiled to `wasm32-unknown-unknown` (zero host imports; runs identically in the browser, in-JVM via Chicory, and under Node), driving a `games/<slug>/` canvas frontend on the [`games/_shared/`](../../../games/_shared/README.md) `GAME` interface. **No per-game Angular remote** — a `federation_modules` row of `kind='wasm-game'` (changelog 051) points the host straight at the `wasm-fragment` bundle | **host-authoritative** — host browser runs the engine, BFF relays `control`/`world` over the per-session SSE stream, guest re-validates ([decision 016](../decisions/016-rust-extension-and-fragment-relay.md)) |
 
 ## What's in the box
