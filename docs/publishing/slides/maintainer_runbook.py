@@ -216,7 +216,7 @@ CLOSING = {
         "After every fire, propose a code-level fix so the next on-call doesn't see the same symptom.",
     ],
     "links": [
-        "Repo: github.com/hugmesh-net/hugmesh-games",
+        "Repo: github.com/hugmesh/hugmesh-games",
         "Administration deck: docs/publishing/slides/build/administration-manual.pptx",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
     ],

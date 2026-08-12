@@ -5,7 +5,7 @@
   "homepage": "https://hugmesh.games",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hugmesh-net/hugmesh-games.git",
+    "url": "https://github.com/hugmesh/hugmesh-games.git",
     "directory": "frontend"
   },
   "license": "UNLICENSED",

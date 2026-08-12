@@ -230,7 +230,7 @@ CLOSING = {
         "Ask for help in the team channel — every gotcha here cost someone an afternoon already.",
     ],
     "links": [
-        "Repo: github.com/hugmesh-net/hugmesh-games",
+        "Repo: github.com/hugmesh/hugmesh-games",
         "Issues + roadmap: docs/PLAN-module-federation-and-native.md",
         "Build everything locally: make docs-all",
     ],

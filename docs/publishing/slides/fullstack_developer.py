@@ -255,7 +255,7 @@ CLOSING = {
         "Most production fires this codebase has had came from skipping one of those three. Don't be the next one.",
     ],
     "links": [
-        "Repo: github.com/hugmesh-net/hugmesh-games",
+        "Repo: github.com/hugmesh/hugmesh-games",
         "Architecture PDF: make docs-pdf",
         "Build everything: make docs-all",
     ],

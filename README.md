@@ -17,8 +17,8 @@ The catalog ships titles in **two technical families** (see [Two game technologi
 
 | Resource | Link |
 |---|---|
-| Issue Tracker | [hugmesh-net/hugmesh-games/issues](https://github.com/hugmesh-net/hugmesh-games/issues) |
-| Pull Requests | [hugmesh-net/hugmesh-games/pulls](https://github.com/hugmesh-net/hugmesh-games/pulls) |
+| Issue Tracker | [hugmesh/hugmesh-games/issues](https://github.com/hugmesh/hugmesh-games/issues) |
+| Pull Requests | [hugmesh/hugmesh-games/pulls](https://github.com/hugmesh/hugmesh-games/pulls) |
 | **Wiki (in-repo)** | [docs/wiki/](docs/wiki/) — architecture chapters, audience guides, how-to recipes, decisions |
 | Godot developer guide | [docs/GODOT_DEVELOPER_GUIDE.md](docs/GODOT_DEVELOPER_GUIDE.md) |
 | LAN access (workstation) | [`lan.properties`](lan.properties) + `make lan-info` / `make lan-up` / `make lan-up-tls` |
@@ -42,7 +42,7 @@ At-a-glance summary of what's real on `main` today, evidenced by the code, tests
 - The host-authoritative web-native relay is proven end-to-end on `main`: the guest-side gap and the cross-pod Kafka leg are both merged and mutation-tested (full backend suite green). 9 of the 10 relay-capable web-native games have full two-browser UI-level e2e coverage (`e2e/tests/web-games-multiplayer.spec.ts`); battleship is deliberately excluded (documented in-file) pending a two-sided driver. That relay e2e suite itself has not yet been confirmed green against a live two-browser stack.
 - RPG + VN makers compile authored projects to real Godot WASM bundles when `app.build.godot-enabled=true`, including byte-copied asset materialization and deterministic procedural-SVG asset generation — see [decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
 - Kafka → ClickHouse streaming/audit pipeline, object-storage uploads, Postgres read-replica routing, and the per-brand `DOMAIN_` tenancy foundation — decisions [021](docs/wiki/decisions/021-kafka-clickhouse-streaming-pipeline.md), [020](docs/wiki/decisions/020-object-storage-uploads.md), [022](docs/wiki/decisions/022-postgres-read-replica.md), [025](docs/wiki/decisions/025-bff-domain-guard.md)/[026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
-- A recent OWASP-driven security pass closed several IDOR/BOLA/fail-open findings across the games BFF (see recent history on [Pull Requests](https://github.com/hugmesh-net/hugmesh-games/pulls?q=is%3Apr)).
+- A recent OWASP-driven security pass closed several IDOR/BOLA/fail-open findings across the games BFF (see recent history on [Pull Requests](https://github.com/hugmesh/hugmesh-games/pulls?q=is%3Apr)).
 
 **Known gaps** (see [Known gaps / TODO](#known-gaps--todo) for full detail): `InputEventController` enforces only 1 of its 3 documented validation gates; server-authoritative FPS/RTS engines exist and are tested in-JVM but have no catalog title yet; strict CSP isn't done; `CassandraSyncService` is superseded but not yet retired; *Connect Four (Godot)* is catalog-registered but its own merge commit flags the WASM export as unverified.
 

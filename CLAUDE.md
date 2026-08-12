@@ -150,7 +150,7 @@ Known missed renames fixed by 028-9 through 028-12: `chapter_prerequisites` tabl
 - **API contract** — `docs/publishing/openapi/openapi.fallback.json` is the static fallback. Live spec at `/v3/api-docs` when the BFF is up. The `api-docs` federated remote at `/admin/docs` renders it interactively.
 - **Marble diagrams** — `docs/publishing/architecture/marbles/` has one `.tex` per controller and per service. They're rendered to PNG by `bash docs/publishing/diagrams-rendered/render-all.sh`.
 - **A scenario or runbook** — six user guides under `docs/publishing/userguides/<audience>/`. Built into PDFs by `make docs-userguides`.
-- **What's currently in flight** — open PRs on https://github.com/hugmesh-net/hugmesh-games/pulls.
+- **What's currently in flight** — open PRs on https://github.com/hugmesh/hugmesh-games/pulls.
 
 ## Multiplayer + roles (post-PR)
 

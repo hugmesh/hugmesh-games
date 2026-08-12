@@ -282,7 +282,7 @@ CLOSING = {
         "When something breaks, read the BFF logs first — most paths emit a single descriptive line on failure.",
     ],
     "links": [
-        "Repo: github.com/hugmesh-net/hugmesh-games",
+        "Repo: github.com/hugmesh/hugmesh-games",
         "Architecture PDF: make docs-pdf",
         "Javadoc: make docs-javadocs",
     ],
