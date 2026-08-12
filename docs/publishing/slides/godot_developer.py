@@ -210,7 +210,7 @@ CLOSING = {
         "Every contract here is enforced by tests; if you stay inside the lines, the home page will pick your game up.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
+        "Repo: github.com/hugmesh/hugmesh-games",
         "Godot guide: docs/GODOT_DEVELOPER_GUIDE.md",
         "Architecture PDF: make docs-pdf",
     ],

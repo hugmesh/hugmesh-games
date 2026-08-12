@@ -293,11 +293,11 @@
           <bottom><![CDATA[
             <div class="snap-footer">
               <strong>HugMesh Games</strong> &middot;
-              <a href="https://github.com/Snapdragon-Systems/hugmesh-games">repository</a>
+              <a href="https://github.com/hugmesh/hugmesh-games">repository</a>
               &middot;
-              <a href="https://github.com/Snapdragon-Systems/hugmesh-games/blob/main/docs/publishing/architecture/architecture.tex">architecture (PDF)</a>
+              <a href="https://github.com/hugmesh/hugmesh-games/blob/main/docs/publishing/architecture/architecture.tex">architecture (PDF)</a>
               &middot;
-              <a href="https://github.com/Snapdragon-Systems/hugmesh-games/blob/main/README.md">README</a>
+              <a href="https://github.com/hugmesh/hugmesh-games/blob/main/README.md">README</a>
             </div>
           ]]></bottom>
           <header><![CDATA[
@@ -308,7 +308,7 @@
               </div>
               <div class="snap-meta">
                 hugmesh.games &middot;
-                <a href="https://github.com/Snapdragon-Systems/hugmesh-games">github</a>
+                <a href="https://github.com/hugmesh/hugmesh-games">github</a>
               </div>
             </div>
           ]]></header>

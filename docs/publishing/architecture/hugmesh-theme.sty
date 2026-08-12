@@ -283,13 +283,13 @@
 \DeclareRobustCommand{\snapcommand}[1]{\snap@brkpath{#1}}
 \DeclareRobustCommand{\snapfile}[1]{\snap@brkpath{#1}}
 
-\newcommand{\repolink}[2]{\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/#1}{#2}}
+\newcommand{\repolink}[2]{\href{https://github.com/hugmesh/ThreeWizardsInATrenchcoat/blob/main/#1}{#2}}
 
 % \reposrc has to keep the file-path text break-friendly the same way
 % \snapfile does, but it ALSO has to live inside \href{...}{<text>} where
 % the second arg is normal LaTeX. \snap@brkpath uses url's break logic,
 % which composes inside \href.
-\DeclareRobustCommand{\reposrc}[1]{\href{https://github.com/Snapdragon-Systems/ThreeWizardsInATrenchcoat/blob/main/#1}{\snap@brkpath{#1}}}
+\DeclareRobustCommand{\reposrc}[1]{\href{https://github.com/hugmesh/ThreeWizardsInATrenchcoat/blob/main/#1}{\snap@brkpath{#1}}}
 
 % Give LaTeX three more ems of slack on each line so paragraphs with
 % otherwise-unbreakable tokens (URLs, capitalised model names, the rare
