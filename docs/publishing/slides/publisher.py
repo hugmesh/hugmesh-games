@@ -186,7 +186,7 @@ CLOSING = {
         "Pruner is your friend; raise versions-to-keep before you need to roll back to something old.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
+        "Repo: github.com/hugmesh-net/hugmesh-games",
         "Admin deck: docs/publishing/slides/build/administration-manual.pptx",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
     ],

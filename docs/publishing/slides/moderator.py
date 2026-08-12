@@ -151,7 +151,7 @@ CLOSING = {
         "Use the session log liberally; pattern-matching on participation history is more reliable than memory.",
     ],
     "links": [
-        "Repo: github.com/Snapdragon-Systems/hugmesh-games",
+        "Repo: github.com/hugmesh-net/hugmesh-games",
         "Admin deck: docs/publishing/slides/build/administration-manual.pptx",
         "Architecture PDF: docs/publishing/architecture/build/architecture.pdf",
     ],

@@ -344,7 +344,7 @@ bundle:
 	                "Built: $(HUGMESH_BUILD_DATETIME)" \
 	                "Timestamp: $(HUGMESH_BUILD_TIMESTAMP)" \
 	                "Project: $(HUGMESH_PROJECT_NAME)" \
-	                "Repo: github.com/Snapdragon-Systems/hugmesh-games" \
+	                "Repo: github.com/hugmesh-net/hugmesh-games" \
 	                "" \
 	                "Layout:" \
 	                "  all-docs/   - every PDF + .pptx flat for easy copy-paste" \
