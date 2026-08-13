@@ -63,6 +63,47 @@ test.describe('per-role login + asset load', () => {
       );
       await expect.poll(() => seenAssets.size, { timeout: 45_000 }).toBeGreaterThan(0);
 
+      // ── Committed-bundle Godot game: shadows-of-the-net ──────────
+      // The kind='wasm-game' Godot bundles (migration 056) are served
+      // by the same wasm-fragment nginx but mount through the host's
+      // app-game-canvas as `iframe.game-frame` (NOT the federated
+      // remotes' `iframe.wasm-frame`), so the first-card path above
+      // never reaches them — shadows-of-the-net sorts last
+      // (sort_order = MAX+1). Re-check its bundle bytes explicitly
+      // for every role: game_access scope='all' means each seed user
+      // must be able to pull index.wasm/index.pck through the proxy.
+      // connect-four-godot (055) is deliberately NOT exercised here —
+      // it is registered-but-bundleless (no committed bundle under
+      // backend/src/main/resources/assets/levels/), the same reason
+      // no other spec launches it.
+      await page.locator('button.close-btn').click();
+
+      const shadowsCard = page.locator('.game-card', {
+        has: page.locator('.chip--game-slug', { hasText: /^shadows-of-the-net$/ }),
+      }).first();
+      await shadowsCard.waitFor({ state: 'visible', timeout: 15_000 });
+      await shadowsCard.click();
+
+      const shadowsPlay = page.locator('.modal-backdrop button.play-btn:not([disabled])').first();
+      await shadowsPlay.waitFor({ state: 'visible', timeout: 15_000 });
+      await shadowsPlay.click();
+
+      await page.waitForFunction(
+        () => document.querySelectorAll('iframe.game-frame').length > 0,
+        undefined,
+        { timeout: 30_000 },
+      );
+      const shadowsAssets = () =>
+        [...seenAssets].filter(u => u.includes('/_remotes/wasm-fragment/shadows-of-the-net/'));
+      await expect.poll(
+        () => shadowsAssets().filter(u => u.endsWith('.wasm')).length,
+        { timeout: 60_000, message: 'expected shadows-of-the-net index.wasm with HTTP 200 via wasm-fragment' },
+      ).toBeGreaterThan(0);
+      await expect.poll(
+        () => shadowsAssets().filter(u => u.endsWith('.pck')).length,
+        { timeout: 60_000, message: 'expected shadows-of-the-net index.pck with HTTP 200 via wasm-fragment' },
+      ).toBeGreaterThan(0);
+
       // Close the chapter and clean up so the per-role iteration
       // starts from a known state on the next user.
       await logout(page);
