@@ -181,7 +181,7 @@ public class SecurityConfig {
      * without authentication. Run with SPRING_PROFILES_ACTIVE=dev locally.
      *
      * <p>Infra / observability paths — restricted to ROLE_GAME-MASTER
-     * (platform admin issued out of snapdragon.systems Casdoor).
+     * (platform admin issued out of hugmesh.net Casdoor).
      * Same policy as the hugmesh-gateway + id-gateway, so leaking
      * cluster topology / Cassandra reachability / Liquibase
      * changelog state is impossible across the platform regardless

@@ -11,7 +11,7 @@ import reactor.core.publisher.Mono;
 /**
  * Per-game brand-scope gate — the catalog-data analog of
  * {@link PublisherService#requireOwns} / {@code ModerationService.requireScope},
- * for the multi-tenancy (snapdragon.systems) merger.
+ * for the multi-tenancy (hugmesh.net) merger.
  *
  * <p>Where {@code requireOwns}/{@code requireScope} ask "is this caller scoped to this
  * game by an explicit grant row?", this asks "does this caller's BRAND own this game?"

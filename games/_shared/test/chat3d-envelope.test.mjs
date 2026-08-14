@@ -81,7 +81,7 @@ ok(i === 3, `shim template consumes all 3 injected values (consumed ${i})`);
 
 // ── a minimal browser surface ───────────────────────────────────────────────
 
-const HOST = 'https://matrix.hugmesh.systems';
+const HOST = 'https://matrix.hugmesh.net';
 
 function bootShim({ search = `?mode=matrix&origin=${encodeURIComponent(HOST)}`, referrer = '' } = {}) {
   const listeners = [];

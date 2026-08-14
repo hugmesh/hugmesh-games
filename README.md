@@ -355,7 +355,7 @@ The Angular wrapper owns the EventSource and posts each typed SSE event into the
 **R2DBC + JDBC coexistence.**
 Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`. Spring Boot 4 skips `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` bean is present, so `JdbcDataSourceConfig` creates an explicit `@Primary HikariDataSource` for Liquibase only (pool size 3).
 
-**Per-brand domain isolation, mirrored from snapdragon.systems.**
+**Per-brand domain isolation, mirrored from hugmesh.net.**
 The BFF derives tenant identity the same way the hugmesh-gateway does: each brand has its own Casdoor instance, producing a distinct cryptographically-validated `iss` claim. `DomainRegistry` maps that issuer to a brand name; `CasdoorAuthorities` stamps exactly one `DOMAIN_<x>` authority on every token, with a reserved-prefix guard that prevents a `permissions:["DOMAIN_other"]` entry from forging a cross-tenant identity. `DomainGuardFilter` is the first consumer of this authority: when `app.tenancy.domain` names the brand this BFF instance serves, it returns 403 (with `X-Domain-Denied`) for any authenticated non-SUPERADMIN token whose `DOMAIN_<x>` does not match — a defence-in-depth mirror of the gateway's domain hard-deny, covering compose-network traffic that reaches the BFF without traversing the gateway edge. When `app.tenancy.domain` is unset (the single-Casdoor default), the filter is a complete no-op. An optional `app.tenancy.issuers` CSV activates a per-brand multi-issuer decoder (`TenancyResourceServerConfig`). See [decision 025](docs/wiki/decisions/025-bff-domain-guard.md).
 
 **Module Federation: host + twelve remotes + a fragment + 14 `wasm-game` rows.**

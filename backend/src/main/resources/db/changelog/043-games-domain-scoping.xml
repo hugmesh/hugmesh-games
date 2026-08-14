@@ -6,7 +6,7 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
 
   <!--
-      Per-brand catalog scoping — the multi-tenancy (snapdragon.systems) merger.
+      Per-brand catalog scoping — the multi-tenancy (hugmesh.net) merger.
 
       Adds a `domain` column to the umbrella `games` table (the 012-6 table; the
       ORIGINAL 001 games table was renamed levels->chapters long ago, so this lands

@@ -116,7 +116,7 @@ class CasdoorAuthoritiesTest {
         @Test
         void roleClaimAlreadyRolePrefixedDoesNotDoublePrefix() {
             // Regression for the bug class hugmesh-gateway#74 fixed: a Casdoor
-            // role NAMED "ROLE_ADMIN" (the snapdragon.systems seed convention,
+            // role NAMED "ROLE_ADMIN" (the hugmesh.net seed convention,
             // as opposed to this realm's own bare "admin" convention) must still
             // canonicalize to the single-prefixed ROLE_ADMIN, not double-prefix
             // to ROLE_ROLE_ADMIN and silently miss every hasRole() check.

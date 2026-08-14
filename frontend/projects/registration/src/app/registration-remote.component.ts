@@ -54,7 +54,7 @@ import { Router } from '@angular/router';
           <p class="hint">
             If you administer a repo in any HugMesh GitHub
             organisation you'll be auto-granted admin in
-            snapdragon.systems — otherwise you'll land as a regular
+            hugmesh.net — otherwise you'll land as a regular
             player with no extra fuss.
           </p>
         }
