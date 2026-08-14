@@ -14,7 +14,7 @@ import games.hugmesh.rpgbuilder.repository.RpgShopStockRepository;
 import games.hugmesh.rpgbuilder.util.SlugUtil;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -76,10 +76,14 @@ public class RpgBuildingService {
     private final RpgItemRepository items;
     private final RpgBuildingRepository buildings;
     private final RpgShopStockRepository stocks;
+    /** Wraps create/update/delete's multi-write chains in one reactive transaction — see
+     *  {@link games.hugmesh.rpgbuilder.config.RpgBuilderTxConfig}. */
+    private final TransactionalOperator tx;
 
     public RpgBuildingService(RpgProjectService projects, RpgAreaRepository areas, RpgRoomRepository rooms,
                               RpgExitRepository exits, RpgItemRepository items,
-                              RpgBuildingRepository buildings, RpgShopStockRepository stocks) {
+                              RpgBuildingRepository buildings, RpgShopStockRepository stocks,
+                              TransactionalOperator tx) {
         this.projects = projects;
         this.areas = areas;
         this.rooms = rooms;
@@ -87,6 +91,7 @@ public class RpgBuildingService {
         this.items = items;
         this.buildings = buildings;
         this.stocks = stocks;
+        this.tx = tx;
     }
 
     public Flux<RpgBuilding> list(UUID projectId, String principal) {
@@ -94,7 +99,6 @@ public class RpgBuildingService {
                 .flatMapMany(p -> buildings.findByProjectIdOrderByNameAsc(projectId));
     }
 
-    @Transactional
     public Mono<RpgBuilding> create(UUID projectId, RpgBuilding in, String principal) {
         if (!SlugUtil.isValid(in.getSlug())) {
             return badRequest("building slug invalid");
@@ -173,7 +177,8 @@ public class RpgBuildingService {
                                                 "building slug already taken: " + in.getSlug(), e));
                             })
                             .flatMap(saved -> createInterior(saved, area.getSlug()).thenReturn(saved));
-                });
+                })
+                .as(tx::transactional);
     }
 
     /** Auto-create one interior room per level (basements bottom-up,
@@ -208,7 +213,6 @@ public class RpgBuildingService {
                 });
     }
 
-    @Transactional
     public Mono<RpgBuilding> update(UUID projectId, UUID buildingId, RpgBuilding in, String principal) {
         return projects.get(projectId, principal)
                 .flatMap(p -> inProject(projectId, buildingId))
@@ -281,10 +285,10 @@ public class RpgBuildingService {
                                         }
                                         return buildings.save(b);
                                     }));
-                });
+                })
+                .as(tx::transactional);
     }
 
-    @Transactional
     public Mono<Void> delete(UUID projectId, UUID buildingId, String principal) {
         // Mono.defer at each stage pins the delete ORDER to actual
         // execution (stock → exits → rooms → building) rather than
@@ -302,7 +306,8 @@ public class RpgBuildingService {
                             return exits.deleteByFromRoomIdInOrToRoomIdIn(ids, ids)
                                     .then(Mono.defer(() -> rooms.deleteAllById(ids)));
                         })
-                        .then(Mono.defer(() -> buildings.deleteById(buildingId))));
+                        .then(Mono.defer(() -> buildings.deleteById(buildingId))))
+                .as(tx::transactional);
     }
 
     // ── Shop stock ──────────────────────────────────────────────────────────

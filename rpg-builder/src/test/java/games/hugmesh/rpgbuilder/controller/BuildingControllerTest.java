@@ -211,7 +211,7 @@ class BuildingControllerTest {
         Mono<RpgShopStock> createStockResult = Mono.empty();
         Mono<Void> deleteStockResult = Mono.empty();
 
-        StubBuildingService() { super(null, null, null, null, null, null, null); }
+        StubBuildingService() { super(null, null, null, null, null, null, null, null); }
 
         void reset() {
             listResult = Flux.empty();

@@ -6,6 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
+import org.springframework.transaction.reactive.TransactionCallback;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -62,7 +64,7 @@ class RpgBuildingServiceTest {
         RpgProjectService projectSvc = new RpgProjectService(projects, areas, rooms, exits, items,
                 mock(RpgNpcRepository.class), mock(RpgScriptRepository.class), buildings,
                 mock(RpgAssetRepository.class));
-        svc = new RpgBuildingService(projectSvc, areas, rooms, exits, items, buildings, stocks);
+        svc = new RpgBuildingService(projectSvc, areas, rooms, exits, items, buildings, stocks, passThroughTx());
 
         pid = UUID.randomUUID();
         RpgProject p = new RpgProject();
@@ -72,6 +74,28 @@ class RpgBuildingServiceTest {
 
         areaId = UUID.randomUUID();
         hostRoomId = UUID.randomUUID();
+    }
+
+    /** A pass-through {@link TransactionalOperator}: {@code transactional(Mono/Flux)} returns
+     *  the publisher unchanged. These mocked-repo unit tests have no real connection, so no
+     *  transaction can (or needs to) be opened. */
+    private static TransactionalOperator passThroughTx() {
+        return new TransactionalOperator() {
+            @Override
+            public <T> Mono<T> transactional(Mono<T> mono) {
+                return mono;
+            }
+
+            @Override
+            public <T> Flux<T> transactional(Flux<T> flux) {
+                return flux;
+            }
+
+            @Override
+            public <T> Flux<T> execute(TransactionCallback<T> action) {
+                throw new UnsupportedOperationException("execute() is unused by RpgBuildingService");
+            }
+        };
     }
 
     private void wireTownHost() {
