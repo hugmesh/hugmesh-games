@@ -3,7 +3,7 @@ extends Node
 # Matrix-mode transport — the versioned Chat3D postMessage interface
 # (XR-chat DESIGN §5). NO games BFF is involved in this mode: all I/O goes
 # through a JS global `Chat3D` installed on the iframe window, driven by the
-# embedding page (snapdragon-matrix-ui's Chat3dHostComponent).
+# embedding page (hugmesh-matrix-ui's Chat3dHostComponent).
 #
 # IN — the host page calls (directly, or via the postMessage envelope below):
 #   Chat3D.roster(json)                     full participant list (JSON array)

@@ -2,7 +2,7 @@ extends "res://tests/test_case.gd"
 
 # REGRESSION — the ten divergences a code-to-code convergence audit found
 # between the two independently-fixed halves of the Chat3D bridge: this room
-# (game half) and snapdragon-matrix-ui's chat3d/** (host half). The envelope,
+# (game half) and hugmesh-matrix-ui's chat3d/** (host half). The envelope,
 # the `ready` handshake and 10 of 12 message types had converged; these had not.
 #
 # Every check below fails against the pre-convergence room. They are grouped by
@@ -19,7 +19,7 @@ extends "res://tests/test_case.gd"
 #   9  billboard-mode avatars are representable
 #  10  origin AND source-window pinning (JS half — see the note at the bottom)
 #
-# THE AUTHORITY for 1/2/7/8 is snapdragon-character-forge-bff-api's
+# THE AUTHORITY for 1/2/7/8 is hugmesh-character-forge-bff-api's
 # Char3DConfigValidator; the literals below are copied from it, on purpose, so
 # that a future "tidy-up" of the mirror has to disagree with the server in
 # writing.

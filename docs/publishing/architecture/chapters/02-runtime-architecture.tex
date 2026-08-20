@@ -264,7 +264,7 @@ the in-process gameplay path without changing it. Gated by
 \end{itemize}
 
 ClickHouse consumes via Kafka-engine tables + materialised views
-(\snapfile{docker/clickhouse-init/01-snapdragon-schema.sql}) and stores
+(\snapfile{docker/clickhouse-init/01-hugmesh-schema.sql}) and stores
 each topic durably in a MergeTree counterpart. The
 \texttt{player\_state\_current} ReplacingMergeTree captures the latest
 per-character state for cross-pod recovery.

@@ -24,8 +24,8 @@ import java.util.function.BiFunction;
  * <h2>Responsibility</h2>
  *
  * <p>Emits one JSON row per audit event to Kafka. ClickHouse consumes the topic via its
- * built-in Kafka-engine table (see {@code docker/clickhouse-init/01-snapdragon-schema.sql});
- * a materialised view fans the rows into the durable {@code snapdragon.state_audit}
+ * built-in Kafka-engine table (see {@code docker/clickhouse-init/01-hugmesh-schema.sql});
+ * a materialised view fans the rows into the durable {@code hugmesh.state_audit}
  * MergeTree table for cheap aggregate reads without scraping the SSE stream.
  *
  * <p>This publisher replaces the analytics half of the nightly {@code CassandraSyncService}

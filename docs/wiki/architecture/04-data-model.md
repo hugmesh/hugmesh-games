@@ -163,7 +163,7 @@ Four Kafka topics:
 | `game_kpi` | `GameKpiPublisher` | Per-game KPIs posted by federated game remotes via `POST /api/telemetry/game/{slug}`. Iframes hit the BFF directly under existing `WebConfig` CORS allowlist. |
 | `session.<id>.events` | `SessionTopicManager` | Per-session topics created on session-create so a cross-pod subscriber can hydrate only the sessions it cares about. |
 
-ClickHouse consumes via Kafka-engine tables + materialized views (`docker/clickhouse-init/01-snapdragon-schema.sql`) that land each topic in a durable MergeTree counterpart. The `player_state_current` ReplacingMergeTree captures the latest per-character state for session-reconnect recovery; `PlayerStateRecoveryService` queries it through the ClickHouse HTTP interface from `GameStateService.hydrate(...)`, with `Mono.empty()` as the expected miss path (SSE / gameplay never blocks). Rolling KPI aggregates (`kpi_rolling_avg_24h`) feed admin dashboards.
+ClickHouse consumes via Kafka-engine tables + materialized views (`docker/clickhouse-init/01-hugmesh-schema.sql`) that land each topic in a durable MergeTree counterpart. The `player_state_current` ReplacingMergeTree captures the latest per-character state for session-reconnect recovery; `PlayerStateRecoveryService` queries it through the ClickHouse HTTP interface from `GameStateService.hydrate(...)`, with `Mono.empty()` as the expected miss path (SSE / gameplay never blocks). Rolling KPI aggregates (`kpi_rolling_avg_24h`) feed admin dashboards.
 
 ## Object-storage backed uploads
 

@@ -1,6 +1,6 @@
 # Remote-avatar manager for a produced RPG bundle (hugmesh-rpg-builder).
 #
-# Replaces SnapdragonMultiplayerLobby for maker games (CRITIQUE mustFix: the Rust
+# Replaces HugMeshMultiplayerLobby for maker games (CRITIQUE mustFix: the Rust
 # lobby is broken in web mode — the BFF PlayerMovement payload has no `slot`, and
 # late joiners never spawn). This node:
 #   * connects HostBridge.movement_received,

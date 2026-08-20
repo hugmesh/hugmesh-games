@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+    REBRAND — rename the least-privilege register.sql role to the HugMesh name.
+
+    Changeset 054 (already applied on live databases, therefore immutable —
+    checksums) created the role under its legacy name. This ADDITIVE changeset
+    renames it in place: ALTER ROLE ... RENAME TO preserves the role OID, so
+    every table/sequence GRANT from 054-2 and the login-role membership from
+    054-3 carry over untouched. The application default
+    (`app.uploads.register-sql.role`) flips to `hugmesh_register_sql` in the
+    same commit; APP_UPLOADS_REGISTER_SQL_ROLE stays the override knob.
+
+    The legacy spelling below is the rename SOURCE — it must be named to be
+    renamed (same pattern as hugmesh-federation-api's
+    039-rebrand-character-forge-remote-entry.xml).
+
+    Idempotent: preconditions MARK_RAN when the old role is absent (fresh DB
+    where 054 + this ran already, or the rename was done by hand) or the new
+    role already exists.
+  -->
+
+  <changeSet id="060-1-rename-register-sql-role" author="claude" runInTransaction="false">
+    <preConditions onFail="MARK_RAN">
+      <and>
+        <sqlCheck expectedResult="1">
+          SELECT COUNT(*) FROM pg_roles WHERE rolname = 'snapdragon_register_sql'
+        </sqlCheck>
+        <sqlCheck expectedResult="0">
+          SELECT COUNT(*) FROM pg_roles WHERE rolname = 'hugmesh_register_sql'
+        </sqlCheck>
+      </and>
+    </preConditions>
+    <sql splitStatements="false"><![CDATA[
+      ALTER ROLE snapdragon_register_sql RENAME TO hugmesh_register_sql;
+    ]]></sql>
+  </changeSet>
+
+</databaseChangeLog>

@@ -20,7 +20,7 @@ import java.util.Base64;
  *
  * <p>Provides the {@code clickHouseWebClient} bean consumed by
  * {@link PlayerStateRecoveryService}, which queries
- * {@code snapdragon.player_state_current FINAL} to recover a player's most-recent
+ * {@code hugmesh.player_state_current FINAL} to recover a player's most-recent
  * movement state after a pod restart.
  *
  * <h2>Why HTTP rather than the JDBC driver</h2>
@@ -90,7 +90,7 @@ public class ClickHouseClientConfig {
             @Value("${app.clickhouse.endpoint:http://clickhouse:8123}") String endpoint,
             @Value("${app.clickhouse.user:default}")     String user,
             @Value("${app.clickhouse.password:}")        String password,
-            @Value("${app.clickhouse.database:snapdragon}") String database) {
+            @Value("${app.clickhouse.database:hugmesh}") String database) {
         log.info("[clickhouse] WebClient wired → endpoint={} user={} database={}",
                 endpoint, user, database);
         // Build the Basic auth header value once at construction time so every request

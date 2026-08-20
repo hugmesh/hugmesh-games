@@ -69,7 +69,7 @@ class PlayerStateRecoveryServiceTest {
                         "Basic " + Base64.getEncoder().encodeToString("default:".getBytes()))
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_PLAIN_VALUE)
                 .build();
-        recovery = new PlayerStateRecoveryService(client, "snapdragon.player_state_current");
+        recovery = new PlayerStateRecoveryService(client, "hugmesh.player_state_current");
     }
 
     @AfterEach
@@ -95,7 +95,7 @@ class PlayerStateRecoveryServiceTest {
         assertThat(lastQuery.get()).contains("param_gameSlug=three-wizards");
         assertThat(lastQuery.get()).contains("param_sessionId=sess-A");
         assertThat(lastQuery.get()).contains("param_characterId=1");
-        assertThat(lastBody.get()).contains("FROM snapdragon.player_state_current FINAL");
+        assertThat(lastBody.get()).contains("FROM hugmesh.player_state_current FINAL");
         assertThat(lastBody.get()).contains("channel = 'movement'");
     }
 

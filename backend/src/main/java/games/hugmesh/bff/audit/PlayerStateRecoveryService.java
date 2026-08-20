@@ -22,7 +22,7 @@ import java.time.Duration;
  * <p>Used by {@code GameStateService}'s hydrate path when a player reconnects through a
  * pod that did not originally serve their session. Instead of waiting for the Cassandra
  * cache to roll forward or performing a cold Postgres lookup, the BFF queries the
- * {@code snapdragon.player_state_current} ReplacingMergeTree table in ClickHouse. That
+ * {@code hugmesh.player_state_current} ReplacingMergeTree table in ClickHouse. That
  * table has up-to-date state because every channel emission in {@link GameEventPublisher}
  * tees into Kafka, and ClickHouse materialises the rows via the
  * {@code player_state_current} materialised view.
@@ -30,7 +30,7 @@ import java.time.Duration;
  * <h2>Recovery query</h2>
  *
  * <pre>
- *   SELECT payload_json FROM snapdragon.player_state_current FINAL
+ *   SELECT payload_json FROM hugmesh.player_state_current FINAL
  *   WHERE game_slug = '...' AND session_id = '...' AND character_id = '...'
  *     AND channel = 'movement'
  *   LIMIT 1
@@ -85,7 +85,7 @@ public class PlayerStateRecoveryService {
     private final WebClient ch;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /** Fully-qualified table name, e.g. {@code snapdragon.player_state_current}. */
+    /** Fully-qualified table name, e.g. {@code hugmesh.player_state_current}. */
     private final String table;
 
     // -------------------------------------------------------------------------
@@ -96,12 +96,12 @@ public class PlayerStateRecoveryService {
      * @param clickHouseWebClient the pre-configured ClickHouse HTTP client from
      *                            {@link ClickHouseClientConfig#clickHouseWebClient}
      * @param table               the fully-qualified ReplacingMergeTree table name;
-     *                            defaults to {@code snapdragon.player_state_current}
+     *                            defaults to {@code hugmesh.player_state_current}
      *                            via {@code app.clickhouse.tables.player-state-current}
      */
     public PlayerStateRecoveryService(
             WebClient clickHouseWebClient,
-            @Value("${app.clickhouse.tables.player-state-current:snapdragon.player_state_current}")
+            @Value("${app.clickhouse.tables.player-state-current:hugmesh.player_state_current}")
                     String table) {
         this.ch = clickHouseWebClient;
         this.table = table;

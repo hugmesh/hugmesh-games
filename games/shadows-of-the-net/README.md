@@ -93,7 +93,7 @@ postMessages with the Angular `ApiBridgeService`.
 
 ### `mode=matrix`
 
-**No games BFF at all.** The embedding page (snapdragon-matrix-ui's
+**No games BFF at all.** The embedding page (hugmesh-matrix-ui's
 `Chat3dHostComponent`) drives everything through the versioned `Chat3D`
 interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
 

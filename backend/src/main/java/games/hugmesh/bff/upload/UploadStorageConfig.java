@@ -44,7 +44,7 @@ import java.nio.file.Path;
  *   APP_UPLOADS_S3_REGION       region label     any string for MinIO; real region for AWS
  *   APP_UPLOADS_S3_ACCESS_KEY   access key ID    required; blank triggers startup failure
  *   APP_UPLOADS_S3_SECRET_KEY   secret access key required; blank triggers startup failure
- *   APP_UPLOADS_S3_BUCKET       bucket name      default: snapdragon-uploads (must pre-exist)
+ *   APP_UPLOADS_S3_BUCKET       bucket name      default: hugmesh-uploads (must pre-exist)
  *   APP_UPLOADS_S3_PATH_STYLE   path-style URLs  default: true (required for MinIO)
  * </pre>
  *
@@ -141,7 +141,7 @@ public class UploadStorageConfig {
             @Value("${app.uploads.s3.region:us-east-1}") String region,
             @Value("${app.uploads.s3.access-key:}") String accessKey,
             @Value("${app.uploads.s3.secret-key:}") String secretKey,
-            @Value("${app.uploads.s3.bucket:snapdragon-uploads}") String bucket,
+            @Value("${app.uploads.s3.bucket:hugmesh-uploads}") String bucket,
             @Value("${app.uploads.s3.path-style:true}") boolean pathStyleAccess,
             CircuitBreakerRegistry circuitBreakerRegistry) {
 

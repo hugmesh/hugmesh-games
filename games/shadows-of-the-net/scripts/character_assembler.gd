@@ -29,7 +29,7 @@ extends Node3D
 #   constant tables here (and vice versa); everything else is local.
 #
 #   THE AUTHORITY for every one of those tables is the server validator,
-#   snapdragon-character-forge-bff-api `Char3DConfigValidator`. This file is a
+#   hugmesh-character-forge-bff-api `Char3DConfigValidator`. This file is a
 #   MIRROR and must never be MORE PERMISSIVE than it: a value this copy accepts
 #   and the BFF rejects is a character that renders in the room and then 400s
 #   when the wearer tries to save it.

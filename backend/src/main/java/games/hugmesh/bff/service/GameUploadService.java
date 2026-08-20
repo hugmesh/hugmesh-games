@@ -103,7 +103,7 @@ import static org.springframework.http.HttpStatus.BAD_REQUEST;
  *   <li>{@code filesystem} (default) — moves the staged directory under
  *       {@code <gamesDir>/<slug>/<sha16>}; {@code stagingRoot = gamesDir}.</li>
  *   <li>{@code s3} — walks the staged directory and issues {@code PutObject}
- *       calls; {@code stagingRoot = java.io.tmpdir/snapdragon-uploads} so the
+ *       calls; {@code stagingRoot = java.io.tmpdir/hugmesh-uploads} so the
  *       BFF host does not need {@code gamesDir} mounted.</li>
  * </ul>
  *
@@ -175,7 +175,7 @@ public class GameUploadService {
     private static final Pattern ROLE_RE = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]{0,62}$");
 
     public GameUploadService(@Value("${app.uploads.games-dir:/var/hugmesh/games}") String gamesDirCfg,
-                             @Value("${app.uploads.register-sql.role:snapdragon_register_sql}") String registerSqlRole,
+                             @Value("${app.uploads.register-sql.role:hugmesh_register_sql}") String registerSqlRole,
                              UploadStorage storage,
                              GameUploadRepository uploads,
                              ConnectionFactory connectionFactory,
@@ -184,7 +184,7 @@ public class GameUploadService {
         // (no behaviour change), and for the S3 strategy lives in /tmp
         // so we don't require gamesDir to exist on the BFF host at all.
         this.stagingRoot = "s3".equals(storage.label())
-                ? Path.of(System.getProperty("java.io.tmpdir"), "snapdragon-uploads")
+                ? Path.of(System.getProperty("java.io.tmpdir"), "hugmesh-uploads")
                 : Path.of(gamesDirCfg);
         this.storage = storage;
         this.uploads = uploads;
