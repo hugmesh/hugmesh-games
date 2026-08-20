@@ -3,12 +3,12 @@
    vector graphics (no image assets). */
 
 :root {
-  --sd-bg: #0a0a14;
-  --sd-panel: #1f1b2e;
-  --sd-accent: #b388ff;
-  --sd-accent-strong: #7c4dff;
-  --sd-text: #f2eefb;
-  --sd-muted: #a8acc4;
+  --hug-bg: #0a0a14;
+  --hug-panel: #1f1b2e;
+  --hug-accent: #b388ff;
+  --hug-accent-strong: #7c4dff;
+  --hug-text: #f2eefb;
+  --hug-muted: #a8acc4;
 }
 
 * {
@@ -23,8 +23,8 @@ body {
 }
 
 body {
-  background: var(--sd-bg);
-  color: var(--sd-text);
+  background: var(--hug-bg);
+  color: var(--hug-text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   display: flex;
   flex-direction: column;
@@ -52,31 +52,31 @@ body {
 }
 
 #status {
-  color: var(--sd-muted);
+  color: var(--hug-muted);
   font-size: 0.95rem;
   min-width: 12ch;
 }
 
 #status.over {
-  color: var(--sd-accent);
+  color: var(--hug-accent);
   font-weight: 700;
 }
 
 #controls {
   margin-left: auto;
-  color: var(--sd-muted);
+  color: var(--hug-muted);
   font-size: 0.85rem;
 }
 
 #field {
   display: block;
   touch-action: manipulation;
-  border: 2px solid var(--sd-accent-strong);
+  border: 2px solid var(--hug-accent-strong);
   border-radius: 6px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
   max-width: 100%;
   height: auto;
-  background: var(--sd-bg);
+  background: var(--hug-bg);
 }
 
 .sr-only {

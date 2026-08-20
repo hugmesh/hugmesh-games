@@ -65,16 +65,16 @@ text demotion in `app.component.scss`.
 
 ```scss
 :root {
-  --sd-bg-0:        #0a0a12; /* shell + login backdrop */
-  --sd-bg-1:        #12121e; /* cards, panels */
-  --sd-bg-2:        #1a1a2e; /* scrollbar trough */
-  --sd-border:      #1e1e32;
-  --sd-text:        #e8e8f0; /* 15.9:1 AAA */
-  --sd-text-muted:  #a8acc4; /*  8.77:1 AAA — replaces #7070a0 (3.88:1) */
-  --sd-accent:      #7c4dff; /* backgrounds/borders only — 3.22:1 as text */
-  --sd-accent-soft: #b388ff; /*  7.38:1 AAA — use this for accent text */
-  --sd-success:     #4caf50;
-  --sd-error:       #ff6b6b;
+  --hug-bg-0:        #0a0a12; /* shell + login backdrop */
+  --hug-bg-1:        #12121e; /* cards, panels */
+  --hug-bg-2:        #1a1a2e; /* scrollbar trough */
+  --hug-border:      #1e1e32;
+  --hug-text:        #e8e8f0; /* 15.9:1 AAA */
+  --hug-text-muted:  #a8acc4; /*  8.77:1 AAA — replaces #7070a0 (3.88:1) */
+  --hug-accent:      #7c4dff; /* backgrounds/borders only — 3.22:1 as text */
+  --hug-accent-soft: #b388ff; /*  7.38:1 AAA — use this for accent text */
+  --hug-success:     #4caf50;
+  --hug-error:       #ff6b6b;
 }
 ```
 
@@ -109,7 +109,7 @@ the whole palette without re-auditing each component.
 ## Follow-ups
 
 - Migrate component SCSS `$muted:` / `$accent:` declarations to
-  consume `var(--sd-text-muted)` / `var(--sd-accent)` instead of
+  consume `var(--hug-text-muted)` / `var(--hug-accent)` instead of
   redeclaring the literal. Schedule per-component as those files get
   touched for other reasons; no urgency since the literals already
   match the tokens.

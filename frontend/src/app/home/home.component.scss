@@ -499,22 +499,22 @@ button.game-card {
 .character-picker {
   display: flex; align-items: center; gap: 10px;
   margin: 0 0 14px; padding: 10px 12px;
-  background: var(--sd-bg-2, #1a1a2e);
-  border: 1px solid var(--sd-border, #1e1e32);
+  background: var(--hug-bg-2, #1a1a2e);
+  border: 1px solid var(--hug-border, #1e1e32);
   border-radius: 8px;
 }
 .character-picker-label {
-  font-size: 13px; color: var(--sd-text-muted, #a8acc4); white-space: nowrap;
+  font-size: 13px; color: var(--hug-text-muted, #a8acc4); white-space: nowrap;
 }
 .character-select {
   flex: 1; min-width: 0;
-  background: var(--sd-bg-1, #12121e);
-  color: var(--sd-text, #e8e8f0);
-  border: 1px solid var(--sd-border, #1e1e32);
+  background: var(--hug-bg-1, #12121e);
+  color: var(--hug-text, #e8e8f0);
+  border: 1px solid var(--hug-border, #1e1e32);
   border-radius: 6px; padding: 7px 10px; font-size: 14px;
 }
 .character-select:focus-visible {
-  outline: 2px solid var(--sd-accent, #7c4dff); outline-offset: 1px;
+  outline: 2px solid var(--hug-accent, #7c4dff); outline-offset: 1px;
 }
 .session-picker-active {
   margin: 0 0 12px; padding: 10px 12px;
