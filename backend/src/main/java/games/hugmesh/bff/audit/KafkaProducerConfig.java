@@ -89,13 +89,13 @@ public class KafkaProducerConfig {
      * </ul>
      *
      * @param bootstrap the Kafka bootstrap servers; defaults to {@code kafka:9092}
-     * @param clientId  the producer client id; defaults to {@code snapdragon-bff}
+     * @param clientId  the producer client id; defaults to {@code hugmesh-bff}
      * @return a configured {@code ProducerFactory} for String key/value messages
      */
     @Bean
     public ProducerFactory<String, String> auditProducerFactory(
             @Value("${app.kafka.bootstrap-servers:kafka:9092}") String bootstrap,
-            @Value("${app.kafka.client-id:snapdragon-bff}")     String clientId) {
+            @Value("${app.kafka.client-id:hugmesh-bff}")     String clientId) {
         log.info("[kafka] producer factory wired → bootstrap={} clientId={}", bootstrap, clientId);
         Map<String, Object> cfg = new HashMap<>();
         cfg.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
@@ -146,14 +146,14 @@ public class KafkaProducerConfig {
      *
      * @param bootstrap the Kafka bootstrap servers; defaults to {@code kafka:9092}
      * @param clientId  base client id; {@code -consumer} suffix appended
-     * @param groupId   consumer group id; defaults to {@code snapdragon-bff-cross-pod}
+     * @param groupId   consumer group id; defaults to {@code hugmesh-bff-cross-pod}
      * @return a configured {@code ConsumerFactory} for String key/value messages
      */
     @Bean
     public ConsumerFactory<String, String> crossPodConsumerFactory(
             @Value("${app.kafka.bootstrap-servers:kafka:9092}") String bootstrap,
-            @Value("${app.kafka.client-id:snapdragon-bff}")     String clientId,
-            @Value("${app.kafka.consumer.group-id:snapdragon-bff-cross-pod}") String groupId) {
+            @Value("${app.kafka.client-id:hugmesh-bff}")     String clientId,
+            @Value("${app.kafka.consumer.group-id:hugmesh-bff-cross-pod}") String groupId) {
         log.info("[kafka] consumer factory wired → bootstrap={} group={} clientId={}",
                 bootstrap, groupId, clientId);
         Map<String, Object> cfg = new HashMap<>();

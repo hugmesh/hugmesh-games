@@ -246,7 +246,7 @@ public class GameStateService {
     /**
      * Optional ClickHouse cross-pod recovery surface. When wired,
      * {@link #hydrate(long, long, String, String)} consults the
-     * {@code snapdragon.player_state_current FINAL} view BEFORE the legacy
+     * {@code hugmesh.player_state_current FINAL} view BEFORE the legacy
      * Cassandra → Postgres → defaults chain — the warehouse has the freshest
      * cross-pod position because every channel emission tees into it.  Returns
      * {@link Mono#empty()} when no row exists; the caller seamlessly falls through

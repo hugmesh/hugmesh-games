@@ -163,7 +163,7 @@ app:
     # credential is involved (the role is NOLOGIN). Set to empty to disable the
     # role switch (the RegisterSqlPolicy allowlist + hardened lexer still apply).
     register-sql:
-      role: ${APP_UPLOADS_REGISTER_SQL_ROLE:snapdragon_register_sql}
+      role: ${APP_UPLOADS_REGISTER_SQL_ROLE:hugmesh_register_sql}
     s3:
       endpoint:   ${APP_UPLOADS_S3_ENDPOINT:}
       region:     ${APP_UPLOADS_S3_REGION:us-east-1}
@@ -177,7 +177,7 @@ app:
       # MINIO_ROOT_USER / MINIO_ROOT_PASSWORD; prod: k8s + ESO + Vault).
       access-key: ${APP_UPLOADS_S3_ACCESS_KEY:}
       secret-key: ${APP_UPLOADS_S3_SECRET_KEY:}
-      bucket:     ${APP_UPLOADS_S3_BUCKET:snapdragon-uploads}
+      bucket:     ${APP_UPLOADS_S3_BUCKET:hugmesh-uploads}
       # path-style URLs (bucket-in-path, not bucket-as-subdomain) are
       # the MinIO + many third-party S3 clones' required dialect.
       # AWS proper accepts both; flip to false only if you target a
@@ -205,16 +205,16 @@ app:
   kafka:
     enabled: ${APP_KAFKA_ENABLED:false}
     bootstrap-servers: ${APP_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
-    client-id:         ${APP_KAFKA_CLIENT_ID:snapdragon-bff}
+    client-id:         ${APP_KAFKA_CLIENT_ID:hugmesh-bff}
     topic:
       state-audit: ${APP_KAFKA_TOPIC_STATE_AUDIT:state_audit}
       game-kpi:    ${APP_KAFKA_TOPIC_GAME_KPI:game_kpi}
       game-events: ${APP_KAFKA_TOPIC_GAME_EVENTS:game_events}
     consumer:
-      group-id:    ${APP_KAFKA_CONSUMER_GROUP_ID:snapdragon-bff-cross-pod}
+      group-id:    ${APP_KAFKA_CONSUMER_GROUP_ID:hugmesh-bff-cross-pod}
 
   # ClickHouse client — used by PlayerStateRecoveryService to read the
-  # latest player position from snapdragon.player_state_current FINAL
+  # latest player position from hugmesh.player_state_current FINAL
   # when a player reconnects via a pod that wasn't the original
   # session host (decision 021). Disabled by default; enabled in
   # production + integration-test profiles alongside app.kafka.enabled.
@@ -223,9 +223,9 @@ app:
     endpoint: ${APP_CLICKHOUSE_ENDPOINT:http://clickhouse:8123}
     user:     ${APP_CLICKHOUSE_USER:default}
     password: ${APP_CLICKHOUSE_PASSWORD:}
-    database: ${APP_CLICKHOUSE_DATABASE:snapdragon}
+    database: ${APP_CLICKHOUSE_DATABASE:hugmesh}
     tables:
-      player-state-current: ${APP_CLICKHOUSE_TBL_PLAYER_STATE_CURRENT:snapdragon.player_state_current}
+      player-state-current: ${APP_CLICKHOUSE_TBL_PLAYER_STATE_CURRENT:hugmesh.player_state_current}
 
   pod-id: ${APP_POD_ID:}
 

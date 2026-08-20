@@ -323,7 +323,7 @@ can hydrate only the sessions it cares about. \\
 \bigskip
 
 ClickHouse consumes via Kafka-engine tables + materialised views
-(\snapfile{docker/clickhouse-init/01-snapdragon-schema.sql}) that land
+(\snapfile{docker/clickhouse-init/01-hugmesh-schema.sql}) that land
 each topic in a durable MergeTree counterpart. The
 \texttt{player\_state\_current} ReplacingMergeTree captures the latest
 per-character state for session-reconnect recovery;

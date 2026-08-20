@@ -1,6 +1,6 @@
 extends "res://tests/test_case.gd"
 
-# REGRESSION — the Chat3D (mode=matrix) contract with snapdragon-matrix-ui.
+# REGRESSION — the Chat3D (mode=matrix) contract with hugmesh-matrix-ui.
 #
 # 1. THE `ready` HANDSHAKE WAS PRODUCED BY NOBODY. matrix-ui declares `ready`
 #    as a game->host type and Chat3dHostComponent.send() queues EVERY outbound

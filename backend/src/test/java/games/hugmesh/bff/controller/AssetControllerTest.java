@@ -101,7 +101,7 @@ class AssetControllerTest {
         // Game has a hot-uploaded version pinned to an s3:// locator;
         // the storage stub returns a presigned URL. AssetController
         // should 302 to it (decision-020 follow-up).
-        Game game = newGame("dodecahedron", "s3://snapdragon-uploads/dodecahedron/abc123");
+        Game game = newGame("dodecahedron", "s3://hugmesh-uploads/dodecahedron/abc123");
         GameRepository gameRepo = games();
         when(gameRepo.findBySlug("dodecahedron")).thenReturn(Mono.just(game));
 
@@ -127,7 +127,7 @@ class AssetControllerTest {
     void legacyPathStreamsBytesWhenPresignedReadsDisabled() {
         // When the flag is OFF, the presigner is never consulted —
         // the stub records that fact via a getCalled() probe.
-        Game game = newGame("dodecahedron", "s3://snapdragon-uploads/dodecahedron/abc123");
+        Game game = newGame("dodecahedron", "s3://hugmesh-uploads/dodecahedron/abc123");
         GameRepository gameRepo = games();
         when(gameRepo.findBySlug("dodecahedron")).thenReturn(Mono.just(game));
 

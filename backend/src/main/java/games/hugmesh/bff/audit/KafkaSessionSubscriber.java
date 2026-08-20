@@ -175,7 +175,7 @@ public class KafkaSessionSubscriber {
      */
     @KafkaListener(
             topics = "${app.kafka.topic.game-events:game_events}",
-            groupId = "${app.kafka.consumer.group-id:snapdragon-bff-cross-pod}",
+            groupId = "${app.kafka.consumer.group-id:hugmesh-bff-cross-pod}",
             properties = {
                     "spring.json.use.type.headers=false",
                     "auto.offset.reset=latest",

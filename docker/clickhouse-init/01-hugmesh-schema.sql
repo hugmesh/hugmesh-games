@@ -23,11 +23,11 @@
 --     (the common admin-dashboard query) hit a contiguous block;
 --   • timestamps in UTC; the BFF stamps occurred_at at emit time.
 
-CREATE DATABASE IF NOT EXISTS snapdragon;
+CREATE DATABASE IF NOT EXISTS hugmesh;
 
 -- ── state_audit pipeline ──────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS snapdragon.state_audit_stream
+CREATE TABLE IF NOT EXISTS hugmesh.state_audit_stream
 (
     event_id        String,
     occurred_at     DateTime64(3, 'UTC'),
@@ -46,7 +46,7 @@ SETTINGS
     kafka_num_consumers = 1,
     kafka_skip_broken_messages = 100;
 
-CREATE TABLE IF NOT EXISTS snapdragon.state_audit
+CREATE TABLE IF NOT EXISTS hugmesh.state_audit
 (
     event_id        String,
     occurred_at     DateTime64(3, 'UTC'),
@@ -62,8 +62,8 @@ PARTITION BY toYYYYMM(occurred_at)
 ORDER BY (game_slug, occurred_at, event_id)
 TTL toDateTime(occurred_at) + INTERVAL 90 DAY;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS snapdragon.state_audit_mv
-TO snapdragon.state_audit
+CREATE MATERIALIZED VIEW IF NOT EXISTS hugmesh.state_audit_mv
+TO hugmesh.state_audit
 AS SELECT
     event_id,
     occurred_at,
@@ -72,11 +72,11 @@ AS SELECT
     casdoor_id,
     event_type,
     payload_json
-FROM snapdragon.state_audit_stream;
+FROM hugmesh.state_audit_stream;
 
 -- ── game_kpi pipeline (consumed by F2 in a follow-up PR) ──────────────
 
-CREATE TABLE IF NOT EXISTS snapdragon.game_kpi_stream
+CREATE TABLE IF NOT EXISTS hugmesh.game_kpi_stream
 (
     event_id        String,
     occurred_at     DateTime64(3, 'UTC'),
@@ -95,7 +95,7 @@ SETTINGS
     kafka_num_consumers = 1,
     kafka_skip_broken_messages = 100;
 
-CREATE TABLE IF NOT EXISTS snapdragon.game_kpi
+CREATE TABLE IF NOT EXISTS hugmesh.game_kpi
 (
     event_id        String,
     occurred_at     DateTime64(3, 'UTC'),
@@ -111,8 +111,8 @@ PARTITION BY toYYYYMM(occurred_at)
 ORDER BY (game_slug, kpi_name, occurred_at)
 TTL toDateTime(occurred_at) + INTERVAL 90 DAY;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS snapdragon.game_kpi_mv
-TO snapdragon.game_kpi
+CREATE MATERIALIZED VIEW IF NOT EXISTS hugmesh.game_kpi_mv
+TO hugmesh.game_kpi
 AS SELECT
     event_id,
     occurred_at,
@@ -121,7 +121,7 @@ AS SELECT
     kpi_name,
     kpi_value,
     payload_json
-FROM snapdragon.game_kpi_stream;
+FROM hugmesh.game_kpi_stream;
 
 -- ── game_events pipeline (channel-discriminated tee from BFF sinks) ──
 -- Every SSE-channel emission inside GameStateService.tryEmitNext is
@@ -129,7 +129,7 @@ FROM snapdragon.game_kpi_stream;
 -- latency aggregates without scraping SSE traffic. SSE remains the
 -- gameplay-driving path; this stream is purely additive.
 
-CREATE TABLE IF NOT EXISTS snapdragon.game_events_stream
+CREATE TABLE IF NOT EXISTS hugmesh.game_events_stream
 (
     event_id        String,
     occurred_at     DateTime64(3, 'UTC'),
@@ -150,7 +150,7 @@ SETTINGS
     kafka_skip_broken_messages = 1000,
     input_format_skip_unknown_fields = 1;
 
-CREATE TABLE IF NOT EXISTS snapdragon.game_events
+CREATE TABLE IF NOT EXISTS hugmesh.game_events
 (
     event_id        String,
     occurred_at     DateTime64(3, 'UTC'),
@@ -167,8 +167,8 @@ PARTITION BY toYYYYMM(occurred_at)
 ORDER BY (game_slug, channel, occurred_at, event_id)
 TTL toDateTime(occurred_at) + INTERVAL 30 DAY;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS snapdragon.game_events_mv
-TO snapdragon.game_events
+CREATE MATERIALIZED VIEW IF NOT EXISTS hugmesh.game_events_mv
+TO hugmesh.game_events
 AS SELECT
     event_id,
     occurred_at,
@@ -178,7 +178,7 @@ AS SELECT
     session_id,
     casdoor_id,
     payload_json
-FROM snapdragon.game_events_stream;
+FROM hugmesh.game_events_stream;
 
 -- ── player_state_current (cross-pod sync via ClickHouse) ─────────────
 -- A ReplacingMergeTree keyed by (game_slug, session_id, character_id)
@@ -193,7 +193,7 @@ FROM snapdragon.game_events_stream;
 -- gives ReplacingMergeTree the dedup signal — newer wins. FINAL on the
 -- read picks up un-merged duplicates between background merges.
 
-CREATE TABLE IF NOT EXISTS snapdragon.player_state_current
+CREATE TABLE IF NOT EXISTS hugmesh.player_state_current
 (
     game_slug      LowCardinality(String),
     session_id     String,
@@ -208,8 +208,8 @@ PARTITION BY (game_slug)
 ORDER BY (game_slug, session_id, character_id, channel)
 TTL toDateTime(updated_at) + INTERVAL 7 DAY;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS snapdragon.player_state_current_mv
-TO snapdragon.player_state_current
+CREATE MATERIALIZED VIEW IF NOT EXISTS hugmesh.player_state_current_mv
+TO hugmesh.player_state_current
 AS SELECT
     game_slug,
     session_id,
@@ -218,30 +218,30 @@ AS SELECT
     channel,
     occurred_at AS updated_at,
     payload_json
-FROM snapdragon.game_events
+FROM hugmesh.game_events
 WHERE channel IN ('movement', 'character', 'scene')
   AND JSONExtractString(payload_json, 'characterId') <> '';
 
 -- ── convenience views for the admin dashboard ────────────────────────
 
-CREATE OR REPLACE VIEW snapdragon.recent_state_audit AS
+CREATE OR REPLACE VIEW hugmesh.recent_state_audit AS
 SELECT game_slug, event_type, count() AS n
-FROM snapdragon.state_audit
+FROM hugmesh.state_audit
 WHERE occurred_at >= now() - INTERVAL 24 HOUR
 GROUP BY game_slug, event_type
 ORDER BY n DESC
 LIMIT 100;
 
-CREATE OR REPLACE VIEW snapdragon.kpi_rolling_avg_24h AS
+CREATE OR REPLACE VIEW hugmesh.kpi_rolling_avg_24h AS
 SELECT game_slug, kpi_name, avg(kpi_value) AS avg_24h, count() AS samples
-FROM snapdragon.game_kpi
+FROM hugmesh.game_kpi
 WHERE occurred_at >= now() - INTERVAL 24 HOUR
 GROUP BY game_slug, kpi_name
 ORDER BY game_slug, kpi_name;
 
-CREATE OR REPLACE VIEW snapdragon.events_per_channel_1h AS
+CREATE OR REPLACE VIEW hugmesh.events_per_channel_1h AS
 SELECT game_slug, channel, count() AS n
-FROM snapdragon.game_events
+FROM hugmesh.game_events
 WHERE occurred_at >= now() - INTERVAL 1 HOUR
 GROUP BY game_slug, channel
 ORDER BY n DESC;

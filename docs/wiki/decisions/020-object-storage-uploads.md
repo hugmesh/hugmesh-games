@@ -83,7 +83,7 @@ curl -X POST /api/admin/games/upload -F file=@bundle.zip   # → 200, version_di
 # S3 mode
 docker compose up -d minio minio-init
 APP_UPLOADS_STORAGE=s3 docker compose up -d api
-curl -X POST /api/admin/games/upload -F file=@bundle.zip   # → 200, version_dir = s3://snapdragon-uploads/<slug>/<hash>
+curl -X POST /api/admin/games/upload -F file=@bundle.zip   # → 200, version_dir = s3://hugmesh-uploads/<slug>/<hash>
 ```
 
 ## Follow-ups

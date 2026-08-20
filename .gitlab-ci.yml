@@ -35,7 +35,7 @@
 # not cover. The pentest:* jobs below run the centralized harness alongside.
 # ─────────────────────────────────────────────────────────────────────────────
 include:
-  - project: 'hugmesh/snapdragon-generator'
+  - project: 'hugmesh/hugmesh-generator'
     ref: main
     file: '/tests/pentest/ci/pentest-stage.gitlab-ci.yml'
 

@@ -10,7 +10,7 @@
 //
 // It pins the three cross-repo contract defects the XR-chat audit found:
 //
-//  * `ready` handshake — snapdragon-matrix-ui's Chat3dHostComponent queues
+//  * `ready` handshake — hugmesh-matrix-ui's Chat3dHostComponent queues
 //    EVERY outbound envelope until the game announces `ready` and keeps
 //    Enter-VR inert. The emitted envelope must be exactly what matrix-ui's
 //    parseGameMessage() accepts: {v:1, t:'ready'}. The games shim's own

@@ -237,7 +237,7 @@ public class SessionTopicManager {
         @Bean(destroyMethod = "close")
         public AdminClient sessionTopicAdminClient(
                 @Value("${app.kafka.bootstrap-servers:kafka:9092}") String bootstrap,
-                @Value("${app.kafka.client-id:snapdragon-bff}")     String clientId) {
+                @Value("${app.kafka.client-id:hugmesh-bff}")     String clientId) {
             Map<String, Object> cfg = new HashMap<>();
             cfg.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
             cfg.put(AdminClientConfig.CLIENT_ID_CONFIG, clientId + "-admin");

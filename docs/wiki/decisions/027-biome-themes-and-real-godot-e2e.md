@@ -61,7 +61,7 @@ visibility.
 
 ### Multiplayer
 
-The stock `SnapdragonMultiplayerLobby` is unusable in web mode (the BFF
+The stock `HugMeshMultiplayerLobby` is unusable in web mode (the BFF
 `PlayerMovement` payload has no `slot` field, and late-joiners never
 spawn), so generated games **drop that node** and use a generated
 `remote_avatars.gd` keyed on `characterId`: it lazily spawns a distinct
@@ -146,7 +146,7 @@ per scenario are harvested into `docs/publishing/`.
   room FK); loose pickups are a follow-up.
 - Building floor counts are immutable after create (a resize would have
   to reconcile auto-created interior rooms).
-- The exported bundle depends on the `snapdragon_bridge` wasm being
+- The exported bundle depends on the `hugmesh_bridge` wasm being
   staged (`app.build.bridge-dir`); without it a generated game loads but
   movement/portals are inert, and `world.gd` surfaces an on-screen
   warning so a mis-configured build is diagnosable from a screenshot.

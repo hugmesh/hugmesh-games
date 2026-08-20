@@ -27,7 +27,7 @@ Doing each in isolation produces three different storage surfaces. Doing them to
 
 ### ClickHouse tables
 
-All under the `snapdragon` database (kept as-is pending a coordinated ClickHouse migration — see the PR description; see `docker/clickhouse-init/01-snapdragon-schema.sql`):
+All under the `hugmesh` database (see `docker/clickhouse-init/01-hugmesh-schema.sql`; existing deployments carry the pre-rebrand database name — `RENAME DATABASE` it or override `APP_CLICKHOUSE_DATABASE`):
 
 - `state_audit` (MergeTree) — 90-day TTL, partitioned by month, ordered by `(game_slug, occurred_at, event_id)`.
 - `game_events` (MergeTree) — 30-day TTL, ordered by `(game_slug, channel, occurred_at, event_id)`.
@@ -69,7 +69,7 @@ Every publisher is injected as `Optional<...>` so the in-process gameplay path k
 | File | Purpose |
 |---|---|
 | `docker-compose.yml` | `zookeeper` + `kafka` + `clickhouse` services + `kafka_data` + `clickhouse_data` volumes |
-| `docker/clickhouse-init/01-snapdragon-schema.sql` | All ClickHouse tables + materialized views |
+| `docker/clickhouse-init/01-hugmesh-schema.sql` | All ClickHouse tables + materialized views |
 | `backend/pom.xml` | `spring-kafka` dependency |
 | `backend/src/main/java/games/hugmesh/bff/audit/KafkaProducerConfig.java` | Producer factory + KafkaTemplate beans |
 | `backend/src/main/java/games/hugmesh/bff/audit/GameAuditPublisher.java` | Lifecycle event publisher |
@@ -85,5 +85,5 @@ Every publisher is injected as `Optional<...>` so the in-process gameplay path k
 - ~~F2 — federated game telemetry producer.~~ — done in the Phase-7 PR. `GameKpiPublisher` + `POST /api/telemetry/game/{slug}` ingest. Iframes call directly; existing `WebConfig` CORS allowlist covers the federated origins.
 - ~~Cross-pod subscriber — read from the per-session topic into another pod's `SessionSinks`.~~ — done in the Phase-8a PR. `KafkaSessionSubscriber` consumes `game_events`, filters self-published via `pod_id`, dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. All 8 channels covered (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only).
 - ~~Cross-pod parity for the web-native `sendWorld()` relay.~~ — done in games PR #117. A 9th channel, `world-native`, carries the raw web-native world payload (distinct from the typed Godot `WorldState` `world` channel) so a peer pod's `KafkaSessionSubscriber` re-emits it onto that pod's `worldNative` sink; `GameStreamController` merges `worldNative` into the same client-facing `world` SSE event name, so the guest bridge needs no change. See [`InputEventController`](../../../backend/src/main/java/games/hugmesh/bff/controller/InputEventController.java) and [`GameStateService.emitInput`](../../../backend/src/main/java/games/hugmesh/bff/service/GameStateService.java).
-- ~~BFF read-path against `player_state_current` for session-reconnect recovery.~~ — done in the Phase-8b PR. `PlayerStateRecoveryService` queries `snapdragon.player_state_current FINAL` via the ClickHouse HTTP interface (WebClient). New `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` consults the recovery service before the legacy Cassandra → Postgres → defaults chain. `Mono.empty()` is the expected miss path; SSE / gameplay never blocks on this.
+- ~~BFF read-path against `player_state_current` for session-reconnect recovery.~~ — done in the Phase-8b PR. `PlayerStateRecoveryService` queries `hugmesh.player_state_current FINAL` via the ClickHouse HTTP interface (WebClient). New `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` consults the recovery service before the legacy Cassandra → Postgres → defaults chain. `Mono.empty()` is the expected miss path; SSE / gameplay never blocks on this.
 - Retire `CassandraSyncService` once the streaming pipeline has demonstrated production stability.
