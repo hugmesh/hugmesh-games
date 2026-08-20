@@ -2,14 +2,14 @@
    fetched; the cycles + trails are canvas-drawn rectangles (no image assets). */
 
 :root {
-  --sd-bg: #14121c;
-  --sd-panel: #1f1b2e;
-  --sd-accent: #b388ff;
-  --sd-accent-strong: #7c4dff;
-  --sd-text: #f2eefb;
-  --sd-muted: #a8acc4;
-  --sd-one: #19c3ff; /* cycle One — cyan */
-  --sd-two: #ff8c1a; /* cycle Two — orange */
+  --hug-bg: #14121c;
+  --hug-panel: #1f1b2e;
+  --hug-accent: #b388ff;
+  --hug-accent-strong: #7c4dff;
+  --hug-text: #f2eefb;
+  --hug-muted: #a8acc4;
+  --hug-one: #19c3ff; /* cycle One — cyan */
+  --hug-two: #ff8c1a; /* cycle Two — orange */
 }
 
 * {
@@ -24,8 +24,8 @@ body {
 }
 
 body {
-  background: var(--sd-bg);
-  color: var(--sd-text);
+  background: var(--hug-bg);
+  color: var(--hug-text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   display: flex;
   flex-direction: column;
@@ -51,7 +51,7 @@ body {
   align-items: center;
   gap: 8px;
   font-size: 0.9rem;
-  color: var(--sd-muted);
+  color: var(--hug-muted);
 }
 
 .dot {
@@ -64,11 +64,11 @@ body {
 }
 
 .dot.one {
-  background: var(--sd-one);
+  background: var(--hug-one);
 }
 
 .dot.two {
-  background: var(--sd-two);
+  background: var(--hug-two);
 }
 
 #tick {
@@ -78,21 +78,21 @@ body {
 }
 
 #status {
-  color: var(--sd-muted);
+  color: var(--hug-muted);
   font-size: 0.95rem;
   min-width: 14ch;
 }
 
 #status.over {
-  color: var(--sd-accent);
+  color: var(--hug-accent);
   font-weight: 700;
 }
 
 #restart {
   margin-left: auto;
-  background: var(--sd-panel);
-  color: var(--sd-text);
-  border: 1px solid var(--sd-accent-strong);
+  background: var(--hug-panel);
+  color: var(--hug-text);
+  border: 1px solid var(--hug-accent-strong);
   border-radius: 8px;
   padding: 8px 14px;
   font-size: 0.95rem;
@@ -101,12 +101,12 @@ body {
 }
 
 #restart:hover:not(:disabled) {
-  border-color: var(--sd-accent);
+  border-color: var(--hug-accent);
   background: #2a2440;
 }
 
 #restart:focus-visible {
-  outline: 3px solid var(--sd-accent);
+  outline: 3px solid var(--hug-accent);
   outline-offset: 2px;
 }
 
@@ -118,7 +118,7 @@ body {
 #arena {
   display: block;
   touch-action: manipulation;
-  border: 2px solid var(--sd-accent-strong);
+  border: 2px solid var(--hug-accent-strong);
   border-radius: 6px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
   max-width: 100%;
