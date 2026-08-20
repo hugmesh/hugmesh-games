@@ -9,7 +9,7 @@
 #   node        (v20+)
 
 SHELL := /bin/bash
-.PHONY: all clean build build-rust build-rust-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
+.PHONY: all clean build build-rust build-rust-wasm build-games-wasm clean-games-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
         test test-rust test-backend test-frontend test-godot test-games-js \
@@ -172,6 +172,120 @@ build-rust-wasm: $(RUST_WASM_DOCKERFILE)
 deps-rust:
 	@command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found — install rustup or your distro's rust package"; exit 1; }
 	@command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found — needed for the WASM build (rust + emsdk container)"; exit 1; }
+
+# ── Web-native game cores (Rust → wasm32-unknown-unknown) ─────────────────────
+# The 14 abstract/puzzle/duel games are NOT Godot. Each is a pure-Rust engine in
+# extensions/hugmesh-<game>/ wrapped by a thin C-ABI/JSON shim crate
+# extensions/hugmesh-<game>-wasm/ that compiles to a freestanding
+# wasm32-unknown-unknown cdylib with ZERO host imports (no emscripten, no wasi,
+# no wasm-bindgen). The browser loads it via WebAssembly.instantiateStreaming;
+# the node suites under games/_shared/test/<slug>-wasm.test.mjs (`make
+# test-games-js`) exercise the same bytes headlessly.
+#
+# Until this target existed the repo had NO in-repo build path for these modules
+# at all — 28 .wasm binaries (games/<slug>/wasm/ + the deployed copies under
+# $(GODOT_EXPORT_ROOT)/<slug>/wasm/) were committed with nothing that could
+# reproduce them. That is why they sat as pre-rebrand builds long after the Rust
+# sources were renamed: nothing in the tree could rebuild them, so nobody did.
+#
+# NOTE this target BUILDS ONLY — it installs nothing. Refreshing the committed
+# artefacts is a separate, reviewable change, and it is NOT a plain copy: the
+# cargo output is always hugmesh_<game>_wasm.wasm, but five of the committed
+# files drop the _wasm suffix (chess, connect-four, dots-and-boxes, go, gomoku
+# ship as hugmesh_<game>.wasm, and games/<slug>/*.js fetches them by that exact
+# name). Any install step therefore needs a per-game name map, so keeping it out
+# of this target is deliberate rather than an omission.
+GAMES_WASM_IMAGE      = hugmesh-games-wasm
+GAMES_WASM_DOCKERFILE = tools/build-games-wasm/Dockerfile
+GAMES_WASM_RUST_TARGET = wasm32-unknown-unknown
+GAMES_WASM_OUT_DIR     = target/$(GAMES_WASM_RUST_TARGET)/release
+
+# --offline is a deliberate supply-chain assertion, not a convenience: every one
+# of these crates depends on its sibling engine by path and on NOTHING from
+# crates.io, so the build must succeed with the network cut. If a future crate
+# grows a registry dependency this target fails loudly instead of silently
+# pulling it in. Override with GAMES_WASM_CARGO_FLAGS= if that is ever intended.
+GAMES_WASM_CARGO_FLAGS ?= --offline
+
+# The shim crates, one per web-native game. extensions/hugmesh-fps-core-wasm is
+# a 15th crate of the same shape but is deliberately NOT listed: it is not a
+# shipped game core but the fixture behind the JVM/Chicory differential test,
+# which loads it from backend/src/test/resources/wasm/hugmesh_fps_core.wasm.
+# That copy has no in-repo build path either — a separate gap, tracked apart
+# from this one so the count below stays "the shipped game cores".
+GAMES_WASM_CRATES = \
+  hugmesh-asteroids-duel-wasm \
+  hugmesh-battleship-wasm \
+  hugmesh-bomberman-wasm \
+  hugmesh-chess-wasm \
+  hugmesh-connect-four-wasm \
+  hugmesh-dots-and-boxes-wasm \
+  hugmesh-go-wasm \
+  hugmesh-gomoku-wasm \
+  hugmesh-match-three-wasm \
+  hugmesh-minesweeper-wasm \
+  hugmesh-reversi-wasm \
+  hugmesh-sudoku-wasm \
+  hugmesh-tetris-wasm \
+  hugmesh-tron-wasm
+
+build-games-wasm: $(GAMES_WASM_DOCKERFILE)
+	@command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found — needed for the game-core WASM build"; exit 1; }
+	@echo "→ Building $(words $(GAMES_WASM_CRATES)) web-native game cores ($(GAMES_WASM_RUST_TARGET), dockerised)..."
+	@# Same rationale as build-rust-wasm: distro-packaged Rust ships no rustup and
+	@# no wasm32 std-lib, so a host-side build dies with "can't find crate for
+	@# `std`" (verified on this repo's Gentoo cargo 1.97.1). The image is built
+	@# once and cached; unlike the emsdk image it is small and quick.
+	@if ! docker image inspect $(GAMES_WASM_IMAGE) >/dev/null 2>&1; then \
+	  echo "  → docker image $(GAMES_WASM_IMAGE) missing, building (one-time)"; \
+	  docker build -t $(GAMES_WASM_IMAGE) tools/build-games-wasm/ ; \
+	fi
+	@# One container for all $(words $(GAMES_WASM_CRATES)) crates rather than that
+	@# many container starts. Each crate is its own cargo workspace root (there is
+	@# no virtual workspace at the repo root), so they must be built one manifest
+	@# at a time; cd into each so any per-crate .cargo/config.toml is honoured,
+	@# exactly as build-rust-wasm does.
+	@#
+	@# --user: build-rust-wasm runs as root and chowns the tree back afterwards.
+	@# Running as the caller from the start is simpler and strictly safer — the
+	@# chown-after form only ever repaired target/, so the Cargo.lock cargo
+	@# generates next to each manifest was left root-owned inside the user's
+	@# checkout. The official rust image makes CARGO_HOME/RUSTUP_HOME
+	@# world-writable precisely so it can be driven as a non-root uid.
+	docker run --rm --user "$$(id -u):$$(id -g)" -v "$(CURDIR):/work" -w /work \
+	  $(GAMES_WASM_IMAGE) sh -euc '\
+	  for crate in $(GAMES_WASM_CRATES); do \
+	    echo "  → $$crate"; \
+	    cd "/work/extensions/$$crate"; \
+	    cargo build --release --target $(GAMES_WASM_RUST_TARGET) $(GAMES_WASM_CARGO_FLAGS); \
+	  done'
+	@# Assert, don't announce. cargo's own exit status covers a crate that fails
+	@# to compile, but not a crate silently dropped from GAMES_WASM_CRATES or one
+	@# whose [lib] stops being a cdylib and so emits no .wasm at all. Checking the
+	@# expected output path per crate (rather than counting a glob) also means a
+	@# stale artefact from a since-removed crate cannot pad the total.
+	@built=0; missing=""; \
+	 for crate in $(GAMES_WASM_CRATES); do \
+	   out="extensions/$$crate/$(GAMES_WASM_OUT_DIR)/$$(echo $$crate | tr '-' '_').wasm"; \
+	   if [ -f "$$out" ]; then built=$$((built+1)); else missing="$$missing $$crate"; fi; \
+	 done; \
+	 if [ "$$built" -ne $(words $(GAMES_WASM_CRATES)) ]; then \
+	   echo "ERROR: expected $(words $(GAMES_WASM_CRATES)) game-core wasm modules, found $$built — missing:$$missing"; \
+	   exit 1; \
+	 fi; \
+	 echo "✓ $$built game-core wasm modules under extensions/<crate>/$(GAMES_WASM_OUT_DIR)/"
+
+# Drop only the game-core wasm build trees. Kept out of `clean` so the heavy
+# top-level clean stays about shipped artefacts. Both the target dir and the
+# Cargo.lock are .gitignore'd per crate, so neither ever dirties `git status`
+# and regenerating the lock is lossless — these crates resolve nothing but path
+# dependencies, so the lock has no registry versions to pin.
+clean-games-wasm:
+	@echo "→ Cleaning game-core wasm build trees..."
+	@for crate in $(GAMES_WASM_CRATES); do \
+	  rm -rf "extensions/$$crate/target" "extensions/$$crate/Cargo.lock"; \
+	done
+	@echo "✓ Clean done"
 
 # ── Godot Web Export ──────────────────────────────────────────────────────────
 

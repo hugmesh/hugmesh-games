@@ -65,7 +65,7 @@ Each web-native engine runs identically in three environments — the browser (`
 
 ## Build status
 
-Five components build from the monorepo, chained by the root [`Makefile`](Makefile):
+Six components build from the monorepo, chained by the root [`Makefile`](Makefile):
 
 | Component | Toolchain | Build command | Status |
 |---|---|---|---|
@@ -74,8 +74,9 @@ Five components build from the monorepo, chained by the root [`Makefile`](Makefi
 | **hugmesh-bridge** (Rust → native `.so`) | `cargo build --release --features api-custom` | `make build-rust` | Builds + `cargo test` pass on a host with `cargo` + Godot (gdext regenerates `extension_api.json` against your Godot binary). |
 | **hugmesh-bridge** (Rust → WASM) | `wasm32-unknown-emscripten` | `make build-rust-wasm` (dockerised emsdk) | Needs emscripten. Built via a pinned `rust + emsdk` Docker image ([`tools/build-rust-wasm/Dockerfile`](tools/build-rust-wasm/Dockerfile)) so the host never installs emscripten; produces a 3.3 MB `hugmesh_bridge.wasm`. Skipped with a warning if Docker/emsdk is absent — normal browser play does not depend on it (the GDScript path covers the bridge events). |
 | **Godot 4.6 web export** | Godot 4.6 CLI + export templates | `make build-godot` (one bundle per export preset, per game) | Needs the Godot 4.6 binary on `PATH` *and* installed 4.6 export templates. Writes one WASM bundle per chapter under `backend/src/main/resources/assets/levels/<slug>/`, then runs [`scripts/patch-godot-html.py`](scripts/patch-godot-html.py). |
+| **Web-native game cores** (14 × Rust → WASM) | `wasm32-unknown-unknown`, freestanding cdylib | `make build-games-wasm` (dockerised rustc) · `make clean-games-wasm` | Builds every `extensions/hugmesh-<game>-wasm/` shim via [`tools/build-games-wasm/Dockerfile`](tools/build-games-wasm/Dockerfile) — a thin layer on the official `rust` image, no emsdk. All 14 crates depend only on their sibling engine by path, so the build runs with `--offline` and needs no network at all. Output lands in `extensions/<crate>/target/wasm32-unknown-unknown/release/`; the target **builds only** and installs nothing. |
 
-`make build` runs all of the above in dependency order (`build-rust → build-godot → build-backend → build-frontend`).
+`make build` runs all of the above **except** `build-games-wasm`, in dependency order (`build-rust → build-godot → build-backend → build-frontend`). The game cores stay out of the default chain for the same reason the committed bundles do: the shipped `.wasm` files under `games/<slug>/wasm/` are tracked artefacts, so regenerating them is an explicit, reviewable act rather than a side effect of `make build`.
 
 **Tests.** `make test` fans out to `test-rust` (cargo), `test-backend` (`./mvnw test`), and `test-frontend` (Karma in Docker). End-to-end is Playwright against the live Docker Compose stack: `make e2e` (canonical suite — TLS, all images, self-isolation specs), `make e2e-bdd` (Gherkin `.feature` files with per-step screenshots), and `make e2e-native` (the same suite against the GraalVM native image overlay). Godot has no GDScript unit suite yet — the runtime layer is exercised by `make e2e` loading the real WASM bundle in a browser.
 
