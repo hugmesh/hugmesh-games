@@ -29,7 +29,7 @@ func suite_name() -> String:
 
 ## See test_case.plan() — pinned so an aborted suite cannot report green.
 func plan() -> int:
-	return 63
+	return 72
 
 
 func run() -> void:
@@ -106,9 +106,25 @@ func _signature_table_matches_design_section_5() -> void:
 		"roster": ["json"],
 		# FIVE slots, not §5's two: mode/sticker/name are what a billboard
 		# participant IS (configJson is null for them) and they were
-		# unreachable while they rode OUTSIDE the signature. Widened on BOTH
-		# sides — matrix-ui's HOST_CALL_SIGNATURES.avatar must match this.
+		# unreachable while they rode OUTSIDE the signature.
+		#
+		# THE TWO TABLES ARE COMPATIBLE, NOT IDENTICAL, and this comment used to
+		# claim matrix-ui's `HOST_CALL_SIGNATURES.avatar` "must match this".
+		# It must not, and does not: the host declares the 2-slot §5 row on
+		# purpose. It has nothing honest to put in the other three — `name`
+		# rides in every roster row, and a `mxc://` is unusable from the games
+		# origin (no access token, not an HTTP URL) so a sticker can only ever
+		# reach the room as BYTES, which it now does on its own `sticker`
+		# channel. The interlock is the shim's short-`args` backfill: a 2-slot
+		# envelope decodes here to [userId, cfg, null, null, null], and an
+		# absent `mode` means "keep the current rig" (see _apply_meta), so the
+		# host changes nothing it did not speak about. Every OTHER row,
+		# `sticker` included, IS byte-for-byte the host's.
 		"avatar": ["userId", "configJson", "mode", "sticker", "name"],
+		# The billboard BYTE channel. Not three more `avatar` slots: `avatar` is
+		# diffed and re-pushed on every avatar-state change while a sticker
+		# changes essentially never, and megabytes do not belong on a hot path.
+		"sticker": ["userId", "b64", "mime"],
 		"pose": ["userId", "x", "z", "yaw", "seat"],
 		"openness": ["userId", "f"],
 		"blendshapes": ["userId", "b64"],
@@ -136,12 +152,25 @@ func _signature_table_matches_design_section_5() -> void:
 			ok(Array(sig[call_name]).has(slot),
 					"%s alias targets its own signature slot '%s'" % [call_name, slot])
 
+	# The NEW channel's alias row is additionally pinned LITERALLY. The
+	# structural check above would happily accept a renamed alternate spelling,
+	# and matrix-ui mirrors this row verbatim (`GAME_ALIASES` in
+	# chat3d-bridge.ts) precisely so the two tables can be diffed by machine —
+	# so a rename only this pin can see is a rename that silently splits them.
+	var sticker_aliases: Dictionary = CHAT3D.ALIASES.get("sticker", {})
+	eq(sticker_aliases.keys(), ["b64", "mime"], "sticker aliases cover both payload slots")
+	eq(Array(sticker_aliases.get("b64", [])), ["bytes", "png"],
+			"the sticker b64 alternates are matrix-ui's verbatim")
+	eq(Array(sticker_aliases.get("mime", [])), ["type", "contentType"],
+			"the sticker mime alternates are matrix-ui's verbatim")
+
 
 func _matrix_channels_are_wired() -> void:
 	var room := make_room()
 	var bridge: Node = room.get_node("Chat3DBridge")
 	room.call("_setup_matrix")
 	for pair in [["roster_received", "_on_roster"], ["avatar_received", "_on_avatar"],
+			["sticker_received", "_on_sticker"],
 			["pose_received", "_on_pose"], ["openness_received", "_on_openness"],
 			["blendshapes_received", "_on_blendshapes"], ["speaking_received", "_on_speaking"],
 			["expression_received", "_on_expression"], ["place_media_received", "_on_place_media"],

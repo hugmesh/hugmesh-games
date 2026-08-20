@@ -10,6 +10,8 @@ extends Node
 #   Chat3D.avatar(userId, configJson, mode, sticker, name)
 #                                           a user's Char3DConfig + how they
 #                                           chose to appear (see AVATAR_MODES)
+#   Chat3D.sticker(userId, b64, mime)       a billboard participant's VN sticker
+#                                           BYTES (null b64 = clear the plate)
 #   Chat3D.pose(userId, x, z, yaw, seat)    pose update (seat -1 = free-roam)
 #   Chat3D.openness(userId, f)              mouth openness 0..1
 #   Chat3D.blendshapes(userId, b64)         base64 uint8[52] ARKit blendshapes
@@ -60,6 +62,22 @@ signal roster_received(list: Array)
 ## billboard participant, or a metadata-only refresh) — the receiver keeps the
 ## rig it has. `meta` carries the §5 mode/sticker/name slots.
 signal avatar_received(user_id: String, config: Variant, meta: Dictionary)
+## A billboard participant's sticker IMAGE. Empty `bytes` = clear the plate and
+## give that member back the rig they have.
+##
+## Applied only to a member the roster already admitted, and DROPPED otherwise
+## (avatar_manager.set_sticker). That makes the channel lossy, so contract §4
+## (v4) puts ordering AND recovery on the host: its pre-handshake queue stays
+## in produced order and flushes the admitting roster first, a newly ADMITTED
+## member's plate is re-sent (keyed on the member set — a rename re-sends
+## nothing), and a queue eviction rolls the host's sent-bookkeeping back so
+## the drop is re-sent rather than permanent.
+##
+## The declared `mime` is deliberately NOT carried onward: it is validated at
+## this boundary (see STICKER_MIME_TYPES) and then has no reader — the decoder
+## sniffs the container itself, so passing the header along would be a field
+## nobody honours, which is how a protocol grows slots that lie.
+signal sticker_received(user_id: String, bytes: PackedByteArray)
 signal pose_received(user_id: String, x: float, z: float, yaw: float, seat: int)
 signal openness_received(user_id: String, value: float)
 signal blendshapes_received(user_id: String, weights: PackedByteArray)
@@ -82,6 +100,16 @@ const AVATAR_MODES: PackedStringArray = ["forge", "billboard", "guest"]
 ## MAX_AVATAR_STICKER_URL_LENGTH).
 const MAX_STICKER_URL := 512
 
+## Containers the `sticker` channel may carry — matrix-ui's STICKER_MIME_TYPES,
+## and the same three formats media_surfaces.DECODE_FORMATS can turn into a
+## texture (load_png / load_jpg / load_webp_from_buffer is the WHOLE decoder
+## surface of this room). Matched against the host's declared `mime`, which is
+## the Content-Type of the authenticated media response — the only authoritative
+## source for a sticker, whose mxc comes from an MSC2545 emote pack carrying no
+## mimetype of its own. Anything else is dropped rather than probed: the sniffer
+## in media_surfaces only REORDERS the admitted formats, it never admits one.
+const STICKER_MIME_TYPES: PackedStringArray = ["image/png", "image/jpeg", "image/webp"]
+
 ## Argument order per function — the single source of the envelope mapping.
 ##
 ## `avatar` carries FIVE slots, not DESIGN §5's two. mode/sticker/name are what
@@ -90,10 +118,19 @@ const MAX_STICKER_URL := 512
 ## OUTSIDE the signature, which made them unreachable — the decode path takes
 ## `args` verbatim when it is an array, so three fields the host computes on
 ## every poll were silently dropped and billboard avatars were unrepresentable.
-## Widening the signature (on BOTH sides) is what makes the mode real.
+## Widening the signature is what makes the mode real HERE. The host keeps the
+## 2-slot §5 row on purpose (it has nothing honest to put in the other three:
+## `name` rides in every roster row and the sticker rides as bytes below), and
+## the short-args backfill in the shim is what makes the two tables interlock.
+##
+## `sticker` is the byte channel, and it is a channel rather than three more
+## `avatar` slots because `avatar` is diffed and re-pushed on every avatar-state
+## change while a sticker changes essentially never — bytes do not belong on a
+## hot path. Both sides agree on ["userId", "b64", "mime"] verbatim.
 const SIGNATURES := {
 	"roster": ["json"],
 	"avatar": ["userId", "configJson", "mode", "sticker", "name"],
+	"sticker": ["userId", "b64", "mime"],
 	"pose": ["userId", "x", "z", "yaw", "seat"],
 	"openness": ["userId", "f"],
 	"blendshapes": ["userId", "b64"],
@@ -116,6 +153,7 @@ const SIGNATURES := {
 const ALIASES := {
 	"roster": {"json": ["users", "roster", "list"]},
 	"avatar": {"configJson": ["config"]},
+	"sticker": {"b64": ["bytes", "png"], "mime": ["type", "contentType"]},
 	"openness": {"f": ["value", "openness"]},
 	"blendshapes": {"b64": ["values", "weights", "bytes"]},
 	"speaking": {"value": ["speaking"]},
@@ -124,9 +162,11 @@ const ALIASES := {
 	"stage": {"value": ["on", "stage"]},
 }
 
-## Bytes accepted for one placeMedia texture before we drop the payload and
-## fall back to a metadata-only plaque (the base64 of this still has to survive
-## a JSON round-trip through the drain).
+## Bytes accepted for one media payload (a placeMedia texture or a sticker)
+## before we drop it (the base64 of this still has to survive a JSON round-trip
+## through the drain). placeMedia falls back to a metadata-only plaque; a
+## sticker is dropped whole, because the only other value that channel has is
+## "empty" and empty MEANS "clear this member's plate".
 ##
 ## ENFORCED ON EVERY TRANSPORT, not just the binary one. The cap used to live
 ## only inside the ArrayBuffer/TypedArray normaliser, so on the base64-STRING
@@ -136,6 +176,18 @@ const ALIASES := {
 ## decoding, which is the check a headless run can actually execute. The host
 ## enforces the SAME numeric limit before sending.
 const MAX_MEDIA_BYTES := 4 * 1024 * 1024
+
+## The longest base64 STRING that could still decode to MAX_MEDIA_BYTES or less
+## — ceil(MAX_MEDIA_BYTES / 3) * 4, base64's 4-chars-per-3-bytes with padding.
+##
+## Checked BEFORE `Marshalls.base64_to_raw`, which allocates the whole decoded
+## payload and only then hands it to the size check below. On the defence-in-
+## depth leg — a host that ignored its own send-side cap, or a hostile frame —
+## that meant materialising the very buffer the check exists to refuse. A string
+## longer than this cannot decode to anything at or under the cap, so refusing
+## it here costs a length read; the post-decode check stays, because it is the
+## one that knows the real size.
+const MAX_MEDIA_B64_CHARS := 5592408
 
 ## The host queues everything until `ready`; re-announce until it talks back so
 ## a host listener that attaches after the wasm boots still completes the
@@ -233,8 +285,27 @@ func _install_js() -> void:
 	})();
 	var warned = false;
 	var q = [];
+	// Byte length of whatever a media slot is carrying, before normArg touches
+	// it (-1 = not a media payload at all).
+	function rawBytes(v) {
+		if (typeof v === 'string') return b64Bytes(v);
+		if (v instanceof ArrayBuffer) return v.byteLength;
+		if (ArrayBuffer.isView(v) && !(v instanceof DataView)) return v.byteLength;
+		return -1;
+	}
 	function push(t, args) {
 		if (q.length > 2048) q.length = 0;
+		// The sticker cap runs on the RAW argument and drops the whole call.
+		// Both halves of that matter: normArg turns an over-cap ArrayBuffer
+		// into null, and null on this channel is the CLEAR signal — an
+		// oversized sticker must not be able to erase a member's plate. There
+		// is nothing to degrade to either (placeMedia keeps its label plaque;
+		// a sticker with no bytes is not a sticker), so the member simply
+		// keeps what they are wearing.
+		if (t === 'sticker' && rawBytes(args[1]) > MAX_MEDIA) {
+			console.warn('[sotn] sticker over ' + MAX_MEDIA + ' bytes - dropped');
+			return;
+		}
 		q.push({ t: t, args: capMedia(t, args.map(normArg)) });
 	}
 	var api = { _allowedOrigin: allowed, onEmit: null };
@@ -332,6 +403,43 @@ func _dispatch(t: String, args: Array) -> void:
 			# rig it has and still apply the new mode/name.
 			if cfg is Dictionary or meta["mode"] != "":
 				avatar_received.emit(uid, cfg if cfg is Dictionary else null, meta)
+		"sticker":
+			var suid := _arg_str(args, 0)
+			if suid == "":
+				return
+			var sb64 := _arg_str(args, 1)
+			if sb64 == "":
+				# null/"" CLEARS the plate. No mime is required to stop showing a
+				# picture, and demanding one would make a clear undeliverable by a
+				# host that (correctly) has no Content-Type to declare for nothing.
+				sticker_received.emit(suid, PackedByteArray())
+				return
+			# CONTAINER ALLOW-LIST — the receive half of a check the host also runs.
+			# Enforcing a media rule on ONE side only is exactly how the byte cap
+			# came to sit on a code path the real transport never entered.
+			var smime := _arg_mime(args, 2)
+			if not STICKER_MIME_TYPES.has(smime):
+				push_warning(("[sotn] sticker for %s declares '%s' — the room decodes"
+						+ " only %s; dropped") % [suid, smime, ", ".join(STICKER_MIME_TYPES)])
+				return
+			# INBOUND CAP, cheap leg: a base64 string this long cannot decode to
+			# anything the cap admits, so refuse it without allocating the decode.
+			if sb64.length() > MAX_MEDIA_B64_CHARS:
+				push_warning(("[sotn] sticker for %s is %d base64 chars (cap %d) — dropped"
+						+ " before decoding; that member keeps their current look")
+						% [suid, sb64.length(), MAX_MEDIA_B64_CHARS])
+				return
+			var sbytes := Marshalls.base64_to_raw(sb64)
+			# INBOUND CAP (MAX_MEDIA_BYTES, the number the host refuses to send).
+			# Dropped WHOLE rather than degraded to empty: empty is the CLEAR signal,
+			# so degrading would let an over-cap payload erase the plate a member is
+			# already wearing.
+			if sbytes.size() > MAX_MEDIA_BYTES:
+				push_warning(("[sotn] sticker for %s is %d bytes (cap %d) — dropped;"
+						+ " that member keeps their current look")
+						% [suid, sbytes.size(), MAX_MEDIA_BYTES])
+				return
+			sticker_received.emit(suid, sbytes)
 		"pose":
 			pose_received.emit(_arg_str(args, 0), _arg_f(args, 1), _arg_f(args, 2),
 					_arg_f(args, 3), _arg_i(args, 4, -1))
@@ -453,6 +561,14 @@ func _arg_sticker(args: Array, i: int) -> String:
 	if not v.begins_with("mxc://") or v.length() > MAX_STICKER_URL:
 		return ""
 	return v
+
+
+## A declared media type, normalised the way the host normalises it before it
+## matches its own allow-list: parameters (`; charset=binary`) dropped, edges
+## trimmed, lower-cased. An absent header arrives here as "" and matches no
+## allow-list — the fail-closed reading of "we could not tell what this is".
+func _arg_mime(args: Array, i: int) -> String:
+	return _arg_str(args, i).get_slice(";", 0).strip_edges().to_lower()
 
 
 ## Accepts either a JSON string or an already-structured value at args[i].
