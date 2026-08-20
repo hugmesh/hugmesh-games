@@ -56,7 +56,7 @@ class ModerationServiceTest {
 
     private static final class FakeGameSessionService extends GameSessionService {
         FakeGameSessionService() {
-            super(null, null, null, null, java.util.Optional.empty(), java.util.Optional.empty());
+            super(null, null, null, null, java.util.Optional.empty(), java.util.Optional.empty(), 15_000L);
         }
         @Override public Mono<Void> close(String sessionId) { return Mono.empty(); }
         @Override public Mono<Void> leave(String sessionId, String casdoorId) { return Mono.empty(); }

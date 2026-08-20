@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+      Session-member liveness — the column the ghost-member reaper reads.
+
+      Until now `session_members.left_at` was stamped ONLY by an explicit
+      `DELETE /api/sessions/{id}/me` or by `ModerationService.kickPlayer`.
+      A tab close, a browser crash, a closed laptop lid or a dropped
+      network left the row active forever: the player kept a seat and an
+      avatar slot against the room's 16-player cap with nothing left alive
+      to release it.
+
+      `last_seen_at` records the most recent liveness signal the BFF saw
+      from that member. Two signals feed it, and they are the only two an
+      *identified* member produces:
+
+        1. `GET /api/sessions/{id}` — the roster poll. Fires whether or not
+           the player is touching anything, which is what makes it safe to
+           reap on. It comes from the ANGULAR HOST SHELL
+           (`SessionHeartbeatService`, every 20 s while a tab holds a seat),
+           because the shell owns the session for every game.
+           `shadows-of-the-net` additionally polls from inside the game
+           (`session_bridge.gd ROSTER_POLL_INTERVAL`, 5 s) — that is one
+           title's own behaviour, not a property of the platform. No other
+           game in `games/` calls `/api/sessions/` at all, so a reaper built
+           on the game-side poll alone would collect two players halfway
+           through a game of chess.
+        2. `POST /api/controls/{cid}` / `POST /api/input/{cid}` carrying
+           `X-Session-Id` — both funnel through
+           `GameSessionService.authorizeControl`, one chokepoint over every
+           game's hot path. Player-action-driven, so it is a supplement to
+           the poll and never a substitute for it: on a turn-based board
+           both players are idle while one of them thinks.
+
+      Deliberately NOT derived from player position: `GameStateService
+      .applyControl` only maps MOVE_*/JUMP, so every `SOTN_*` action falls
+      to `default -> before` and never reaches `persistPosition` →
+      `PositionCacheService.markPresent`. A position-derived heartbeat sees
+      zero Shadows-of-the-Net players.
+
+      Nullable rather than NOT NULL so the backfill below and the reaper's
+      COALESCE(last_seen_at, joined_at) both stay correct for rows written
+      by any code path that predates this column.
+  -->
+
+  <!--
+      Deliberately NO column DEFAULT. Postgres fills every EXISTING row with
+      the default at ADD COLUMN time (the value is stored in the table's
+      metadata and read back for all pre-existing rows), so a
+      `defaultValueComputed="CURRENT_TIMESTAMP"` here would leave zero NULLs
+      behind and turn 061-2's backfill into a no-op — handing every ghost that
+      accumulated before this migration a fresh grace window from the very
+      changeset meant to collect them.
+
+      Nothing needs the default: `GameSessionService.newMember` seeds
+      last_seen_at on the only INSERT path there is, and the reaper reads
+      COALESCE(last_seen_at, joined_at) so a row from any path that forgets
+      still resolves to an honest instant rather than to "never stale".
+  -->
+  <changeSet id="061-1-session-members-last-seen-at" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><columnExists tableName="session_members" columnName="last_seen_at"/></not>
+    </preConditions>
+    <addColumn tableName="session_members">
+      <column name="last_seen_at" type="timestamp with time zone"/>
+    </addColumn>
+  </changeSet>
+
+  <!--
+      Backfill existing rows off joined_at rather than NOW(): an already-
+      ghosted row must NOT be handed a fresh 90 s of grace by the very
+      migration that introduces the reaper. Joining is itself a liveness
+      signal, so joined_at is the honest lower bound, and every genuinely
+      dead row is immediately past the cutoff on the first sweep.
+  -->
+  <changeSet id="061-2-backfill-last-seen-at" author="nin">
+    <sql>
+      UPDATE session_members
+         SET last_seen_at = joined_at
+       WHERE last_seen_at IS NULL;
+    </sql>
+  </changeSet>
+
+  <!--
+      The reaper's query is "active members, oldest liveness first". The
+      partial index keeps it off a full scan as the membership ledger grows
+      (rows are append-only — departed members are never deleted).
+  -->
+  <changeSet id="061-3-index-active-last-seen" author="nin">
+    <preConditions onFail="MARK_RAN">
+      <not><indexExists indexName="ix_session_members_active_last_seen"/></not>
+    </preConditions>
+    <sql>
+      CREATE INDEX ix_session_members_active_last_seen
+      ON session_members (last_seen_at)
+      WHERE left_at IS NULL;
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

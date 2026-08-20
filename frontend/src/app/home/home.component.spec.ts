@@ -7,6 +7,9 @@ import { HomeComponent } from './home.component';
 import { AvailableGame, GameWithChapters } from '../models/available-game.model';
 import { CharacterState } from '../models/character.model';
 import { GameSession, SessionMember } from '../services/multiplayer-session.service';
+import { SessionLeaveOnUnloadService } from '../services/session-leave-on-unload.service';
+import { SessionHeartbeatService } from '../services/session-heartbeat.service';
+import { SessionControlService } from '../services/session-control.service';
 
 /**
  * Pure-helper coverage for HomeComponent. Heavier orchestration is
@@ -514,5 +517,232 @@ describe('HomeComponent session slot picker', () => {
     const reqs = httpMock.match(r => r.url === '/api/sessions' && r.method === 'POST');
     expect(reqs.length).toBe(1);
     expect((reqs[0].request.body as { slotIndex?: number }).slotIndex).toBe(0);
+  });
+});
+
+/**
+ * Seat release on an in-app chapter close.
+ *
+ * `MultiplayerSessionService.leave()` had NO caller anywhere in the frontend,
+ * so closing a chapter deliberately — the polite exit, the one the UI offers —
+ * left the membership row `left_at IS NULL` forever and held a seat plus an
+ * avatar slot against the room's 16-player cap. A closed tab was only the
+ * loudest symptom of a seat nothing ever released.
+ */
+describe('HomeComponent — releasing the multiplayer seat', () => {
+  let fixture: ComponentFixture<HomeComponent>;
+  let component: HomeComponent;
+  let httpMock: HttpTestingController;
+  let leaveOnUnload: SessionLeaveOnUnloadService;
+  let heartbeat: SessionHeartbeatService;
+  let sessionControl: SessionControlService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
+    });
+    fixture = TestBed.createComponent(HomeComponent);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+    leaveOnUnload = TestBed.inject(SessionLeaveOnUnloadService);
+    heartbeat = TestBed.inject(SessionHeartbeatService);
+    sessionControl = TestBed.inject(SessionControlService);
+  });
+
+  const leaveUrl = (id: string) => `/api/sessions/${id}/me`;
+
+  /** Put the component in the state of a player seated in a running chapter. */
+  function seatedIn(sessionId: string): void {
+    component.activeSessionId = sessionId;
+    component.activeSlotIndex = 1;
+    component.activeLevel = { id: 1, name: 'x', slug: 'x' } as unknown as AvailableGame;
+    leaveOnUnload.track(sessionId);
+    heartbeat.track(sessionId);
+  }
+
+  it('DELETEs the membership row when the chapter is closed in-app', () => {
+    seatedIn('sess-9');
+
+    component.closeLevel();
+
+    const reqs = httpMock.match(r => r.url === leaveUrl('sess-9') && r.method === 'DELETE');
+    expect(reqs.length).toBe(1);
+    reqs[0].flush(null);
+  });
+
+  it('stops the unload handler tracking a seat it already released', () => {
+    // Otherwise closing the chapter and then the tab fires two DELETEs, the
+    // second against a membership row that is already stamped.
+    seatedIn('sess-9');
+
+    component.closeLevel();
+    httpMock.match(r => r.url === leaveUrl('sess-9')).forEach(r => r.flush(null));
+
+    expect(leaveOnUnload.tracked()).toBeNull();
+    expect(component.activeSessionId).toBeNull();
+  });
+
+  it('issues no leave when the player was never in a session', () => {
+    component.activeLevel = { id: 1, name: 'x', slug: 'x' } as unknown as AvailableGame;
+
+    component.closeLevel();
+
+    expect(httpMock.match(r => r.method === 'DELETE').length).toBe(0);
+  });
+
+  it('does not DELETE against a session the BFF already closed', () => {
+    // SESSION_CLOSED means the room is gone server-side; a leave would be a
+    // pointless request racing the close it is reacting to.
+    seatedIn('sess-9');
+
+    sessionControl.sessionClosed.set({ sessionId: 'sess-9', reason: 'host-disconnected' });
+    fixture.detectChanges();   // flush the field-initialised effect
+
+    expect(httpMock.match(r => r.url === leaveUrl('sess-9')).length).toBe(0);
+    expect(leaveOnUnload.tracked()).toBeNull();
+    expect(component.activeSessionId).toBeNull();
+  });
+
+  it('swallows a failed leave — the chapter is already closed in the UI', () => {
+    seatedIn('sess-9');
+
+    component.closeLevel();
+    const req = httpMock.expectOne(r => r.url === leaveUrl('sess-9'));
+    expect(() => req.flush('boom', { status: 500, statusText: 'Server Error' })).not.toThrow();
+    expect(component.activeLevel).toBeNull();
+  });
+
+  it('hands the unload handler the seat as soon as one is joined', () => {
+    component.joinSession({
+      id: 'sess-3', name: 'Demo', gameSlug: 'shadows-of-the-net',
+      creatorCasdoorId: 'alice', maxPlayers: 4, activePlayers: 1,
+      visibility: 'public', createdAt: '2026-01-01T00:00:00Z', closedAt: null,
+      members: [{ casdoorId: 'alice', characterId: 1, slotIndex: 0, creator: true,
+                  joinedAt: '2026-01-01T00:00:00Z' }],
+    });
+    const req = httpMock.expectOne(r => r.url === '/api/sessions/sess-3/join');
+    req.flush({
+      id: 'sess-3', name: 'Demo', gameSlug: 'shadows-of-the-net',
+      creatorCasdoorId: 'alice', maxPlayers: 4, activePlayers: 2,
+      visibility: 'public', createdAt: '2026-01-01T00:00:00Z', closedAt: null, members: [],
+    });
+
+    expect(leaveOnUnload.tracked()).toBe('sess-3');
+  });
+
+  it('hands the unload handler the seat when the player creates the session', () => {
+    component.modalGame = {
+      slug: 'shadows-of-the-net', name: 'Shadows of the Net', description: '', chapters: [],
+    } as unknown as GameWithChapters;
+    component.newSessionName = 'Noir room';
+    component.createSession();
+
+    const req = httpMock.expectOne(r => r.url === '/api/sessions' && r.method === 'POST');
+    req.flush({
+      id: 'sess-4', name: 'Noir room', gameSlug: 'shadows-of-the-net',
+      creatorCasdoorId: 'alice', maxPlayers: 3, activePlayers: 1,
+      visibility: 'public', createdAt: '2026-01-01T00:00:00Z', closedAt: null, members: [],
+    });
+
+    expect(leaveOnUnload.tracked()).toBe('sess-4');
+  });
+
+  // ── the superseded (frozen old) tab must not evict the live one ──────────
+  //
+  // A takeover pauses the OLD tab's IFRAME, not its toolbar: the Close button
+  // renders on `activeLevel` alone and the frozen tab still holds
+  // `activeSessionId`. `left_at` is per MEMBER, so a leave sent from here
+  // stamps the row the NEW tab is playing under. The BFF cannot save us —
+  // an explicit DELETE (no `unload` flag) is deliberately never dropped — and
+  // if the member is the creator, `closeOnHostDrop` takes the whole room down
+  // with them. This is the eviction the entire superseded latch exists to
+  // prevent, and the unload leg alone did not cover it.
+
+  it('does NOT evict the new tab when a superseded tab clicks Close', () => {
+    seatedIn('sess-9');
+    sessionControl.superseded.set(true);
+
+    component.closeLevel();
+
+    expect(httpMock.match(r => r.url === leaveUrl('sess-9') && r.method === 'DELETE').length)
+      .withContext('a frozen tab must send no leave for the seat its successor is playing on')
+      .toBe(0);
+  });
+
+  it('still tears the frozen chapter down locally when superseded', () => {
+    // Suppressing the leave must not turn the Close button into a no-op —
+    // the player asked to be rid of the dead iframe and gets that.
+    seatedIn('sess-9');
+    sessionControl.superseded.set(true);
+
+    component.closeLevel();
+
+    expect(component.activeLevel).toBeNull();
+    expect(component.activeSessionId).toBeNull();
+    expect(leaveOnUnload.tracked()).toBeNull();
+    expect(heartbeat.tracked()).toBeNull();
+  });
+
+  it('resumes releasing the seat once this tab re-claims the game', () => {
+    // The latch is not a one-way trip any more: coming back to the old tab
+    // and re-launching makes it live again, and a live tab must release its
+    // own seat on close or it ghosts for the whole reaper window.
+    seatedIn('sess-9');
+    sessionControl.superseded.set(true);
+    sessionControl.claimTakeover({ gameSlug: 'chess', launchUid: 'uid-2', sessionId: 'sess-9' });
+
+    component.closeLevel();
+
+    expect(httpMock.match(r => r.url === leaveUrl('sess-9') && r.method === 'DELETE').length).toBe(1);
+  });
+
+  // ── the liveness heartbeat: the seat-keeping leg every game shares ───────
+
+  it('starts the liveness heartbeat as soon as a seat is joined', () => {
+    component.joinSession({
+      id: 'sess-3', name: 'Demo', gameSlug: 'chess',
+      creatorCasdoorId: 'alice', maxPlayers: 4, activePlayers: 1,
+      visibility: 'public', createdAt: '2026-01-01T00:00:00Z', closedAt: null,
+      members: [{ casdoorId: 'alice', characterId: 1, slotIndex: 0, creator: true,
+                  joinedAt: '2026-01-01T00:00:00Z' }],
+    });
+    httpMock.expectOne(r => r.url === '/api/sessions/sess-3/join').flush({
+      id: 'sess-3', name: 'Demo', gameSlug: 'chess',
+      creatorCasdoorId: 'alice', maxPlayers: 4, activePlayers: 2,
+      visibility: 'public', createdAt: '2026-01-01T00:00:00Z', closedAt: null, members: [],
+    });
+
+    expect(heartbeat.tracked())
+      .withContext('chess emits no idle signal of its own; the shell is the only heartbeat it has')
+      .toBe('sess-3');
+  });
+
+  it('starts the liveness heartbeat when the player creates the session', () => {
+    component.modalGame = {
+      slug: 'go', name: 'Go', description: '', chapters: [],
+    } as unknown as GameWithChapters;
+    component.newSessionName = 'Slow game';
+    component.createSession();
+
+    httpMock.expectOne(r => r.url === '/api/sessions' && r.method === 'POST').flush({
+      id: 'sess-4', name: 'Slow game', gameSlug: 'go',
+      creatorCasdoorId: 'alice', maxPlayers: 2, activePlayers: 1,
+      visibility: 'public', createdAt: '2026-01-01T00:00:00Z', closedAt: null, members: [],
+    });
+
+    expect(heartbeat.tracked()).toBe('sess-4');
+  });
+
+  it('stops the liveness heartbeat once the seat is released', () => {
+    seatedIn('sess-9');
+
+    component.closeLevel();
+    httpMock.match(r => r.url === leaveUrl('sess-9')).forEach(r => r.flush(null));
+
+    expect(heartbeat.tracked()).toBeNull();
   });
 });

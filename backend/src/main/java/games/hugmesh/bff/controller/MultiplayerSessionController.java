@@ -102,10 +102,34 @@ public class MultiplayerSessionController {
         return service.listOpen(gameSlug, me);
     }
 
-    @Operation(summary = "Get one session with its active members")
+    @Operation(
+        summary = "Get one session with its active members",
+        description = """
+            Doubles as the multiplayer presence heartbeat. Each call stamps
+            `session_members.last_seen_at` for the CALLER;
+            `SessionMemberReaper` releases the seats whose stamp goes stale,
+            which is what stops a closed tab from holding a slot forever. A
+            caller who is not a member of the session (an admin or mod
+            observing it) reads the session normally and stamps nothing.
+
+            Two clients poll it, and only together do they cover the catalog:
+
+              * the Angular host shell (`SessionHeartbeatService`) every 20 s
+                for as long as the tab holds a seat — this is the one that
+                covers ALL games, because the shell owns the session
+                regardless of which engine is inside the iframe;
+              * `shadows-of-the-net`'s own Godot session bridge
+                (`session_bridge.gd ROSTER_POLL_INTERVAL`) every 5 s. That is
+                specific to that one game; no other game in the repo polls
+                anything, so it must never be treated as the general signal.
+            """)
     @GetMapping("/{id:[A-Za-z0-9_\\-]{16,86}}")
-    public Mono<GameSessionDto> get(@PathVariable String id) {
-        return service.get(id);
+    public Mono<GameSessionDto> get(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String id) {
+        String me = jwt != null ? jwt.getSubject() : null;
+        return service.get(id)
+                .flatMap(dto -> service.heartbeat(id, me).thenReturn(dto));
     }
 
     @Operation(
@@ -129,13 +153,27 @@ public class MultiplayerSessionController {
         description = """
             Stamps `left_at` on the caller's active membership row. Idempotent:
             calling twice is a no-op. If the caller was the last active member,
-            the session itself is auto-closed.
+            the session itself is auto-closed; if the caller was the creator,
+            the session closes with reason `host-disconnected`.
+
+            Set `unload=true` when the browser fires this from its `pagehide`
+            handler rather than from a player action. That flag is what lets a
+            closed tab release its seat immediately instead of waiting out
+            `SessionMemberReaper`'s timeout — and it is also what makes the
+            call safe to fire from a tab that may have been superseded: a
+            player who opened the game in a second tab has their OLD tab frozen
+            but still open, and its eventual `pagehide` must not evict the seat
+            the NEW tab is playing under. An `unload=true` leave arriving while
+            a tab-takeover is pending for the caller is therefore dropped; an
+            explicit leave (the default) is always honoured.
             """)
     @DeleteMapping("/{id:[A-Za-z0-9_\\-]{16,86}}/me")
     public Mono<Void> leave(
             @AuthenticationPrincipal Jwt jwt,
-            @PathVariable String id) {
-        return service.leave(id, jwt.getSubject());
+            @PathVariable String id,
+            @Parameter(description = "True when fired from the browser's pagehide handler rather than by the player.")
+            @RequestParam(name = "unload", defaultValue = "false") boolean unload) {
+        return service.leave(id, jwt.getSubject(), unload);
     }
 
     @Operation(

@@ -103,6 +103,34 @@ app:
     enabled: ${APP_REVOCATION_ENABLED:true}
     refresh-interval-ms: ${APP_REVOCATION_REFRESH_MS:5000}
 
+  # Multiplayer seat liveness. SessionMemberReaper releases the seat of a
+  # member whose last signal went quiet, which is the only thing that frees
+  # the slot of a player who closed their tab, crashed, or lost the network.
+  #
+  # It is only safe while every seated tab emits a signal even when the
+  # player is doing nothing. That comes from the ANGULAR HOST SHELL
+  # (SessionHeartbeatService polls GET /api/sessions/{id} every 20 s for as
+  # long as a tab holds a seat), NOT from the games — only
+  # shadows-of-the-net polls the roster on its own. Do not shrink
+  # member-timeout-ms without checking that period, and remember browsers
+  # clamp timers in a BACKGROUNDED tab to roughly one call per minute: the
+  # 3-minute default is sized to clear three of those throttled beats.
+  sessions:
+    # Kill-switch for the sweep. Turn it off if a client-side regression ever
+    # takes the heartbeat out again — the alternative is a scheduled job
+    # evicting players from live rooms until a release can ship.
+    reap-enabled: ${APP_SESSIONS_REAP_ENABLED:true}
+    # How long a seat may go without a liveness signal before it is released.
+    member-timeout-ms: ${APP_SESSIONS_MEMBER_TIMEOUT_MS:180000}
+    # Sweep period and the delay before the first sweep (keeps it off the
+    # connection pool's startup).
+    reap-fixed-rate-ms: ${APP_SESSIONS_REAP_FIXED_RATE_MS:30000}
+    reap-initial-delay-ms: ${APP_SESSIONS_REAP_INITIAL_DELAY_MS:60000}
+    # Per-pod write rate limit for last_seen_at. Must stay BELOW the host
+    # shell's poll period or every other beat is swallowed here and the
+    # member's effective heartbeat period silently doubles.
+    heartbeat-min-interval-ms: ${APP_SESSIONS_HEARTBEAT_MIN_INTERVAL_MS:15000}
+
   # Multi-brand tenancy. UNSET on the games realm's single-Casdoor shape today,
   # so every key below is inert and the BFF behaves exactly as before.
   tenancy:

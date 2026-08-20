@@ -195,4 +195,101 @@ class MultiplayerSessionControllerHttpAuthzTest {
                 .expectStatus().isForbidden();
         verify(service, never()).resumeSession(any(), any());
     }
+
+    // ── member liveness : the roster poll IS the heartbeat ────────────────────
+    //
+    // `GET /api/sessions/{id}` is the one signal a running room reliably
+    // produces for an IDENTIFIED member — the Godot session bridge polls it
+    // every 5 s over the host shell's authenticated HttpClient, independent of
+    // player input. The alternatives do not work: a position-derived heartbeat
+    // never fires because GameStateService.applyControl maps only MOVE_*/JUMP
+    // so every SOTN_* action leaves the position unchanged, and the SSE stream
+    // carries no identity because `new EventSource(url)` sends no credentials
+    // and /api/game/** is public. If this wiring regresses, the reaper reaps
+    // players who are still playing — so it is pinned at the HTTP boundary.
+
+    @Test
+    void get_stampsLivenessForTheCallingMember() {
+        stubGet("alice");
+        when(service.heartbeat(any(), any())).thenReturn(Mono.empty());
+
+        web.mutateWith(SecuritySliceSupport.user("alice"))
+                .get().uri("/api/sessions/" + SID)
+                .exchange()
+                .expectStatus().isOk();
+
+        verify(service).heartbeat(eq(SID), eq("alice"));
+    }
+
+    @Test
+    void get_stampsForTheCallerNotTheCreator() {
+        // A guest polling the roster must refresh THEIR seat, not the host's.
+        stubGet("alice");
+        when(service.heartbeat(any(), any())).thenReturn(Mono.empty());
+
+        web.mutateWith(SecuritySliceSupport.user("bob"))
+                .get().uri("/api/sessions/" + SID)
+                .exchange()
+                .expectStatus().isOk();
+
+        verify(service).heartbeat(eq(SID), eq("bob"));
+    }
+
+    @Test
+    void get_anonymous_is401_andStampsNothing() {
+        stubGet("alice");
+
+        web.get().uri("/api/sessions/" + SID)
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        verify(service, never()).heartbeat(any(), any());
+    }
+
+    // ── leave : the unload flag that carries the superseded-tab guard ─────────
+
+    @Test
+    void leave_defaultsToAnExplicitPlayerLeave() {
+        // No query param ⇒ the player asked. Never dropped, whatever the
+        // takeover state — the "leave" control only exists in the tab they are
+        // actually looking at.
+        when(service.leave(any(), any(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(Mono.empty());
+
+        web.mutateWith(SecuritySliceSupport.user("bob"))
+                .mutateWith(csrf())
+                .delete().uri("/api/sessions/" + SID + "/me")
+                .exchange()
+                .expectStatus().isOk();
+
+        verify(service).leave(eq(SID), eq("bob"), eq(false));
+    }
+
+    @Test
+    void leave_threadsTheUnloadHintThroughToTheService() {
+        // The browser's pagehide leg. The flag is what lets the BFF apply its
+        // superseded-tab backstop, so losing it in the binding would silently
+        // turn a frozen old tab's eventual close into an eviction of the new
+        // tab's player.
+        when(service.leave(any(), any(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(Mono.empty());
+
+        web.mutateWith(SecuritySliceSupport.user("bob"))
+                .mutateWith(csrf())
+                .delete().uri("/api/sessions/" + SID + "/me?unload=true")
+                .exchange()
+                .expectStatus().isOk();
+
+        verify(service).leave(eq(SID), eq("bob"), eq(true));
+    }
+
+    @Test
+    void leave_anonymous_is401() {
+        web.mutateWith(csrf())
+                .delete().uri("/api/sessions/" + SID + "/me?unload=true")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        verify(service, never()).leave(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
 }

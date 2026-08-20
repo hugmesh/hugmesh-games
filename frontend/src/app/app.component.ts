@@ -7,6 +7,7 @@ import { GamepadService } from './services/gamepad.service';
 import { WasmConsoleForwarderService } from './services/wasm-console-forwarder.service';
 import { AdminActionsListenerService } from './services/admin-actions-listener.service';
 import { ApiBridgeService } from './services/api-bridge.service';
+import { SessionLeaveOnUnloadService } from './services/session-leave-on-unload.service';
 import { NotificationService } from './services/notification.service';
 
 // Routes whose component is fetched at runtime via loadRemoteModule.
@@ -42,6 +43,7 @@ export class AppComponent implements OnInit {
   private readonly wasmConsoleForwarder = inject(WasmConsoleForwarderService);
   private readonly apiBridge = inject(ApiBridgeService);
   private readonly adminActions = inject(AdminActionsListenerService);
+  private readonly leaveOnUnload = inject(SessionLeaveOnUnloadService);
   readonly notify = inject(NotificationService);
 
   /**
@@ -81,6 +83,11 @@ export class AppComponent implements OnInit {
     // closes the game iframe / redirects to /banned on a kick or ban.
     // Idempotent — safe to re-call on auth state changes.
     this.adminActions.start();
+    // SessionLeaveOnUnload releases the player's multiplayer seat on
+    // `pagehide`. It must be listening BEFORE any session is joined —
+    // HomeComponent only hands it the session id — because a listener
+    // attached later would miss a tab closed mid-join.
+    this.leaveOnUnload.start();
 
     this.router.events.subscribe(ev => {
       if (ev instanceof NavigationError) {
