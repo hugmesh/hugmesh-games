@@ -1,0 +1,63 @@
+{
+  "packId": "khronos-fox-v1",
+  "schema": "3d-pack",
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "displayName": "Khronos glTF Sample Assets — Fox",
+  "licenseSpdx": "CC-BY-4.0",
+  "attribution": "Model © 2014 PixelMannen (CC0-1.0); rigging & animation © 2014 tomkranis (CC-BY-4.0); glTF conversion © 2017 @AsoboStudio and @scurest (CC-BY-4.0)",
+  "attributionRequired": true,
+  "sourceUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/Fox/README.md",
+  "downloadUrl": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb",
+  "retrievedAt": "2026-07-29",
+  "licenseQuote": "© 2014, Public. CC0 1.0 Universal — PixelMannen for Model; © 2014, tomkranis. CC BY 4.0 International — tomkranis for Rigging & Animation; © 2017, @AsoboStudio and @scurest. CC BY 4.0 International — quoted from Models/Fox/README.md",
+  "notes": "Mixed licence: the mesh is CC0 but the RIG AND ANIMATIONS are CC-BY-4.0, so the whole file ships as CC-BY-4.0 with attribution. Canonical quadruped skinning/animation reference for the runtime GLB loader tests.",
+  "style": "furry-donor",
+  "rig": "quadruped",
+  "visemes": false,
+  "totals": {
+    "models": 1,
+    "bytes": 146248,
+    "tris": 576
+  },
+  "models": [
+    {
+      "id": "fox",
+      "displayName": "Fox",
+      "file": "models/fox.glb",
+      "kind": "character",
+      "style": "furry-donor",
+      "rig": "quadruped",
+      "visemes": false,
+      "trisAfter": 576,
+      "trisUnique": 576,
+      "decimated": false,
+      "trisBeforeDecimation": null,
+      "vendorReportedTris": 1826,
+      "vertices": 1728,
+      "bytes": 146248,
+      "joints": 24,
+      "hasJawBone": false,
+      "jawBones": [],
+      "materials": [
+        "fox_material"
+      ],
+      "textures": 1,
+      "animationCount": 3,
+      "animations": [
+        "Survey",
+        "Walk",
+        "Run"
+      ],
+      "visemeChannels": [],
+      "extensionsUsed": [],
+      "licenseSpdx": "CC-BY-4.0",
+      "attribution": "Model © 2014 PixelMannen (CC0-1.0); rigging & animation © 2014 tomkranis (CC-BY-4.0); glTF conversion © 2017 @AsoboStudio and @scurest (CC-BY-4.0)",
+      "sourceUrl": "https://poly.pizza/m/Bc97C66HKi",
+      "retrievedAt": "2026-07-29",
+      "flags": [
+        "no jaw bone and no visemes — lip-sync channel must be added by the assembler"
+      ]
+    }
+  ]
+}

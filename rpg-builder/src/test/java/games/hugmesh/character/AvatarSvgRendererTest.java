@@ -49,6 +49,9 @@ class AvatarSvgRendererTest {
                 case "ellipse" -> new double[]{num(e, "cx") - num(e, "rx"), num(e, "cy") - num(e, "ry"),
                         num(e, "rx") * 2, num(e, "ry") * 2};
                 case "polygon" -> polyBox(e.getAttribute("points"));
+                // The closed mouth is a quadratic curve: its box spans the corners
+                // and the control point (which is where the smile/frown goes).
+                case "path" -> pathBox(e.getAttribute("d"));
                 default -> null;
             };
         }
@@ -58,6 +61,18 @@ class AvatarSvgRendererTest {
     private static double num(Element e, String a) {
         String v = e.getAttribute(a);
         return v.isEmpty() ? 0 : Double.parseDouble(v);
+    }
+
+    private static double[] pathBox(String d) {
+        String[] t = d.replace("M", "").replace("Q", "").trim().split("\\s+");
+        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (int i = 0; i + 1 < t.length; i += 2) {
+            double x = Double.parseDouble(t[i]), y = Double.parseDouble(t[i + 1]);
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        }
+        return new double[]{minX, minY, maxX - minX, Math.max(1.0, maxY - minY)};
     }
 
     private static double[] polyBox(String points) {
@@ -365,6 +380,104 @@ class AvatarSvgRendererTest {
                     assertThat(n).as("%s=%s coordinate %s in view", b.key(), v, m.group())
                             .isBetween(-40.0, 340.0);
                 }
+            }
+        }
+    }
+
+    // ── The mouth: placed on the face, shaped by the emotion, opened by speech ──
+
+    private static String mouthElement(String svg) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("<(path|ellipse) data-part='Mouth'[^>]*/>").matcher(svg);
+        assertThat(m.find()).as("a Mouth element").isTrue();
+        return m.group(0);
+    }
+
+    private static double attr(String element, String name) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(" " + name + "='([-0-9.]+)'").matcher(element);
+        assertThat(m.find()).as("attribute %s in %s", name, element).isTrue();
+        return Double.parseDouble(m.group(1));
+    }
+
+    /** The closed mouth's quadratic path: x0 y0 (corner) cx cy (control) x1 y1 (corner). */
+    private static double[] closedMouthPath(String svg) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("<path data-part='Mouth' d='M ([-0-9.]+) ([-0-9.]+) Q ([-0-9.]+) ([-0-9.]+) ([-0-9.]+) ([-0-9.]+)'")
+                .matcher(svg);
+        assertThat(m.find()).as("a closed-mouth path").isTrue();
+        return new double[]{Double.parseDouble(m.group(1)), Double.parseDouble(m.group(2)),
+                Double.parseDouble(m.group(3)), Double.parseDouble(m.group(4)),
+                Double.parseDouble(m.group(5)), Double.parseDouble(m.group(6))};
+    }
+
+    @Test
+    void theClosedMouthCurvesWithTheEmotion_smileUpFrownDown() {
+        CharacterSpec s = CharacterSpec.defaults();
+        double[] happy = closedMouthPath(AvatarSvgRenderer.renderPortrait(s, "happy", 256, 256));
+        double[] sad = closedMouthPath(AvatarSvgRenderer.renderPortrait(s, "sad", 256, 256));
+        double[] neutral = closedMouthPath(AvatarSvgRenderer.renderPortrait(s, "neutral", 256, 256));
+        // SVG y grows downward: a smile's control point sits BELOW its corners.
+        assertThat(happy[3]).as("happy control below corners").isGreaterThan(happy[1]);
+        assertThat(sad[3]).as("sad control above corners").isLessThan(sad[1]);
+        assertThat(Math.abs(neutral[3] - neutral[1])).as("neutral is nearly straight")
+                .isLessThan(Math.abs(happy[3] - happy[1]) * 0.3);
+        assertThat(happy[4]).isGreaterThan(happy[0]);
+        assertThat(happy[5]).isEqualTo(happy[1]);
+    }
+
+    @Test
+    void opennessOpensTheMouthAndKeepsTheEmotion() throws Exception {
+        CharacterSpec s = CharacterSpec.defaults();
+        String closed = AvatarSvgRenderer.renderPortrait(s, "happy", 256, 256, 0.0);
+        String half = AvatarSvgRenderer.renderPortrait(s, "happy", 256, 256, 0.4);
+        String open = AvatarSvgRenderer.renderPortrait(s, "happy", 256, 256, 0.9);
+        assertThat(mouthElement(closed)).startsWith("<path");
+        assertThat(mouthElement(half)).startsWith("<ellipse");
+        assertThat(mouthElement(open)).startsWith("<ellipse");
+        assertThat(attr(mouthElement(open), "ry")).isGreaterThan(attr(mouthElement(half), "ry"));
+        assertThat(open).contains("fill='#c4525e'");
+        assertThat(half).doesNotContain("fill='#c4525e'");
+        // A smiling open mouth sits higher than a frowning open mouth (corners up).
+        double happyCy = attr(mouthElement(open), "cy");
+        double sadCy = attr(mouthElement(AvatarSvgRenderer.renderPortrait(s, "sad", 256, 256, 0.9)), "cy");
+        assertThat(happyCy).isLessThan(sadCy);
+        // Exactly ONE rig part is the mouth: the interior/tongue carry no data-part.
+        assertThat(partNames(open).stream().filter("Mouth"::equals).count()).isEqualTo(1);
+    }
+
+    @Test
+    void opennessIsClampedAndTheOldSignaturesMeanClosed() {
+        CharacterSpec s = CharacterSpec.defaults();
+        assertThat(AvatarSvgRenderer.renderExpression(s, "neutral", 200, 300))
+                .isEqualTo(AvatarSvgRenderer.renderExpression(s, "neutral", 200, 300, 0.0));
+        assertThat(AvatarSvgRenderer.renderPortrait(s, "shout", 128, 128))
+                .isEqualTo(AvatarSvgRenderer.renderPortrait(s, "shout", 128, 128, -3.0));
+        assertThat(AvatarSvgRenderer.renderPortrait(s, "shout", 128, 128, 1.0))
+                .isEqualTo(AvatarSvgRenderer.renderPortrait(s, "shout", 128, 128, 42.0));
+        assertThat(AvatarSvgRenderer.renderPortrait(s, "neutral", 128, 128, Double.NaN))
+                .isEqualTo(AvatarSvgRenderer.renderPortrait(s, "neutral", 128, 128, 0.0));
+    }
+
+    @Test
+    void theMouthSitsOnTheFaceForEveryHeadShape_belowTheEyesInsideTheSkull() throws Exception {
+        for (String head : CharacterSpec.HEAD_SHAPES) {
+            for (String hair : List.of("none", "long", "bun")) {
+                CharacterSpec s = CharacterSpec.builder().headShape(head).hairStyle(hair).build();
+                String svg = AvatarSvgRenderer.renderPortrait(s, "neutral", 256, 256, 0.5);
+                double[] skull = partBox(svg, "Skull");
+                double[] eyeL = partBox(svg, "EyeL");
+                double[] eyeR = partBox(svg, "EyeR");
+                double[] mouth = partBox(svg, "Mouth");
+                assertThat(mouth).as("mouth drawn for %s/%s", head, hair).isNotNull();
+                double mouthCx = mouth[0] + mouth[2] / 2, mouthCy = mouth[1] + mouth[3] / 2;
+                double eyeCy = (eyeL[1] + eyeL[3] / 2 + eyeR[1] + eyeR[3] / 2) / 2;
+                assertThat(mouthCy).as("%s/%s: mouth below the eyes", head, hair).isGreaterThan(eyeCy);
+                assertThat(mouthCy).as("%s/%s: mouth above the chin", head, hair)
+                        .isLessThan(skull[1] + skull[3]);
+                assertThat(mouthCx).as("%s/%s: mouth centred", head, hair)
+                        .isCloseTo(skull[0] + skull[2] / 2, org.assertj.core.data.Offset.offset(1.0));
+                assertThat(mouth[0]).as("%s/%s: within the skull", head, hair).isGreaterThan(skull[0]);
+                assertThat(mouth[0] + mouth[2]).isLessThan(skull[0] + skull[2]);
             }
         }
     }

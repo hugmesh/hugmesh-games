@@ -117,6 +117,60 @@ public final class Expressions {
     }
 
     /** Skull height in metres for {@code spec} — the unit offsets are authored in. */
+    /**
+     * How the CLOSED mouth curves per expression: +1 a full smile, -1 a full
+     * frown, 0 a straight line. This is the shape the chosen emotion keeps while
+     * the mouth opens and closes for speech, so a happy character talks with a
+     * smile and a sad one with a frown — the mouth never snaps to neutral.
+     */
+    private static final Map<String, Double> MOUTH_CURVE = Map.of(
+            "neutral", 0.12, "happy", 1.0, "sad", -1.0, "angry", -0.45,
+            "surprised", 0.0, "wink", 0.7, "sleepy", -0.15, "determined", -0.25,
+            "shout", 0.0);
+
+    public static double mouthCurve(String expression) {
+        return MOUTH_CURVE.getOrDefault(expression == null ? "neutral" : expression, 0.12);
+    }
+
+    /** Openness clamped to the 0..1 amplitude contract every lip-sync channel shares. */
+    public static double clampOpenness(double openness) {
+        if (Double.isNaN(openness)) return 0.0;
+        return Math.max(0.0, Math.min(1.0, openness));
+    }
+
+    /**
+     * The lip-sync layer: the mouth joint's pose for a given openness, applied ON
+     * TOP of the expression's own mouth pose. An open mouth grows tall, narrows a
+     * little, and its centre drops (the jaw moves, the upper lip does not).
+     */
+    public static Pose mouthOpenPose(CharacterSpec spec, double openness) {
+        double o = clampOpenness(openness);
+        if (o <= 0.0) return Pose.REST;
+        double unit = skullHeight(spec);
+        return new Pose(new Vec3(0, -0.016 * unit * o, 0),
+                new Vec3(1.0 - 0.15 * o, 1.0 + 2.6 * o, 1.0), Vec3.ZERO);
+    }
+
+    /**
+     * {@link #resolve(CharacterSpec, String)} with the lip-sync layer folded onto
+     * the Mouth joint: offsets add, scales multiply, so "happy" + open is a wide
+     * open smile and "sad" + open a drooping one.
+     */
+    public static Map<String, Pose> resolve(CharacterSpec spec, String expression, double openness) {
+        Map<String, Pose> base = resolve(spec, expression);
+        double o = clampOpenness(openness);
+        if (o <= 0.0) return base;
+        Pose open = mouthOpenPose(spec, o);
+        Pose mouth = base.getOrDefault("Mouth", Pose.REST);
+        Map<String, Pose> out = new LinkedHashMap<>(base);
+        out.put("Mouth", new Pose(
+                mouth.offset().plus(open.offset()),
+                new Vec3(mouth.scale().x() * open.scale().x(), mouth.scale().y() * open.scale().y(),
+                        mouth.scale().z() * open.scale().z()),
+                mouth.rot()));
+        return Map.copyOf(out);
+    }
+
     public static double skullHeight(CharacterSpec spec) {
         return 0.28 * spec.p("head");
     }

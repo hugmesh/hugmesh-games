@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "game": {
+    "name": "Character Forge",
+    "slug": "character-forge",
+    "description": "3D character maker for the HugMesh platform. Build an anime / FF / furry / D&D-style character on a procedural parametric rig (29 head families, body sliders, part attachments, 7 tint regions, the 10 canonical expressions), spin it on the turntable, and randomize with archetype-coherent seeds. The same definition drives your avatar in Shadows of the Net - CHAT rooms."
+  },
+  "levels": [
+    {
+      "name": "Forge Studio",
+      "slug": "character-forge",
+      "scene_type": "character-forge",
+      "sort_order": 1,
+      "asset_url": "/api/assets/levels/character-forge/index.html",
+      "scene_config": {},
+      "chromeless": true
+    }
+  ],
+  "federation": {
+    "slug": "games-character-forge",
+    "display_name": "Character Forge",
+    "kind": "wasm-game",
+    "remote_entry_url": "/api/assets/levels/character-forge/index.html",
+    "exposed_module": null,
+    "version": "0.1.0",
+    "metadata": {
+      "sse": false,
+      "hostAuthoritative": false,
+      "engine": "godot",
+      "singlePlayer": true
+    }
+  },
+  "access": {
+    "default_scope": "all"
+  },
+  "features": {
+    "spell_loadout": false,
+    "quests": false,
+    "items": false,
+    "char_progression": false,
+    "audio": true,
+    "gamepad": false,
+    "mouse": true,
+    "keyboard": true,
+    "touch": true
+  },
+  "godot_version": "4.6",
+  "exported_at": "2026-07-19T00:00:00Z"
+}

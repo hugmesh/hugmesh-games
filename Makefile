@@ -59,7 +59,7 @@ GODOT_EXPORT_ROOT   = $(BACKEND_DIR)/src/main/resources/assets/levels
 # `make build-godot` iterates this list, runs each preset, and writes the
 # resulting bundle to backend/.../assets/levels/<lower-preset>/. Adding a
 # new game = drop a new project under games/<slug>/ + append a row here.
-GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo chess-godot connect-four-godot shadows-of-the-net
+GAME_PROJECTS       = three-wizards-in-a-trenchcoat dodecahedron-demo chess-godot connect-four-godot shadows-of-the-net character-forge
 PRESETS_three-wizards-in-a-trenchcoat = Cave Field
 PRESETS_dodecahedron-demo             = Dodecahedron
 # chess-godot: the FIRST reference game ported to the Godot pivot — a real Godot
@@ -299,6 +299,7 @@ build-godot: build-rust
 	    chess-godot)                   presets="Chess-Godot";; \
 	    connect-four-godot)            presets="Connect-Four-Godot";; \
 	    shadows-of-the-net)            presets="Shadows-Of-The-Net";; \
+	    character-forge)               presets="Character-Forge";; \
 	    *)                             presets="";; \
 	  esac; \
 	  for preset in $$presets; do \

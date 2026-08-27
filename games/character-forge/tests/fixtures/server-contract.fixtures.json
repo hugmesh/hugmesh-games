@@ -1,0 +1,777 @@
+{
+  "$comment": [
+    "SHARED CROSS-LANGUAGE CONTRACT FIXTURE — one file, two suites.",
+    "",
+    "serverContract mirrors the constants of the authoritative validator",
+    "(src/main/java/.../character/Char3DConfigValidator.java). The Java test",
+    "ClientContractFixturesTest asserts every entry EQUALS the real constant, so this",
+    "file can never drift from the server. The karma spec contract/server-contract.spec.ts",
+    "then validates everything the shipped Angular client produces against these",
+    "patterns, which is how a client that emits a value the server would 400 on gets",
+    "caught in CI instead of in the user's face.",
+    "",
+    "acceptedDefinitions are VERBATIM payloads the shipped clients POST to",
+    "/bff/character-forge/characters. ClientContractFixturesTest feeds each one to the",
+    "real validator and requires it to be ACCEPTED; server-contract.spec.ts requires the",
+    "client to still produce them. Both halves are needed: the Java half alone cannot see",
+    "the client change, the TS half alone cannot see the server change.",
+    "",
+    "vnMapCases pin the DESIGN §2 mapping on both sides: VnMapService.map(vnCharacter)",
+    "must equal canonical (Java), mapVnToChar3d(vnCharacter) must equal canonical (TS),",
+    "and canonical must be a validator fixed point.",
+    "",
+    "vnPackCredits are the pack-level credit blocks of the four vendored VN manifests",
+    "(src/main/resources/vn/packs/<packId>/pack.json), in Char3DConfigValidator.PACK_IDS",
+    "order. ClientContractFixturesTest asserts they equal VnPackManifests.credits(), and",
+    "server-contract.spec.ts asserts the Angular remote's vendored VN_PACK_CREDITS equals",
+    "them — so the SRD 5.1 attribution the in-app credits view renders is the same string",
+    "the manifests carry, VERBATIM, and a re-copied pack cannot silently change it."
+  ],
+  "serverContract": {
+    "hexPattern": "^#[0-9a-fA-F]{3,8}$",
+    "partIdPattern": "^[A-Za-z0-9_-]{1,64}$",
+    "shortStrPattern": "^[A-Za-z0-9 _-]{1,40}$",
+    "keyPattern": "^[a-z0-9_-]{1,40}$",
+    "maxNameLength": 120,
+    "maxDefinitionBytes": 16384,
+    "maxSourceSlots": 24,
+    "maxSourcePalette": 16,
+    "families": [
+      "canid",
+      "felid",
+      "avian",
+      "reptile",
+      "dragon",
+      "dino",
+      "kobold",
+      "gryphon",
+      "equine",
+      "cervine",
+      "bovine",
+      "caprine",
+      "suid",
+      "hyena",
+      "lapine",
+      "rodent",
+      "macropod",
+      "moth",
+      "insect",
+      "bat",
+      "ursine",
+      "mustelid",
+      "procyonid",
+      "amphibian",
+      "aquatic",
+      "slime",
+      "robot",
+      "synth",
+      "humanoid"
+    ],
+    "styles": [
+      "anime",
+      "toon",
+      "classic"
+    ],
+    "expressions": [
+      "neutral",
+      "happy",
+      "sad",
+      "angry",
+      "surprised",
+      "embarrassed",
+      "thinking",
+      "wink",
+      "sleepy",
+      "smug"
+    ],
+    "packIds": [
+      "menagerie-v1",
+      "anime-v1",
+      "base-anthro-v1",
+      "srd-taxonomy-v1"
+    ],
+    "partKeys": [
+      "tail",
+      "wings",
+      "ears",
+      "feature",
+      "accessory",
+      "markings",
+      "hair"
+    ],
+    "materialKeys": [
+      "fur",
+      "accent",
+      "detail",
+      "line",
+      "iris",
+      "skin",
+      "hair"
+    ],
+    "defaultMaterials": {
+      "fur": "#8b5a2b",
+      "accent": "#d2b48c",
+      "detail": "#4a3728",
+      "line": "#2f2f2f",
+      "iris": "#00bcd4",
+      "skin": "#ffdbac",
+      "hair": "#563d2d"
+    },
+    "forbiddenNameCodePoints": [
+      0,
+      9,
+      27,
+      127,
+      173,
+      1564,
+      8203,
+      8206,
+      8207,
+      8232,
+      8233,
+      8234,
+      8238,
+      8288,
+      8294,
+      8297,
+      65279,
+      65529
+    ],
+    "rigJoints": [
+      "head",
+      "jaw",
+      "eye_l",
+      "eye_r",
+      "brow_l",
+      "brow_r",
+      "ear_l",
+      "ear_r"
+    ],
+    "rigOffsetMax": 0.12,
+    "rigScaleMin": 0.5,
+    "rigScaleMax": 1.8
+  },
+  "acceptedDefinitions": [
+    {
+      "label": "frontend defaultChar3dConfig() — models/char3d-config.ts",
+      "definition": {
+        "schemaVersion": 1,
+        "name": "Untitled",
+        "body": {
+          "archetype": "canid",
+          "build": 0.5,
+          "height": 1.0,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "canid",
+          "variant": "",
+          "snoutLength": 0.5,
+          "earStyle": null,
+          "hornStyle": null
+        },
+        "parts": {
+          "tail": null,
+          "wings": null,
+          "ears": null,
+          "feature": null,
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#8b5a2b",
+          "accent": "#d2b48c",
+          "detail": "#4a3728",
+          "line": "#2f2f2f",
+          "iris": "#00bcd4",
+          "skin": "#ffdbac",
+          "hair": "#563d2d"
+        },
+        "style": "toon"
+      }
+    },
+    {
+      "label": "godot maker Char3DConfig.defaults() — godot/.../scripts/char3d_config.gd",
+      "definition": {
+        "schemaVersion": 1,
+        "name": "Untitled",
+        "body": {
+          "archetype": "canid",
+          "build": 0.5,
+          "height": 1.0,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "canid",
+          "variant": "",
+          "snoutLength": 0.5,
+          "earStyle": null,
+          "hornStyle": null
+        },
+        "parts": {
+          "tail": null,
+          "wings": null,
+          "ears": null,
+          "feature": null,
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#8b5a2b",
+          "accent": "#d2b48c",
+          "detail": "#4a3728",
+          "line": "#2f2f2f",
+          "iris": "#00bcd4",
+          "skin": "#ffdbac",
+          "hair": "#563d2d"
+        },
+        "style": "toon"
+      }
+    },
+    {
+      "label": "surprise-me shape — every part slot filled, every region tinted",
+      "definition": {
+        "schemaVersion": 1,
+        "name": "Forged #20260729",
+        "body": {
+          "archetype": "felid",
+          "build": 0.37,
+          "height": 1.12,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "felid",
+          "variant": "",
+          "snoutLength": 0.35,
+          "earStyle": null,
+          "hornStyle": null
+        },
+        "parts": {
+          "tail": "tail_cat_01",
+          "wings": "wings_small_01",
+          "ears": "ears_lop_01",
+          "feature": "feature_mane_01",
+          "accessory": "accessory_collar_01",
+          "markings": "marking_tiger_stripes_01",
+          "hair": "hair_flower_01"
+        },
+        "materials": {
+          "fur": "#a0522d",
+          "accent": "#ff9100",
+          "detail": "#4a3728",
+          "line": "#090806",
+          "iris": "#76ff03",
+          "skin": "#f1c27d",
+          "hair": "#71635a"
+        },
+        "style": "toon"
+      }
+    },
+    {
+      "label": "editor free-text ear/horn style typed by the user",
+      "definition": {
+        "schemaVersion": 1,
+        "name": "Lop Eared Rabbit",
+        "body": {
+          "archetype": "lapine",
+          "build": 0.5,
+          "height": 1.0,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "lapine",
+          "variant": "head_rabbit_01",
+          "snoutLength": 0.35,
+          "earStyle": "long lop ears",
+          "hornStyle": null
+        },
+        "parts": {
+          "tail": "tail_bunny_puff_01",
+          "wings": null,
+          "ears": "ears_lop_01",
+          "feature": null,
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#f5f5dc",
+          "accent": "#ff4f79",
+          "detail": "#c0c0c0",
+          "line": "#2f2f2f",
+          "iris": "#00bcd4",
+          "skin": "#ffdbac",
+          "hair": "#563d2d"
+        },
+        "style": "toon"
+      }
+    },
+    {
+      "label": "imported-from-VN shape — carries the source echo the maker round-trips",
+      "definition": {
+        "schemaVersion": 1,
+        "name": "Wolf",
+        "source": {
+          "packId": "menagerie-v1",
+          "slots": {
+            "head": "head_wolf_01",
+            "body": "body_canid_lean_01",
+            "ears": "ears_lop_01",
+            "feature": "feature_antlers_01"
+          },
+          "palette": {
+            "fur": "#8b5a2b",
+            "accent": "#d2b48c"
+          },
+          "defaultExpression": "smug"
+        },
+        "body": {
+          "archetype": "canid",
+          "build": 0.5,
+          "height": 1.0,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "canid",
+          "variant": "head_wolf_01",
+          "snoutLength": 0.55,
+          "earStyle": "ears_lop_01",
+          "hornStyle": "feature_antlers_01"
+        },
+        "parts": {
+          "tail": null,
+          "wings": null,
+          "ears": "ears_lop_01",
+          "feature": "feature_antlers_01",
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#8b5a2b",
+          "accent": "#d2b48c",
+          "detail": null,
+          "line": null,
+          "iris": null,
+          "skin": null,
+          "hair": null
+        },
+        "style": "toon"
+      }
+    }
+  ],
+  "vnMapCases": [
+    {
+      "label": "menagerie wolf — head+body archetypes, ears/antlers, partial palette",
+      "vnCharacter": {
+        "schemaVersion": 1,
+        "packId": "menagerie-v1",
+        "name": "Wolf",
+        "slots": {
+          "head": "head_wolf_01",
+          "body": "body_canid_lean_01",
+          "ears": "ears_lop_01",
+          "feature": "feature_antlers_01",
+          "tail": "tail_wolf_bushy_01"
+        },
+        "palette": {
+          "fur": "#8b5a2b",
+          "accent": "#d2b48c"
+        },
+        "transform": {
+          "scale": 1,
+          "offsetX": 0,
+          "offsetY": 0
+        },
+        "defaultExpression": "smug"
+      },
+      "expected": {
+        "schemaVersion": 1,
+        "name": "Wolf",
+        "source": {
+          "packId": "menagerie-v1",
+          "slots": {
+            "head": "head_wolf_01",
+            "body": "body_canid_lean_01",
+            "ears": "ears_lop_01",
+            "feature": "feature_antlers_01",
+            "tail": "tail_wolf_bushy_01"
+          },
+          "palette": {
+            "fur": "#8b5a2b",
+            "accent": "#d2b48c"
+          },
+          "defaultExpression": "smug"
+        },
+        "body": {
+          "archetype": "canid",
+          "build": 0.5,
+          "height": 1.0,
+          "curve": 0.5,
+          "top": 0.5,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "canid",
+          "variant": "head_wolf_01",
+          "snoutLength": 0.55,
+          "earStyle": "ears_lop_01",
+          "hornStyle": "feature_antlers_01"
+        },
+        "parts": {
+          "tail": "tail_wolf_bushy_01",
+          "wings": null,
+          "ears": "ears_lop_01",
+          "feature": "feature_antlers_01",
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#8b5a2b",
+          "accent": "#d2b48c",
+          "detail": "#4a3728",
+          "line": "#2f2f2f",
+          "iris": "#00bcd4",
+          "skin": "#ffdbac",
+          "hair": "#563d2d"
+        },
+        "style": "toon"
+      }
+    },
+    {
+      "label": "anime-v1 kemonomimi — humanoid family via the manifest, ears/tail as parts",
+      "vnCharacter": {
+        "schemaVersion": 1,
+        "packId": "anime-v1",
+        "name": "Neko",
+        "slots": {
+          "head": "head_anime_oval_01",
+          "body": "body_anime_a_01",
+          "ears": "ears_neko_01",
+          "tail": "tail_kitsune_01"
+        },
+        "palette": {
+          "skin": "#f1c27d",
+          "hair": "#090806"
+        },
+        "transform": {
+          "scale": 1,
+          "offsetX": 0,
+          "offsetY": 0
+        },
+        "defaultExpression": "happy"
+      },
+      "expected": {
+        "schemaVersion": 1,
+        "name": "Neko",
+        "source": {
+          "packId": "anime-v1",
+          "slots": {
+            "head": "head_anime_oval_01",
+            "body": "body_anime_a_01",
+            "ears": "ears_neko_01",
+            "tail": "tail_kitsune_01"
+          },
+          "palette": {
+            "skin": "#f1c27d",
+            "hair": "#090806"
+          },
+          "defaultExpression": "happy"
+        },
+        "body": {
+          "archetype": "humanoid",
+          "build": 0.5,
+          "height": 1.0,
+          "curve": 0.5,
+          "top": 0.5,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "humanoid",
+          "variant": "head_anime_oval_01",
+          "snoutLength": 0.05,
+          "earStyle": "ears_neko_01",
+          "hornStyle": null
+        },
+        "parts": {
+          "tail": "tail_kitsune_01",
+          "wings": null,
+          "ears": "ears_neko_01",
+          "feature": null,
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#8b5a2b",
+          "accent": "#d2b48c",
+          "detail": "#4a3728",
+          "line": "#2f2f2f",
+          "iris": "#00bcd4",
+          "skin": "#f1c27d",
+          "hair": "#090806"
+        },
+        "style": "anime"
+      }
+    },
+    {
+      "label": "srd dragonborn with NO body slot — body.archetype falls back to the resolved head family",
+      "vnCharacter": {
+        "schemaVersion": 1,
+        "packId": "srd-taxonomy-v1",
+        "name": "Dragonborn",
+        "slots": {
+          "head": "head_dragonborn_01"
+        },
+        "palette": {},
+        "transform": {
+          "scale": 1,
+          "offsetX": 0,
+          "offsetY": 0
+        },
+        "defaultExpression": "neutral"
+      },
+      "expected": {
+        "schemaVersion": 1,
+        "name": "Dragonborn",
+        "source": {
+          "packId": "srd-taxonomy-v1",
+          "slots": {
+            "head": "head_dragonborn_01"
+          },
+          "palette": {},
+          "defaultExpression": "neutral"
+        },
+        "body": {
+          "archetype": "reptile",
+          "build": 0.5,
+          "height": 1.0,
+          "curve": 0.5,
+          "top": 0.5,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "reptile",
+          "variant": "head_dragonborn_01",
+          "snoutLength": 0.5,
+          "earStyle": null,
+          "hornStyle": null
+        },
+        "parts": {
+          "tail": null,
+          "wings": null,
+          "ears": null,
+          "feature": null,
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#8b5a2b",
+          "accent": "#d2b48c",
+          "detail": "#4a3728",
+          "line": "#2f2f2f",
+          "iris": "#00bcd4",
+          "skin": "#ffdbac",
+          "hair": "#563d2d"
+        },
+        "style": "classic"
+      }
+    },
+    {
+      "label": "head part not in the pack — the BODY part establishes the family (fallback chain)",
+      "vnCharacter": {
+        "schemaVersion": 1,
+        "packId": "menagerie-v1",
+        "name": "Mystery",
+        "slots": {
+          "head": "head_not_in_pack_01",
+          "body": "body_dragon_plated_01"
+        },
+        "palette": {
+          "line": "#090806"
+        },
+        "transform": {
+          "scale": 1,
+          "offsetX": 0,
+          "offsetY": 0
+        },
+        "defaultExpression": "angry"
+      },
+      "expected": {
+        "schemaVersion": 1,
+        "name": "Mystery",
+        "source": {
+          "packId": "menagerie-v1",
+          "slots": {
+            "head": "head_not_in_pack_01",
+            "body": "body_dragon_plated_01"
+          },
+          "palette": {
+            "line": "#090806"
+          },
+          "defaultExpression": "angry"
+        },
+        "body": {
+          "archetype": "dragon",
+          "build": 0.5,
+          "height": 1.0,
+          "curve": 0.5,
+          "top": 0.5,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "dragon",
+          "variant": "head_not_in_pack_01",
+          "snoutLength": 0.6,
+          "earStyle": null,
+          "hornStyle": null
+        },
+        "parts": {
+          "tail": null,
+          "wings": null,
+          "ears": null,
+          "feature": null,
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#8b5a2b",
+          "accent": "#d2b48c",
+          "detail": "#4a3728",
+          "line": "#090806",
+          "iris": "#00bcd4",
+          "skin": "#ffdbac",
+          "hair": "#563d2d"
+        },
+        "style": "toon"
+      }
+    },
+    {
+      "label": "hostile VN — bidi name, bad part ids, uppercase keys, unknown expression",
+      "vnCharacter": {
+        "schemaVersion": 1,
+        "packId": "menagerie-v1",
+        "name": "Bad‮Name",
+        "slots": {
+          "head": "head_wolf_01",
+          "tail": "<script>",
+          "Ears": "ears_lop_01",
+          "wings": null
+        },
+        "palette": {
+          "fur": "#112233",
+          "Accent": "#ff0000",
+          "line": "nope",
+          "unknown_region": "#ff0000"
+        },
+        "transform": {
+          "scale": 1,
+          "offsetX": 0,
+          "offsetY": 0
+        },
+        "defaultExpression": "rage"
+      },
+      "expected": {
+        "schemaVersion": 1,
+        "name": "BadName",
+        "source": {
+          "packId": "menagerie-v1",
+          "slots": {
+            "head": "head_wolf_01",
+            "wings": null
+          },
+          "palette": {
+            "fur": "#112233",
+            "unknown_region": "#ff0000"
+          },
+          "defaultExpression": "neutral"
+        },
+        "body": {
+          "archetype": "canid",
+          "build": 0.5,
+          "height": 1.0,
+          "curve": 0.5,
+          "top": 0.5,
+          "legs": 0.5,
+          "arms": 0.5,
+          "limb": 0.5
+        },
+        "head": {
+          "family": "canid",
+          "variant": "head_wolf_01",
+          "snoutLength": 0.55,
+          "earStyle": null,
+          "hornStyle": null
+        },
+        "parts": {
+          "tail": null,
+          "wings": null,
+          "ears": null,
+          "feature": null,
+          "accessory": null,
+          "markings": null,
+          "hair": null
+        },
+        "materials": {
+          "fur": "#112233",
+          "accent": "#d2b48c",
+          "detail": "#4a3728",
+          "line": "#2f2f2f",
+          "iris": "#00bcd4",
+          "skin": "#ffdbac",
+          "hair": "#563d2d"
+        },
+        "style": "toon"
+      }
+    }
+  ],
+  "vnPackCredits": [
+    {
+      "packId": "menagerie-v1",
+      "displayName": "Menagerie — All Creatures",
+      "licenseSpdx": "CC-BY-SA-4.0",
+      "attribution": null
+    },
+    {
+      "packId": "anime-v1",
+      "displayName": "Anime & Kemonomimi",
+      "licenseSpdx": "CC-BY-SA-4.0",
+      "attribution": null
+    },
+    {
+      "packId": "base-anthro-v1",
+      "displayName": "Base Anthro v1",
+      "licenseSpdx": "CC-BY-SA-4.0",
+      "attribution": null
+    },
+    {
+      "packId": "srd-taxonomy-v1",
+      "displayName": "Taxonomy + SRD Placeholders v1",
+      "licenseSpdx": "CC-BY-4.0",
+      "attribution": "This work includes material taken from the System Reference Document 5.1 (\"SRD 5.1\") by Wizards of the Coast LLC and available at https://dnd.wizards.com/resources/systems-reference-document. The SRD 5.1 is licensed under the Creative Commons Attribution 4.0 International License available at https://creativecommons.org/licenses/by/4.0/legalcode."
+    }
+  ]
+}

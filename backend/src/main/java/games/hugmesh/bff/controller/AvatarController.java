@@ -6,6 +6,7 @@ import games.hugmesh.bff.service.UserAvatarService;
 import games.hugmesh.character.AvatarSvgRenderer;
 import games.hugmesh.character.CharacterDocument;
 import games.hugmesh.character.CharacterSpec;
+import games.hugmesh.character.GlbExporter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -108,16 +109,29 @@ public class AvatarController {
             @RequestParam(defaultValue = "neutral") String expression,
             @RequestParam(name = "w", defaultValue = "256") int width,
             @RequestParam(name = "h", defaultValue = "384") int height,
-            @RequestParam(defaultValue = "false") boolean portrait) {
+            @RequestParam(defaultValue = "false") boolean portrait,
+            @RequestParam(defaultValue = "0") double mouth) {
         // Unknown expression is a 400 from the whitelist here, not a
         // silently-neutral render; w/h are validated by the renderer itself
         // (MIN_DIM..MAX_DIM) and surface through the same handler below.
+        // `mouth` is the lip-sync openness (0 closed .. 1 wide open) layered on
+        // the expression — a talking avatar's frame; the renderer clamps it.
         String expr = CharacterSpec.token(expression, CharacterSpec.EXPRESSIONS,
                 CharacterSpec.DEFAULT_EXPRESSION, "expression");
         return service.specOf(id)
                 .map(spec -> svg(portrait
-                        ? AvatarSvgRenderer.renderPortrait(spec, expr, width, height)
-                        : AvatarSvgRenderer.renderExpression(spec, expr, width, height)));
+                        ? AvatarSvgRenderer.renderPortrait(spec, expr, width, height, mouth)
+                        : AvatarSvgRenderer.renderExpression(spec, expr, width, height, mouth)));
+    }
+
+    @Operation(summary = "The avatar as a glTF binary (GLB) — the same rig the SVG draws, for any 3D consumer (the avatar cam, a room, an editor). Readable by any authenticated user, like the SVG.")
+    @GetMapping(value = "/avatars/{id}/model.glb", produces = GlbExporter.MIME_TYPE)
+    public Mono<ResponseEntity<byte[]>> model(@PathVariable String id) {
+        return service.specOf(id)
+                .map(spec -> ResponseEntity.ok()
+                        .contentType(MediaType.valueOf(GlbExporter.MIME_TYPE))
+                        .header("Cache-Control", "no-cache")
+                        .body(GlbExporter.export(spec, "avatar-" + id)));
     }
 
     private static String requireName(String name) {

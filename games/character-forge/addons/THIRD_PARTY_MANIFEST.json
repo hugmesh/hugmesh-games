@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "comment": "Machine-readable provenance for every vendored third-party tree in this Godot project (platform license-hygiene convention: licenseSpdx + attribution + sourceUrl + retrievedAt per vendored asset). Human-readable aggregation lives in ../THIRD_PARTY_ASSETS.md. LICENSE DISCIPLINE: only CC0/CC-BY/MIT-verdict items from the XR-chat research reports may ever be added here; nothing from Mixamo, Synty, VRoid Hub, BOOTH, or unverified Sketchfab uploads.",
+  "entries": [
+    {
+      "path": "addons/vrm/",
+      "licenseSpdx": "MIT",
+      "attribution": "V-Sekai Contributors (c) 2020-2021; VRM Consortium (c) 2020 — godot-vrm importer/exporter addon",
+      "sourceUrl": "https://github.com/V-Sekai/godot-vrm",
+      "sourceCommit": "e15199f980064028bfa4fbee5e70dddb82dd55c3",
+      "retrievedAt": "2026-07-23",
+      "notes": "Vendored from the master-branch tarball, addons/vrm subtree only. The upstream vrm_samples/ models (Alicia Solid etc.) are NOT vendored — they carry separate non-CC licenses (legal-inventory.md). LICENSE file kept in-tree. Used for VRM ingest; on web the house toon shader replaces MToon at fixup time (scripts/vrm_ingest.gd)."
+    },
+    {
+      "path": "addons/Godot-MToon-Shader/",
+      "licenseSpdx": "MIT",
+      "attribution": "V-Sekai Contributors (c) 2020-2022; Masataka SUMI (c) 2018 — MToon shader port for Godot",
+      "sourceUrl": "https://github.com/V-Sekai/godot-vrm",
+      "sourceCommit": "e15199f980064028bfa4fbee5e70dddb82dd55c3",
+      "retrievedAt": "2026-07-23",
+      "notes": "Vendored alongside addons/vrm because vrm_extension.gd resolves MToon material shaders from res://addons/Godot-MToon-Shader/ at import time. MToon on WebGL2/Compatibility is undocumented upstream (technique.md gap) — the web pipeline swaps these materials for the house toon shader, so MToon only renders on desktop previews. LICENSE file kept in-tree."
+    }
+  ]
+}

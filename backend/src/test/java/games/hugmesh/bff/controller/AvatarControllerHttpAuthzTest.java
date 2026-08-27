@@ -299,6 +299,40 @@ class AvatarControllerHttpAuthzTest {
     }
 
     @Test
+    void imageSvg_mouthOpenness_isAcceptedAndChangesTheFrame() {
+        when(avatars.findById("a1")).thenReturn(Mono.just(row("a1", "bob")));
+        String closed = web.mutateWith(SecuritySliceSupport.user("carol"))
+                .get().uri("/api/avatars/a1/image.svg?expression=happy&portrait=true")
+                .exchange().expectStatus().isOk()
+                .expectBody(String.class).returnResult().getResponseBody();
+        String open = web.mutateWith(SecuritySliceSupport.user("carol"))
+                .get().uri("/api/avatars/a1/image.svg?expression=happy&portrait=true&mouth=0.9")
+                .exchange().expectStatus().isOk()
+                .expectBody(String.class).returnResult().getResponseBody();
+        assertThat(open).isNotEqualTo(closed);
+        assertThat(closed).contains("<path data-part='Mouth'");
+        assertThat(open).contains("<ellipse data-part='Mouth'");
+    }
+
+    // ── model.glb: the same rig as a glTF binary, same read rule as the SVG ──
+    @Test
+    void modelGlb_nonOwnerAuthenticated_is200Glb() {
+        when(avatars.findById("a1")).thenReturn(Mono.just(row("a1", "bob")));
+        web.mutateWith(SecuritySliceSupport.user("carol"))
+                .get().uri("/api/avatars/a1/model.glb")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.valueOf("model/gltf-binary"))
+                .expectBody(byte[].class)
+                .value(body -> assertThat(new String(body, 0, 4, java.nio.charset.StandardCharsets.US_ASCII)).isEqualTo("glTF"));
+    }
+
+    @Test
+    void modelGlb_anonymous_is401() {
+        web.get().uri("/api/avatars/a1/model.glb").exchange().expectStatus().isUnauthorized();
+    }
+
+    @Test
     void imageSvg_unknownId_is404() {
         when(avatars.findById("ghost")).thenReturn(Mono.empty());
         web.mutateWith(SecuritySliceSupport.user("carol"))

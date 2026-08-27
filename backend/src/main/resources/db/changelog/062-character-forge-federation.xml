@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+      Character Forge as a first-class game of THIS repo.
+
+      games/character-forge/ is the Godot 4 project that used to live inside the
+      character-forge BFF repo (hugmesh-character-forge-bff-api/godot/). It moved
+      here so it is an ordinary, editable, re-uploadable game: open it in Godot,
+      change it, export it, publish the zip through the same lane as every other
+      title. The engine renders and answers the bridge; EVERY control lives in the
+      Angular host (the in-canvas editor UI was removed with the move).
+
+      Mirrors 056 (shadows-of-the-net): a games row, one chromeless chapter whose
+      asset_url is the wasm-fragment bundle, a federation row of kind wasm-game,
+      and default all-users access so the tile is visible and launchable.
+    -->
+
+    <changeSet id="062-1-character-forge-game" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO games (id, name, description, slug, sort_order, created_at)
+SELECT (SELECT COALESCE(MAX(id), 0) + 1 FROM games),
+       'Character Forge',
+       '3D character maker for the HugMesh platform. Build an anime / FF / furry / D&amp;D-style character on a procedural parametric rig (29 head families, body sliders, part attachments, per-joint rig adjustments with auto-fit, 7 tint regions, the 10 canonical expressions), spin it on the turntable, and randomize with archetype-coherent seeds. The same definition drives your avatar in Shadows of the Net - CHAT rooms and your live-stream avatar cam.',
+       'character-forge',
+       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'character-forge');
+        </sql>
+    </changeSet>
+
+    <changeSet id="062-2-character-forge-chapter" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="chapters"/>
+        </preConditions>
+        <sql>
+INSERT INTO chapters
+    (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
+SELECT
+    'Forge Studio',
+    'The turntable stage: your character on a lit platform, orbit and zoom with the mouse, every parameter driven from the Angular editor over the CharForge bridge.',
+    'character-forge',
+    'character-forge',
+    1,
+    '/_remotes/wasm-fragment/character-forge/index.html',
+    '{"chromeless": true}',
+    (SELECT id FROM games WHERE slug = 'character-forge'),
+    NOW()
+WHERE NOT EXISTS (SELECT 1 FROM chapters WHERE slug = 'character-forge');
+        </sql>
+    </changeSet>
+
+    <changeSet id="062-3-character-forge-federation-row" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="federation_modules"/>
+        </preConditions>
+        <sql>
+INSERT INTO federation_modules
+    (slug, display_name, kind, remote_entry_url, exposed_module, game_slug, version, enabled, metadata)
+VALUES
+    ('games-character-forge', 'Character Forge', 'wasm-game',
+     '/_remotes/wasm-fragment/character-forge/index.html', NULL, 'character-forge', '0.2.0', true,
+     '{"sse":false,"hostAuthoritative":false,"engine":"godot","singlePlayer":true,"bridge":"CharForge","hostOwnsControls":true}'::jsonb)
+ON CONFLICT (slug) DO NOTHING;
+        </sql>
+    </changeSet>
+
+    <changeSet id="062-4-character-forge-default-access" author="hugmesh">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="game_access"/>
+            <tableExists tableName="games"/>
+        </preConditions>
+        <sql>
+INSERT INTO game_access (game_id, scope, scope_value, granted_by, granted_at)
+SELECT g.id, 'all', NULL, 'system:migration-062', NOW()
+  FROM games g
+ WHERE g.slug = 'character-forge'
+   AND NOT EXISTS (
+        SELECT 1 FROM game_access ga
+         WHERE ga.game_id = g.id AND ga.scope = 'all');
+        </sql>
+    </changeSet>
+</databaseChangeLog>
