@@ -1,9 +1,12 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * Catalogue of Casdoor seed users available under the
  * `integration-test` Spring profile. Every entry's password defaults
- * to `process.env.E2E_PASSWORD` (or `e2e-pass`) unless a per-user
+ * to `resolveE2eEnv('E2E_PASSWORD')` (env, then the run-state
+ * credentials file, then throw — never a literal) unless a per-user
  * override env var is exported. Specs iterate this list to drive a
  * per-role test matrix without hard-coding strings inside the
  * `test.describe` body.
@@ -93,12 +96,71 @@ export async function newE2eContext(
   });
 }
 
-/** Resolve a seed user's password — env override or `E2E_PASSWORD`
- *  fallback — without throwing on a missing env. */
+/**
+ * Run-state credentials file the Makefile's generator
+ * (`tests/stack/e2e-password.sh`, invoked by `make e2e` / `e2e-bdd` /
+ * `e2e-godot`) writes `E2E_PASSWORD` into. Format: plain `KEY=value`
+ * lines (see CONTRACT.md rule 3).
+ *
+ * Inside the containerised `e2e` Playwright run this path won't exist
+ * (the repo root isn't mounted into the image) — that's fine, because
+ * `docker-compose.e2e.yml` already requires `E2E_PASSWORD` to be set on
+ * the host before `docker compose` will even start the container, so
+ * `process.env` always resolves first there. This fallback matters when
+ * running Playwright directly against an already-up stack from the host
+ * (`cd e2e && npx playwright test`), where `process.env` may not have
+ * been threaded through by hand.
+ */
+function credentialsFilePath(): string {
+  return process.env.E2E_CREDENTIALS_FILE
+      ?? path.resolve(__dirname, '../../../.e2e-credentials');
+}
+
+let credentialsCache: Record<string, string> | undefined;
+
+function readCredentialsFile(): Record<string, string> {
+  if (credentialsCache) return credentialsCache;
+  const out: Record<string, string> = {};
+  try {
+    const raw = fs.readFileSync(credentialsFilePath(), 'utf8');
+    for (const line of raw.split('\n')) {
+      const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim());
+      if (m) out[m[1]] = m[2];
+    }
+  } catch {
+    // Not found / not readable — resolveE2eEnv falls through to throwing.
+  }
+  credentialsCache = out;
+  return out;
+}
+
+/**
+ * Resolve an e2e credential env var: explicit `process.env` first, then
+ * the run-state credentials file the Makefile generator writes, then
+ * THROW. Never a literal fallback (CONTRACT.md rule 4) — a silent
+ * fallback is the exact bug this replaces: it would let a
+ * misconfigured run authenticate with a guessable password and still
+ * go green.
+ */
+export function resolveE2eEnv(name: string): string {
+  const fromEnv = process.env[name];
+  if (fromEnv) return fromEnv;
+  const fromFile = readCredentialsFile()[name];
+  if (fromFile) return fromFile;
+  throw new Error(
+    `${name} is not set and not found in ${credentialsFilePath()}. ` +
+    'Run `make e2e` (or e2e-bdd / e2e-godot) first — it generates and ' +
+    `writes the shared e2e credentials — or export ${name} yourself.`,
+  );
+}
+
+/** Resolve a seed user's password — a per-role env override (if
+ *  exported) wins; otherwise the shared `E2E_PASSWORD` (env, then the
+ *  run-state credentials file, then throw). Never a literal fallback. */
 export function passwordFor(user: SeedUser): string {
-  return process.env[user.passwordEnv]
-      ?? process.env['E2E_PASSWORD']
-      ?? 'e2e-pass';
+  const perRole = process.env[user.passwordEnv];
+  if (perRole) return perRole;
+  return resolveE2eEnv('E2E_PASSWORD');
 }
 
 /**

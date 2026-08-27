@@ -606,17 +606,45 @@ deploy: build-godot seed-db
 #
 # Override `CERT_PATH=/abs/path/to/certs` to use your own certs (must contain
 # ca.crt, server.crt, server.key, keystore.p12, truststore.p12).
-# Override `E2E_PLAYER_PASSWORD=...` to set the Casdoor player password.
+# Override `E2E_PLAYER_PASS=...` (or the matching E2E_PLAYER_PASSWORD env var
+# read downstream) to pin the Casdoor player password instead of the
+# generated one.
 
 E2E_FILES        = -f docker-compose.yml -f docker-compose.e2e.yml
 E2E_PLAYER_USER ?= player
-E2E_PLAYER_PASS ?= e2e-pass
+
 # Shared password for every Casdoor seed user under the integration-test
 # profile. Each per-role env var defaults to E2E_PASSWORD so a single
 # override flips them all. See docker-compose.e2e.yml for the full
 # CASDOOR_*_PASS list and e2e/tests/helpers/roles.ts for the matching
 # Playwright catalogue.
-E2E_PASSWORD    ?= e2e-pass
+#
+# NEVER a hardcoded literal (tests/stack/e2e-password.sh / CONTRACT.md rule
+# 1): resolved fresh + random per run. Precedence: an already-exported
+# E2E_PASSWORD wins as-is; else the .e2e-credentials run-state file (so every
+# separate `docker compose` invocation below — each its own shell — agrees on
+# the SAME value); else generate + persist + export. Gated to the targets
+# that actually need it so a plain `make build-rust` etc. doesn't spend
+# entropy or touch the credentials file.
+#
+# THE GATE MUST LIST EVERY GOAL THAT INTERPOLATES $(E2E_FILES), not just the
+# ones that seed. docker-compose.e2e.yml spells ${E2E_PASSWORD:?...}, and
+# compose interpolates that on EVERY subcommand — `down` and `logs` included.
+# A goal that runs compose but sits outside this filter therefore dies at
+# parse time, before touching Docker. That is why e2e-down, e2e-logs,
+# build-backend-native and deploy are listed here even though none of them
+# seeds an account: they need the variable to RESOLVE, not to authenticate. `export`ed so every recipe shell in
+# this `make` invocation inherits it without re-sourcing.
+E2E_CREDENTIALS_FILE ?= $(CURDIR)/.e2e-credentials
+ifneq (,$(filter e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs build-backend-native deploy,$(MAKECMDGOALS)))
+E2E_PASSWORD := $(shell export E2E_CREDENTIALS_FILE="$(E2E_CREDENTIALS_FILE)"; . $(CURDIR)/tests/stack/e2e-password.sh && e2e_password_ensure && printf '%s' "$$E2E_PASSWORD")
+ifeq ($(E2E_PASSWORD),)
+$(error e2e_password_ensure failed to resolve E2E_PASSWORD — see tests/stack/e2e-password.sh)
+endif
+export E2E_PASSWORD
+$(info → e2e password for this run: $(E2E_PASSWORD)  (saved to $(E2E_CREDENTIALS_FILE)))
+endif
+E2E_PLAYER_PASS ?= $(E2E_PASSWORD)
 
 gen-certs:
 	@echo "→ Generating self-signed certs (or reusing CERT_PATH if set)…"

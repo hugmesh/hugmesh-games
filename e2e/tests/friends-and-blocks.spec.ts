@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { ensureLoginFormReady, newE2eContext } from './helpers/roles';
+import { ensureLoginFormReady, newE2eContext, resolveE2eEnv } from './helpers/roles';
 
 /**
  * Friend graph + blocklist flow.
@@ -12,7 +12,9 @@ import { ensureLoginFormReady, newE2eContext } from './helpers/roles';
  */
 const PLAYER1 = process.env.E2E_PLAYER_USERNAME  ?? 'player1';
 const PLAYER2 = process.env.E2E_PLAYER2_USERNAME ?? 'player2';
-const PASS    = process.env.E2E_PLAYER_PASSWORD  ?? (process.env.E2E_PASSWORD ?? 'e2e-pass');
+// Per-role override wins; otherwise the shared E2E_PASSWORD (env, then the
+// run-state credentials file, then throw). Never a literal fallback.
+const PASS    = process.env.E2E_PLAYER_PASSWORD  ?? resolveE2eEnv('E2E_PASSWORD');
 
 async function login(page: Page, user: string, pass: string): Promise<void> {
   await page.goto('/login', { waitUntil: 'domcontentloaded' });

@@ -13,12 +13,14 @@ the HTML report by the AfterStep hook in
 
 Why this path beats ``capture.py``:
 
-* ``make e2e-bdd`` brings up the deterministic-password integration-
-  test stack (``E2E_PASSWORD=e2e-pass``) so EVERY seed user — admin,
-  player, mod-three-wizards, publisher-dodecahedron, the lot — logs
-  in successfully. The dev-stack flow used by ``capture.py`` only
-  has admin + player passwords surfaced in ``.env``; mod / publisher
-  variants fall through to placeholder PNGs.
+* ``make e2e-bdd`` brings up the integration-test stack with EVERY
+  seed user sharing one password — a fresh random value
+  ``tests/stack/e2e-password.sh`` generates per run (``E2E_PASSWORD``,
+  never a hardcoded literal) — so admin, player, mod-three-wizards,
+  publisher-dodecahedron, the lot, all log in successfully. The
+  dev-stack flow used by ``capture.py`` only has admin + player
+  passwords surfaced in ``.env``; mod / publisher variants fall
+  through to placeholder PNGs.
 * The BDD AfterStep hook already produces 124+ screenshots per run.
   We just pick the right ones rather than driving a separate Selenium
   pass.

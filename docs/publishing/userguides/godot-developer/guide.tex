@@ -188,10 +188,11 @@ To exercise it locally without Playwright:
         \emph{Cookies must be isolated} --- shared cookies race the
         session tracker.
   \item In each, log in as a different player (the
-        \texttt{player1} and \texttt{player2} seed users have
-        deterministic passwords on the integration-test profile;
-        export \texttt{E2E\_PASSWORD=e2e-pass} when running
-        \texttt{make e2e}).
+        \texttt{player1} and \texttt{player2} seed users share one
+        password on the integration-test profile — a fresh random
+        value \texttt{make e2e} generates and writes to
+        \texttt{.e2e-credentials}; export \texttt{E2E\_PASSWORD=...}
+        yourself instead if you want to pin a known value).
   \item Profile A: open the game, \emph{Create lobby}, public
         visibility. Profile B: open the same game, \emph{Join} on the
         new row.

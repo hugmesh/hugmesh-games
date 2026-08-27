@@ -240,9 +240,9 @@ screenshots: venv
 # only the dev stack's randomised admin+player passwords in `.env`.
 #
 # `screenshots-from-e2e` runs the BDD suite (which brings up the
-# integration-test stack with deterministic e2e-pass passwords) and
-# then harvests its artefacts. Skip the BDD run if you've JUST run
-# `make e2e-bdd` and the artefact dir is fresh:
+# integration-test stack with every seed user sharing one freshly
+# generated E2E_PASSWORD) and then harvests its artefacts. Skip the BDD
+# run if you've JUST run `make e2e-bdd` and the artefact dir is fresh:
 #     `make -C docs/publishing screenshots-harvest` does only the harvest.
 screenshots-from-e2e:
 	@echo "→ Running e2e-bdd to produce per-step screenshots..."

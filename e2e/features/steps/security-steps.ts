@@ -18,7 +18,7 @@
 import { expect } from '@playwright/test';
 import { Given, When, Then } from '../support/fixtures';
 import { pageRegistry, responseState } from './_registry';
-import { authToken } from '../../tests/helpers/roles';
+import { authToken, resolveE2eEnv } from '../../tests/helpers/roles';
 
 /** Resolve the page registered for `username`, falling back to the
  *  default fixture if the user-level entry hasn't been set. The
@@ -135,7 +135,9 @@ Then('the response status is one of {int} or {int}', async ({}, a: number, b: nu
 Then('a player can launch chapter {string} of game {string}',
      async ({}, chapterSlug: string, gameSlug: string) => {
   const page = pageRegistry.get('publisher')!;
-  const playerPassword = process.env.E2E_PLAYER_PASSWORD || process.env.E2E_PASSWORD || 'e2e-pass';
+  // Per-role override wins; otherwise the shared E2E_PASSWORD (env, then
+  // the run-state credentials file, then throw). Never a literal fallback.
+  const playerPassword = process.env.E2E_PLAYER_PASSWORD || resolveE2eEnv('E2E_PASSWORD');
 
   const result = await page.evaluate(async ({ pw, g, c }) => {
     // The publisher's bearer (the page that ran the maker) is in

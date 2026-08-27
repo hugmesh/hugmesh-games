@@ -16,8 +16,9 @@ import { SEED_USERS, login, logout } from './helpers/roles';
  *      is the "multiplayer session" path.
  *
  * The list of users is pulled from `helpers/roles.ts`; the
- * docker-compose.e2e.yml overlay seeds Casdoor with deterministic
- * passwords for each one (default: `${E2E_PASSWORD:-e2e-pass}`).
+ * docker-compose.e2e.yml overlay seeds Casdoor with one shared password
+ * for every role by default — a fresh random value generated per run by
+ * `tests/stack/e2e-password.sh` (env `E2E_PASSWORD`, no literal default).
  */
 test.describe('per-role login + asset load', () => {
   for (const user of SEED_USERS) {

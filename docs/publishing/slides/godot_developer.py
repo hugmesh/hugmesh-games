@@ -173,7 +173,7 @@ SECTIONS = [
         "body": [
             "Browser-side multiplayer contract is pinned by e2e/features/multiplayer/rpg-two-players.feature.",
             "Two browser profiles (normal + incognito) — cookies must be isolated, otherwise the session tracker races.",
-            "Log in as player1 + player2 (E2E_PASSWORD=e2e-pass on the integration-test profile).",
+            "Log in as player1 + player2 (E2E_PASSWORD — a fresh random value generated per make e2e run — on the integration-test profile).",
             "Profile A creates a public lobby; profile B joins on the new row. Both Launch.",
             "WASM compile is 15–90 s cold — gate input on ?sessionId= EventSource open before pressing keys.",
             "Window controls (fullscreen / open-in-new-tab / open-in-new-window with pause / resume) — e2e/features/multiplayer/window-controls.feature.",
