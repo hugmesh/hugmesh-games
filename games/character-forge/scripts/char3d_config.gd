@@ -77,7 +77,7 @@ const RIG_SCALE_MAX := 1.8
 
 # The ONE canonical unset-region palette (Char3DConfigValidator.DEFAULT_MATERIALS
 # / char3d-config.ts DEFAULT_MATERIALS / this copy — all three pinned equal by the
-# shared fixture frontend/src/app/character-forge/contract/server-contract.fixtures.json).
+# shared fixture tests/fixtures/server-contract.fixtures.json (vendored from hugmesh-character-forge-bff-api frontend/src/app/character-forge/contract/)).
 # A stored definition may carry `null` for a region it never set; the renderer
 # resolves that here, so the three copies MUST agree or the same character shows
 # different colours in the Angular editor, the in-engine maker and the XR room.

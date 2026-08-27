@@ -299,8 +299,9 @@ func _test_default_materials_match_the_shared_contract_fixture() -> void:
 	# DEFAULT_MATERIALS, Char3DConfigValidator.DEFAULT_MATERIALS). They disagreed on
 	# accent/detail/iris, so one stored character rendered in three different colour
 	# schemes depending on which surface drew it. The shared fixture is the pin.
-	var path := ProjectSettings.globalize_path("res://").path_join(
-			"../../frontend/src/app/character-forge/contract/server-contract.fixtures.json")
+	# VENDORED here (tests/fixtures/README.md): the Angular tree the pin came from
+	# lives in hugmesh-character-forge-bff-api, not beside this project any more.
+	var path := ProjectSettings.globalize_path("res://tests/fixtures/server-contract.fixtures.json")
 	var text := FileAccess.get_file_as_string(path)
 	_check(text != "", "shared contract fixture readable at %s" % path)
 	if text == "":
