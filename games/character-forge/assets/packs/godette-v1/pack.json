@@ -1,0 +1,83 @@
+{
+  "packId": "godette-v1",
+  "schema": "3d-pack",
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "displayName": "Low-Poly Godette (VRM)",
+  "licenseSpdx": "CC-BY-3.0",
+  "attribution": "Original model © SirRichard94 (https://github.com/SirRichard94/low-poly-godette); VRM adaptation © 2021 Lyuma",
+  "attributionRequired": true,
+  "sourceUrl": "https://github.com/V-Sekai/godot-vrm/blob/master/vrm_samples/Godette_vrm_v4.vrm",
+  "downloadUrl": "https://raw.githubusercontent.com/V-Sekai/godot-vrm/master/vrm_samples/Godette_vrm_v4.vrm",
+  "retrievedAt": "2026-07-29",
+  "licenseQuote": "Godette_vrm_v4.vrm\nOriginal Godette model Copyright (C) SirRichard94\nhttps://github.com/SirRichard94/low-poly-godette\nLicensed under Creative Commons Attribution 3.0 Unported (CC-BY)\nVRM adaptation Copyright (C) 2021 Lyuma and licensed under the above terms (CC-BY)  — quoted from vrm_samples/LICENSE_SAMPLES.txt",
+  "notes": "The sibling sample in that directory, AliciaSolid_vrm-0.51.vrm, is DWANGO-licensed and is deliberately NOT vendored. CC-BY-3.0 (Unported), not 4.0 — attribution is mandatory and must be user-visible in-app (credits screen), not manifest-only.",
+  "style": "anime",
+  "rig": "humanoid",
+  "visemes": true,
+  "totals": {
+    "models": 1,
+    "bytes": 516236,
+    "tris": 3439
+  },
+  "models": [
+    {
+      "id": "godette",
+      "displayName": "Godette",
+      "file": "models/godette.vrm",
+      "kind": "character",
+      "style": "anime",
+      "rig": "humanoid",
+      "visemes": true,
+      "trisAfter": 3439,
+      "trisUnique": 3439,
+      "decimated": false,
+      "trisBeforeDecimation": null,
+      "vendorReportedTris": null,
+      "vertices": 8067,
+      "bytes": 516236,
+      "joints": 68,
+      "hasJawBone": false,
+      "jawBones": [],
+      "materials": [
+        "Face",
+        "Body",
+        "GodotLogo",
+        "Backpack"
+      ],
+      "textures": 5,
+      "animationCount": 0,
+      "animations": [],
+      "visemeChannels": [
+        "neutral",
+        "a",
+        "i",
+        "u",
+        "e",
+        "o",
+        "blink",
+        "joy",
+        "angry",
+        "sorrow",
+        "fun",
+        "lookup",
+        "lookdown",
+        "lookleft",
+        "lookright",
+        "blink_l",
+        "blink_r"
+      ],
+      "extensionsUsed": [
+        "VRM",
+        "KHR_materials_unlit",
+        "KHR_texture_transform",
+        "VRMC_materials_mtoon"
+      ],
+      "licenseSpdx": "CC-BY-3.0",
+      "attribution": "Original model © SirRichard94 (https://github.com/SirRichard94/low-poly-godette); VRM adaptation © 2021 Lyuma",
+      "sourceUrl": "https://github.com/V-Sekai/godot-vrm/blob/master/vrm_samples/Godette_vrm_v4.vrm",
+      "retrievedAt": "2026-07-29",
+      "flags": []
+    }
+  ]
+}

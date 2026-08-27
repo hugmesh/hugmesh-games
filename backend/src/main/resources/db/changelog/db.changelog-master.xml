@@ -81,4 +81,5 @@
     <include file="db/changelog/059-user-avatars.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/060-rebrand-register-sql-role.xml" relativeToChangelogFile="false"/>
     <include file="db/changelog/061-session-member-liveness.xml" relativeToChangelogFile="false"/>
+    <include file="db/changelog/062-character-forge-federation.xml" relativeToChangelogFile="false"/>
 </databaseChangeLog>

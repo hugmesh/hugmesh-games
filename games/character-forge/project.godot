@@ -1,0 +1,34 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Character Forge"
+config/description="3D character maker for the HugMesh platform. Maps the SVG VN character parameterization (packId/partId/headArchetype/palette regions) onto a procedural parametric 3D rig. Pure GDScript; drives/driven by the CharForge JavaScriptBridge singleton when embedded."
+run/main_scene="res://scenes/studio.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[autoload]
+
+CharForgeBridge="*res://scripts/js_bridge.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.055, 0.05, 0.09, 1)

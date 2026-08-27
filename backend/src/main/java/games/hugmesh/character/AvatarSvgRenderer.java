@@ -50,12 +50,22 @@ public final class AvatarSvgRenderer {
 
     /** Full-body front view using the spec's own expression. */
     public static String render(CharacterSpec spec, int width, int height) {
-        return draw(spec, spec.expression(), width, height, false);
+        return draw(spec, spec.expression(), width, height, false, 0.0);
     }
 
     /** Full-body front view with an explicit expression. */
     public static String renderExpression(CharacterSpec spec, String expression, int width, int height) {
-        return draw(spec, expression, width, height, false);
+        return draw(spec, expression, width, height, false, 0.0);
+    }
+
+    /**
+     * Full-body front view with an explicit expression AND a mouth openness
+     * (0 closed .. 1 wide open) — the lip-sync frame a talking avatar shows. The
+     * expression's mouth shape is kept: openness layers on top of it.
+     */
+    public static String renderExpression(CharacterSpec spec, String expression, int width, int height,
+                                          double openness) {
+        return draw(spec, expression, width, height, false, openness);
     }
 
     /**
@@ -63,7 +73,13 @@ public final class AvatarSvgRenderer {
      * attachment wants.
      */
     public static String renderPortrait(CharacterSpec spec, String expression, int width, int height) {
-        return draw(spec, expression, width, height, true);
+        return draw(spec, expression, width, height, true, 0.0);
+    }
+
+    /** Head-and-shoulders crop with a mouth openness, for lip-sync frames. */
+    public static String renderPortrait(CharacterSpec spec, String expression, int width, int height,
+                                        double openness) {
+        return draw(spec, expression, width, height, true, openness);
     }
 
     // ── Projection pipeline ─────────────────────────────────────────────────
@@ -76,12 +92,14 @@ public final class AvatarSvgRenderer {
     }
 
     private static String draw(CharacterSpec spec, String expression, int width, int height,
-                               boolean portrait) {
+                               boolean portrait, double openness) {
         int w = clampDim(width, "width");
         int h = clampDim(height, "height");
 
         Joint root = HumanoidRig.of(spec);
-        Map<String, Pose> pose = Expressions.resolve(spec, expression);
+        double open = Expressions.clampOpenness(openness);
+        double curve = Expressions.mouthCurve(expression);
+        Map<String, Pose> pose = Expressions.resolve(spec, expression, open);
 
         List<Placed> parts = new ArrayList<>();
         Map<String, Vec3> jointWorld = new LinkedHashMap<>();
@@ -115,7 +133,11 @@ public final class AvatarSvgRenderer {
             if (!spec.lowPoly()) {
                 paint = "url(#" + gradients.computeIfAbsent(fill, c -> "g" + gradients.size()) + ")";
             }
-            emit(body, p, paint, fill, spec.lowPoly(), s, ox, oy);
+            if ("Mouth".equals(p.name())) {
+                mouth(body, p, fill, curve, open, s, ox, oy);
+            } else {
+                emit(body, p, paint, fill, spec.lowPoly(), s, ox, oy);
+            }
         }
 
         StringBuilder svg = new StringBuilder(body.length() + 512);
@@ -234,6 +256,61 @@ public final class AvatarSvgRenderer {
                 }
             }
             default -> rect(out, tag, cx, cy, w, h, paint, stroke, transform);
+        }
+    }
+
+    /** Below this openness the mouth is a line; above it, an oval with an interior. */
+    static final double MOUTH_OPEN_THRESHOLD = 0.15;
+    /** From this openness the tongue shows. */
+    static final double MOUTH_TONGUE_THRESHOLD = 0.6;
+
+    /**
+     * The mouth is the one part that is not a primitive: closed, it is a stroked
+     * curve whose bend is the expression's ({@link Expressions#mouthCurve}); open,
+     * an oval with a dark interior and, wide open, a tongue. Only the OUTER element
+     * carries {@code data-part='Mouth'} — the interior is decoration of the same
+     * part, not a second rig part.
+     */
+    private static void mouth(StringBuilder out, Placed p, String lip, double curve, double openness,
+                              double s, double ox, double oy) {
+        double cx = ox + p.pos().x() * s;
+        double cy = oy - p.pos().y() * s;
+        double w = p.size().x() * s;
+        double h = p.size().y() * s;
+        String tag = " data-part='Mouth'";
+        if (openness < MOUTH_OPEN_THRESHOLD) {
+            // A quadratic curve: endpoints at the corners, the control point below
+            // (smile) or above (frown) the corners. SVG y grows downward, so a
+            // positive curve pushes the control point DOWN and the corners UP.
+            double x0 = cx - w / 2, x1 = cx + w / 2;
+            double bend = curve * h * 3.2;
+            double corner = cy - bend * 0.35;
+            double ctrl = cy + bend;
+            out.append("<path").append(tag)
+                    .append(" d='M ").append(fmt(x0)).append(' ').append(fmt(corner))
+                    .append(" Q ").append(fmt(cx)).append(' ').append(fmt(ctrl))
+                    .append(' ').append(fmt(x1)).append(' ').append(fmt(corner))
+                    .append("' fill='none' stroke='").append(lip)
+                    .append("' stroke-width='").append(fmt(Math.max(1.0, h * 0.9)))
+                    .append("' stroke-linecap='round'/>");
+            return;
+        }
+        // Open: the lip oval (data-part), then the interior and tongue (no data-part).
+        String interior = HumanoidRig.darken(lip, 0.35);
+        String tongue = "#c4525e";
+        double cornerLift = curve * h * 0.9;   // a smile keeps its corners up while talking
+        double lipCy = cy - cornerLift * 0.25;
+        out.append("<ellipse").append(tag)
+                .append(" cx='").append(fmt(cx)).append("' cy='").append(fmt(lipCy))
+                .append("' rx='").append(fmt(w / 2)).append("' ry='").append(fmt(h / 2))
+                .append("' fill='").append(lip).append("'/>");
+        out.append("<ellipse cx='").append(fmt(cx)).append("' cy='").append(fmt(lipCy + h * 0.06))
+                .append("' rx='").append(fmt(w * 0.38)).append("' ry='").append(fmt(h * 0.36))
+                .append("' fill='").append(interior).append("'/>");
+        if (openness >= MOUTH_TONGUE_THRESHOLD) {
+            out.append("<ellipse cx='").append(fmt(cx)).append("' cy='").append(fmt(lipCy + h * 0.22))
+                    .append("' rx='").append(fmt(w * 0.24)).append("' ry='").append(fmt(h * 0.16))
+                    .append("' fill='").append(tongue).append("'/>");
         }
     }
 

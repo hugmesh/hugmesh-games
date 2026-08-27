@@ -360,6 +360,14 @@ public final class HumanoidRig {
      * can translate/scale it without rebuilding geometry — and so the SVG and
      * the Godot poser apply the identical table.
      */
+    /** Mouth centre, as a fraction of skull height above the chin. Eyes sit at 0.58. */
+    public static final double MOUTH_HEIGHT = 0.30;
+    /** Mouth centre, as a fraction of skull depth forward of the head joint (the face plane). */
+    public static final double MOUTH_DEPTH = 0.50;
+    /** Resting mouth width and lip thickness, as fractions of the head proportion. */
+    public static final double MOUTH_WIDTH = 0.085;
+    public static final double MOUTH_LIP = 0.024;
+
     private static void face(Joint head, CharacterSpec s, double hh, double d, double hd) {
         String eye = s.color("eye");
         String hair = s.color("hair");
@@ -379,9 +387,14 @@ public final class HumanoidRig {
             head.child(b);
         }
 
-        Joint mouth = new Joint("Mouth", new Vec3(0, hh * 0.26, z));
-        mouth.add(Part.box("Mouth", Vec3.ZERO,
-                new Vec3(0.075 * hd, 0.018 * hd, 0.02), darken(s.color("skin"), 0.55), "none"));
+        // Lip height on the skull (30% up from the chin, on the face plane), as an
+        // ELLIPSOID rather than a flat bar: the 2D renderer draws it as a curved
+        // line when closed and an oval when open, and glTF consumers get a shape
+        // that scales into an open mouth along one axis. The joint's position is
+        // the mouth's CENTRE at rest; expressions and lip-sync move/scale it.
+        Joint mouth = new Joint("Mouth", new Vec3(0, hh * MOUTH_HEIGHT, d * MOUTH_DEPTH));
+        mouth.add(Part.sphere("Mouth", Vec3.ZERO,
+                new Vec3(MOUTH_WIDTH * hd, MOUTH_LIP * hd, 0.02), darken(s.color("skin"), 0.55), "none"));
         head.child(mouth);
     }
 
