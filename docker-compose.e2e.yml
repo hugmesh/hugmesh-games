@@ -42,24 +42,29 @@ services:
       KEYSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
       TRUSTSTORE_PATH: /etc/api/certs/truststore.p12
       TRUSTSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
-      # Integration-testing profile: every Casdoor seed user gets a
-      # deterministic password so the Playwright suite can log each
-      # role in without reading the random first-boot dump. Override
-      # individual passwords by exporting the matching env var; the
-      # E2E_PASSWORD default is what the specs hard-code as a fallback.
-      CASDOOR_ADMIN_PASS:        ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PLAYER_PASS:       ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PLAYER1_PASS:      ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PLAYER2_PASS:      ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PLAYER3_PASS:      ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_MOD_PASS:          ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_MOD_TWIAT_PASS:    ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_MOD_DODEC_PASS:    ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PUBLISHER_PASS:    ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PUB_TWIAT_PASS:    ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PUB_DODEC_PASS:    ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PUB_FLAT_PASS:     ${E2E_PUB_FLAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_UPLOADER_PASS:     ${E2E_UPLOADER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      # Integration-testing profile: every Casdoor seed user gets the
+      # SAME password (fresh random value, generated once per `make e2e`
+      # run by tests/stack/e2e-password.sh and written to
+      # .e2e-credentials) so the Playwright suite can log each role in
+      # without reading the random first-boot dump. Override individual
+      # passwords by exporting the matching E2E_<ROLE>_PASSWORD env var;
+      # E2E_PASSWORD itself is REQUIRED (no baked-in literal — see
+      # CONTRACT rule 4) and is expected to already be exported by the
+      # time `docker compose` runs this file, which `make e2e` /
+      # `e2e-bdd` / `e2e-godot` guarantee.
+      CASDOOR_ADMIN_PASS:        ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PLAYER_PASS:       ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PLAYER1_PASS:      ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PLAYER2_PASS:      ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PLAYER3_PASS:      ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_MOD_PASS:          ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_MOD_TWIAT_PASS:    ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_MOD_DODEC_PASS:    ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PUBLISHER_PASS:    ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PUB_TWIAT_PASS:    ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PUB_DODEC_PASS:    ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PUB_FLAT_PASS:     ${E2E_PUB_FLAT_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_UPLOADER_PASS:     ${E2E_UPLOADER_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
       # Spring profile that toggles the integration-testing seed
       # (ChapterController fixtures + a known controller character so
       # the multi-user specs can drive deterministic positions).
@@ -67,19 +72,19 @@ services:
 
   casdoor:
     environment:
-      CASDOOR_ADMIN_PASS:        ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PLAYER_PASS:       ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PLAYER1_PASS:      ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PLAYER2_PASS:      ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PLAYER3_PASS:      ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_MOD_PASS:          ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_MOD_TWIAT_PASS:    ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_MOD_DODEC_PASS:    ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PUBLISHER_PASS:    ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PUB_TWIAT_PASS:    ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PUB_DODEC_PASS:    ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_PUB_FLAT_PASS:     ${E2E_PUB_FLAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      CASDOOR_UPLOADER_PASS:     ${E2E_UPLOADER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      CASDOOR_ADMIN_PASS:        ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PLAYER_PASS:       ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PLAYER1_PASS:      ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PLAYER2_PASS:      ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PLAYER3_PASS:      ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_MOD_PASS:          ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_MOD_TWIAT_PASS:    ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_MOD_DODEC_PASS:    ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PUBLISHER_PASS:    ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PUB_TWIAT_PASS:    ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PUB_DODEC_PASS:    ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_PUB_FLAT_PASS:     ${E2E_PUB_FLAT_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      CASDOOR_UPLOADER_PASS:     ${E2E_UPLOADER_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
 
   e2e:
     build:
@@ -99,19 +104,22 @@ services:
       # All e2e roles default to the same password unless the host
       # exports a per-role override. The Playwright specs read these
       # off process.env so changing the password in one place flows
-      # everywhere.
-      E2E_PASSWORD:           ${E2E_PASSWORD:-e2e-pass}
-      E2E_PLAYER_PASSWORD:    ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_PLAYER1_PASSWORD:   ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_PLAYER2_PASSWORD:   ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_PLAYER3_PASSWORD:   ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_ADMIN_PASSWORD:     ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_MOD_PASSWORD:       ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_PUBLISHER_PASSWORD: ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_MOD_TWIAT_PASSWORD: ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_MOD_DODEC_PASSWORD: ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_PUB_TWIAT_PASSWORD: ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
-      E2E_PUB_DODEC_PASSWORD: ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:-e2e-pass}}
+      # everywhere. E2E_PASSWORD has no literal default (CONTRACT rule
+      # 4) — `make e2e` / `e2e-bdd` / `e2e-godot` generate + export it
+      # before invoking `docker compose`; a bare `docker compose ... up`
+      # needs it exported (or sourced from .e2e-credentials) manually.
+      E2E_PASSWORD:           ${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}
+      E2E_PLAYER_PASSWORD:    ${E2E_PLAYER_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_PLAYER1_PASSWORD:   ${E2E_PLAYER1_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_PLAYER2_PASSWORD:   ${E2E_PLAYER2_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_PLAYER3_PASSWORD:   ${E2E_PLAYER3_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_ADMIN_PASSWORD:     ${E2E_ADMIN_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_MOD_PASSWORD:       ${E2E_MOD_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_PUBLISHER_PASSWORD: ${E2E_PUBLISHER_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_MOD_TWIAT_PASSWORD: ${E2E_MOD_TWIAT_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_MOD_DODEC_PASSWORD: ${E2E_MOD_DODEC_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_PUB_TWIAT_PASSWORD: ${E2E_PUB_TWIAT_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
+      E2E_PUB_DODEC_PASSWORD: ${E2E_PUB_DODEC_PASSWORD:-${E2E_PASSWORD:?run `make e2e` first (writes .e2e-credentials)}}
     volumes:
       - ./e2e/results:/work/results
     profiles:

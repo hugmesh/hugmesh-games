@@ -82,7 +82,7 @@ Public reverse-proxy of the Casdoor login flow. (The Java class is `CasdoorAuthC
 ```bash
 curl -sS -X POST http://localhost:8080/api/auth/token \
   -H 'Content-Type: application/json' \
-  -d '{"username":"player","password":"e2e-pass"}'
+  -d '{"username":"player","password":"<the seed password — see .e2e-credentials or the casdoor container log>"}'
 ```
 *200 OK*: `{ "accessToken": "eyJ…", "expiresAt": "2026-04-26T12:30:00Z", "casdoorUserId": "alice@threewizards" }`
 *400 Bad Request*: `{ "status":400, "error":"invalid_grant", "message":"Casdoor: authorization code expired or already used" }`

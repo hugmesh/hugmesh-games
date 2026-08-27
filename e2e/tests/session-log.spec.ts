@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { ensureLoginFormReady } from './helpers/roles';
+import { ensureLoginFormReady, resolveE2eEnv } from './helpers/roles';
 
 /**
  * Session participation log per role.
@@ -11,10 +11,11 @@ import { ensureLoginFormReady } from './helpers/roles';
  *     <li>mod/publisher — scoped to games they have scope for</li>
  *   </ul>
  */
-// Defaults match the integration-test profile's deterministic seed —
-// every role uses ${E2E_PASSWORD:-e2e-pass}. Override individual
-// passwords via E2E_*_PASSWORD env if you need to.
-const SHARED     = process.env.E2E_PASSWORD ?? 'e2e-pass';
+// Defaults match the integration-test profile's shared seed password —
+// every role uses E2E_PASSWORD (generated fresh per run, never a literal;
+// see tests/stack/e2e-password.sh). Override individual passwords via
+// E2E_*_PASSWORD env if you need to.
+const SHARED     = resolveE2eEnv('E2E_PASSWORD');
 const PLAYER     = process.env.E2E_PLAYER_USERNAME    ?? 'player1';
 const ADMIN      = process.env.E2E_ADMIN_USERNAME     ?? 'admin';
 const PASS       = process.env.E2E_PLAYER_PASSWORD    ?? SHARED;

@@ -1,8 +1,10 @@
 import { test, expect, Page } from '@playwright/test';
-import { ensureLoginFormReady } from './helpers/roles';
+import { ensureLoginFormReady, resolveE2eEnv } from './helpers/roles';
 
 const USERNAME = process.env.E2E_PLAYER_USERNAME ?? 'player';
-const PASSWORD = process.env.E2E_PLAYER_PASSWORD ?? 'e2e-pass';
+// Per-role override wins; otherwise the shared E2E_PASSWORD (env, then the
+// run-state credentials file, then throw). Never a literal fallback.
+const PASSWORD = process.env.E2E_PLAYER_PASSWORD ?? resolveE2eEnv('E2E_PASSWORD');
 
 /**
  * Full cross-stack smoke. Asserts every layer between Playwright and the

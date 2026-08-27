@@ -53,6 +53,12 @@ e2e/certs/
 e2e/results/
 e2e/node_modules/
 
+# Run-state e2e credentials — the shared Casdoor seed password
+# tests/stack/e2e-password.sh generates fresh (random) per `make e2e` /
+# `e2e-bdd` / `e2e-godot` run and writes for same-run reuse + operator
+# visibility (CONTRACT.md rule 3). NEVER committed.
+/.e2e-credentials
+
 # Claude Code agent harness — runtime lock files for scheduled tasks.
 .claude/
 

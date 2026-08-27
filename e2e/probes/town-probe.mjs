@@ -3,6 +3,35 @@
 // plus screenshots — the fast loop for the vanishing-room diagnosis.
 // Run inside the e2e image: node results/town-probe.mjs
 import { chromium } from '@playwright/test';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// Resolve the shared e2e password: process.env first (already populated
+// when this script runs inside the `e2e` container, since
+// docker-compose.e2e.yml requires E2E_PASSWORD to be set before the
+// container even starts), else the run-state credentials file
+// tests/stack/e2e-password.sh writes (useful when this probe is copied
+// out and run against a host stack directly), else throw. Never a
+// literal fallback — see CONTRACT.md rule 4.
+function resolveE2ePassword() {
+  if (process.env.E2E_PASSWORD) return process.env.E2E_PASSWORD;
+  const credsFile = process.env.E2E_CREDENTIALS_FILE
+    ?? resolve(dirname(fileURLToPath(import.meta.url)), '../../.e2e-credentials');
+  try {
+    const raw = readFileSync(credsFile, 'utf8');
+    for (const line of raw.split('\n')) {
+      const m = /^E2E_PASSWORD=(.*)$/.exec(line.trim());
+      if (m) return m[1];
+    }
+  } catch {
+    // fall through to throw below
+  }
+  throw new Error(
+    `E2E_PASSWORD is not set and not found in ${credsFile}. ` +
+    'Run `make e2e` (or e2e-bdd / e2e-godot) first, or export E2E_PASSWORD yourself.',
+  );
+}
 
 const BASE = 'https://frontend:8443';
 const browser = await chromium.launch();
@@ -16,7 +45,7 @@ page.on('pageerror', e => lines.push('PAGEERROR: ' + e.message));
 await page.goto(BASE + '/login', { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('input[formControlName="username"]', { timeout: 60_000 });
 await page.fill('input[formControlName="username"]', 'player');
-await page.fill('input[formControlName="password"]', process.env.E2E_PASSWORD || 'e2e-pass');
+await page.fill('input[formControlName="password"]', resolveE2ePassword());
 await page.click('button.login-btn');
 await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 60_000 });
 console.log('logged in');
