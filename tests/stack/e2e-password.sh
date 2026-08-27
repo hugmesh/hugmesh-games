@@ -48,6 +48,18 @@ e2e_password_ensure() {
   # minting a second, inconsistent password (every seeded Casdoor user and
   # every Playwright process in the run must agree on ONE value).
   if [ -f "${creds_file}" ]; then
+    # PRESENT BUT UNREADABLE IS NOT "ABSENT". A sudo-driven run writes this file
+    # root-owned 0600; every later non-root run can stat it but not read it. Left
+    # alone, sed exits 2, pipefail propagates it through `| tail -n1`, and a
+    # caller under `set -e` dies at the assignment with no useful message.
+    # Regenerating would be wrong — the value other processes already hold is in
+    # that file — so say what is wrong and how to fix it.
+    if [ ! -r "${creds_file}" ]; then
+      echo "e2e_password_ensure: ${creds_file} exists but is not readable by" >&2
+      echo "  $(id -un) (owner $(stat -c '%U' "${creds_file}" 2>/dev/null || echo '?'), mode $(stat -c '%a' "${creds_file}" 2>/dev/null || echo '?'))." >&2
+      echo "  Fix: sudo chown $(id -un) ${creds_file}   (or delete it and re-run)." >&2
+      return 1
+    fi
     local existing
     existing="$(sed -n 's/^E2E_PASSWORD=//p' "${creds_file}" | tail -n1)"
     if [ -n "${existing}" ]; then
@@ -65,7 +77,12 @@ e2e_password_ensure() {
     generated="$(openssl rand -base64 24 | tr -d '\n/+=')"
   fi
   if [ -z "${generated}" ]; then
-    generated="$(head -c 32 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 32)"
+    # FILTER THEN TRUNCATE, not the reverse. `head -c 32` first takes 32 raw
+    # random BYTES; tr -dc then discards everything non-alphanumeric, and only
+    # ~62 of 256 byte values survive — so that ordering yields 8-11 characters,
+    # not 32, and can return an empty string on an unlucky draw. Measured:
+    # lengths 9,10,10,11,11 across five runs.
+    generated="$(tr -dc 'A-Za-z0-9' < /dev/urandom 2>/dev/null | head -c 32)"
   fi
   if [ -z "${generated}" ]; then
     echo "e2e_password_ensure: failed to generate a password (no openssl, no /dev/urandom)" >&2

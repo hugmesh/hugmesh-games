@@ -625,10 +625,18 @@ E2E_PLAYER_USER ?= player
 # separate `docker compose` invocation below — each its own shell — agrees on
 # the SAME value); else generate + persist + export. Gated to the targets
 # that actually need it so a plain `make build-rust` etc. doesn't spend
-# entropy or touch the credentials file. `export`ed so every recipe shell in
+# entropy or touch the credentials file.
+#
+# THE GATE MUST LIST EVERY GOAL THAT INTERPOLATES $(E2E_FILES), not just the
+# ones that seed. docker-compose.e2e.yml spells ${E2E_PASSWORD:?...}, and
+# compose interpolates that on EVERY subcommand — `down` and `logs` included.
+# A goal that runs compose but sits outside this filter therefore dies at
+# parse time, before touching Docker. That is why e2e-down, e2e-logs,
+# build-backend-native and deploy are listed here even though none of them
+# seeds an account: they need the variable to RESOLVE, not to authenticate. `export`ed so every recipe shell in
 # this `make` invocation inherits it without re-sourcing.
 E2E_CREDENTIALS_FILE ?= $(CURDIR)/.e2e-credentials
-ifneq (,$(filter e2e e2e-bdd e2e-godot e2e-native,$(MAKECMDGOALS)))
+ifneq (,$(filter e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs build-backend-native deploy,$(MAKECMDGOALS)))
 E2E_PASSWORD := $(shell export E2E_CREDENTIALS_FILE="$(E2E_CREDENTIALS_FILE)"; . $(CURDIR)/tests/stack/e2e-password.sh && e2e_password_ensure && printf '%s' "$$E2E_PASSWORD")
 ifeq ($(E2E_PASSWORD),)
 $(error e2e_password_ensure failed to resolve E2E_PASSWORD — see tests/stack/e2e-password.sh)
