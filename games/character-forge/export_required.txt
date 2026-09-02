@@ -1,0 +1,24 @@
+# Files the RUNTIME reads as raw bytes that the Web export must ship.
+#
+# export_presets.cfg uses export_filter="all_resources", which ships IMPORTED
+# resources only. Nothing here has a .import sidecar, so each line must also be
+# covered by the preset's include_filter — and an export that drops one still
+# exits 0 (hugmesh-character-forge-bff-api#3: every .vrm was gone, silently).
+#
+# Two guards read this file:
+#   tests/run_tests.gd          the preset's include/exclude filters cover every
+#                               file below, using the engine's own matchn
+#                               (no export templates needed)
+#   scripts/verify-godot-pck.mjs  the produced index.pck really contains them,
+#                               byte-identical — run by `make build-godot`
+#
+# One glob per line, Godot String.matchn semantics (`*` spans `/`), matched
+# against the project-relative path with and without res://.
+
+# The VRM avatars: parsed from bytes by the vendored godot-vrm addon at runtime
+# (no .vrm importer is registered in this project). All three viseme packs.
+assets/packs/*.vrm
+
+# lanes.json (the catalogue scripts/pack_library.gd reads at boot), index.json,
+# and the per-pack pack.json manifests the licence/attribution strings come from.
+assets/packs/*.json

@@ -117,13 +117,22 @@ rather than implying ours.
 
 ## Build / test
 
+From the hugmesh-games root (`GODOT=/path/to/godot` when it is not on PATH):
+
 ```bash
-GODOT=/path/to/godot make -C .. import      # parse every script, import resources
-GODOT=/path/to/godot make -C .. test        # headless behaviour tests
-GODOT=/path/to/godot make -C .. check       # per-script parse check
-GODOT=/path/to/godot make -C .. export-web  # skips cleanly without export templates
-GODOT=/path/to/godot ../../tools/asset-pipeline/verify.sh   # re-audit the packs
+make test-godot     # headless behaviour tests (this project and shadows-of-the-net)
+make build-godot    # Web export → backend/src/main/resources/assets/levels/character-forge/
+# re-audit the packs: tools/asset-pipeline/verify.sh in hugmesh-character-forge-bff-api
 ```
+
+The Web export must ship the files the runtime reads as raw bytes — the `.vrm`
+avatars (parsed by the vendored godot-vrm addon, no `.import` sidecar) and the
+pack manifests — which `export_filter="all_resources"` alone leaves out, with
+the export still exiting 0 (hugmesh-character-forge-bff-api#3). `export_required.txt`
+declares them; `tests/run_tests.gd` checks the preset's `include_filter` /
+`exclude_filter` cover each one using the engine's own `matchn`, and
+`make build-godot` runs `scripts/verify-godot-pck.mjs` on the produced
+`index.pck`, failing if any is missing or differs from source.
 
 The tests are real assertions on computed values — sanitize clamping, per-family
 rig distinctness, expression/jaw math, palette cell contents, the triangle

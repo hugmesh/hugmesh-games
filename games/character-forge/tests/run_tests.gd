@@ -98,6 +98,7 @@ func _run_all() -> void:
 	_test_byo_import_round_trip()
 	_test_bridge_pack_surface()
 	_test_studio_pack_controls()
+	_test_export_preset_ships_the_runtime_pack_files()
 
 	# ── single-atlas per-region recolour (the retired 'preserve' verdict) ────
 	_test_atlas_recolour_reaches_every_single_atlas_model()
@@ -3653,3 +3654,134 @@ func _test_atlas_clusters_are_deterministic_and_ranked() -> void:
 							>= CharForgeGlbLoader.MERGE_DISTANCE,
 					"clusters %d and %d are distinct colours, not one ramp" % [i, k])
 	root.free()
+
+
+# ── Web export: the raw-byte files the runtime reads must ship ───────────────
+
+func _test_export_preset_ships_the_runtime_pack_files() -> void:
+	# The guard behind hugmesh-character-forge-bff-api#3. export_filter=
+	# "all_resources" ships IMPORTED resources; the .vrm avatars are parsed from
+	# raw bytes at runtime and have no .import sidecar, so they reach the bundle
+	# only through the preset's include_filter — and an export that drops them
+	# still exits 0. Measured on Godot 4.7.1: with the filter blanked, all 11
+	# .vrm were gone (the .json survived only because the engine loads JSON as
+	# a resource, which this guard deliberately does not rely on).
+	#
+	# export_required.txt declares what the runtime reads as bytes. This test
+	# applies the exporter's own matching to it — String.matchn against the path
+	# with and without res:// (EditorExportPlatform::_edit_files_with_filter) —
+	# so a blanked or narrowed filter fails HERE, with no export templates.
+	# scripts/verify-godot-pck.mjs then proves the produced index.pck after
+	# `make build-godot`.
+	var required := _read_required_globs("res://export_required.txt")
+	_check(required.size() >= 2, "export_required.txt declares the runtime's raw-byte files")
+
+	var preset := ConfigFile.new()
+	_check(preset.load("res://export_presets.cfg") == OK, "export_presets.cfg parses")
+	var section := ""
+	for s in preset.get_sections():
+		if String(preset.get_value(s, "platform", "")) == "Web":
+			section = s
+			break
+	_check(not section.is_empty(), "export_presets.cfg has a Web preset")
+	if section.is_empty():
+		return
+	var mode := String(preset.get_value(section, "export_filter", ""))
+	_check(mode == "all_resources" or mode == "all_files",
+			"the Web preset exports all_resources/all_files, got '%s'" % mode)
+	var includes := _split_export_filter(String(preset.get_value(section, "include_filter", "")))
+	var excludes := _split_export_filter(String(preset.get_value(section, "exclude_filter", "")))
+
+	var files := _walk_project_files("res://")
+	# 1. The declaration covers the runtime's need — every .vrm and .json in the
+	#    packs tree — and each glob matches something, so a typo cannot pass empty.
+	var declared := {}
+	for glob in required:
+		var hits := 0
+		for rel in files:
+			if _export_filter_matches(glob, rel):
+				declared[rel] = true
+				hits += 1
+		_check(hits > 0, "required glob '%s' matches at least one project file" % glob)
+	var vrm_count := 0
+	var json_count := 0
+	for rel in files:
+		if not rel.begins_with("assets/packs/"):
+			continue
+		if rel.ends_with(".vrm"):
+			vrm_count += 1
+		elif rel.ends_with(".json"):
+			json_count += 1
+		else:
+			continue
+		_check(declared.has(rel), "export_required.txt covers '%s'" % rel)
+	_check(vrm_count > 0 and json_count > 0,
+			"the packs tree holds .vrm (%d) and .json (%d) runtime files" % [vrm_count, json_count])
+	# 2. Every declared file is shipped: named by include_filter (unless the
+	#    preset exports all_files) and spared by exclude_filter.
+	for rel in declared.keys():
+		var shipped := mode == "all_files"
+		for glob in includes:
+			if _export_filter_matches(glob, rel):
+				shipped = true
+		for glob in excludes:
+			if _export_filter_matches(glob, rel):
+				shipped = false
+		_check(shipped, "the Web preset ships '%s' (include_filter=\"%s\", exclude_filter=\"%s\")"
+				% [rel, ",".join(includes), ",".join(excludes)])
+	# 3. And this suite itself stays out of the bundle.
+	var tests_excluded := false
+	for glob in excludes:
+		if _export_filter_matches(glob, "tests/run_tests.gd"):
+			tests_excluded = true
+	_check(tests_excluded, "tests/ stays excluded from the Web export")
+
+
+func _read_required_globs(path: String) -> PackedStringArray:
+	var globs := PackedStringArray()
+	if not FileAccess.file_exists(path):
+		return globs
+	for line in FileAccess.get_file_as_string(path).split("\n"):
+		var hash_at := line.find("#")
+		var text := (line.substr(0, hash_at) if hash_at >= 0 else line).strip_edges()
+		if not text.is_empty():
+			globs.append(text)
+	return globs
+
+
+## EditorExportPlatform::_edit_filter_list — split on "," and strip each glob.
+func _split_export_filter(filter: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	for part in filter.split(","):
+		var glob := part.strip_edges()
+		if not glob.is_empty():
+			out.append(glob)
+	return out
+
+
+## EditorExportPlatform::_edit_files_with_filter — the path with AND without res://.
+func _export_filter_matches(glob: String, rel: String) -> bool:
+	return ("res://" + rel).matchn(glob) or rel.matchn(glob)
+
+
+## The exporter's walk: skips dot-directories, .gdignore'd trees and nested projects.
+func _walk_project_files(dir_path: String, prefix: String = "") -> PackedStringArray:
+	var out := PackedStringArray()
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return out
+	dir.list_dir_begin()
+	var name := dir.get_next()
+	while not name.is_empty():
+		var rel := prefix + name
+		if dir.current_is_dir():
+			var sub := dir_path.path_join(name)
+			if not name.begins_with(".") \
+					and not FileAccess.file_exists(sub.path_join(".gdignore")) \
+					and not FileAccess.file_exists(sub.path_join("project.godot")):
+				out.append_array(_walk_project_files(sub, rel + "/"))
+		else:
+			out.append(rel)
+		name = dir.get_next()
+	dir.list_dir_end()
+	return out

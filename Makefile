@@ -288,6 +288,12 @@ clean-games-wasm:
 	@echo "✓ Clean done"
 
 # ── Godot Web Export ──────────────────────────────────────────────────────────
+# A game that ships files its RUNTIME reads as raw bytes (no .import sidecar —
+# character-forge's .vrm avatars and pack manifests) lists them in
+# games/<game>/export_required.txt; after each export the PCK is checked to
+# really contain them, byte-identical, because export_filter="all_resources"
+# silently leaves such files out unless the preset's include_filter names them
+# (hugmesh-character-forge-bff-api#3). See scripts/verify-godot-pck.mjs.
 
 build-godot: build-rust
 	@echo "→ Exporting per-game Web bundles..."
@@ -317,6 +323,13 @@ build-godot: build-rust
 	      exit $$status; \
 	    fi; \
 	    python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	    if [ -f $(GAMES_DIR)/$$game/export_required.txt ]; then \
+	      echo "→ [$$game] verifying $$out_dir/index.pck ships every raw-byte runtime file"; \
+	      command -v node >/dev/null 2>&1 || { echo "ERROR: node not found (needed for scripts/verify-godot-pck.mjs)"; exit 1; }; \
+	      node scripts/verify-godot-pck.mjs --pck $$out_dir/index.pck \
+	        --project $(GAMES_DIR)/$$game \
+	        --required-file $(GAMES_DIR)/$$game/export_required.txt || exit 1; \
+	    fi; \
 	  done; \
 	done
 	@echo "✓ All bundles exported under $(GODOT_EXPORT_ROOT)/"
@@ -395,6 +408,7 @@ patch-godot:
 	    chess-godot)                   presets="Chess-Godot";; \
 	    connect-four-godot)            presets="Connect-Four-Godot";; \
 	    shadows-of-the-net)            presets="Shadows-Of-The-Net";; \
+	    character-forge)               presets="Character-Forge";; \
 	    *)                             presets="";; \
 	  esac; \
 	  for preset in $$presets; do \
@@ -814,7 +828,7 @@ e2e-godot: gen-certs
 
 FRONTEND_TEST_IMAGE = hugmesh-games-frontend-test
 ## Godot projects that ship a tests/run_tests.gd headless suite.
-GODOT_TEST_PROJECTS = shadows-of-the-net
+GODOT_TEST_PROJECTS = shadows-of-the-net character-forge
 
 test: test-rust test-backend test-godot test-games-js test-frontend
 	@echo "✓ All project unit tests passed"
