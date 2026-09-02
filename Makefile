@@ -293,7 +293,10 @@ clean-games-wasm:
 # games/<game>/export_required.txt; after each export the PCK is checked to
 # really contain them, byte-identical, because export_filter="all_resources"
 # silently leaves such files out unless the preset's include_filter names them
-# (hugmesh-character-forge-bff-api#3). See scripts/verify-godot-pck.mjs.
+# (hugmesh-character-forge-bff-api#3). export_filter="all_files" does NOT help:
+# measured on 4.7.1 it yields a byte-identical PCK (EditorFileSystem does not
+# track .vrm either). See scripts/verify-godot-pck.mjs; --self-check re-hashes
+# every plain entry so a mis-parsed directory cannot report OK.
 
 build-godot: build-rust
 	@echo "→ Exporting per-game Web bundles..."
@@ -328,7 +331,7 @@ build-godot: build-rust
 	      command -v node >/dev/null 2>&1 || { echo "ERROR: node not found (needed for scripts/verify-godot-pck.mjs)"; exit 1; }; \
 	      node scripts/verify-godot-pck.mjs --pck $$out_dir/index.pck \
 	        --project $(GAMES_DIR)/$$game \
-	        --required-file $(GAMES_DIR)/$$game/export_required.txt || exit 1; \
+	        --required-file $(GAMES_DIR)/$$game/export_required.txt --self-check || exit 1; \
 	    fi; \
 	  done; \
 	done
@@ -833,11 +836,25 @@ GODOT_TEST_PROJECTS = shadows-of-the-net character-forge
 test: test-rust test-backend test-godot test-games-js test-frontend
 	@echo "✓ All project unit tests passed"
 
+# Each project is IMPORTED first: `--script` resolves class_name references
+# through .godot/global_script_class_cache.cfg, which only an import pass
+# writes, so on a fresh checkout (no .godot/) character-forge's run_tests.gd
+# fails to parse ("Identifier 'CharForgePalette' not declared") before a single
+# test runs. --import is idempotent: ~13 s cold, ~2 s warm, touches nothing
+# tracked (.godot/ is gitignored).
 test-godot:
 	@command -v $(GODOT) >/dev/null 2>&1 || { \
 	  echo "ERROR: '$(GODOT)' not found — set GODOT=/path/to/godot4"; exit 1; }
 	@status=0; \
 	for slug in $(GODOT_TEST_PROJECTS); do \
+	  echo "→ Importing games/$$slug (builds .godot/global_script_class_cache.cfg)…"; \
+	  if ! $(GODOT) --headless --path games/$$slug --import >/dev/null; then \
+	    echo "✗ godot --import failed for $$slug"; status=1; continue; \
+	  fi; \
+	  if [ ! -f games/$$slug/.godot/global_script_class_cache.cfg ]; then \
+	    echo "✗ $$slug: --import wrote no .godot/global_script_class_cache.cfg; run_tests.gd cannot resolve class_name scripts"; \
+	    status=1; continue; \
+	  fi; \
 	  echo "→ Running headless GDScript suites for $$slug…"; \
 	  $(GODOT) --headless --path games/$$slug --script res://tests/run_tests.gd || status=$$?; \
 	done; \

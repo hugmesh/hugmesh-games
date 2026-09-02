@@ -3717,10 +3717,13 @@ func _test_export_preset_ships_the_runtime_pack_files() -> void:
 		_check(declared.has(rel), "export_required.txt covers '%s'" % rel)
 	_check(vrm_count > 0 and json_count > 0,
 			"the packs tree holds .vrm (%d) and .json (%d) runtime files" % [vrm_count, json_count])
-	# 2. Every declared file is shipped: named by include_filter (unless the
-	#    preset exports all_files) and spared by exclude_filter.
+	# 2. Every declared file is shipped: named by include_filter AND spared by
+	#    exclude_filter. No export_filter mode substitutes for the include:
+	#    measured on 4.7.1, export_filter="all_files" with a blank include_filter
+	#    produces a PCK byte-identical to the all_resources one (EditorFileSystem
+	#    does not track .vrm either), so this check never short-circuits on mode.
 	for rel in declared.keys():
-		var shipped := mode == "all_files"
+		var shipped := false
 		for glob in includes:
 			if _export_filter_matches(glob, rel):
 				shipped = true

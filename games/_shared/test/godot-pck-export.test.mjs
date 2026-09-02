@@ -20,12 +20,17 @@
 //  3. The verifier's teeth, on synthetic PCKs built from the real source files:
 //     a complete pack passes; a pack missing the `.vrm` entries FAILS naming
 //     each of them; a pack with a drifted manifest reports it STALE; a glob that
-//     matches nothing FAILS instead of passing empty.
+//     matches nothing FAILS instead of passing empty; a `res://`-prefixed
+//     directory (pre-v4 exporters) still verifies; and the self-check that
+//     `make build-godot` runs (--self-check) reports an entry whose stored MD5
+//     does not match its bytes — including one no required glob covers.
 //  Plus: when a real character-forge export exists (after `make build-godot`)
 //  it is verified too — and the absence is printed, never silent.
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   readPckDirectory, selfCheck, verifyPck, expandRequired, walkProject,
@@ -81,15 +86,16 @@ ok(!files.some((f) => f.endsWith('.vrm') && !declared.has(f)), 'no .vrm anywhere
 
 // The preset itself: statically, the same rule tests/run_tests.gd applies with
 // the engine's own matchn — include_filter names every declared file and
-// exclude_filter spares it.
+// exclude_filter spares it. No export_filter mode is a substitute: measured on
+// 4.7.1, all_files with a blank include_filter yields a PCK byte-identical to
+// the all_resources one (EditorFileSystem does not track .vrm either).
 const preset = readFileSync(join(forge, 'export_presets.cfg'), 'utf8');
 const key = (k) => (preset.match(new RegExp(`^${k}="([^"]*)"`, 'm')) || [])[1];
 ok(key('export_filter') === 'all_resources' || key('export_filter') === 'all_files', `Web preset export_filter is all_resources/all_files (got ${key('export_filter')})`);
 const includes = splitFilter(key('include_filter'));
 const excludes = splitFilter(key('exclude_filter'));
 for (const f of declared) {
-  const shipped = (key('export_filter') === 'all_files' || includes.some((g) => filterMatches(g, f)))
-    && !excludes.some((g) => filterMatches(g, f));
+  const shipped = includes.some((g) => filterMatches(g, f)) && !excludes.some((g) => filterMatches(g, f));
   ok(shipped, `export_presets.cfg ships ${f} (include_filter="${key('include_filter')}", exclude_filter="${key('exclude_filter')}")`);
 }
 ok(excludes.some((g) => filterMatches(g, 'tests/run_tests.gd')), 'tests/ stays excluded from the bundle');
@@ -164,6 +170,49 @@ const full = [...declared].map(src);
   let threw = false;
   try { verifyPck({ pck: Buffer.from('not a pck'), projectDir: forge, required }); } catch { threw = true; }
   ok(threw, 'garbage input is rejected, not reported OK');
+}
+// A directory that stores `res://`-prefixed paths (pre-v4 exporters do) still
+// verifies: the reader normalises every entry, so lookups by project path hit.
+{
+  const prefixed = [...full, decoy].map((e) => ({ ...e, path: 'res://' + e.path }));
+  const buf = buildPck(prefixed);
+  const dir = readPckDirectory(buf);
+  ok(dir.entries.length === prefixed.length && dir.entries.every((e) => !e.path.startsWith('res://')), 'res:// is stripped from every directory entry');
+  const r = verifyPck({ pck: buf, projectDir: forge, required });
+  ok(r.ok && r.present.length === full.length, `a PCK whose directory stores res://-prefixed paths verifies (${r.present.length} present, missing ${r.missing.length})`);
+}
+// The self-check has teeth. Corrupt the stored MD5 of an entry NO required glob
+// covers: verifyPck (which only looks at required files) still passes, so only
+// selfCheck — the --self-check flag `make build-godot` passes — can catch it.
+{
+  const corrupt = [...full, { ...decoy, md5: '00000000000000000000000000000000' }];
+  const buf = buildPck(corrupt);
+  const bad = selfCheck(buf, readPckDirectory(buf));
+  ok(bad.length === 1 && bad[0].path === decoy.path && /stored md5 0{32} != bytes md5/.test(bad[0].reason),
+    `self-check reports exactly the entry whose stored MD5 differs from its bytes (got ${bad.length}: ${bad.map((b) => b.path).join(',')})`);
+  ok(verifyPck({ pck: buf, projectDir: forge, required }).ok, '…which verifyPck alone cannot see (the entry is not required)');
+  // And through the CLI, exactly as the Makefile invokes it: exit 1 only with --self-check.
+  const tmp = join(tmpdir(), `verify-godot-pck-${process.pid}.pck`);
+  writeFileSync(tmp, buf);
+  try {
+    const cli = (...extra) => spawnSync(process.execPath, [join(repo, 'scripts', 'verify-godot-pck.mjs'), '--pck', tmp, '--project', forge, '--required-file', requiredPath, ...extra], { encoding: 'utf8' });
+    const plain = cli();
+    ok(plain.status === 0 && /^OK — /m.test(plain.stdout), `CLI without --self-check exits 0 on it (exit ${plain.status})`);
+    const self = cli('--self-check');
+    ok(self.status === 1 && /CORRUPT\s+scripts\/pack_mount\.gd\.remap/.test(self.stdout) && /self-check FAILED for 1 entries/.test(self.stdout),
+      `CLI --self-check exits 1 naming the corrupt entry (exit ${self.status})`);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
+// A required entry with a corrupt stored MD5 is STALE to verifyPck and CORRUPT to selfCheck — they agree.
+{
+  const corrupt = full.map((e) => e.path === 'assets/packs/lanes.json' ? { ...e, md5: 'ffffffffffffffffffffffffffffffff' } : e);
+  const buf = buildPck(corrupt);
+  const r = verifyPck({ pck: buf, projectDir: forge, required });
+  const bad = selfCheck(buf, readPckDirectory(buf));
+  ok(!r.ok && r.stale.includes('assets/packs/lanes.json') && bad.length === 1 && bad[0].path === 'assets/packs/lanes.json',
+    'a required entry with a corrupt stored MD5 is both STALE and CORRUPT');
 }
 
 // ── 4. the real export, when one exists ─────────────────────────────────────
