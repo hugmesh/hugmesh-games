@@ -816,14 +816,16 @@ e2e-godot: gen-certs
 # all sequentially. Each one is also runnable in isolation (CI fan-out).
 #
 #   test-rust      → cargo test in extensions/hugmesh-bridge (host toolchain; needs cargo)
-#   test-rust-cores→ cargo test in the 16 first-party Rust game cores + their
-#                    wasm shim crates. test-rust does NOT cover these: it only
-#                    reaches hugmesh-chess and hugmesh-connect-four, the bridge's
-#                    two path dependencies, so the other 14 engines' ~400 unit
-#                    tests never ran in `make test`. Every one of these crates is
-#                    dependency-free and ships a Cargo.lock, hence --offline: the
-#                    suite must never need crates.io (the CI runner cannot reach
-#                    it). Skips hugmesh-bridge, whose gdext dependency is a git URL.
+#   test-rust-cores→ cargo test in the 16 first-party Rust game cores + their 15
+#                    wasm shim crates — 31 crates, 496 tests. test-rust covers
+#                    NONE of them: it runs `cargo test` in hugmesh-bridge only,
+#                    and a non-workspace package runs only its OWN test targets.
+#                    It compiles hugmesh-chess and hugmesh-connect-four (its two
+#                    path dependencies) but executes zero of their tests, so
+#                    before this target `make test` ran no game-core test at all.
+#                    Every one of these crates is dependency-free (path deps
+#                    only), hence --offline. Skips hugmesh-bridge, whose gdext
+#                    dependency is a git URL.
 #   test-backend   → mvnw test in backend/   (host toolchain; needs JDK 21)
 #   test-frontend  → ng test in a Docker container (Chromium baked in,
 #                    so the host doesn't need a browser)
@@ -885,10 +887,13 @@ test-rust: deps-rust
 	@echo "✓ Rust tests passed"
 
 # The pure game-core crates. `--offline` is the contract, not an optimisation:
-# these crates have no external dependencies and each ships a Cargo.lock, so a
-# run that reaches for crates.io means something grew a dependency it should
-# not have. .gitlab-ci.yml's test:rust-cores job runs this identical loop in a
-# rust:1-slim container, so local and CI cannot drift.
+# these crates have no external dependencies at all, so a run that reaches for
+# crates.io means something grew a dependency it should not have. Note these
+# crates do NOT ship a Cargo.lock — every extensions/hugmesh-*/.gitignore lists
+# it, and only hugmesh-bridge (which this loop skips) has one committed — so
+# cargo generates a lock on first run and needs the tree to be WRITABLE. That is
+# why .gitlab-ci.yml's test:rust-cores job mounts the repo read-write; it runs
+# this identical loop in a rust:1-slim container, so local and CI cannot drift.
 test-rust-cores:
 	@command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found — install rustup or your distro's rust package"; exit 1; }
 	@echo "→ Running Rust game-core unit tests…"

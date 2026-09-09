@@ -69,15 +69,32 @@ stages: [test, build, sca, dast, load, pentest]
 #                    (`godot = { git = "https://github.com/godot-rust/gdext" }`),
 #                    so it cannot resolve here either. The 16 pure-Rust game
 #                    cores it wraps have NO external dependencies at all, so
-#                    test:rust-cores below runs them `--offline`. That is a
-#                    strict SUPERSET of what `make test-rust` covers today
-#                    (which only reaches hugmesh-chess + hugmesh-connect-four,
-#                    as the bridge's two path dependencies) — `make
-#                    test-rust-cores` runs the identical loop locally.
+#                    test:rust-cores below runs them `--offline`. It covers
+#                    strictly more than `make test-rust` did: that target runs
+#                    `cargo test` in the bridge only, and a non-workspace package
+#                    runs only its OWN test targets — it compiles hugmesh-chess
+#                    and hugmesh-connect-four (its two path dependencies) but
+#                    executes none of their tests. `make test-rust-cores` runs
+#                    the identical loop locally.
 #
 # Browser-level e2e stays with `make e2e` / the dast stage; this stage is unit
 # tests only, so it stays fast enough to gate every merge request.
 # ─────────────────────────────────────────────────────────────────────────────
+# EXECUTOR: these jobs bind-mount ${CI_PROJECT_DIR} into a sibling container,
+# which is only correct on a SHELL executor — there, ${CI_PROJECT_DIR} is a real
+# path on the same host as the docker daemon resolving the -v flag. That is what
+# this runner is, and it is established by the file itself rather than assumed:
+# NO job here declares an `image:` key, yet build:image runs bare `docker login /
+# build / push` and sca/dast/load run bare `bash tests/pentest/...`. A docker
+# executor with no image and no default image cannot start any of those jobs, so
+# the whole pre-existing pipeline already depends on a shell executor; the test
+# stage adds no new requirement, only a new *symptom* if it is ever violated.
+#
+# Because that symptom would otherwise be baffling ("./mvnw: not found" from an
+# empty /workspace), the guard below turns it into one line naming the cause.
+# It also catches the other executor foot-gun: under a docker executor the
+# container runs as root, $(id -u) is 0, and the --user flag silently stops
+# doing the root-owned-target/ protection its comment claims.
 .test:base:
   stage: test
   tags: [hugmesh-x86, privileged]
@@ -88,8 +105,32 @@ stages: [test, build, sca, dast, load, pentest]
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_COMMIT_TAG'
+  before_script:
+    # Fail loudly, before any suite, if the sibling bind mount does not deliver
+    # the repo (wrong executor) or if we are root (the --user flags are inert).
+    - |
+      if [ "$(id -u)" = "0" ]; then
+        echo "CI EXECUTOR ERROR: this job is running as root, which means it is not"
+        echo "on the shell executor these jobs require. Under a docker executor the"
+        echo "  -v \"\${CI_PROJECT_DIR}:/workspace\"  flag is resolved by the HOST"
+        echo "daemon, where ${CI_PROJECT_DIR} does not exist, so /workspace mounts"
+        echo "EMPTY and every suite below fails with a missing-file error instead."
+        echo "Run this stage on the shell executor tagged [hugmesh-x86, privileged]."
+        exit 1
+      fi
+      if ! docker run --rm --user "$(id -u):$(id -g)" \
+             -v "${CI_PROJECT_DIR}:/workspace:ro" -w /workspace node:22-alpine \
+             sh -c 'test -f Makefile && test -d backend && test -d extensions'; then
+        echo "CI EXECUTOR ERROR: bind-mounting \${CI_PROJECT_DIR} into a sibling"
+        echo "container did not deliver this repo. Expected Makefile + backend/ +"
+        echo "extensions/ under /workspace. CI_PROJECT_DIR=${CI_PROJECT_DIR}"
+        echo "This stage requires a shell executor whose docker daemon shares the"
+        echo "filesystem with the build directory."
+        exit 1
+      fi
 
-# Backend (Spring Boot / JUnit) — 700 tests as of this commit.
+# Backend (Spring Boot / JUnit) — 723 tests as of this commit (700 of them ran
+# before --group-add was added; the 3 Testcontainers classes it unblocks add 26).
 #
 # TWO non-obvious requirements, both measured by running this exact command:
 #
@@ -98,12 +139,24 @@ stages: [test, build, sca, dast, load, pentest]
 #     guard) reads ../rpg-builder/src/main/java/games/hugmesh/character and
 #     FAILS — deliberately, "a missing canonical tree means drift CANNOT be
 #     checked, which is a failure, not a skip" — when only backend/ is visible.
-#   * The docker socket is mounted and the container is on the host network.
-#     GameUploadIntegrationTest, SessionMemberLivenessMigrationTest and
-#     ShadowsOfTheNetFederationSeedTest start a real Postgres via Testcontainers;
-#     without a reachable daemon all three error with "Could not find a valid
-#     Docker environment". Sibling containers publish their ports on the host,
-#     so --network=host is what lets the test JVM reach them on localhost.
+#   * The docker socket is mounted, the container joins the socket's GROUP, and
+#     it is on the host network. GameUploadIntegrationTest,
+#     SessionMemberLivenessMigrationTest and ShadowsOfTheNetFederationSeedTest
+#     start a real Postgres via Testcontainers; without a reachable daemon all
+#     three error with "Could not find a valid Docker environment". Sibling
+#     containers publish their ports on the host, so --network=host is what lets
+#     the test JVM reach them on localhost.
+#
+#     --group-add is NOT optional and mounting the socket alone does not work.
+#     /var/run/docker.sock is srw-rw---- root:docker, and a `--user uid:gid`
+#     container is given NO supplementary groups, so the mount is present but
+#     unreadable. Measured: the three tests still error, and the surefire log
+#     shows `DOCKER_HOST unix:///var/run/docker.sock is not listening` followed
+#     by `java.net.BindException: Permission denied` in UnixDomainSockets.connect0.
+#     Reduced case, same shape: `docker run --user $(id -u):$(id -g) -v
+#     /var/run/docker.sock:/var/run/docker.sock node:22-alpine` accessing the
+#     socket -> EACCES. Resolving the gid at runtime with `stat -c %g` keeps this
+#     correct on a runner whose docker gid differs from this box's.
 test:backend:
   extends: .test:base
   cache:
@@ -118,6 +171,7 @@ test:backend:
     - >
       docker run --rm --network=host
       --user "$(id -u):$(id -g)"
+      --group-add "$(stat -c %g /var/run/docker.sock)"
       -e HOME=/workspace/.ci-home
       -v /var/run/docker.sock:/var/run/docker.sock
       -v "${CI_PROJECT_DIR}:/workspace"
@@ -165,13 +219,24 @@ test:games-js:
       node:22-alpine
       sh -c 'set -e; for t in games/_shared/test/*.test.mjs; do echo "→ node $t"; node "$t"; done'
 
-# The 16 first-party Rust game cores + their wasm shim crates (496 tests). Every
-# one of these crates is dependency-free (path dependencies only, and each ships
-# a Cargo.lock), so --offline is not a hope, it is the contract: this job must
-# never touch crates.io, which the runner cannot reach anyway. hugmesh-bridge is
-# skipped — see the git-dependency note on the stage comment above.
-# CARGO_TARGET_DIR points outside the mount so no build output lands in the
-# build directory.
+# The 16 first-party Rust game cores + their 15 wasm shim crates — 31 crates,
+# 496 tests. Every one is dependency-free (path dependencies only), so --offline
+# is not a hope, it is enforceable: this job must never touch crates.io, which
+# the runner cannot reach anyway. hugmesh-bridge is skipped — see the
+# git-dependency note on the stage comment above.
+#
+# The mount is READ-WRITE, deliberately, and this is load-bearing. Cargo writes
+# a Cargo.lock next to each Cargo.toml before it runs anything, and these crates
+# do NOT ship one: every extensions/hugmesh-*/.gitignore lists `Cargo.lock`, and
+# `git ls-files 'extensions/*/Cargo.lock'` returns exactly one path — the bridge,
+# the one crate this loop skips. Under a `:ro` mount the very first crate dies
+# with `failed to write .../Cargo.lock / Read-only file system (os error 30)`,
+# exit 101, having run zero tests. Measured on a pristine checkout; a working
+# tree that happens to carry generated (gitignored, untracked) locks from an
+# earlier run hides it completely, which is exactly how it reached review.
+# --user keeps the generated locks runner-owned so `git clean -ffdx` reaps them,
+# and CARGO_TARGET_DIR points outside the mount so no build output lands in the
+# build directory at all.
 test:rust-cores:
   extends: .test:base
   script:
@@ -180,7 +245,7 @@ test:rust-cores:
       --user "$(id -u):$(id -g)"
       -e CARGO_HOME=/tmp/cargo
       -e CARGO_TARGET_DIR=/tmp/cargo-target
-      -v "${CI_PROJECT_DIR}:/workspace:ro"
+      -v "${CI_PROJECT_DIR}:/workspace"
       -w /workspace
       rust:1-slim
       sh -c 'set -e; for d in extensions/hugmesh-*/; do case "$d" in */hugmesh-bridge/) continue;; esac; echo "→ cargo test in $d"; ( cd "$d" && cargo test --offline --quiet ); done'
