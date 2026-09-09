@@ -12,7 +12,7 @@ SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-games-wasm clean-games-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
-        test test-rust test-backend test-frontend test-godot test-games-js \
+        test test-rust test-rust-cores test-backend test-frontend test-godot test-games-js \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
         docs-userguides docs-openapi-spec docs-openapi-latex \
@@ -816,6 +816,14 @@ e2e-godot: gen-certs
 # all sequentially. Each one is also runnable in isolation (CI fan-out).
 #
 #   test-rust      → cargo test in extensions/hugmesh-bridge (host toolchain; needs cargo)
+#   test-rust-cores→ cargo test in the 16 first-party Rust game cores + their
+#                    wasm shim crates. test-rust does NOT cover these: it only
+#                    reaches hugmesh-chess and hugmesh-connect-four, the bridge's
+#                    two path dependencies, so the other 14 engines' ~400 unit
+#                    tests never ran in `make test`. Every one of these crates is
+#                    dependency-free and ships a Cargo.lock, hence --offline: the
+#                    suite must never need crates.io (the CI runner cannot reach
+#                    it). Skips hugmesh-bridge, whose gdext dependency is a git URL.
 #   test-backend   → mvnw test in backend/   (host toolchain; needs JDK 21)
 #   test-frontend  → ng test in a Docker container (Chromium baked in,
 #                    so the host doesn't need a browser)
@@ -833,7 +841,7 @@ FRONTEND_TEST_IMAGE = hugmesh-games-frontend-test
 ## Godot projects that ship a tests/run_tests.gd headless suite.
 GODOT_TEST_PROJECTS = shadows-of-the-net character-forge
 
-test: test-rust test-backend test-godot test-games-js test-frontend
+test: test-rust test-rust-cores test-backend test-godot test-games-js test-frontend
 	@echo "✓ All project unit tests passed"
 
 # Each project is IMPORTED first: `--script` resolves class_name references
@@ -875,6 +883,23 @@ test-rust: deps-rust
 	@echo "→ Running Rust unit tests…"
 	cd $(RUST_DIR) && cargo test
 	@echo "✓ Rust tests passed"
+
+# The pure game-core crates. `--offline` is the contract, not an optimisation:
+# these crates have no external dependencies and each ships a Cargo.lock, so a
+# run that reaches for crates.io means something grew a dependency it should
+# not have. .gitlab-ci.yml's test:rust-cores job runs this identical loop in a
+# rust:1-slim container, so local and CI cannot drift.
+test-rust-cores:
+	@command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found — install rustup or your distro's rust package"; exit 1; }
+	@echo "→ Running Rust game-core unit tests…"
+	@status=0; \
+	for d in extensions/hugmesh-*/; do \
+	  case "$$d" in */hugmesh-bridge/) continue;; esac; \
+	  echo "→ cargo test in $$d"; \
+	  ( cd "$$d" && cargo test --offline --quiet ) || status=$$?; \
+	done; \
+	if [ $$status -ne 0 ]; then echo "✗ Rust game-core tests FAILED"; exit $$status; fi
+	@echo "✓ Rust game-core tests passed"
 
 test-backend:
 	@echo "→ Running backend (Spring Boot) unit tests…"

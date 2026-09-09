@@ -124,3 +124,6 @@ tools/godot-export/templates/
 # docs/publishing/screenshots/harvest-from-e2e.py — review artefacts,
 # never committed (webm, tens of MB per run).
 docs/publishing/videos/
+
+# GitLab CI: uid-mapped container HOME for the test stage (Maven repo cache).
+.ci-home/
