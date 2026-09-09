@@ -1,10 +1,10 @@
 # Godot Developer Guide
 
-This guide is for anyone working inside `games/<slug>/` and needs their work to **compile into the shapes the rest of the stack expects**: slugs, export paths, asset registrations, scene DTOs, and federation manifests. Follow it and the API, Angular host, and DB will pick up your level / textures / plugins / new game without any other code changes.
+This guide is for anyone working inside `games/<slug>/` and needs their work to **compile into the shapes the rest of the stack expects**: slugs, export paths, asset registrations, scene DTOs, and federation manifests. Follow it and the API, Angular host, and DB will pick up your chapter / textures / plugins / new game without any other code changes.
 
 > **Layout note.** The Godot tree was split into per-game projects in section G of the federation plan. Every game is a self-contained Godot project under `games/<game-slug>/`, opens standalone in the Godot editor, and produces one or more Web export bundles. The legacy single `godot-project/` directory is gone.
 
-> **Terminology note.** This guide predates two platform-wide reworks and still says "level" in most places where current source says "chapter" (see the "Naming" section of [`CLAUDE.md`](../CLAUDE.md) — `levels` → `chapters`, `level_id` → `chapter_id`, `level_assets` → `chapter_assets`, `level_prerequisites` → `chapter_prerequisites`). The `/api/levels/...` paths below still resolve via a back-compat alias (`@RequestMapping({"/api/chapters", "/api/levels"})`), so the snippets aren't broken, just non-canonical — prefer `/api/chapters/...` in new code. The bridge classes (`BridgeApiClient`, `BridgeGlue`, the multiplayer lobby) were also rewritten from GDScript to Rust GodotClasses — see [decision 014](wiki/decisions/014-bridge-routed-networking.md) — the file table and code samples below have been updated to reflect that, but a full level→chapter pass on this guide's prose is still open (tracked in [Known gaps / TODO](../README.md#known-gaps--todo)).
+> **Terminology note.** This guide has had the platform-wide `level` → `chapter` rename applied (see the "Naming" section of [`CLAUDE.md`](../CLAUDE.md) — `levels` → `chapters`, `level_id` → `chapter_id`, `level_assets` → `chapter_assets`, `level_prerequisites` → `chapter_prerequisites`; changeset [`028-rename-chapter-instant.xml`](../backend/src/main/resources/db/changelog/028-rename-chapter-instant.xml) is the migration). Three things kept the word `level` on purpose, because that is still literally what the code says: the export directory `backend/src/main/resources/assets/levels/<slug>/` (`GODOT_EXPORT_ROOT` in the `Makefile`), the asset route it is served on (`/api/assets/levels/<slug>/…`, `AssetController`), and the `custom_features="level_<slug>"` tag in `export_presets.cfg`. `/api/levels/...` also still resolves as a back-compat alias (`@RequestMapping({"/api/chapters", "/api/levels"})`), but this guide now uses the canonical `/api/chapters/...` throughout — prefer that in new code. The bridge classes (`BridgeApiClient`, `BridgeGlue`, the multiplayer lobby) were also rewritten from GDScript to Rust GodotClasses — see [decision 014](wiki/decisions/014-bridge-routed-networking.md).
 
 ```
 games/
@@ -35,18 +35,18 @@ A Rust GDExtension (`extensions/hugmesh-bridge/`) supplies the bridge ABI. `make
 
 ## The contract in one page
 
-Every level must have a **slug** that appears in exactly the same lowercase, hyphen-free form in **four** places:
+Every chapter must have a **slug** that appears in exactly the same lowercase, hyphen-free form in **four** places:
 
 | Place | Example |
 |---|---|
-| `levels.slug` DB column | `cave` |
+| `chapters.slug` DB column | `cave` |
 | `games/<game-slug>/export_presets.cfg` → `export_path` directory | `.../assets/levels/cave/index.html` |
 | `Makefile` `PRESETS_<game-slug>` entry (preset name, capitalised) | `Cave` |
-| `levels.asset_url` DB column | `/api/assets/levels/cave/index.html` (legacy) **or** `/_remotes/wasm-fragment/cave/index.html` (federated) |
+| `chapters.asset_url` DB column | `/api/assets/levels/cave/index.html` (legacy) **or** `/_remotes/wasm-fragment/cave/index.html` (federated) |
 
-If any of those four drift, the level 404s in the iframe or loads the wrong bundle. **Never use spaces or uppercase in the slug itself** — the Makefile lowercases the preset name with `tr '[:upper:]' '[:lower:]'`, so `Cave` (preset) → `cave` (directory).
+If any of those four drift, the chapter 404s in the iframe or loads the wrong bundle. **Never use spaces or uppercase in the slug itself** — the Makefile lowercases the preset name with `tr '[:upper:]' '[:lower:]'`, so `Cave` (preset) → `cave` (directory).
 
-A **game slug** (parent of one or more level slugs) appears in three more places:
+A **game slug** (parent of one or more chapter slugs) appears in three more places:
 
 | Place | Example |
 |---|---|
@@ -58,9 +58,9 @@ The directory under `games/` is allowed to be longer / more descriptive than the
 
 Supporting contracts:
 
-- Scene DTOs returned from `GET /api/levels/{id}/scene` must have `elementType` values that `scene_loader.gd` knows (`world_env`, `sky_env`, `ambient_light`, `sun_light`, `torch`, `fill_light`, `fairy`, `stalagmite`, `stalactite`, `tree`, `cottage`). Add a new value → add a handler in `scene_loader._spawn()`.
-- Level-transition `postMessage` payload must literally be `{type: "TW_LEVEL_TRANSITION", slug, levelId}` — the Angular host's `HomeComponent.onWindowMessage` matches on the literal string. (This used to live in `game-canvas.component.ts`; section H of the federation plan lifted it to the host so it works regardless of which remote rendered the iframe.)
-- Assets referenced from a scene element's `properties.textureUrl` must be either a classpath file under `assets/levels/{slug}/` or registered in `level_assets` with a `filePath` that `AssetController` can resolve.
+- Scene DTOs returned from `GET /api/chapters/{id}/scene` must have `elementType` values that `scene_loader.gd` knows (`world_env`, `sky_env`, `ambient_light`, `sun_light`, `torch`, `fill_light`, `fairy`, `stalagmite`, `stalactite`, `tree`, `cottage`). Add a new value → add a handler in `scene_loader._spawn()`.
+- Chapter-transition `postMessage` payload must literally be `{type: "TW_CHAPTER_TRANSITION", slug, chapterId}` — the Angular host's `HomeComponent.onWindowMessage` matches on the literal string. (This used to live in `game-canvas.component.ts`; section H of the federation plan lifted it to the host so it works regardless of which remote rendered the iframe.)
+- Assets referenced from a scene element's `properties.textureUrl` must be either a classpath file under `assets/levels/{slug}/` or registered in `chapter_assets` with a `filePath` that `AssetController` can resolve.
 
 ---
 
@@ -94,8 +94,8 @@ To play the full game from inside the editor:
    ```
    make build-rust
    ```
-3. Open `games/<slug>/project.godot` in Godot and press **Play**. The scene_loader polls `/api/levels/{id}/scene` and populates fairies/lights/geometry exactly as the web build does.
-4. User-added assets registered under `level_assets` are reachable by label via `ApiClient.resolve_asset(level_id, "oak-bark", cb)`.
+3. Open `games/<slug>/project.godot` in Godot and press **Play**. The scene_loader polls `/api/chapters/{id}/scene` and populates fairies/lights/geometry exactly as the web build does.
+4. User-added assets registered under `chapter_assets` are reachable by label via `ApiClient.resolve_asset(chapter_id, "oak-bark", cb)`.
 
 If the editor can't reach the API, the `BridgeApiClient` (running in standalone mode because no parent module is attached) logs an HTTP error to the output panel. No silent fallbacks.
 
@@ -130,7 +130,7 @@ What the bridge does for you:
 
 The legacy three-wizards `api_client.gd` is now a thin wrapper around
 `BridgeApiClient` that preserves the named methods
-(`fetch_scene` / `fetch_level_assets` / `resolve_asset`); existing
+(`fetch_scene` / `fetch_chapter_assets` / `resolve_asset`); existing
 callers keep working without code changes. New games should use
 `BridgeApiClient` directly.
 
@@ -167,17 +167,17 @@ in `project.godot` picks up future updates automatically on the next sync.
 
 ---
 
-## Adding a new level to an existing game
+## Adding a new chapter to an existing game
 
-A level is **one compiled WASM bundle** that lives inside an existing game project. Each level has its own preset and its own row in `levels`.
+A chapter is **one compiled WASM bundle** that lives inside an existing game project. Each chapter has its own preset and its own row in `chapters`.
 
-### 1. Pick a level slug
+### 1. Pick a chapter slug
 
 Lowercase, hyphen-free, stable. Examples: `cave`, `field`, `forest-glade`, `tower`. Do **not** use `CaveOfDoom` or `cave_of_doom`. The slug will be written into `export_presets.cfg`, `Makefile`, and the DB, so make it short and final.
 
 ### 2. Create the scene file
 
-Put the main `.tscn` in `games/<game-slug>/scenes/<level-slug>.tscn`. The convention is that the scene's root node runs `scene_loader.gd` which reads `?level_id=N` from the iframe URL, calls `/api/levels/{N}/scene`, and spawns the elements returned in the DTO. You don't need to hardcode scene contents.
+Put the main `.tscn` in `games/<game-slug>/scenes/<chapter-slug>.tscn`. The convention is that the scene's root node runs `scene_loader.gd`, fed by `game_bridge.gd` which reads `?chapter_id=N` off the iframe URL, calls `/api/chapters/{N}/scene`, and spawns the elements returned in the DTO. You don't need to hardcode scene contents.
 
 ### 3. Add an export preset
 
@@ -189,14 +189,14 @@ Open `games/<game-slug>/export_presets.cfg` and append a new `[preset.N]` block.
 name="ForestGlade"                              ; CamelCase, no spaces. Used by Makefile.
 platform="Web"
 runnable=true
-custom_features="level_forest-glade"            ; matches lowercase slug
+custom_features="level_forest-glade"            ; matches lowercase slug — the `level_` prefix is literal, see the terminology note
 exclude_filter="*.gdextension"                  ; GDExtension is shipped via build-rust
 export_path="../../backend/src/main/resources/assets/levels/forest-glade/index.html"
 ```
 
 The `../../` prefix is relative to the game project directory and resolves to the repo's `backend/src/main/resources/assets/levels/`. Keep the `[preset.N.options]` block identical to a working preset — `html/canvas_resize_policy=2`, `extensions_support=true` (or `false` if you don't need GDExtension at runtime), etc.
 
-> **Note on `exclude_filter`.** With per-game projects you no longer need to enumerate other levels' `.tscn` files — Godot's tree-shaking ships only what each preset references, and only one game's scenes live in the project. The single `*.gdextension` exclusion stays.
+> **Note on `exclude_filter`.** With per-game projects you no longer need to enumerate other chapters' `.tscn` files — Godot's tree-shaking ships only what each preset references, and only one game's scenes live in the project. The single `*.gdextension` exclusion stays.
 
 ### 4. Register the preset in the Makefile
 
@@ -215,7 +215,7 @@ PRESETS_dodecahedron-demo             = Dodecahedron
 Either add a Liquibase changeset (preferred for committed content) or run `make seed-db` after an SQL insert like:
 
 ```sql
-INSERT INTO levels (name, slug, scene_type, sort_order, asset_url, game_id, scene_config, created_at)
+INSERT INTO chapters (name, slug, scene_type, sort_order, asset_url, game_id, scene_config, created_at)
 VALUES ('The Forest Glade', 'forest-glade', 'forest', 3,
         '/api/assets/levels/forest-glade/index.html',
         (SELECT id FROM games WHERE slug='three-wizards'),
@@ -223,7 +223,7 @@ VALUES ('The Forest Glade', 'forest-glade', 'forest', 3,
 ON CONFLICT (slug) DO UPDATE SET asset_url = EXCLUDED.asset_url;
 ```
 
-Then add `scene_elements` rows and (optionally) `level_prerequisites` to gate the level behind a quest. See `db/changelog/004-seed-scene-elements.xml` for the pattern.
+Then add `scene_elements` rows and (optionally) `chapter_prerequisites` to gate the chapter behind a quest. See `db/changelog/004-seed-scene-elements.xml` for the pattern.
 
 ### 6. Build
 
@@ -234,13 +234,13 @@ make seed-db            # refreshes DB if you changed seed SQL
 docker compose build api wasm-fragment && docker compose up -d api wasm-fragment
 ```
 
-Rebuild `wasm-fragment` whenever you change `assets/levels/` so the federated path picks up the new bundle. The new level appears on the home page with its lock state driven by its prerequisites.
+Rebuild `wasm-fragment` whenever you change `assets/levels/` so the federated path picks up the new bundle. The new chapter appears on the home page with its lock state driven by its prerequisites.
 
 ---
 
 ## Adding a brand-new game
 
-A *game* is one Godot project under `games/<game-slug-dir>/` that produces one or more level bundles, plus one row in `games`, one row in `federation_modules`, and (usually) a `games-<slug>` Docker compose service if you want a separately deployable Module Federation remote rather than a host-rendered fragment.
+A *game* is one Godot project under `games/<game-slug-dir>/` that produces one or more chapter bundles, plus one row in `games`, one row in `federation_modules`, and (usually) a `games-<slug>` Docker compose service if you want a separately deployable Module Federation remote rather than a host-rendered fragment.
 
 The fast path: use the **HugMesh Export** editor plugin already wired into both stock games (`addons/hugmesh_export/`).
 
@@ -260,7 +260,7 @@ Once the request returns, the game is live: the host shell's federation manifest
 If you're committing a game to the repo (rather than uploading at runtime), do all four:
 
 1. Add the project dir to `GAME_PROJECTS` and define `PRESETS_<dir>` in the Makefile.
-2. Add a Liquibase changeset that inserts the `games` row, the `federation_modules` row, and `level_prerequisites`/`game_access` if needed. See `db/changelog/017-snapdragon-catalog.xml` and `018-federation-modules.xml` for the patterns — or, for a `kind='wasm-game'` title (iframe straight off the wasm-fragment, no per-game Angular remote), mirror `053-chess-godot-federation.xml` / `056-shadows-of-the-net-federation.xml` instead.
+2. Add a Liquibase changeset that inserts the `games` row, the `federation_modules` row, and `chapter_prerequisites`/`game_access` if needed. See `db/changelog/017-snapdragon-catalog.xml` and `018-federation-modules.xml` for the patterns — or, for a `kind='wasm-game'` title (iframe straight off the wasm-fragment, no per-game Angular remote), mirror `053-chess-godot-federation.xml` / `056-shadows-of-the-net-federation.xml` instead.
 3. (Optional) Add a `games-<slug>` service to `docker-compose.yml` if the game ships its own remote (separate Angular project under `frontend/projects/games-<slug>/`). Stock games use this; one-off uploads can ride the shared `wasm-fragment` remote instead.
 4. Run the section-6 build chain.
 
@@ -270,9 +270,9 @@ The four-place slug rule still applies — every place that names the game must 
 
 ## Adding textures, plugins, or other assets
 
-Assets that aren't part of the Godot scene graph (custom textures applied at runtime, GDExtension plugins loaded dynamically, audio files, etc.) go in the `level_assets` registry. The registry gives every asset a **label** so GDScript can look it up without hardcoding filenames.
+Assets that aren't part of the Godot scene graph (custom textures applied at runtime, GDExtension plugins loaded dynamically, audio files, etc.) go in the `chapter_assets` registry. The registry gives every asset a **label** so GDScript can look it up without hardcoding filenames.
 
-### 1. Drop the file into the level's asset directory
+### 1. Drop the file into the chapter's asset directory
 
 ```
 backend/src/main/resources/assets/levels/<slug>/<filename>
@@ -283,7 +283,7 @@ Example: `backend/src/main/resources/assets/levels/forest-glade/moss-bark.png`.
 ### 2. Register it
 
 ```
-curl -X POST http://localhost:8080/api/levels/3/assets \
+curl -X POST http://localhost:8080/api/chapters/3/assets \
   -H 'Content-Type: application/json' \
   -d '{
     "label": "moss-bark",
@@ -294,16 +294,16 @@ curl -X POST http://localhost:8080/api/levels/3/assets \
   }'
 ```
 
-Labels must be unique within a level. Typical `assetType` values: `texture`, `mesh`, `audio`, `plugin`, `shader`.
+Labels must be unique within a chapter. Typical `assetType` values: `texture`, `mesh`, `audio`, `plugin`, `shader`.
 
-Prefer committing a Liquibase changeset for assets you want shipped to every install — see [013-seed-level-assets.xml](../backend/src/main/resources/db/changelog/013-seed-level-assets.xml) for the pattern.
+Prefer committing a Liquibase changeset for assets you want shipped to every install — see [013-seed-level-assets.xml](../backend/src/main/resources/db/changelog/013-seed-level-assets.xml) for the pattern (the changeset FILE name predates the rename and is immutable; the table it writes is `chapter_assets` today).
 
 ### 3. Use from GDScript
 
 ```gdscript
 var api := ApiClient.new()
 add_child(api)
-api.resolve_asset(level_id, "moss-bark", func(url):
+api.resolve_asset(chapter_id, "moss-bark", func(url):
     var http := HTTPRequest.new()
     add_child(http)
     http.request_completed.connect(func(_r, _c, _h, body):
@@ -315,10 +315,10 @@ api.resolve_asset(level_id, "moss-bark", func(url):
 )
 ```
 
-Or list everything registered on the level and resolve by type:
+Or list everything registered on the chapter and resolve by type:
 
 ```gdscript
-api.fetch_level_assets(level_id, func(assets):
+api.fetch_chapter_assets(chapter_id, func(assets):
     for a in assets:
         if a["assetType"] == "texture":
             ...
@@ -349,11 +349,11 @@ What happens:
 
 | Symptom | Cause |
 |---|---|
-| Iframe 404 on `index.html` | `levels.asset_url` slug differs from the classpath directory, or `wasm-fragment` not rebuilt after `make build-godot` |
+| Iframe 404 on `index.html` | `chapters.asset_url` slug differs from the classpath directory, or `wasm-fragment` not rebuilt after `make build-godot` |
 | Blank iframe, no error | Preset name in `PRESETS_<game>` doesn't match `export_presets.cfg`, or `GAME_PROJECTS` row pointing at a nonexistent directory |
-| Wrong scene loads | `scene_elements.level_id` FK is stale — check it matches the new `levels.id` |
-| `resolve_asset` returns 404 | `label` isn't in `level_assets` or `level_id` wrong |
-| `postMessage` transition doesn't fire | Payload shape wrong — must be literally `TW_LEVEL_TRANSITION` and include `slug` + `levelId` |
+| Wrong scene loads | `scene_elements.chapter_id` FK is stale — check it matches the new `chapters.id` |
+| `resolve_asset` returns 404 | `label` isn't in `chapter_assets` or `chapter_id` wrong |
+| `postMessage` transition doesn't fire | Payload shape wrong — must be literally `TW_CHAPTER_TRANSITION` and include `slug` + `chapterId` |
 | `ERR_BLOCKED_BY_RESPONSE` on federated WASM iframe | `wasm-fragment/nginx.conf` missing `Cross-Origin-Resource-Policy: cross-origin`, or host nginx not stripping duplicate COOP/COEP from the upstream |
 | Federation manifest shows the game but iframe stays blank | `federation_modules.remote_entry_url` points at a host that isn't reachable from the browser, or the game ships its own remote but `games-<slug>` compose service isn't up |
 | `ERROR: Parent node is busy setting up children, add_child() failed` | Calling `add_child` (or `get_tree().root.add_child`) directly from `_ready()` or `_process()` while siblings are still `_ready`-ing. Use `node.add_child.call_deferred(child)` |

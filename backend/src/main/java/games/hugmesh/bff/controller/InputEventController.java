@@ -150,12 +150,54 @@ public class InputEventController {
                                     .doOnNext(state::emitInput));
                 }));
         // TODO(PR #116 follow-up, blocker 2): per-game event-support gate —
-        // gates 2 (features.<kind>) and 3 (game_event_support) are not yet
-        // implemented. They require a not-yet-existing GameRepository.findFeatures
-        // helper and a design pass on how the games.features JSONB maps to event
-        // kinds — deferred to a follow-up so this one stays focused on the schema +
-        // ingestion + authority-spoofing gates and is reviewable independently.
-        // See the class Javadoc above.
+        // gates 2 (features.<kind>) and 3 (game_event_support) are STILL not
+        // implemented. This is a deliberate defer, not an oversight: three
+        // concrete decisions have to be made first, and none of them belongs to
+        // whoever next touches this method.
+        //
+        // 1. WHICH mapping is gate 2? The class Javadoc above gates control:cast
+        //    on features.spell_loadout — a (kind, TYPE) → flag mapping. The
+        //    canonical architecture doc (docs/wiki/architecture/04-data-model.md,
+        //    "Generalised input event surface") defines gate 2 as
+        //    features.<kind> — a KIND → flag mapping. Those two rules disagree
+        //    about exactly the case the Javadoc uses as its worked example.
+        //
+        // 2. What does an ABSENT feature key mean? Changeset 026-3 seeds seven
+        //    input_event_kinds (gamepad / mouse / keyboard / touch / audio /
+        //    world / control); the games.features DEFAULT in 026-1 has keys for
+        //    only five of them. `world` and `control` — the two kinds every
+        //    host-authoritative relay uses — have no flag at all. Absent ⇒ deny
+        //    breaks every multiplayer game; absent ⇒ allow leaves the Javadoc's
+        //    own control:cast example ungated. Pick one and seed the column to
+        //    match; do not leave it implicit.
+        //
+        // 3. Gate 3 needs a data pass before it can be turned on, or it is a
+        //    silent outage. game_event_support carries gamepad/mouse/keyboard/
+        //    touch/audio rows for exactly TWO slugs (three-wizards and
+        //    dodecahedron, both from 026-5). Meanwhile GamepadService
+        //    (frontend/src/app/services/gamepad.service.ts) mirrors every
+        //    gamepad event here as kind:'gamepad' under whatever game is
+        //    active — and its gameSlug field DEFAULTS to the literal string
+        //    "unknown". So a literal gate 3 would 405 the gamepad mirror for
+        //    every title except those two, and the mirror's fetch(...) ends in
+        //    .catch(() => {}) — it would fail completely silently. Seeding the
+        //    remaining triples is a per-title product call (which events does
+        //    this game declare?), not a refactor.
+        //
+        // Cost note for whoever picks this up: submit() is the hot path (gamepad
+        // axis + mouse motion are per-frame), so gates 2 and 3 as written are two
+        // extra DB reads per event. They want a cache with a documented
+        // invalidation story, not a naive lookup — that is part of the design
+        // pass, not an optimisation to bolt on later.
+        //
+        // Prerequisites that do not exist yet: the Game entity
+        // (model/Game.java) does not map the features column at all, nothing in
+        // backend/src/main/java reads games.features (RegisterSqlPolicy only
+        // names it as an UPDATE-able column), and there is no
+        // METHOD_NOT_ALLOWED / 405 anywhere in the service — so the refusal
+        // status these gates are specified to return has no precedent here.
+        //
+        // See the class Javadoc above and README § Known gaps / TODO.
         //
         // (Blocker 3, Kafka cross-pod world-relay parity, shipped in PR #117 —
         // GameStateService.emitInput tees kind:'world' onto the dedicated
