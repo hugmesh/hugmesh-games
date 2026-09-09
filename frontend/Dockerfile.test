@@ -1,7 +1,16 @@
-# Containerised Karma runner for `make test-frontend`. Bakes Chromium so
-# the host doesn't need a browser; the source dir is mounted at runtime so
-# we don't have to rebuild the image every code change.
-FROM node:20-bookworm-slim
+# Containerised Karma runner for `make test-frontend` and .gitlab-ci.yml's
+# test:frontend job. Bakes Chromium so the host doesn't need a browser; the
+# source dir is mounted at runtime so we don't have to rebuild the image every
+# code change.
+#
+# Node 22, NOT 20: this app is Angular 22, whose CLI hard-refuses to start on
+# anything below v22.22.3 ("Node.js version v20.x detected. The Angular CLI
+# requires a minimum Node.js version of v22.22.3 or v24.15.0 or v26.0.0.",
+# exit 3) — so on node:20 `npm test` never reached a single spec and
+# `make test-frontend` could not pass at all. Keep this on the same major line
+# as frontend/Dockerfile's build stage (node:22-alpine); if the Angular major
+# is bumped again, check its Node floor here first.
+FROM node:22-bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium ca-certificates \
     && rm -rf /var/lib/apt/lists/*

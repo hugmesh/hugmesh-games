@@ -132,10 +132,10 @@ test:backend:
       - backend/target/surefire-reports/
     expire_in: 7 days
 
-# Angular (Karma + Jasmine, 27 specs). Reuses frontend/Dockerfile.test — the
-# SAME image `make test-frontend` builds — which bakes Chromium, so the runner
-# needs no browser. --shm-size=1gb because headless Chrome dies on the default
-# 64 MB /dev/shm.
+# Angular (Karma + Jasmine): 219 specs across 27 spec files. Reuses
+# frontend/Dockerfile.test — the SAME image `make test-frontend` builds — which
+# bakes Chromium, so the runner needs no browser. --shm-size=1gb because
+# headless Chrome dies on the default 64 MB /dev/shm.
 test:frontend:
   extends: .test:base
   script:
