@@ -139,8 +139,7 @@ Specific unfinished spots verified in the current source, beyond the roadmap ite
 - **Server-authoritative FPS/RTS engines have no catalog title yet.** `hugmesh-fps-core` / `hugmesh-rts-core`, the `RealtimeController` / `AdminRealtimeController` REST surface, and the Cassandra-truth tick loop all exist and are verified in-JVM via Chicory, but no FPS/RTS game is registered in the `games` catalog or federation manifest — see [Roadmap](#roadmap).
 - **Strict CSP not done.** Both nginx confs still ship `'unsafe-eval'`/`'unsafe-inline'` in `script-src` and `'unsafe-inline'` in `style-src` — load-bearing for es-module-shims and Angular's runtime style injection today. Dropping them is a documented follow-up, not started ([decision 023](docs/wiki/decisions/023-content-security-policy.md)).
 - **`CassandraSyncService` not yet retired.** Superseded in intent by the Kafka → ClickHouse streaming pipeline (`decision 021`), but still in the codebase pending a production soak period before removal.
-- **`docs/GODOT_DEVELOPER_GUIDE.md` still uses pre-rename "level" terminology in most of its prose and code samples** (`levels`/`level_id`/`level_assets`/`level_prerequisites`), even though the platform renamed these to `chapters`/`chapter_id`/`chapter_assets`/`chapter_prerequisites` (see the "Naming" section of [`CLAUDE.md`](CLAUDE.md)) and the bridge classes it documents (`BridgeApiClient`, `BridgeGlue`, the multiplayer lobby) moved from GDScript to Rust GodotClasses (decision 014). The guide's `/api/levels/...` examples still work today (a back-compat alias keeps them resolving), so nothing is broken, just non-canonical; the file table, transition-event, and bridge-usage snippets were corrected during this pass, but a full level→chapter terminology sweep of the rest of the guide's prose is still open.
-- **No CI test-invocation stage.** `.gitlab-ci.yml` never runs `./mvnw test` / `npx ng test` / `cargo test` / `make e2e` — `build:image` only compiles far enough to produce a runnable image, so a red unit/integration suite on `main` would not fail CI today (flagged in-file).
+- **Two unit suites still have no CI runner.** `.gitlab-ci.yml`'s `test` stage now gates `build:image` on the backend, frontend, games-JS and Rust-game-core suites, but `make test-godot` (needs a `godot4` binary) and `make test-rust` (needs gdext by git URL) cannot run on the Tailscale-only x86 runner, which reaches neither github.com nor a Godot download. Both un-gate once `GODOT_MIRROR_BASE_URL` is seeded and a crate mirror exists; documented in place on the `test` stage.
 
 ---
 
@@ -1270,7 +1269,7 @@ Chapter transitions from inside the game are one call:
 $GameBridge.request_chapter_transition("field", 2)
 ```
 
-See the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md#mid-game-level-transitions) for the full flow.
+See the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md#mid-game-chapter-transitions) for the full flow.
 
 ---
 
