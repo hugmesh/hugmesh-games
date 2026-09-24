@@ -190,6 +190,11 @@ class InputGateFeatureFlagsMigrationTest {
         insertGame("it-063-explicit", "{\"world\": false, \"control\": false, \"instant_loadout\": false, \"spell_loadout\": true}");
         insertGame("it-063-legacy", "{\"spell_loadout\": false, \"gamepad\": true}");
         insertGame("it-063-bare", "{\"gamepad\": true}");
+        // Only ONE of the two keys present: the row IS selected by 063-3's
+        // WHERE, so this is the case where operand order decides whether the
+        // explicit false survives. (it-063-explicit has both keys and is never
+        // selected, so it cannot catch a swapped `features || '{...}'`.)
+        insertGame("it-063-half", "{\"world\": false}");
 
         rerun063();
 
@@ -207,6 +212,9 @@ class InputGateFeatureFlagsMigrationTest {
         assertThat(flag("it-063-bare", "world")).isEqualTo("true");
         assertThat(flag("it-063-bare", "control")).isEqualTo("true");
         assertThat(flag("it-063-bare", "gamepad")).isEqualTo("true");
+
+        assertThat(flag("it-063-half", "world")).as("explicit false kept when the row is rewritten").isEqualTo("false");
+        assertThat(flag("it-063-half", "control")).isEqualTo("true");
     }
 
     @Test
