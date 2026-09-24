@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!--
+      Input-gate feature flags (hugmesh-games#13, decisions 103a = C and
+      103b = A, 2026-09-23).
+
+      InputEventController.submit() gate 2 now refuses (405) any event whose
+      KIND has no true flag in games.features, and additionally checks a
+      short (kind, type) -> subsystem-flag table (control:cast ->
+      instant_loadout). A MISSING flag is refused, not allowed. That rule
+      is only safe once the data carries every flag it reads, which is what
+      this file does:
+
+        1. The column DEFAULT. 026-1 wrote `spell_loadout` and no `world` /
+           `control` keys; 028-7 renamed spell_loadout -> instant_loadout in
+           the rows that existed THEN but never re-issued the default, so
+           every games row inserted afterwards (044-062: chess, the wave-1..3
+           web games, the Godot titles, shadows-of-the-net, character-forge)
+           still got `spell_loadout`. The new default carries
+           `instant_loadout`, `world` and `control`.
+
+        2. The stale key in existing rows. Re-runs 028-7's rename for the rows
+           inserted after it, WITHOUT overwriting an `instant_loadout` a row
+           already has (an explicit value always wins), then drops any
+           `spell_loadout` left behind. dodecahedron's explicit false (026-2,
+           renamed by 028-7) is preserved.
+
+        3. world + control on every existing row. `'{...}' || features`: the
+           RIGHT operand wins on a key collision, so a row that already says
+           `"world": false` keeps false. Only absent keys are added.
+
+      `jsonb_exists(features, 'k')` rather than `features ? 'k'`: Liquibase
+      sends <sql> through a JDBC PreparedStatement, which reads `?` as a
+      bind placeholder (see the note above 028-7).
+
+      All three are idempotent: re-running any of them on migrated state
+      changes nothing.
+  -->
+
+  <changeSet id="063-1-games-features-default" author="hugmesh">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="games" columnName="features"/>
+    </preConditions>
+    <sql>
+      ALTER TABLE games
+        ALTER COLUMN features SET DEFAULT '{
+            "instant_loadout": true,
+            "quests": true,
+            "items": true,
+            "char_progression": true,
+            "audio": true,
+            "gamepad": true,
+            "mouse": true,
+            "keyboard": true,
+            "touch": true,
+            "world": true,
+            "control": true
+        }'::jsonb;
+    </sql>
+  </changeSet>
+
+  <changeSet id="063-2-games-features-spell-loadout-rename" author="hugmesh">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="games" columnName="features"/>
+    </preConditions>
+    <sql>
+      UPDATE games
+         SET features = (features - 'spell_loadout')
+                        || jsonb_build_object('instant_loadout', features->'spell_loadout')
+       WHERE jsonb_exists(features, 'spell_loadout')
+         AND NOT jsonb_exists(features, 'instant_loadout');
+
+      UPDATE games
+         SET features = features - 'spell_loadout'
+       WHERE jsonb_exists(features, 'spell_loadout');
+    </sql>
+  </changeSet>
+
+  <changeSet id="063-3-games-features-world-control" author="hugmesh">
+    <preConditions onFail="MARK_RAN">
+      <columnExists tableName="games" columnName="features"/>
+    </preConditions>
+    <sql>
+      UPDATE games
+         SET features = '{"world": true, "control": true}'::jsonb || features
+       WHERE NOT jsonb_exists(features, 'world')
+          OR NOT jsonb_exists(features, 'control');
+    </sql>
+  </changeSet>
+
+</databaseChangeLog>

@@ -11,13 +11,22 @@ import games.hugmesh.bff.service.GameSessionService;
 import games.hugmesh.bff.service.GameStateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.stereotype.Repository;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.time.Duration;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * Generalised input + audio event ingestion.
@@ -28,23 +37,55 @@ import reactor.core.publisher.Mono;
  *
  * <h2>Validation</h2>
  *
- * Each emit is designed to go through three gates, of which only the
- * first is currently implemented (see the TODO at the end of {@link
- * #submit}):
- * <ol>
- *   <li><b>Implemented.</b> The {@code (kind, type)} pair must exist
- *       in the {@code input_event_types} reference table. Unknown
- *       pairs → 400.</li>
- *   <li><b>Not yet implemented.</b> The active game's {@code
- *       games.features} JSONB must accept the event kind (a
- *       chrome-less demo with {@code spell_loadout: false} can't have
- *       a JRPG client smuggle in fake control:cast events). Refused
- *       kinds → 405.</li>
- *   <li><b>Not yet implemented.</b> {@code game_event_support} must
- *       list the {@code (game_slug, event_kind, event_type)} triple
- *       as enabled. Per-game opt-in beyond the feature flags. Refused
- *       triples → 405.</li>
+ * Every emit passes these gates, in this order, before it is persisted or
+ * fanned out (hugmesh-games#13, decisions 103a = C, 103b = A, 103c = A):
+ * <ol start="0">
+ *   <li><b>Gate 0 — authorization.</b> A session-scoped event must come from
+ *       the active member who owns {@code characterId}; a session-scoped
+ *       {@code kind:'world'} must come from the session creator. 403.</li>
+ *   <li><b>Gate 1 — vocabulary.</b> The {@code (kind, type)} pair must exist in
+ *       {@code input_event_types}. 400.</li>
+ *   <li><b>Gate 2 — feature flags, two lookups in the same {@code
+ *       games.features} object.</b>
+ *       <ol type="a">
+ *         <li>Every event must pass its KIND's flag: {@code
+ *             games.features.<kind>} must be JSON {@code true}. An ABSENT flag
+ *             is refused, exactly like {@code false} — there is no implicit
+ *             allow. Changeset 063 seeded {@code world} and {@code control}
+ *             (the two relay kinds 026-1 had no flag for) true on every game
+ *             and into the column default, so this refuses nothing a shipped
+ *             title sends today. ONE GAP: the export plugin's {@code
+ *             register.sql} still REPLACES the whole object with a set that
+ *             has no {@code world}/{@code control} (and the stale {@code
+ *             spell_loadout}), so a game installed or re-installed through an
+ *             upload loses its relay flags and gets 405 here until
+ *             hugmesh-games#17 lands. No shipped title that goes through that
+ *             path posts to this endpoint yet.</li>
+ *         <li>Then a short, explicit {@code (kind, type) → flag} table,
+ *             {@link #SUBSYSTEM_FLAGS}, gates individual events on a JRPG
+ *             subsystem flag as well. Today it has one row: {@code
+ *             control:cast → instant_loadout}, so a chrome-less demo with
+ *             {@code instant_loadout: false} cannot have a JRPG client smuggle
+ *             in {@code control:cast} while its other control events
+ *             pass. ({@code instant_loadout} is the key 028-7 renamed from
+ *             {@code spell_loadout}; 063 finished that rename in the rows and
+ *             the default.)</li>
+ *       </ol>
+ *       Refused → 405.</li>
+ *   <li><b>Gate 3 — per-game opt-in, present but OFF.</b> When {@code
+ *       app.input.gate3-enabled} is true, the {@code (gameSlug, kind, type)}
+ *       triple must be an enabled {@code game_event_support} row; 405
+ *       otherwise. It defaults to false and must stay false until every
+ *       shipped title's rows are seeded (decision 103c = A): on origin/main
+ *       only three-wizards and dodecahedron have input rows, eleven titles
+ *       have relay rows only, and several have none, so turning it on today
+ *       would silently refuse real input.</li>
  * </ol>
+ *
+ * <p>Gates 2 and 3 read through {@link InputGateLookup}, which caches both
+ * per slug for a few seconds — see its Javadoc for the invalidation story.
+ * docs/wiki/architecture/04-data-model.md ("Generalised input event surface")
+ * states the same rule; change both together.
  *
  * <p>Tag {@code Input events} keeps this surface separate from the
  * JRPG-specific {@code Controls} surface in the OpenAPI spec.
@@ -55,33 +96,49 @@ import reactor.core.publisher.Mono;
 @RequestMapping("/api/input")
 public class InputEventController {
 
+    /**
+     * Gate 2b: individual events that ALSO need a subsystem flag, keyed
+     * {@code "kind:type"}. Short and explicit on purpose — a row here is a
+     * product statement that the event belongs to that subsystem. Every event
+     * still has to pass its kind's flag first (gate 2a).
+     */
+    static final Map<String, String> SUBSYSTEM_FLAGS = Map.of(
+            "control:cast", "instant_loadout");
+
     private final InputEventRepository events;
     private final InputEventTypeRepository types;
+    private final InputGateLookup gates;
     private final GameStateService state;
     private final GameSessionService sessions;
     private final ObjectMapper json;
+    private final boolean gate3Enabled;
 
     public InputEventController(InputEventRepository events,
                                 InputEventTypeRepository types,
+                                InputGateLookup gates,
                                 GameStateService state,
                                 GameSessionService sessions,
-                                ObjectMapper json) {
-        this.events   = events;
-        this.types    = types;
-        this.state    = state;
-        this.sessions = sessions;
-        this.json     = json;
+                                ObjectMapper json,
+                                @Value("${app.input.gate3-enabled:false}") boolean gate3Enabled) {
+        this.events       = events;
+        this.types        = types;
+        this.gates        = gates;
+        this.state        = state;
+        this.sessions     = sessions;
+        this.json         = json;
+        this.gate3Enabled = gate3Enabled;
     }
 
     @Operation(
         summary = "Submit an input event.",
         description = """
             One endpoint, discriminated payload. The (kind, type) pair
-            picks a schema; the BFF validates against the reference
-            tables, rejects with 400/405 if the (kind, type) is
-            unknown or the active game declares it doesn't support
-            this combination, otherwise persists into input_events
-            and fans out on the SSE input + audio channels.
+            picks a schema. The BFF rejects with 400 if the (kind, type)
+            is unknown, and with 405 if the game's games.features flag
+            for the event kind is false or absent, or (for events such
+            as control:cast) the subsystem flag the event belongs to is.
+            Otherwise it persists into input_events and fans out on the
+            SSE input + audio channels.
 
             The endpoint is authenticated. The Casdoor user id is
             read from the JWT subject; the body's casdoorUserId field
@@ -132,7 +189,9 @@ public class InputEventController {
                 .switchIfEmpty(Mono.error(new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "unknown event (kind, type): " + body.kind() + ", " + body.type())))
-                .flatMap(t -> {
+                .flatMap(t -> checkFeatureFlags(body.gameSlug(), body.kind(), body.type()))
+                .then(Mono.defer(() -> checkEventSupport(body.gameSlug(), body.kind(), body.type())))
+                .then(Mono.defer(() -> {
                     InputEvent ev = new InputEvent(
                             null, body.gameSlug(), characterId,
                             body.sessionId(), jwt.getSubject(),
@@ -148,61 +207,51 @@ public class InputEventController {
                                     "payload is not JSON-serialisable: " + e.getMessage()))
                             .flatMap(payloadJson -> events.insert(ev, payloadJson)
                                     .doOnNext(state::emitInput));
-                }));
-        // TODO(PR #116 follow-up, blocker 2): per-game event-support gate —
-        // gates 2 (features.<kind>) and 3 (game_event_support) are STILL not
-        // implemented. This is a deliberate defer, not an oversight: three
-        // concrete decisions have to be made first, and none of them belongs to
-        // whoever next touches this method.
-        //
-        // 1. WHICH mapping is gate 2? The class Javadoc above gates control:cast
-        //    on features.spell_loadout — a (kind, TYPE) → flag mapping. The
-        //    canonical architecture doc (docs/wiki/architecture/04-data-model.md,
-        //    "Generalised input event surface") defines gate 2 as
-        //    features.<kind> — a KIND → flag mapping. Those two rules disagree
-        //    about exactly the case the Javadoc uses as its worked example.
-        //
-        // 2. What does an ABSENT feature key mean? Changeset 026-3 seeds seven
-        //    input_event_kinds (gamepad / mouse / keyboard / touch / audio /
-        //    world / control); the games.features DEFAULT in 026-1 has keys for
-        //    only five of them. `world` and `control` — the two kinds every
-        //    host-authoritative relay uses — have no flag at all. Absent ⇒ deny
-        //    breaks every multiplayer game; absent ⇒ allow leaves the Javadoc's
-        //    own control:cast example ungated. Pick one and seed the column to
-        //    match; do not leave it implicit.
-        //
-        // 3. Gate 3 needs a data pass before it can be turned on, or it is a
-        //    silent outage. game_event_support carries gamepad/mouse/keyboard/
-        //    touch/audio rows for exactly TWO slugs (three-wizards and
-        //    dodecahedron, both from 026-5). Meanwhile GamepadService
-        //    (frontend/src/app/services/gamepad.service.ts) mirrors every
-        //    gamepad event here as kind:'gamepad' under whatever game is
-        //    active — and its gameSlug field DEFAULTS to the literal string
-        //    "unknown". So a literal gate 3 would 405 the gamepad mirror for
-        //    every title except those two, and the mirror's fetch(...) ends in
-        //    .catch(() => {}) — it would fail completely silently. Seeding the
-        //    remaining triples is a per-title product call (which events does
-        //    this game declare?), not a refactor.
-        //
-        // Cost note for whoever picks this up: submit() is the hot path (gamepad
-        // axis + mouse motion are per-frame), so gates 2 and 3 as written are two
-        // extra DB reads per event. They want a cache with a documented
-        // invalidation story, not a naive lookup — that is part of the design
-        // pass, not an optimisation to bolt on later.
-        //
-        // Prerequisites that do not exist yet: the Game entity
-        // (model/Game.java) does not map the features column at all, nothing in
-        // backend/src/main/java reads games.features (RegisterSqlPolicy only
-        // names it as an UPDATE-able column), and there is no
-        // METHOD_NOT_ALLOWED / 405 anywhere in the service — so the refusal
-        // status these gates are specified to return has no precedent here.
-        //
-        // See the class Javadoc above and README § Known gaps / TODO.
-        //
-        // (Blocker 3, Kafka cross-pod world-relay parity, shipped in PR #117 —
-        // GameStateService.emitInput tees kind:'world' onto the dedicated
-        // `world-native` Kafka channel and reemitToSession's "world-native" case
-        // re-emits it on the peer pod's worldNative sink. No longer a gap here.)
+                })));
+    }
+
+    /**
+     * Gate 2 (decision 103a = C). 2a: {@code features.<kind>} must be JSON
+     * true — absent is refused. 2b: if {@code (kind, type)} is in
+     * {@link #SUBSYSTEM_FLAGS}, that flag must be true as well.
+     */
+    private Mono<Void> checkFeatureFlags(String slug, String kind, String type) {
+        // defaultIfEmpty: an EMPTY signal must read as "no flags" (refused),
+        // never as "nothing to check" — otherwise the .then() chain in
+        // submit() would carry straight on to persistence (fail-open).
+        return gates.features(slug).defaultIfEmpty(Map.of()).flatMap(flags -> {
+            if (!Boolean.TRUE.equals(flags.get(kind))) {
+                return Mono.error(refused("game '" + slug + "' does not enable event kind '"
+                        + kind + "' (games.features." + kind + " is false or absent)"));
+            }
+            String subsystem = SUBSYSTEM_FLAGS.get(kind + ":" + type);
+            if (subsystem != null && !Boolean.TRUE.equals(flags.get(subsystem))) {
+                return Mono.error(refused("game '" + slug + "' does not enable " + kind + ":" + type
+                        + " (games.features." + subsystem + " is false or absent)"));
+            }
+            return Mono.<Void>empty();
+        });
+    }
+
+    /**
+     * Gate 3 (decision 103c = A): present but OFF by default. With
+     * {@code app.input.gate3-enabled=true} the triple must be an enabled
+     * {@code game_event_support} row. Do not enable it until every shipped
+     * title's rows are seeded — see the class Javadoc.
+     */
+    private Mono<Void> checkEventSupport(String slug, String kind, String type) {
+        if (!gate3Enabled) {
+            return Mono.empty();
+        }
+        return gates.enabledEvents(slug).defaultIfEmpty(java.util.Set.of())
+                .flatMap(enabled -> enabled.contains(kind + ":" + type)
+                ? Mono.<Void>empty()
+                : Mono.error(refused("game '" + slug + "' has no enabled game_event_support row for "
+                        + kind + ":" + type)));
+    }
+
+    private static ResponseStatusException refused(String reason) {
+        return new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, reason);
     }
 
     @Operation(summary = "Recent events for a character (newest first).")
@@ -245,5 +294,121 @@ public class InputEventController {
                         HttpStatus.FORBIDDEN, "not an active member of this session")))
                 .thenMany(Flux.defer(() ->
                         events.findRecentBySessionId(sessionId, Math.min(Math.max(limit, 1), 1000))));
+    }
+
+    /**
+     * The two per-game reads behind {@link #submit} gates 2 and 3 (hugmesh-games#13): a game's {@code games.features} flags and the
+     * {@code game_event_support} triples it has enabled.
+     *
+     * <h2>Why cached, and the invalidation story</h2>
+     *
+     * <p>{@code submit()} is the hot path — Asteroids Duel posts a
+     * {@code control:input} vector every frame, and the gamepad mirror is
+     * per-frame when it is live — so a naive lookup is one extra database round
+     * trip per event per gate. Both reads are therefore cached PER SLUG, in this
+     * pod, for {@code app.input.gate-cache-ttl} (default 10 s):
+     *
+     * <ul>
+     *   <li><b>Invalidation is by expiry only.</b> Nothing in this service writes
+     *       {@code games.features} or {@code game_event_support} at runtime except
+     *       an upload's {@code register.sql} and hand-run SQL; neither signals
+     *       this cache. A flag flipped by either takes effect on every pod within
+     *       one TTL. That bounded staleness is the whole contract — a flag is a
+     *       product switch, not a revocation, so seconds of lag are acceptable
+     *       and there is no cross-pod bus to keep coherent.</li>
+     *   <li><b>Errors are never cached</b> (TTL zero), so a database blip refuses
+     *       nothing for longer than the blip itself; the next event retries.</li>
+     *   <li><b>Bounded.</b> A client can put any string in {@code gameSlug}; the
+     *       map is cleared once it holds {@value #MAX_SLUGS} slugs, so unknown-slug
+     *       spam cannot grow the heap. Real traffic is a few dozen titles.</li>
+     * </ul>
+     *
+     * <p>An unknown slug and a game whose {@code features} object is empty both
+     * read as an empty map — every flag absent — which gate 2 refuses. That is
+     * deliberate: decision 103b seeded {@code world} and {@code control} precisely
+     * so "absent" could mean "refused" without breaking any shipped title. An
+     * upload's {@code register.sql} can still replace the object with one that
+     * lacks them; that gap is hugmesh-games#17.
+     *
+     * <p>Nested here rather than in {@code repository/} because its only
+     * consumer is this controller's gate chain; it is a separate bean (static,
+     * public for the migration test's injection) so the WebFlux slice can mock it.
+     *
+     * <p>Implemented on {@link DatabaseClient}, like {@link InputEventRepository},
+     * because both reads are jsonb/composite-key shaped. The flag values are
+     * decided in SQL ({@code value = 'true'::jsonb}) so a non-boolean flag such as
+     * {@code "yes"} or {@code 1} is NOT true — only a real JSON {@code true} is.
+     */
+    @Repository
+    public static class InputGateLookup {
+
+        /** Upper bound on cached slugs per map before it is cleared. */
+        static final int MAX_SLUGS = 512;
+
+        private final DatabaseClient db;
+        private final Duration ttl;
+
+        private final Map<String, Mono<Map<String, Boolean>>> featureCache = new ConcurrentHashMap<>();
+        private final Map<String, Mono<Set<String>>> supportCache = new ConcurrentHashMap<>();
+
+        public InputGateLookup(DatabaseClient db,
+                               @Value("${app.input.gate-cache-ttl:10s}") Duration ttl) {
+            this.db = db;
+            this.ttl = ttl;
+        }
+
+        /**
+         * {@code games.features} for {@code slug} as flag → is-JSON-true. Empty when
+         * the slug has no games row or the row carries no flags.
+         */
+        public Mono<Map<String, Boolean>> features(String slug) {
+            return cached(featureCache, slug, () -> db.sql("""
+                        SELECT f.key AS flag, (f.value = 'true'::jsonb) AS enabled
+                          FROM games g
+                         CROSS JOIN LATERAL jsonb_each(g.features) f
+                         WHERE g.slug = :slug
+                        """)
+                    .bind("slug", slug)
+                    .map((row, meta) -> Map.entry(
+                            row.get("flag", String.class),
+                            Boolean.TRUE.equals(row.get("enabled", Boolean.class))))
+                    .all()
+                    .collectMap(Map.Entry::getKey, Map.Entry::getValue)
+                    .map(Map::copyOf));
+        }
+
+        /**
+         * Every ENABLED {@code game_event_support} triple for {@code slug}, as
+         * {@code "kind:type"} strings. Empty when the game has no enabled rows.
+         */
+        public Mono<Set<String>> enabledEvents(String slug) {
+            return cached(supportCache, slug, () -> db.sql("""
+                        SELECT event_kind, event_type
+                          FROM game_event_support
+                         WHERE game_slug = :slug AND enabled
+                        """)
+                    .bind("slug", slug)
+                    .map((row, meta) -> row.get("event_kind", String.class)
+                            + ":" + row.get("event_type", String.class))
+                    .all()
+                    .collect(Collectors.toUnmodifiableSet()));
+        }
+
+        /** Package-private for {@code InputGateLookupCacheTest}. */
+        <T> Mono<T> cached(Map<String, Mono<T>> cache, String slug,
+                                   java.util.function.Supplier<Mono<T>> load) {
+            if (ttl.isZero() || ttl.isNegative()) {
+                return Mono.defer(load);
+            }
+            Mono<T> hit = cache.get(slug);
+            if (hit != null) {
+                return hit;
+            }
+            if (cache.size() >= MAX_SLUGS) {
+                cache.clear();
+            }
+            return cache.computeIfAbsent(slug, s -> Mono.defer(load)
+                    .cache(v -> ttl, e -> Duration.ZERO, () -> Duration.ZERO));
+        }
     }
 }
