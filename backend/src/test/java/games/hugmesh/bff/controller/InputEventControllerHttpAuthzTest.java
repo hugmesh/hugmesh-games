@@ -12,7 +12,7 @@ import games.hugmesh.bff.model.InputEventType;
 import games.hugmesh.bff.model.SessionMember;
 import games.hugmesh.bff.repository.InputEventRepository;
 import games.hugmesh.bff.repository.InputEventTypeRepository;
-import games.hugmesh.bff.repository.InputGateLookup;
+import games.hugmesh.bff.controller.InputEventController.InputGateLookup;
 import games.hugmesh.bff.service.GameSessionService;
 import games.hugmesh.bff.service.GameStateService;
 import org.junit.jupiter.api.Test;

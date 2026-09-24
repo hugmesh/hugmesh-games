@@ -1,7 +1,8 @@
 package games.hugmesh.bff.migration;
 
-import games.hugmesh.bff.repository.InputGateLookup;
+import games.hugmesh.bff.controller.InputEventController.InputGateLookup;
 import io.r2dbc.spi.ConnectionFactory;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +12,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,6 +41,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code true} counts as on, and every slug a shipped client sends has a
  *       games row whose relay flags are on.</li>
  * </ol>
+ *
+ * <p><b>Order independence.</b> Two tests re-run 063's SQL against the live
+ * table. Every assertion about what LIQUIBASE left behind therefore reads
+ * {@link #migrated}, a snapshot taken before the first test body runs, and
+ * {@link #rerun063()} puts every seeded row back afterwards. Without that, a
+ * re-run test that happened to go first would backfill the seeded rows and
+ * the per-row assertions would pass even if 063 had never been applied
+ * (measured on PR #14: with the 063 include removed, a whole-class run failed
+ * 1 of 9). {@link #changesetsOf063RanAsExecutedNotMarkRan()} pins that
+ * Liquibase actually executed all three changesets.
  *
  * <p>Needs Docker. {@link InputGateFeatureFlagsChangesetXmlTest} carries the
  * offline assertions over the same file for a host without it.
@@ -117,6 +129,38 @@ class InputGateFeatureFlagsMigrationTest {
         return DatabaseClient.create(connectionFactory);
     }
 
+    /** The keys the per-row assertions read, as {@code features->>key}. */
+    private static final List<String> SNAPSHOT_KEYS =
+            List.of("world", "control", "instant_loadout", "spell_loadout");
+
+    /**
+     * slug -> (key -> {@code features->>key}, "null" when absent) for every
+     * seeded games row, exactly as Liquibase left it: captured before the
+     * first test body in this class runs, so no re-run of 063 can reach it.
+     */
+    private static Map<String, Map<String, String>> migrated;
+
+    @BeforeEach
+    void snapshotMigratedStateOnce() {
+        if (migrated != null) {
+            return;
+        }
+        Map<String, Map<String, String>> snap = new HashMap<>();
+        db().sql("SELECT slug, features->>'world' AS world, features->>'control' AS control, "
+                        + "features->>'instant_loadout' AS instant_loadout, "
+                        + "features->>'spell_loadout' AS spell_loadout "
+                        + "FROM games WHERE slug NOT LIKE 'it-063-%'")
+                .map(r -> {
+                    Map<String, String> row = new HashMap<>();
+                    for (String k : SNAPSHOT_KEYS) {
+                        row.put(k, String.valueOf(r.get(k, String.class)));
+                    }
+                    return Map.entry(r.get("slug", String.class), Map.copyOf(row));
+                })
+                .all().doOnNext(e -> snap.put(e.getKey(), e.getValue())).blockLast();
+        migrated = Map.copyOf(snap);
+    }
+
     /** slug -> features::text for every games row the changelog seeded. */
     private Map<String, String> seededFeatures() {
         return db().sql("SELECT slug, features::text AS f FROM games WHERE slug NOT LIKE 'it-063-%'")
@@ -138,31 +182,63 @@ class InputGateFeatureFlagsMigrationTest {
                 .fetch().rowsUpdated().block();
     }
 
-    private void rerun063() throws Exception {
-        for (String sql : InputGateFeatureFlagsChangesetXmlTest.dataStatements()) {
-            db().sql(sql).fetch().rowsUpdated().block();
+    /**
+     * Runs 063's data statements again and returns the seeded rows' features
+     * as they stood right AFTER the re-run, then restores every seeded row to
+     * what it was before, so no other test in this class can observe the
+     * re-run (see the class Javadoc on order independence).
+     */
+    private Map<String, String> rerun063() throws Exception {
+        Map<String, String> before = seededFeatures();
+        try {
+            for (String sql : InputGateFeatureFlagsChangesetXmlTest.dataStatements()) {
+                db().sql(sql).fetch().rowsUpdated().block();
+            }
+            return seededFeatures();
+        } finally {
+            for (Map.Entry<String, String> e : before.entrySet()) {
+                db().sql("UPDATE games SET features = CAST(:f AS jsonb) WHERE slug = :s")
+                        .bind("f", e.getValue()).bind("s", e.getKey())
+                        .fetch().rowsUpdated().block();
+            }
         }
+    }
+
+    // ── 0: Liquibase really executed 063 ──────────────────────────────────────
+
+    @Test
+    void changesetsOf063RanAsExecutedNotMarkRan() {
+        Map<String, String> ran = db().sql("""
+                    SELECT id, exectype FROM databasechangelog
+                     WHERE id LIKE '063-%' AND author = 'hugmesh'
+                    """)
+                .map(r -> Map.entry(r.get("id", String.class), r.get("exectype", String.class)))
+                .all().collectMap(Map.Entry::getKey, Map.Entry::getValue).block();
+        assertThat(ran).isEqualTo(Map.of(
+                "063-1-games-features-default", "EXECUTED",
+                "063-2-games-features-spell-loadout-rename", "EXECUTED",
+                "063-3-games-features-world-control", "EXECUTED"));
     }
 
     // ── 1 + 2: every seeded row ───────────────────────────────────────────────
 
     @Test
     void everySeededGameHasWorldAndControlTrue() {
-        Map<String, String> all = seededFeatures();
-        assertThat(all).as("the changelog seeds the catalog").hasSizeGreaterThanOrEqualTo(19);
-        for (String slug : all.keySet()) {
-            assertThat(flag(slug, "world")).as(slug + " world").isEqualTo("true");
-            assertThat(flag(slug, "control")).as(slug + " control").isEqualTo("true");
-        }
+        assertThat(migrated).as("the changelog seeds the catalog").hasSizeGreaterThanOrEqualTo(19);
+        migrated.forEach((slug, f) -> {
+            assertThat(f.get("world")).as(slug + " world").isEqualTo("true");
+            assertThat(f.get("control")).as(slug + " control").isEqualTo("true");
+        });
     }
 
     @Test
     void everySeededGameHasInstantLoadoutAndNoStaleSpellLoadout() {
-        for (String slug : seededFeatures().keySet()) {
-            assertThat(flag(slug, "spell_loadout")).as(slug + " still carries spell_loadout").isEqualTo("null");
-            assertThat(flag(slug, "instant_loadout")).as(slug + " instant_loadout")
+        assertThat(migrated).isNotEmpty();
+        migrated.forEach((slug, f) -> {
+            assertThat(f.get("spell_loadout")).as(slug + " still carries spell_loadout").isEqualTo("null");
+            assertThat(f.get("instant_loadout")).as(slug + " instant_loadout")
                     .isEqualTo("dodecahedron".equals(slug) ? "false" : "true");
-        }
+        });
     }
 
     // ── 3: the column default ─────────────────────────────────────────────────
@@ -220,8 +296,7 @@ class InputGateFeatureFlagsMigrationTest {
     @Test
     void rerunning063OnMigratedStateChangesNothing() throws Exception {
         Map<String, String> before = seededFeatures();
-        rerun063();
-        assertThat(seededFeatures()).isEqualTo(before);
+        assertThat(rerun063()).isEqualTo(before);
     }
 
     // ── 5: the lookup gate 2 reads through ────────────────────────────────────
@@ -229,6 +304,9 @@ class InputGateFeatureFlagsMigrationTest {
     @Test
     void everyClientSlugHasAGamesRowWithItsRelayFlagsOn() {
         for (String slug : CLIENT_SLUGS) {
+            assertThat(migrated).as(slug + " has a games row after migration").containsKey(slug);
+            assertThat(migrated.get(slug).get("control")).as(slug + " control, as migrated").isEqualTo("true");
+            assertThat(migrated.get(slug).get("world")).as(slug + " world, as migrated").isEqualTo("true");
             Map<String, Boolean> f = gates.features(slug).block();
             assertThat(f).as(slug + " has a games row with flags").isNotEmpty();
             assertThat(f.get("control")).as(slug + " control").isTrue();
