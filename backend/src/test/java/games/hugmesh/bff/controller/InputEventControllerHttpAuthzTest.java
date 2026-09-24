@@ -12,6 +12,7 @@ import games.hugmesh.bff.model.InputEventType;
 import games.hugmesh.bff.model.SessionMember;
 import games.hugmesh.bff.repository.InputEventRepository;
 import games.hugmesh.bff.repository.InputEventTypeRepository;
+import games.hugmesh.bff.repository.InputGateLookup;
 import games.hugmesh.bff.service.GameSessionService;
 import games.hugmesh.bff.service.GameStateService;
 import org.junit.jupiter.api.Test;
@@ -70,6 +71,7 @@ class InputEventControllerHttpAuthzTest {
 
     @MockitoBean InputEventRepository events;
     @MockitoBean InputEventTypeRepository types;
+    @MockitoBean InputGateLookup gates;
     @MockitoBean GameStateService state;
     @MockitoBean GameSessionService sessions;
     // Boot 4 auto-configures Jackson 3 (tools.jackson.*) not Jackson 2;
@@ -208,6 +210,8 @@ class InputEventControllerHttpAuthzTest {
                 .thenReturn(Mono.just(member("host", true)));
         when(types.findByKindAndType(eq("world"), eq("state")))
                 .thenReturn(Mono.just(new InputEventType("world", "state", null, null, null)));
+        // Gate 2 (hugmesh-games#13): chess carries world:true since changeset 063.
+        when(gates.features(eq("chess"))).thenReturn(Mono.just(java.util.Map.of("world", true)));
         when(objectMapper.writeValueAsString(any())).thenReturn("{}");
         when(events.insert(any(), anyString()))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0, InputEvent.class)));
@@ -219,5 +223,28 @@ class InputEventControllerHttpAuthzTest {
                 .expectStatus().isAccepted();
         verify(events).insert(any(), anyString());
         verify(state).emitInput(any());
+    }
+
+    // ── POST submit : gate 2 refusal reaches the wire as 405 ─────────────────────
+    //
+    // hugmesh-games#13: a kind whose games.features flag is false (or absent) is
+    // refused 405 before persistence. InputEventControllerGatesTest pins the rule
+    // table; this pins that the refusal status survives the WebFlux slice.
+
+    @Test
+    void submitWorld_creatorButWorldFlagOff_is405_andNothingEmitted() {
+        when(sessions.authorizeControl(eq("host"), eq(1L), eq("s-1")))
+                .thenReturn(Mono.just(member("host", true)));
+        when(types.findByKindAndType(eq("world"), eq("state")))
+                .thenReturn(Mono.just(new InputEventType("world", "state", null, null, null)));
+        when(gates.features(eq("chess"))).thenReturn(Mono.just(java.util.Map.of("world", false)));
+        web.mutateWith(SecuritySliceSupport.user("host"))
+                .post().uri(SUBMIT_URI)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(worldBody())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        verify(events, never()).insert(any(), anyString());
+        verify(state, never()).emitInput(any());
     }
 }

@@ -50,8 +50,18 @@ export class GamepadService {
 
   /** Active game slug — embedded in the postMessage envelope so the
    *  Godot side can route to the right scene if the host ever
-   *  multiplexes more than one game at once. */
-  private gameSlug = 'unknown';
+   *  multiplexes more than one game at once, and the `gameSlug` of every
+   *  BFF mirror POST. `null` until {@link bindGameWindow} supplies a real
+   *  one: nothing is emitted before then (hugmesh-games#13). It used to
+   *  default to the literal `'unknown'`, which the BFF's gate 2 now refuses
+   *  (no games row, so no `features.gamepad`) and which would otherwise
+   *  have been persisted into `input_events` under a slug no game owns. */
+  private gameSlug: string | null = null;
+
+  /** One console warning per bound game when the BFF mirror fails, so a
+   *  refusal (405 from gates 2/3) or an outage is visible without logging
+   *  every frame of a held stick. Reset by {@link bindGameWindow}. */
+  private mirrorFailureLogged = false;
 
   /** Active session id (uuid). Threaded onto every emit so the BFF
    *  can join with game_launches for the full audit row. */
@@ -93,8 +103,9 @@ export class GamepadService {
    *  service can postMessage inputs into it. Pass null on unmount. */
   bindGameWindow(target: Window | null, slug: string, sessionId: string | null): void {
     this.gameWindow = target;
-    this.gameSlug   = slug || 'unknown';
+    this.gameSlug   = slug && slug !== 'unknown' ? slug : null;
     this.sessionId  = sessionId;
+    this.mirrorFailureLogged = false;
   }
 
   // ── implementation ──────────────────────────────────────────────────
@@ -170,11 +181,14 @@ export class GamepadService {
    *   1) the active game iframe (via postMessage), and
    *   2) the BFF when a sessionId is bound (best-effort fire-and-forget).
    *
-   * Errors on the BFF path are swallowed deliberately — a momentary
-   * 5xx must NOT block the input loop, and SSE subscribers stop
-   * caring about gamepad state once the game iframe unmounts anyway.
+   * Nothing is sent to either destination until a real game slug is
+   * bound. BFF failures never block the input loop (the POST is
+   * fire-and-forget), but they are no longer silent: the first failure
+   * per bound game — a rejected fetch OR a non-2xx answer such as the
+   * 405 the BFF's feature-flag gate returns — logs one console warning.
    */
   private emit(spec: { type: string; payload: Record<string, unknown> }): void {
+    if (!this.gameSlug) return;
     const envelope = {
       type: 'SD_INPUT_EVENT',
       gameSlug: this.gameSlug,
@@ -210,9 +224,20 @@ export class GamepadService {
         if (tok) hdr['Authorization'] = 'Bearer ' + tok;
         fetch(`/api/input/${characterId}`, {
           method: 'POST', headers: hdr, body: JSON.stringify(bffEvent),
-        }).catch(() => {/* swallow */});
+        }).then(
+          res => { if (!res.ok) this.logMirrorFailure(`HTTP ${res.status}`); },
+          err => this.logMirrorFailure(err),
+        );
       }
     }
+  }
+
+  private logMirrorFailure(why: unknown): void {
+    if (this.mirrorFailureLogged) return;
+    this.mirrorFailureLogged = true;
+    console.warn(
+      `[GamepadService] BFF input mirror failed for '${this.gameSlug}' (${String(why)}); ` +
+      'further failures for this game are not logged.');
   }
 }
 

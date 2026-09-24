@@ -222,46 +222,23 @@ Three reference tables anchor the schema; an append-only audit table writes agai
 |---|---|
 | `input_event_kinds` | Reference. PK on `kind`. Closed vocabulary: `gamepad`, `mouse`, `keyboard`, `touch`, `audio`, `world`, `control`. Seeded by Liquibase 026. |
 | `input_event_types` | Reference. **Composite** PK `(kind, type)`. Per-kind type vocabulary (e.g. `gamepad: button_down / button_up / axis / connected / disconnected / rumble_ack`) plus an `example_payload` (jsonb) used by the upload-time validator and the OpenAPI explorer's sample generator. |
-| `game_event_support` | Per-game opt-in. **Composite** PK `(game_slug, event_kind, event_type)`, FK to `input_event_types(kind, type)`. The HugMesh Export plugin writes one row per declared event during upload; the BFF refuses any input emit whose triple isn't enabled here, regardless of what the client sends. |
+| `game_event_support` | Per-game opt-in. **Composite** PK `(game_slug, event_kind, event_type)`, FK to `input_event_types(kind, type)`. The HugMesh Export plugin writes one row per declared event during upload. Gate 3 below refuses any input emit whose triple isn't enabled here, regardless of what the client sends, but that gate is **off by default** until every shipped title's rows are seeded. |
 | `input_events` | Append-only audit log. FK on `(event_kind, event_type)` into `input_event_types` so a row can never reference an unknown type. Indexed on `(character_id, occurred_at)`, `(session_id, occurred_at)`, and `(event_kind, occurred_at)` for replay + analytics. |
-| `games.features` | `jsonb` column (changeset 026-1). Per-game feature flags: `instant_loadout`, `quests`, `items`, `char_progression` (the JRPG subsystems); `audio`, `gamepad`, `mouse`, `keyboard`, `touch` (input-kind gates). **Read by nothing today** — the `Game` entity does not map the column, and no `405` exists anywhere in the service. Note also that 028-7 renamed the key `spell_loadout` → `instant_loadout` in existing ROWS but never re-issued the column DEFAULT, so a `games` row inserted without an explicit `features` value still gets `spell_loadout` from 026-1's default. Reconciling that is part of the gate-2 design pass below, not a separate cleanup. |
+| `games.features` | `jsonb` column (changeset 026-1, reconciled by 063). Per-game feature flags: `instant_loadout`, `quests`, `items`, `char_progression` (the JRPG subsystems); `audio`, `gamepad`, `mouse`, `keyboard`, `touch`, `world`, `control` (one flag per input-event kind). Read by gate 2 below through [`InputGateLookup`](../../../backend/src/main/java/games/hugmesh/bff/repository/InputGateLookup.java); only a JSON `true` counts as on. Changeset 063 set the column DEFAULT to all eleven keys (it had still written the pre-028 `spell_loadout` and had no `world`/`control`), finished 028-7's `spell_loadout` → `instant_loadout` rename in the rows inserted after 028, and added `world: true` and `control: true` to every existing row. None of those three steps overwrites a value a row already has, so dodecahedron keeps `instant_loadout: false` (026-2). |
 
-The validation flow on every input emit is documented (class Javadoc) as three gates, but only gate 1 is actually wired into `InputEventController.submit()` today — see [README § Known gaps / TODO](../../../README.md#known-gaps--todo):
+Every input emit passes these gates in `InputEventController.submit()`, in this order, before it is persisted or fanned out (hugmesh-games#13; decisions 103a = C, 103b = A, 103c = A, 2026-09-23). The controller's class Javadoc states the same rule; change both together.
 
-1. `(kind, type)` must exist in `input_event_types` (400 if not). **Implemented.**
-2. `games.features.<kind>` must be true for the active game (405 if not). **Not yet implemented** — any registered `(kind, type)` is accepted regardless of the game's feature flags.
-3. `(game_slug, kind, type)` must be present in `game_event_support` (405 if not). **Not yet implemented**, same gap.
+1. `(kind, type)` must exist in `input_event_types` (400 if not).
+2. **Feature flags** — two checks against the same `games.features` object (405 if either fails):
+   1. *Kind flag, every event.* `games.features.<kind>` must be `true`. An **absent** flag is refused exactly like `false`; there is no implicit allow. An unknown `gameSlug` has no games row, so no flags, and is refused too.
+   2. *Subsystem flag, a short explicit list of events.* A `(kind, type)` → flag table in the controller (`SUBSYSTEM_FLAGS`) gates individual events on a JRPG subsystem as well. It has one row: `control:cast` → `instant_loadout`. So a game with `instant_loadout: false` refuses `control:cast` while its other `control` events still pass.
+3. **Per-game opt-in** — `(game_slug, kind, type)` must be an enabled `game_event_support` row (405 if not). **Implemented but OFF.** It runs only when `app.input.gate3-enabled=true`, which defaults to `false`, and it stays off until every shipped title's rows have been seeded (decision 103c = A). On main, only `three-wizards` and `dodecahedron` have input-kind rows (026-5). Eleven titles have only their relay rows (`control/*`, `world/state`, from 050 / 052 / 056), and several have none at all. Several relay titles also post `world/state` without a row for it. Enabling gate 3 before a per-title product pass has seeded those rows would refuse real input. The per-title measurement of what each title sends is on hugmesh-games#13.
 
-Gates 2 and 3 are **deliberately deferred**, not merely unfinished, and the block
-comment at the end of `InputEventController.submit()` carries the same list. Three
-questions have to be answered before either can be wired in, and each of them is a
-decision rather than a refactor:
+`world` and `control` have flags because the host-authoritative relays use those two kinds. 026-1 gave them none; 063 seeded them `true` on every game and in the column default, so gate 2 refuses nothing that a shipped title sends.
 
-* **Gate 2 has two incompatible specifications.** This page defines it as
-  `features.<kind>` — a KIND → flag mapping. The controller's own class Javadoc
-  gates `control:cast` on `features.spell_loadout` — a (kind, TYPE) → flag
-  mapping. They disagree about precisely the example the Javadoc uses.
-* **Two of the seven kinds have no flag.** Changeset 026-3 seeds `gamepad`,
-  `mouse`, `keyboard`, `touch`, `audio`, `world` and `control` into
-  `input_event_kinds`; the `games.features` default in 026-1 has keys for only
-  the first five. `world` and `control` — the two kinds every host-authoritative
-  relay uses — have none. Absent ⇒ deny breaks every multiplayer title; absent ⇒
-  allow leaves the Javadoc's own worked example ungated.
-* **Gate 3 is a data problem before it is a code problem.** `game_event_support`
-  carries `gamepad`/`mouse`/`keyboard`/`touch`/`audio` rows for exactly two slugs
-  (`three-wizards` and `dodecahedron`, both seeded by 026-5). Every other title's
-  rows, added by 050 / 052 / 056, cover only its relay triples
-  (`control/*` + `world/state`). Meanwhile `GamepadService` mirrors every gamepad
-  event to this endpoint as `kind:'gamepad'` under whatever game is active — and
-  its `gameSlug` field defaults to the literal string `"unknown"`. Turning gate 3
-  on before those triples are seeded would `405` the gamepad mirror for every
-  title but two, silently: the mirror's `fetch(...)` ends in `.catch(() => {})`.
-  Which events each title declares is a per-title product call.
+`GamepadService` (the host shell's gamepad → BFF mirror) no longer defaults its slug to the literal `"unknown"`. It sends nothing until a real slug is bound, and it logs the first failed or refused mirror POST for each game instead of swallowing it.
 
-There is also a cost question. `submit()` is the hot path — gamepad axis and mouse
-motion arrive per-frame — so gates 2 and 3 as specified are two extra reads per
-event. The design pass has to settle a cache and its invalidation story, not add a
-naive per-event lookup.
+**Cost.** `submit()` is the hot path: Asteroids Duel posts a `control:input` vector every frame, and the gamepad mirror is per-frame when it is live. `InputGateLookup` therefore caches each game's flags (and, when gate 3 is on, its enabled triples) per slug and per pod, for `app.input.gate-cache-ttl` (default 10 s). Invalidation is by expiry only. The service never writes these tables at runtime except through an upload's `register.sql` or hand-run SQL, so a flag change takes effect on every pod within one TTL. Errors are never cached, and the cache is bounded against junk slugs.
 
 Ahead of these three, a separate authorization pass runs first (403, not 400/405): session-membership + character-ownership (a caller may only submit for a `characterId` it owns in the target session), plus an authority-spoof gate specific to `kind:'world'` — only the session **creator** (the host running the wasm engine) may submit an authoritative `world` event; any other member gets 403.
 
