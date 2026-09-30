@@ -208,6 +208,7 @@ class InputEventControllerHttpAuthzTest {
         // through the (kind,type) gate, persists, and fans out.
         when(sessions.authorizeControl(eq("host"), eq(1L), eq("s-1")))
                 .thenReturn(Mono.just(member("host", true)));
+        when(sessions.gameSlugOf(eq("s-1"))).thenReturn(Mono.just("chess"));
         when(types.findByKindAndType(eq("world"), eq("state")))
                 .thenReturn(Mono.just(new InputEventType("world", "state", null, null, null)));
         // Gate 2 (hugmesh-games#13): chess carries world:true since changeset 063.
@@ -235,6 +236,7 @@ class InputEventControllerHttpAuthzTest {
     void submitWorld_creatorButWorldFlagOff_is405_andNothingEmitted() {
         when(sessions.authorizeControl(eq("host"), eq(1L), eq("s-1")))
                 .thenReturn(Mono.just(member("host", true)));
+        when(sessions.gameSlugOf(eq("s-1"))).thenReturn(Mono.just("chess"));
         when(types.findByKindAndType(eq("world"), eq("state")))
                 .thenReturn(Mono.just(new InputEventType("world", "state", null, null, null)));
         when(gates.features(eq("chess"))).thenReturn(Mono.just(java.util.Map.of("world", false)));
@@ -244,6 +246,25 @@ class InputEventControllerHttpAuthzTest {
                 .bodyValue(worldBody())
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        verify(events, never()).insert(any(), anyString());
+        verify(state, never()).emitInput(any());
+    }
+
+    // A creator posting a gameSlug other than the session's game must not pick
+    // another title's (enabled) flags to get past gate 2.
+    @Test
+    void submitWorld_slugNotTheSessionsGame_is403_andNothingEmitted() {
+        when(sessions.authorizeControl(eq("host"), eq(1L), eq("s-1")))
+                .thenReturn(Mono.just(member("host", true)));
+        when(sessions.gameSlugOf(eq("s-1"))).thenReturn(Mono.just("dodecahedron"));
+        when(types.findByKindAndType(eq("world"), eq("state")))
+                .thenReturn(Mono.just(new InputEventType("world", "state", null, null, null)));
+        web.mutateWith(SecuritySliceSupport.user("host"))
+                .post().uri(SUBMIT_URI)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(worldBody())
+                .exchange()
+                .expectStatus().isForbidden();
         verify(events, never()).insert(any(), anyString());
         verify(state, never()).emitInput(any());
     }
