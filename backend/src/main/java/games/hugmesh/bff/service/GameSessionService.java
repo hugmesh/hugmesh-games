@@ -426,6 +426,15 @@ public class GameSessionService {
                 .flatMap(this::toDtoWithMembers);
     }
 
+    /**
+     * The game a session belongs to, without the member enrichment of
+     * {@link #get}. Used to bind a client-supplied {@code gameSlug} to the
+     * session it claims to belong to. Empty when the session does not exist.
+     */
+    public Mono<String> gameSlugOf(String sessionId) {
+        return sessions.findById(sessionId).map(GameSession::getGameSlug);
+    }
+
     // -------------------------------------------------------------------------
     // Join / leave
     // -------------------------------------------------------------------------

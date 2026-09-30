@@ -181,7 +181,14 @@ public class InputEventController {
                                 ? Mono.<SessionMember>error(new ResponseStatusException(HttpStatus.FORBIDDEN,
                                         "only the session creator may submit authoritative world events"))
                                 : Mono.just(member))
-                        .then()
+                        // Gates 2/3 read flags by body.gameSlug, which is client-supplied:
+                        // bind it to the session's real game, or a client could name any
+                        // other title whose flags are on and bypass its own game's flags.
+                        .then(Mono.defer(() -> sessions.gameSlugOf(body.sessionId())
+                                .filter(body.gameSlug()::equals)
+                                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
+                                        "gameSlug does not match the session's game")))
+                                .then()))
                 : Mono.empty();
 
         // Gate 1: (kind, type) must be a known reference row.
