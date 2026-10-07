@@ -69,6 +69,13 @@ is involved.
 rows; each bundle's `index.html` and real `.wasm` file return HTTP 200 from
 the wasm-fragment.
 
+**Known mismatch.** `run.mjs` (around line 303) requires exactly 14 `wasm-game`
+rows, with the 14 web-native slugs. Changelogs 053, 055, 056 and 062 each add
+one enabled `wasm-game` row (`chess-godot`, `connect-four-godot`,
+`shadows-of-the-net`, `character-forge`), so the manifest has 18. Read against
+the current migrations, the manifest assertion fails. The harness has not been
+changed. UNVERIFIED against a live stack.
+
 ## Relay contract (verified from source)
 
 **Reading events**: Clients subscribe to
@@ -91,8 +98,16 @@ events and `sendWorld` for world-state broadcasts).
   broadcast state).
 - Gate 1: the `(kind, type)` pair must exist in `input_event_types`. An
   unrecognised pair is rejected with **400**.
-- Gates 2/3 (per-game `features` + `game_event_support` opt-in) are not yet
-  implemented — see the README's "Known gaps / TODO" section.
+- Gate 2: the game's `games.features` must have the event's kind set to JSON
+  `true` (an absent flag is refused like `false`), and a few `(kind, type)`
+  pairs need a subsystem flag as well (today only `control:cast`, which needs
+  `instant_loadout`). Refused requests get **405**. Changeset 063 seeds
+  `world` and `control` true for every game, so the relay passes.
+- Gate 3: a per-game opt-in through `game_event_support`. It exists but is
+  **off** by default (`app.input.gate3-enabled=false`), because most titles have
+  no rows yet. When on, an unlisted `(gameSlug, kind, type)` gets **405**.
+
+The source is the class Javadoc in `InputEventController`.
 
 ## Run it
 
