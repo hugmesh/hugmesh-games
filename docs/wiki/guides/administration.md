@@ -2,11 +2,11 @@
 
 > A typeset edition lives in [`docs/publishing/userguides/administration/guide.tex`](../../publishing/userguides/administration/guide.tex). The two are edited separately and can differ.
 
-Day-2 operations for `ROLE_ADMIN` holders: deploy, upload, role-grant, revoke, roll back, troubleshoot.
+Day-2 operations for `ROLE_ADMIN` holders: deploy, upload, grant, revoke, roll back, troubleshoot. An admin holds every key in the building, so check the door before you turn one.
 
 ## Who this is for
 
-Anyone with the Casdoor role `admin` (the BFF sees it as `ROLE_ADMIN`) and shell access to the compose host. You will: deploy, configure, inspect, revoke, roll back. You will not: write Java, GDScript, or Angular here — those have their own guides.
+You have the Casdoor role `admin` (the BFF sees it as `ROLE_ADMIN`) and shell access to the compose host. You deploy, configure, inspect, revoke and roll back. You do not write Java, GDScript or Angular here; those have their own guides.
 
 ## The compose stack
 
@@ -34,15 +34,15 @@ docker compose down -v          # full reset (DROPS volumes)
 
 ### ⚠ Docker 29.x needs buildx
 
-`docker compose build` hangs silently if `docker-buildx` isn't installed. Fix: user-local install of the v0.18 binary into `~/.docker/cli-plugins/docker-buildx` (no sudo).
+`docker compose build` hangs silently if `docker-buildx` isn't installed. Fix: install the v0.18 binary user-locally into `~/.docker/cli-plugins/docker-buildx` (no sudo).
 
 ### ⚠ First-time Casdoor seeds
 
-Casdoor randomises seed credentials per fresh database. See [build & deploy → Casdoor seed credentials](../architecture/06-build-and-deploy.md#-casdoor-seed-credentials) for the `.env` recipe.
+Casdoor randomises its seed credentials for each fresh database. See [build & deploy → Casdoor seed credentials](../architecture/06-build-and-deploy.md#-casdoor-seed-credentials) for the `.env` recipe.
 
 ## The admin UI
 
-Visit `/admin` (after logging in as a user with the `admin` role). Pages:
+Visit `/admin` after logging in as a user with the `admin` role. Pages:
 
 - **`/admin`** — Dashboard: totals, per-user usage, and the *Active sessions right now* table. It is read-only.
 - **`/admin/games`** — *Upload a game bundle*; *Upload history* (look up a slug; read-only); *Per-game access*.
@@ -59,20 +59,20 @@ Step-by-step: [howto/upload-and-rollback-game.md](../howto/upload-and-rollback-g
 
 Summary:
 
-1. Get a HugMesh Export zip from the game developer (or build it yourself with the Godot editor plugin).
-2. `/admin/games` → *Upload game bundle* → choose zip → Upload.
-3. The install transaction validates manifest schema v2, hashes the bundle, atomically moves to `<gamesDir>/<slug>/<sha-prefix>`, and runs `register.sql` in one Postgres transaction.
+1. Get a HugMesh Export zip from the game developer, or build it yourself with the Godot editor plugin.
+2. On `/admin/games`, drop the zip on the *Upload a game bundle* card and press *Install bundle*.
+3. The install transaction validates manifest schema v2, hashes the bundle, atomically moves it to `<gamesDir>/<slug>/<sha-prefix>`, and runs `register.sql` in one Postgres transaction.
 4. The host fetches the federation manifest once, when the page loads. Players see the new game after they reload.
 
 ## Rollback and access policy
 
-Every upload supersedes the previous one but keeps the prior bundle on disk. `GET /api/admin/games/{slug}/uploads` lists the history. There is no rollback button or endpoint: to pin a previous version, update `games.current_version_dir` and the `superseded_at` columns in SQL (see [howto/upload-and-rollback-game.md](../howto/upload-and-rollback-game.md), option B). Old versions are pruned by `GameUploadPruner` (default: keep 3 newest, configurable via `app.uploads.versions-to-keep`).
+Every upload supersedes the previous one and keeps the prior bundle on disk. `GET /api/admin/games/{slug}/uploads` lists the history. There is no rollback button or endpoint. To pin a previous version, update `games.current_version_dir` and the `superseded_at` columns in SQL (see [howto/upload-and-rollback-game.md](../howto/upload-and-rollback-game.md), option B). `GameUploadPruner` removes old versions (default: keep the 3 newest; set `app.uploads.versions-to-keep` to change it).
 
-Per-game visibility lives in the `game_access` table. Three additive scopes: `all`, `role` (the Casdoor role name, e.g. `play-three-wizards`), `user` (specific Casdoor ID). Add via the admin UI (*Per-game access* on `/admin/games`) or `POST /api/admin/games/{slug}/access`; re-adding an existing row is harmless.
+Per-game visibility lives in the `game_access` table. It has three additive scopes: `all`, `role` (the Casdoor role name, e.g. `play-three-wizards`) and `user` (a specific Casdoor ID). Add rows in the admin UI (*Per-game access* on `/admin/games`) or with `POST /api/admin/games/{slug}/access`. Re-adding an existing row is harmless.
 
 ## Kicking and banning players
 
-Kick, ban and unban are admin-only API calls: `POST /api/admin/actions/kick/{casdoorId}`, `.../ban/{casdoorId}` and `.../unban/{casdoorId}`, with an optional body `{message, expiresAt}` (`expiresAt` makes a ban temporary). Each writes `admin_actions` and broadcasts on the per-user SSE channel (`/api/me/admin-actions/stream`) that the player's host shell subscribes to. Kick and ban also drop the player's server-side session. The shell closes open game windows via `BroadcastChannel`; a banned player is redirected to `/banned`. To end one launch, call `DELETE /api/games/admin/launches/{uid}`.
+Kick, ban and unban are admin-only API calls: `POST /api/admin/actions/kick/{casdoorId}`, `.../ban/{casdoorId}` and `.../unban/{casdoorId}`. The optional body is `{message, expiresAt}`; `expiresAt` makes a ban temporary. Each call writes `admin_actions` and broadcasts on the per-user SSE channel (`/api/me/admin-actions/stream`) that the player's host shell subscribes to. Kick and ban also drop the player's server-side session. The shell closes open game windows via `BroadcastChannel`, and a banned player is redirected to `/banned`. To end one launch, call `DELETE /api/games/admin/launches/{uid}`.
 
 Moderators kick players inside a single session with `POST /api/mod/sessions/{id}/kick`; see the [moderator guide](moderator.md). API detail: [architecture chapter 5](../architecture/05-api-reference.md).
 
