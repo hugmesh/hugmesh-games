@@ -87,7 +87,7 @@ JSON document (the FPS `config`/`commands` payloads). The alloc → write →
 ### `SessionClient` — transport
 
 ```js
-import { SessionClient, CHANNELS, SESSION_CONTROL } from '../_shared/sse-host-client.js';
+import { SessionClient, CHANNELS, SESSION_CONTROL } from './_shared/sse-host-client.js';
 
 const client = new SessionClient(sessionId);     // null sessionId ⇒ single-player, no network
 client.on('world', (w) => guestReapply(w));      // host's authoritative board
