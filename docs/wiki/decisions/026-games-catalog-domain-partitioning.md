@@ -56,11 +56,16 @@ services unchanged:
 - **`ModerationController`** (`stopSession` / `kickPlayer`) — `DomainScopeService.requireSessionDomain(sessionId, …)` resolves `sessionId → game_slug → game.domain` (the target is a session id, not a slug).
 - **`GameLaunchController`** — `launch` gates on the path slug (before the per-user `game_access` visibility check); `adminRevoke` gained an `@AuthenticationPrincipal Jwt` param and gates on the loaded launch row's `gameSlug`. `terminate()` is deliberately **left ungated** — it is already self-scoped by casdoor id (a player can only ever terminate their own launch, including cross-brand for a `'default'` game).
 
+Three more controllers have been gated since, with the same helpers:
+
+- **`RoleAdminController`** (`/api/admin/role-grants`: `grant-publisher`, `revoke-publisher`, `grant-mod`, `revoke-mod`) — `requireGameDomain` on the request's `gameSlug`.
+- **`RealtimeController`** (`/api/realtime`: `start`, `input`, `stream`, `log`) and **`AdminRealtimeController`** (`/api/admin/realtime/{sessionId}/recover`) — `requireSessionDomain`.
+
 Two reactive details: (1) the gated service calls are wrapped in `Mono.defer`/`Flux.defer` so a *denied* request assembles no side work (the gate is a clean short-circuit, not just an unsubscribed branch); (2) `requireSessionDomain` mirrors `requireGameDomain` exactly (superadmin no-lookup bypass, unknown id → empty pass-through, null caller fail-closed). Adversarially reviewed; the two confirmed findings (regression-insurance for `terminate()`'s ungated self-scope + `modsForGame`'s `Flux.defer` ALLOW path) are covered by `GameLaunchControllerDomainScopeTest.Terminate` and `PublisherControllerDomainScopeTest.modsForGameAllowsOwnBrandAndEmitsRows`.
 
 ## What this does NOT do (deferred follow-on)
 
-- **Public/anonymous catalog reads** (`GameController.list/get`, `ChapterController.*`, `FederationController.manifest`) stay global — there is no JWT to scope by, and a brand-partitioned *public* catalog needs the gateway to forward a Host-derived brand (e.g. `X-Domain`), which it does not today. Same boundary [decision 025](025-bff-domain-guard.md) drew.
+- **Public/anonymous catalog reads** (`GameController.list/get`, `ChapterController.*`, `FederationController.manifest`) stay global — there is no JWT to scope by, and a brand-partitioned *public* catalog needs the gateway to forward a Host-derived brand (e.g. `X-Domain`). The gateway can now stamp that header, but only when `app.domain-header.forward` is on (default `false`), and the BFF does not read it. Same boundary [decision 025](025-bff-domain-guard.md) drew.
 
 ## Authenticated read-list filtering (follow-on, landed)
 
@@ -69,7 +74,7 @@ The deferred result-set filters now narrow the *authenticated* catalog/launch re
 - **`GameController.available` + `CharacterController` dashboard** → `ProgressionService.availableGamesWithLevels(…, callerDomain, isSuperadmin)` filters the catalog by `Roles.domainApplies(game.getDomain(), …)` on top of the existing `game_access` intersection. A branded player sees only their brand's games (+ globals); anonymous resolves to `default` (globals only); SUPERADMIN sees all; single-tenant inert.
 - **`GameLaunchController.activeLaunches`** (admin dashboard) → resolves each launch's game domain by slug and keeps only the caller-brand (+ global) launches; SUPERADMIN short-circuits without a lookup.
 
-The filter lives in the service / collection pipeline — the only place the `Game.domain` is in hand (`GameWithChaptersDto` deliberately does not carry it). Covered by `ProgressionServiceTest.brandFilterHidesForeignBrandGamesButKeepsGlobals` + `GameLaunchControllerDomainScopeTest.ActiveLaunches`. Only the **public/anonymous** catalog reads above remain global (gated on a gateway `X-Domain`).
+The filter lives in the service / collection pipeline — the only place the `Game.domain` is in hand (`GameWithChaptersDto` deliberately does not carry it). Covered by `ProgressionServiceTest.brandFilterHidesForeignBrandGamesButKeepsGlobals` + `GameLaunchControllerDomainScopeTest.ActiveLaunches`. Only the **public/anonymous** catalog reads above remain global (they need the BFF to read a gateway `X-Domain`).
 
 ## Verification
 
