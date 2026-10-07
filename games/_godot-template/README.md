@@ -150,9 +150,11 @@ export_path="../../backend/src/main/resources/assets/levels/<slug>/index.html"
 In the root `Makefile` make the following additions:
 
 - Add the project directory to `GAME_PROJECTS`
-- Add `PRESETS_<dir> = <PresetName>`
+- Add `PRESETS_<dir> = <PresetName>` (a record only: no recipe reads it)
 - Add the slug to `GAME_SLUGS`
-- Add the project to the `case` arms in **both** `build-godot` and `patch-godot`
+- Add the project to the `case` arms in **both** `build-godot` and `patch-godot`.
+  These arms decide which presets get exported; skip them and the game is
+  silently left out of `make build-godot`.
 
 ### 5. Register + launch (federation)
 
@@ -179,7 +181,7 @@ back, disable the new row — the original entry is untouched.
 ```sh
 make build-rust     # core → .so + (dockerised) hugmesh_bridge.wasm
 make build-godot    # headless Web export → backend/.../assets/levels/<slug>/
-cargo test -p hugmesh_bridge --lib            # reuse-path tests
+(cd extensions/hugmesh-bridge && cargo test --lib)   # reuse-path tests
 ```
 
 Confirm the export produced a real, non-empty `index.wasm` + `index.pck` +
@@ -199,9 +201,11 @@ export fails with:
 No export template found … 4.6.3.stable/web_*.zip
 ```
 
-Fix this by fetching the matching templates (`make godot-export-tools` pins a
-specific version), or by symlinking the installed templates into a matching
-directory:
+Fix this by installing the matching templates (Godot → Editor → Manage Export
+Templates), or by symlinking the installed templates into a matching directory.
+(`make godot-export-tools` does not help here: it downloads Godot 4.6-stable and
+its templates into `tools/godot-export/` for the maker services, and leaves
+`~/.local/share/godot` alone.)
 
 ```sh
 TPL=~/.local/share/godot/export_templates
@@ -219,17 +223,23 @@ against your actual Godot binary rather than the vendored stub. See
 
 ## Wave plan — the remaining 13 games
 
-The pattern is proven by `chess-godot`. The remaining games port in waves. Each
-already has a deterministic Rust core under `extensions/` that drives its
-existing web-native bundle; porting means running steps 1–6 above against that
-core. No core needs to be written from scratch.
+The pattern is proven by `chess-godot`. Connect Four is also done:
+`games/connect-four-godot/` wraps `hugmesh-connect-four` in a
+`ConnectFourEngine` node (changelog `055`), so 12 of the 13 games in the table
+below remain. They port in waves. Each already has a deterministic Rust core
+under `extensions/` that drives its existing web-native bundle; porting means
+running steps 1–6 above against that core. No core needs to be written from
+scratch.
 
 **Turn-based games** use the host-authoritative relay path: the BFF relays moves
 and the guest re-validates from the authoritative state, identical to chess.
-**Real-time games** use the realtime tick-loop relay (see migration 049
-`realtime-matches` and the realtime cores) rather than the turn-based control
-path — they are grouped into Wave C and done together so the realtime bridge
-surface is proven once.
+**Real-time games** are grouped into Wave C and done together so the realtime
+bridge surface is proven once. That wave is a plan, and the server-side
+pieces it names are not wired for these games. Today Tron, Bomberman and
+Asteroids Duel run host-authoritative over the same SSE relay as the turn-based
+games, with a tick in the `world` echo. Tetris has no relay at all (the
+`games-arch` e2e treats it as single-player). The `/api/realtime` surface from
+migration 049 runs only a Java reference sim, not these cores.
 
 Every game already has a dependency-free `hugmesh-<slug>` core crate, plus a
 `hugmesh-<slug>-wasm` C-ABI shim that the current web bundle uses. The port
@@ -253,7 +263,7 @@ flowchart LR
 
 | Game | Slug | Rust core to reuse | Cadence | Notes for the port |
 |------|------|--------------------|---------|--------------------|
-| Connect Four | `connect-four` | `extensions/hugmesh-connect-four` | turn-based (host-auth) | trivial 7×6 grid; mirror chess board input |
+| Connect Four | `connect-four` | `extensions/hugmesh-connect-four` | turn-based (host-auth) | done: `games/connect-four-godot/` (trivial 7×6 grid; mirrors chess board input) |
 | Reversi/Othello | `reversi` | `extensions/hugmesh-reversi` | turn-based (host-auth) | flip animation is presentation-only |
 | Gomoku | `gomoku` | `extensions/hugmesh-gomoku` | turn-based (host-auth) | large board; same click→`apply_move` shape |
 | Dots and Boxes | `dots-and-boxes` | `extensions/hugmesh-dots-and-boxes` | turn-based (host-auth) | edges as click targets, not cells |
@@ -262,20 +272,20 @@ flowchart LR
 | Minesweeper | `minesweeper` | `extensions/hugmesh-minesweeper` | turn-based / single | co-op or solo; core owns mine layout + reveal |
 | Sudoku | `sudoku` | `extensions/hugmesh-sudoku` | single-player | no relay needed; pure local core + persistence |
 | Match Three | `match-three` | `extensions/hugmesh-match-three` | single / score-relay | cascades are core-driven; UI animates the deltas |
-| Tetris | `tetris` | `extensions/hugmesh-tetris` | **real-time** | tick-loop; relay piece/lock events, not whole board |
+| Tetris | `tetris` | `extensions/hugmesh-tetris` | **real-time** (single-player today) | tick-loop; if a relay is ever added, relay piece/lock events, not whole board |
 | Tron | `tron` | `extensions/hugmesh-tron` | **real-time** | continuous input; realtime relay; trail in UI |
 | Bomberman | `bomberman` | `extensions/hugmesh-bomberman` | **real-time** | grid + timers in core; realtime relay |
 | Asteroids Duel | `asteroids-duel` | `extensions/hugmesh-asteroids-duel` | **real-time** | physics in core; realtime relay; 2-player duel |
 
 Suggested wave order:
-1. **Wave A (turn-based, simplest):** connect-four, reversi, gomoku, dots-and-boxes —
+1. **Wave A (turn-based, simplest):** connect-four (done), reversi, gomoku, dots-and-boxes —
    nearly copy-paste of `chess-godot` with a different engine node and board shape.
 2. **Wave B (turn-based, richer state):** go, battleship, minesweeper, sudoku, match-three.
 3. **Wave C (real-time):** tetris, tron, bomberman, asteroids-duel — do these
    last and together so the realtime tick-loop bridge surface is proven in one pass.
 
 > Before starting each wave, confirm the target core is a dependency-free `rlib`.
-> Most cores already declare `crate-type = ["rlib","cdylib"]`. If a core is
-> wasm-only today (cdylib only), adding `rlib` to its `crate-type` is the only
-> change needed to enable native/Godot reuse — exactly as `hugmesh-chess` was
-> already set up.
+> Every core under `extensions/hugmesh-<game>/` already declares
+> `crate-type = ["rlib", "cdylib"]`; only the `-wasm` shims are cdylib-only. If
+> a new core is cdylib-only, adding `rlib` is the only change needed to enable
+> native/Godot reuse — exactly as `hugmesh-chess` was already set up.
