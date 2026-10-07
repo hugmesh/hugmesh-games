@@ -33,13 +33,14 @@ and the plugin bootstrap remain GDScript.
   (not `get`/`post`/… — `get` collides with `Node.get(property)`) with
   a completion callback; the client correlates requests to responses by
   request ID internally. Because every call routes through the bridge, the host
-  shell's `HttpClient` interceptor automatically attaches the
-  `Authorization` header and `X-Session-Id` to every request.
+  shell attaches `Authorization` (its `HttpClient` interceptor) and
+  `X-Session-Id` (`ApiBridgeService`, from the session id in the request) to
+  every request.
 - **`HugMeshMultiplayerLobby`** (`multiplayer_lobby.rs`) — slot orchestration. Listens for
   `slot_registered` and `slot_released` signals from HostBridge,
   fetches the current session members from `/api/sessions/{id}` via the
   bridge, and spawns or despawns one `CharacterBody3D` per slot.
-- **`MultiplayerLobbyMenu.tscn`** + `MultiplayerLobbyMenu.gd` — the one
+- **`multiplayer_lobby_menu.tscn`** + `multiplayer_lobby_menu.gd` — the one
   remaining GDScript component: a drop-in pre-game lobby UI that lists
   open sessions, lets the player pick a slot, and launches the game.
 
@@ -61,17 +62,17 @@ sequenceDiagram
     BAC->>HB: request_api("GET", "/api/sessions/42", "")
     Note right of HB: returns request_id (int)
     HB->>BG: api_request_egress signal
-    BG->>Shell: postMessage({type:"API_REQUEST", requestId, …})
+    BG->>Shell: postMessage({type:"SD_API_REQUEST", payload:{requestId, …}})
     Shell->>BFF: fetch /api/sessions/42<br/>(Authorization + X-Session-Id injected)
     BFF-->>Shell: 200 {members: […]}
-    Shell-->>BG: postMessage({type:"API_RESPONSE", requestId, status, body})
+    Shell-->>BG: postMessage({type:"SD_API_RESPONSE", payload:{requestId, status, body}})
     BG->>HB: deliver response
     HB-->>BAC: api_response_received(payload_json)
     BAC-->>Game: on_done.call(status, parsed_body)
 ```
 
-The host shell's `HttpClient` interceptor owns the auth headers — game
-code never handles tokens or session IDs.
+The host shell owns the auth headers — game code never handles tokens or
+session IDs.
 
 ## Usage
 
@@ -87,7 +88,9 @@ other bridge node finds it by walking up to its own parent (or, failing
 that, the current scene root) and looking for a child named
 `"HostBridge"`, so the name match is load-bearing, not just a
 convention. The shipped games (`chess-godot`, `connect-four-godot`,
-`three-wizards-in-a-trenchcoat`) all follow the same real scene tree:
+`three-wizards-in-a-trenchcoat`) all share the `GameBridge`/`BridgeGlue` and
+`HostBridge` nodes below. Only `three-wizards-in-a-trenchcoat` also has the
+`MultiplayerLobby` node:
 
 ```
 SceneRoot (Node2D / Node3D)
@@ -127,7 +130,7 @@ func _ready() -> void:
             print("members: ", body.members)
     )
 
-    api.http_post("/api/controls", {"action": "move", "dir": "north"}, func(status, body):
+    api.http_post("/api/controls/1", {"action": "MOVE_FORWARD", "pressed": true, "timestamp": Time.get_ticks_msec()}, func(status, body):
         if status != 200:
             push_error("control rejected: %d" % status)
     )
@@ -166,8 +169,9 @@ Godot WASM bundles run in a sandboxed iframe. The HugMesh host shell
 owns the user's session — it holds the JWT and the `X-Session-Id` — so
 routing all BFF calls through the bridge gives four concrete benefits:
 
-- **Consistent auth.** The host shell's `HttpClient` interceptor
-  attaches `Authorization` and `X-Session-Id` to every outbound request.
+- **Consistent auth.** The host shell attaches `Authorization` (its
+  `HttpClient` interceptor) and `X-Session-Id` (`ApiBridgeService`) to every
+  outbound request.
   Game code does not need to read, store, or refresh tokens.
 - **Single egress point.** All network traffic leaves through one
   JavaScript path, making it straightforward to audit, throttle, or
