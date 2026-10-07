@@ -112,9 +112,9 @@ the whole palette without re-auditing each component.
   `var(--hug-accent)` instead of the literal. Schedule per-component as
   those files get touched for other reasons; no urgency since the
   literals already match the tokens. Status today: no `$muted` / `$accent`
-  SCSS variables are left, 3 files under `frontend/src` and
-  `frontend/projects` use `var(--hug-…)` (with the hex as fallback), and
-  13 files still hold the literal `#a8acc4`.
+  SCSS variables are left. Two components (`home.component.scss`,
+  `about.component.ts`) use `var(--hug-…, <hex>)`. Ten other files still
+  hold the bare literal `#a8acc4`.
 - Document the tokens in `frontend/README.md` so contributors know to
   reach for the named token instead of pasting hex into a new
   component. Still open: `frontend/README.md` does not exist.
