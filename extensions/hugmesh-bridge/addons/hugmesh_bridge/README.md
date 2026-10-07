@@ -109,7 +109,7 @@ Reference them in your root script with:
 @onready var lobby       = $MultiplayerLobby
 ```
 
-Alternatively, instantiate `MultiplayerLobbyMenu.tscn` as a
+Alternatively, instantiate `multiplayer_lobby_menu.tscn` as a
 `Control` overlay on your scene to get the canonical session picker
 without writing lobby code yourself.
 
