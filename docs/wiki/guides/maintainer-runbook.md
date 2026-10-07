@@ -14,11 +14,12 @@ Audience: an on-call engineer with shell access to the compose host. It assumes 
 
 ```bash
 docker compose ps                            # services that define a healthcheck should be `healthy` (not `up`)
-docker compose exec frontend wget -qO- http://api:8080/actuator/health   # Spring Boot health; {"status":"UP"} anonymously
 curl /api/federation/manifest                # 200 with non-empty `remotes` list
 curl -N /api/game/stream                     # holds open with a `keepalive` comment every 15s
 docker compose logs casdoor                  # casdoor is internal; only logs to inspect
 ```
+
+Spring Boot health is `/actuator/health` on `api:8080` (anonymous callers get `{"status":"UP"}`). The host nginx does not proxy `/actuator`, so `/api/actuator/health` through the host does not reach it; call it from inside the compose network.
 
 ## Runbook 1 — BFF flapping
 
