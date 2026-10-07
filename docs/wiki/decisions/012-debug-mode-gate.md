@@ -30,7 +30,7 @@ Closing the surface by default and giving admins a runtime toggle means: capture
 ## Trade-offs accepted
 
 - **Bootstrap crashes are no longer captured by default.** The original concern (a crash before JWT lands) is real; mitigation: admin enables debug mode briefly while reproducing.
-- **Per-pod toggle drift.** `DebugModeService` mirrors the flag in-memory per pod; an admin toggle on pod A doesn't propagate to pod B until pod B's next read. Acceptable for an admin-only dev tool; if production multi-pod deployments need synchronization, `PgNotificationService` can fan out a flag-change notification (deferred).
+- **Per-pod toggle drift.** `DebugModeService` mirrors the flag in memory per pod. Each pod re-reads `system_settings` every 5 s (`REHYDRATE_INTERVAL`), so a toggle on pod A reaches pod B within about 5 s. Every toggle also fires `pg_notify("debug_mode_changed")`, but nothing listens for it yet; immediate propagation is deferred.
 - **No per-game / per-session scoping.** It's a single global flag. Future enhancement could scope by game, but the surface today is small.
 
 ## Reference
