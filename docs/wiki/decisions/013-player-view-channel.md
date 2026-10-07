@@ -4,7 +4,7 @@
 
 ## Decision
 
-A new `view` SSE channel on the BFF carries per-player camera + orientation samples (`PlayerViewEvent`: position, yaw/pitch, FOV, slot, character, session). Every player's Godot bundle calls the Rust GDExtension's new `report_view(slot, x, y, z, yaw, pitch, fov)` at ~10 Hz; the GDScript glue forwards each sample to the parent which POSTs `/api/view`. The BFF authorizes against `session_members` and fans out on the per-session view sink.
+A new `view` SSE channel on the BFF carries per-player camera + orientation samples (`PlayerViewEvent`: position, yaw/pitch, FOV, slot, character, session). Every player's Godot bundle calls the Rust GDExtension's new `report_view(slot, x, y, z, yaw, pitch, fov)` at ~10 Hz; the Rust `BridgeGlue` posts each sample to the parent window as `SD_VIEW_EGRESS`, and the host shell's `ApiBridgeService` POSTs `/api/view`. The BFF authorizes against `session_members` and fans out on the per-session view sink.
 
 Admins subscribe to `/api/admin/sessions/{id}/stream` (which merges the per-session movement / world / character / view channels into one connection) to see what each player is looking at in near-real-time.
 
@@ -22,9 +22,9 @@ We picked option 2.
 ## How to apply
 
 - Rust HostBridge: new `view_egress(payload)` signal + `report_view` method (Phase 3).
-- GDScript: a camera controller calls `bridge.report_view(...)` at ~10 Hz (the `multiplayer_lobby.gd` script wires this up; per-game customization is a follow-up).
+- Game scripts: a camera controller is meant to call `bridge.report_view(...)` at ~10 Hz. No shipped game script calls it yet; `e2e/tests/admin-sessions-view.spec.ts` posts samples directly. (The `multiplayer_lobby.gd` script this record once named is gone; the lobby is now Rust, see decision 016.)
 - BFF: `POST /api/view` (`ViewEgressController`) authz via `GameSessionService.authorizeControl`; emits `PlayerViewEvent` on the per-session view sink.
-- Cassandra: `session_view_state` is a per-(session, slot) ring buffer of recent samples (60 s TTL) for replay so an admin joining the stream sees the latest sample immediately instead of waiting for the next 10 Hz tick.
+- Cassandra: `session_view_state` (per-(session, slot) rows, 60 s TTL) exists in `docker/cassandra-init.cql` to give a joining admin the latest sample at once. Nothing writes or reads it yet: `GameStateService.emitView` feeds only the per-session sink and the Kafka publisher. The sink is multicast with no replay, so a joining admin waits for the next sample.
 - Admin UI: `SessionsRemoteComponent` at `/admin/sessions` lists open sessions; selecting one opens an `EventSource` against `/api/admin/sessions/{id}/stream` and renders a per-slot view table.
 
 ## Trade-offs accepted
