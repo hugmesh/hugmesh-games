@@ -2,9 +2,11 @@
 
 > Mirror of [`chapters/04-data-model.tex`](../../publishing/architecture/chapters/04-data-model.tex).
 
-PostgreSQL holds the canonical relational state. Cassandra holds cross-pod state: a position cache, pod heartbeats, a rate-limit log and the realtime match log. Kafka + ClickHouse are the streaming-audit / telemetry side-channel (decision 021) — gated by `app.kafka.enabled` and off by default. Liquibase drives Postgres schema migration through 63 changelogs on `main` (`backend/src/main/resources/db/changelog/`); Cassandra tables come from [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql), run by an init container, and ClickHouse tables from the Kafka-engine + materialized-view DDL in `docker/clickhouse-init/`.
+PostgreSQL holds the canonical relational state. Cassandra holds cross-pod state: a position cache, pod heartbeats, a rate-limit log and the realtime match log. Kafka and ClickHouse are the streaming-audit and telemetry side-channel (decision 021). They sit behind `app.kafka.enabled`, which is off by default.
 
-> **Naming note** — the current schema uses `chapter` (formerly `level`) and `instant` (formerly `spell`). See [decision 006](../decisions/006-naming-rename.md). Filenames under `backend/src/main/resources/assets/levels/<slug>/` did not move; only the schema and code did.
+Liquibase migrates Postgres through 63 changelogs on `main` (`backend/src/main/resources/db/changelog/`). Cassandra tables come from [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql), which an init container runs. ClickHouse tables come from the Kafka-engine and materialized-view DDL in `docker/clickhouse-init/`.
+
+> **Naming note** — the schema says `chapter` (formerly `level`) and `instant` (formerly `spell`). See [decision 006](../decisions/006-naming-rename.md). The filenames under `backend/src/main/resources/assets/levels/<slug>/` did not move; only the schema and code did.
 
 ## Core relational schema
 
@@ -33,211 +35,215 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `games` | Umbrella row per game. `slug` is the catalog key (matches `federation_modules.game_slug`); `current_version_dir` is the hash-prefixed directory under `app.uploads.games-dir` that the runtime serves from. `domain` and `features` are described below. |
-| `chapters` | One row per WASM bundle. `asset_url` resolves to either `/api/assets/levels/<slug>/index.html` (legacy) or `/_remotes/wasm-fragment/<slug>/index.html` (federated). |
+| `games` | One umbrella row per game. `slug` is the catalog key (it matches `federation_modules.game_slug`). `current_version_dir` is the hash-prefixed directory under `app.uploads.games-dir` that the runtime serves from. `domain` and `features` are described below. |
+| `chapters` | One row per WASM bundle. `asset_url` is either `/api/assets/levels/<slug>/index.html` (legacy) or `/_remotes/wasm-fragment/<slug>/index.html` (federated). |
 | `scene_elements` | Per-chapter DTO rows that `scene_loader.gd` pulls from `GET /api/chapters/{id}/scene`. |
-| `chapter_assets` | Optional registry for runtime-loaded textures / plugins / audio, looked up by `label` from GDScript via `ApiClient.resolve_asset(chapter_id, label, cb)`. |
-| `chapter_prerequisites` | Quest gating: a chapter shows as locked on the home page until its quest is complete. |
+| `chapter_assets` | Optional registry for runtime-loaded textures, plugins and audio. GDScript looks them up by `label` with `ApiClient.resolve_asset(chapter_id, label, cb)`. |
+| `chapter_prerequisites` | Quest gating. A chapter shows as locked on the home page until its quest is complete. |
 
 ### Federation, access, and uploads
 
 | Table | Purpose |
 |---|---|
-| `federation_modules` | Source of truth for the federation manifest. Rows include `kind` (`host` / `remote-shell` / `remote-game` / `fragment` / `wasm-game`), `remote_entry_url`, `exposed_module`, and `game_slug`. The `wasm-game` kind (changelog 051) is the 14 web-native titles: `exposed_module=NULL`, `remote_entry_url` points directly at the `wasm-fragment` bundle, and `main.ts` excludes it from `initFederation` — it is read only by the host's manifest reader (`isWebNative`). Read by `FederationController`. |
-| `game_access` | Per-game visibility policy. `(scope, scope_value)` can be `(all, NULL)` / `(role, <casdoor-role-name>)` / `(user, <casdoor-id>)`. A role value is the Casdoor role *name* (for example `play-three-wizards`, the name `make seed-roles` creates). The BFF lower-cases the JWT `roles` claim before it matches, so store the value in lower case; the unique constraint `uq_game_access_triple` keeps inserts idempotent. See [decision 009](../decisions/009-game-access-scopes.md). |
-| `game_launches` | 256-bit URL-safe `launch_uid` per session, with a `version_dir` snapshot from `games.current_version_dir` at mint time so an in-flight launch keeps reading from its install even after a hot upload supersedes it. TTL 15 minutes; the `GameLaunchSweeper` closes stale rows. See [decision 005](../decisions/005-launch-uid-versioning.md). |
-| `game_uploads` | One row per upload zip, with the `manifest_json` text (jsonb → text per migration 024-1) and a `superseded_at` timestamp that marks every upload a newer one replaced. Bound by `app.uploads.versions-to-keep` via `GameUploadPruner`. |
+| `federation_modules` | Source of truth for the federation manifest. Columns include `kind` (`host` / `remote-shell` / `remote-game` / `fragment` / `wasm-game`), `remote_entry_url`, `exposed_module` and `game_slug`. The `wasm-game` kind (changelog 051) covers the web-native titles: `exposed_module=NULL`, and `remote_entry_url` points straight at the `wasm-fragment` bundle. `main.ts` leaves it out of `initFederation`; only the host's manifest reader uses it (`isWebNative`). `FederationController` reads the table. |
+| `game_access` | Per-game visibility policy. `(scope, scope_value)` is `(all, NULL)`, `(role, <casdoor-role-name>)` or `(user, <casdoor-id>)`. A role value is the Casdoor role *name*, for example `play-three-wizards`, the name `make seed-roles` creates. The BFF lower-cases the JWT `roles` claim before it matches, so store the value in lower case. The unique constraint `uq_game_access_triple` keeps inserts idempotent. See [decision 009](../decisions/009-game-access-scopes.md). |
+| `game_launches` | A 256-bit URL-safe `launch_uid` per session. It carries a `version_dir` snapshot of `games.current_version_dir` taken at mint time, so an in-flight launch keeps reading from its own install even after a hot upload supersedes it. TTL is 15 minutes, and `GameLaunchSweeper` closes stale rows. See [decision 005](../decisions/005-launch-uid-versioning.md). |
+| `game_uploads` | One row per upload zip. `manifest_json` is text (jsonb → text in migration 024-1). `superseded_at` marks every upload that a newer one replaced. `GameUploadPruner` trims old rows to `app.uploads.versions-to-keep`. |
 
 ### Players, sessions, and progression
 
 | Table | Purpose |
 |---|---|
 | `player_characters` | The character row: `name`, `level`, `xp`, `xp_to_next`, HP / MP, `attack`, `defense`, `speed`, `magic_power`, `current_chapter_id`, `casdoor_id` (unique) and `avatar_id` (059). Position is not here; see `player_positions`. |
-| `character_skills`, `character_skill_slots` | `skills` is the catalog; `character_skills` holds what a character has learned; `character_skill_slots` binds a slot number to a skill (the hot-bar). |
+| `character_skills`, `character_skill_slots` | `skills` is the catalog. `character_skills` holds what a character has learned. `character_skill_slots` binds a slot number to a skill (the hot-bar). |
 | `quests`, `character_quests` | Quest catalog and per-character progress. |
 | `items`, `character_items`, `character_equipment` | Inventory and equipment slots. |
-| `player_sessions` | The legacy single-session connect: `session_token`, `casdoor_id`, `character_id`, `is_controller`, `connected_at`, `last_ping`, `disconnected_at`. At most one holder of the controller role at a time; only the holder may POST `/api/controls`. The active-session map itself lives in memory in `SessionService`. |
-| `player_positions` | One row per `(character_id, chapter_id)` with `pos_x/y/z` and `rotation_y` — Liquibase 027 promoted the legacy single-row-per-character layout into a per-chapter layout so a character traversing cave → field → cave returns to the cave coordinates they last had on re-entry instead of clobbering them across chapters. Cassandra's `character_position_cache` (composite partition `(character_id, chapter_id)`) is the cross-pod read cache that lets pod B see a position pod A wrote within one SSE round-trip; Postgres backs the cache when the 5-minute TTL drops a row. See [decision 007](../decisions/007-cassandra-position-cache.md). |
-| `game_time_state` | The persisted game clock (day, hour, minute); `GameTimeService` writes it every 10 ticks. |
-| `user_relationships` | Friend graph and block list: one directed edge per `(user, other)` with `relationship` of `friend_request`, `friend` or `blocked` (034). |
+| `player_sessions` | The legacy single-session connect: `session_token`, `casdoor_id`, `character_id`, `is_controller`, `connected_at`, `last_ping`, `disconnected_at`. Only one player holds the controller role at a time, and only the holder may POST `/api/controls`. The active-session map itself lives in memory in `SessionService`. |
+| `player_positions` | One row per `(character_id, chapter_id)`, with `pos_x/y/z` and `rotation_y`. Liquibase 027 replaced the old one-row-per-character layout, so a character who walks cave → field → cave returns to the coordinates it left in the cave instead of overwriting them. Cassandra's `character_position_cache` (composite partition `(character_id, chapter_id)`) is the cross-pod read cache: pod B sees a position pod A wrote within one SSE round-trip. Postgres backs the cache when the 5-minute TTL drops a row. See [decision 007](../decisions/007-cassandra-position-cache.md). |
+| `game_time_state` | The persisted game clock (day, hour, minute). `GameTimeService` writes it every 10 ticks. |
+| `user_relationships` | Friend graph and block list: one directed edge per `(user, other)`, with `relationship` of `friend_request`, `friend` or `blocked` (034). |
 | `user_avatars` | Avatar documents (`jsonb`) per Casdoor user, one active at a time (059). |
 | `admin_actions` | Append-only audit ledger of admin moderation: `kick`, `ban`, `unban` (CHECK constraint). Drives the `BanGateFilter` and the `/banned` page. |
 
 ## Migration ordering
 
-Migrations 001–017 are pre-federation. 012 renamed `games` to `levels` and created the new umbrella `games` table; 017 added the Dodecahedron game. The federation work and everything after it landed in:
+Migrations 001–017 predate federation. 012 renamed `games` to `levels` and created the new umbrella `games` table; 017 added the Dodecahedron game. The federation work and everything after it landed in:
 
-- `018-federation-modules.xml` — `federation_modules` + seed rows for `host`, `login`, `admin`, `games-three-wizards`, `games-dodecahedron` and `wasm-fragment`.
-- `019-game-access.xml` — `game_access` + `uq_game_access_triple`.
+- `018-federation-modules.xml` — `federation_modules`, plus seed rows for `host`, `login`, `admin`, `games-three-wizards`, `games-dodecahedron` and `wasm-fragment`.
+- `019-game-access.xml` — `game_access` and `uq_game_access_triple`.
 - `020-game-launches.xml` — `game_launches`.
 - `021-game-uploads.xml` — `game_uploads`.
 - `022-federation-relative-urls.xml` — rewrites absolute remote URLs to relative paths.
 - `023-launch-version-pin.xml` — adds `version_dir` to `game_launches`.
-- `024-game-uploads-manifest-text.xml` — `ALTER manifest_json jsonb → text` plus `setval(games_id_seq, MAX(id))` (the integration test surfaced both as latent bugs).
+- `024-game-uploads-manifest-text.xml` — `ALTER manifest_json jsonb → text`, plus `setval(games_id_seq, MAX(id))`. The integration test surfaced both as latent bugs.
 - `025-api-docs-federation.xml` — the `api-docs` federation row.
-- `026-input-events-and-features.xml` — generalised input surface (see below) and `games.features`.
-- `027-per-level-positions.xml` — `player_positions` keyed by `(character_id, level_id)`; 028 renames the column to `chapter_id`.
-- `028-rename-chapter-instant.xml` — domain rename pass (13 changesets); extended in PR #24 with five follow-up changesets.
-- `029-admin-actions.xml` — moderator audit ledger (kick / ban / unban).
-- `030-game-sessions.xml` — `game_sessions` + `session_members` for multiplayer; partial unique indexes enforce one-active-slot-per-session and one-active-row-per-(session, casdoor).
-- `031-system-settings.xml` — generic key/value table seeded with `wasm_console_debug_enabled='false'`.
-- `032-mod-game-scopes.xml` — `mod_game_scopes` + `publisher_game_scopes` for per-game RBAC; seed rows for the per-game seeded users.
-- `033-mod-publisher-federation.xml` — `federation_modules` rows for the new `mod` and `publisher` federated remotes.
+- `026-input-events-and-features.xml` — the generalised input surface (see below) and `games.features`.
+- `027-per-level-positions.xml` — `player_positions` keyed by `(character_id, level_id)`. 028 renames the column to `chapter_id`.
+- `028-rename-chapter-instant.xml` — the domain rename pass (13 changesets). PR #24 extended it with five follow-up changesets.
+- `029-admin-actions.xml` — the moderator audit ledger (kick / ban / unban).
+- `030-game-sessions.xml` — `game_sessions` and `session_members` for multiplayer. Partial unique indexes allow one active member per slot and one active row per (session, casdoor).
+- `031-system-settings.xml` — a generic key/value table, seeded with `wasm_console_debug_enabled='false'`.
+- `032-mod-game-scopes.xml` — `mod_game_scopes` and `publisher_game_scopes` for per-game RBAC, with seed rows for the per-game seeded users.
+- `033-mod-publisher-federation.xml` — `federation_modules` rows for the `mod` and `publisher` remotes.
 - `034-friendships-and-session-visibility.xml` — `user_relationships` and `game_sessions.visibility`.
 - `035-additional-seed-characters.xml` — extra seed characters for multiplayer.
-- `036-widen-session-ids-for-sha3.xml` — widens `game_sessions.id` and `session_members.session_id` from `varchar(36)` to `varchar(64)` so the SHA3-256-derived UIDs minted by [`Crypto.mintUid()`](../../../backend/src/main/java/games/hugmesh/bff/util/Crypto.java) (43 base64url chars) fit. Old UUID-shape rows continue to fit; new rows are SHA3.
-- `037-rpg-and-vn-maker-federation.xml` — seeds `federation_modules` rows for the `games-rpg-maker` + `games-vn-maker` remotes that drive the [`rpg-builder/`](../../../rpg-builder/) and [`vn-builder/`](../../../vn-builder/) Spring side services. The side services own their own DBs (`postgres-rpg-builder` + `postgres-vn-builder`) with their own Liquibase changelogs ([rpg-builder/.../db.changelog-master.xml](../../../rpg-builder/src/main/resources/db/changelog/db.changelog-master.xml), [vn-builder/.../db.changelog-master.xml](../../../vn-builder/src/main/resources/db/changelog/db.changelog-master.xml)) — see [decision 018](../decisions/018-rpg-and-vn-makers.md).
-- `038-flatland-publisher-scopes.xml` — pre-grants the `publisher-flatland` Casdoor seed user the publisher scope on the two Flatland fixture games. Idempotent — guarded by `<sqlCheck expectedResult="0">`.
+- `036-widen-session-ids-for-sha3.xml` — widens `game_sessions.id` and `session_members.session_id` from `varchar(36)` to `varchar(64)`, so the SHA3-256-derived UIDs from [`Crypto.mintUid()`](../../../backend/src/main/java/games/hugmesh/bff/util/Crypto.java) (43 base64url chars) fit. Old UUID-shaped rows still fit; new rows are SHA3.
+- `037-rpg-and-vn-maker-federation.xml` — `federation_modules` rows for the `games-rpg-maker` and `games-vn-maker` remotes, which drive the [`rpg-builder/`](../../../rpg-builder/) and [`vn-builder/`](../../../vn-builder/) Spring side services. Each side service owns its database (`postgres-rpg-builder`, `postgres-vn-builder`) and its own Liquibase changelog ([rpg-builder/.../db.changelog-master.xml](../../../rpg-builder/src/main/resources/db/changelog/db.changelog-master.xml), [vn-builder/.../db.changelog-master.xml](../../../vn-builder/src/main/resources/db/changelog/db.changelog-master.xml)). See [decision 018](../decisions/018-rpg-and-vn-makers.md).
+- `038-flatland-publisher-scopes.xml` — pre-grants the `publisher-flatland` Casdoor seed user the publisher scope on the two Flatland fixture games. Idempotent, guarded by `<sqlCheck expectedResult="0">`.
 - `039-auth-ux-remotes-federation.xml` — `federation_modules` rows for the `registration` and `banned` remotes. The `banned` remote pairs with `AppealContactController` (`/api/security/appeal-contact`) for the appeal flow.
-- `040-producer-contacts.xml` — `producer_contacts` intake table for producer / mod applications submitted via the federated producer-registration remote, plus that remote's `federation_modules` row. One row per submission; an admin sets `status` from PENDING to APPROVED or REJECTED through `POST /api/admin/producer-contacts/{id}/decision`. Contact email + jurisdiction are submission metadata so an applicant can re-apply with a new email after a rejection without clobbering history. See `ProducerContactController` for the REST surface.
-- `041-accounts-schema-split.xml` — new `accounts` Postgres schema with three role-specific profile tables: `accounts.players` (display name, XP level, friend and block counts, lazy-populated), `accounts.producers` (contact email, jurisdiction, `approved_via_contact_id`) and `accounts.mods` (contact email, `oncall_slot`, `approved_via_contact_id`). Scope tables (`mod_game_scopes` / `publisher_game_scopes`) stay in the public schema for now. See [decision 020 (per-role schema split)](../../decisions/020-per-role-schema-split.md).
-- `042-session-pause-state.xml` — adds `game_sessions.paused_at`, `paused_by_casdoor_id` and `pause_reason` (session-wide pause). The BFF emits a `session-control` SSE event on pause/resume so WASM iframes freeze/resume ticks without polling. Per-player view pauses (tab takeover) are not persisted: `GameSessionService` keeps them in memory and broadcasts them on the same channel.
-- `043-games-domain-scoping.xml` — adds `games.domain VARCHAR(64) NOT NULL DEFAULT 'default'` so each game row can be tagged to a brand domain. Row predicate: `Roles.domainApplies(rowDomain, callerDomain, isSuperadmin)`. See [decision 026](../decisions/026-games-catalog-domain-partitioning.md).
-- `044-chess-game.xml` — catalog registration for the multiplayer chess title. Host-authoritative: the WASM engine runs in the browser; the server only relays moves over the existing `input`/`world` SSE session channels.
-- `045-wave1-games.xml` — catalog rows for the wave-1 abstract 2-player titles (connect-four, reversi, gomoku, dots-and-boxes). Same host-authoritative server-streams-only model as 044.
-- `046-wave1-remainder-games.xml` — catalog rows for Battleship and Go. Same model as 044/045.
+- `040-producer-contacts.xml` — the `producer_contacts` intake table for producer and mod applications from the producer-registration remote, plus that remote's `federation_modules` row. One row per submission. An admin moves `status` from PENDING to APPROVED or REJECTED through `POST /api/admin/producer-contacts/{id}/decision`. Contact email and jurisdiction belong to the submission, so an applicant can re-apply with a new email after a rejection without clobbering history. See `ProducerContactController`.
+- `041-accounts-schema-split.xml` — a new `accounts` Postgres schema with three role-specific profile tables: `accounts.players` (display name, XP level, friend and block counts, lazy-populated), `accounts.producers` (contact email, jurisdiction, `approved_via_contact_id`) and `accounts.mods` (contact email, `oncall_slot`, `approved_via_contact_id`). The scope tables (`mod_game_scopes`, `publisher_game_scopes`) stay in the public schema for now. See [decision 020 (per-role schema split)](../../decisions/020-per-role-schema-split.md).
+- `042-session-pause-state.xml` — adds `game_sessions.paused_at`, `paused_by_casdoor_id` and `pause_reason` (session-wide pause). The BFF emits a `session-control` SSE event on pause and resume, so WASM iframes freeze and resume ticks without polling. Per-player view pauses (tab takeover) are not stored: `GameSessionService` keeps them in memory and broadcasts them on the same channel.
+- `043-games-domain-scoping.xml` — adds `games.domain VARCHAR(64) NOT NULL DEFAULT 'default'`, so each game row can carry a brand domain. Row predicate: `Roles.domainApplies(rowDomain, callerDomain, isSuperadmin)`. See [decision 026](../decisions/026-games-catalog-domain-partitioning.md).
+- `044-chess-game.xml` — catalog registration for the multiplayer chess title. Host-authoritative: the WASM engine runs in the browser, and the server only relays moves over the existing `input` / `world` SSE session channels.
+- `045-wave1-games.xml` — catalog rows for the wave-1 abstract 2-player titles (connect-four, reversi, gomoku, dots-and-boxes). Same host-authoritative, server-streams-only model as 044.
+- `046-wave1-remainder-games.xml` — catalog rows for Battleship and Go. Same model as 044 and 045.
 - `047-wave2-games.xml` — catalog rows for the wave-2 single-player puzzles (Tetris, Minesweeper, Sudoku, Match-Three).
-- `048-wave3-games.xml` — catalog rows for wave-3 real-time duels (Tron, Bomberman, Asteroids Duel). Host-authoritative deterministic tick sims; the server only streams inputs.
-- `049-realtime-matches.xml` — `realtime_matches` Postgres table for the 🚧 in-flight **server-authoritative** FPS/RTS engines. Postgres holds durable match metadata; Cassandra holds the *live* truth (`realtime_keyframes` + `realtime_command_log`, bootstrapped from [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql)). **No FPS/RTS title is registered as a launchable catalog game** — this is engine/sim-core wiring, not a playable entry. See [`docs/realtime-server-authoritative-design.md`](../../realtime-server-authoritative-design.md).
-- `050-chess-relay-event-types.xml` — `input_event_types` + `game_event_support` rows for the chess move-relay channel.
-- `051-web-game-federation.xml` — one `federation_modules` row per web-native game with the new `kind='wasm-game'` (plus the matching `game_access` rows). Idempotent (`ON CONFLICT (slug) DO NOTHING`). This is what flips the host off the legacy `<app-game-canvas>` for the 14 web-native titles — no frontend change needed for future web-native games.
-- `052-web-game-relay-event-types.xml` — `input_event_types` + `game_event_support` rows for the generic web-native control/world relay channels.
-- `053-chess-godot-federation.xml` — registers the optional `chess-godot` Godot front-end variant (`games`/`chapters`/`federation_modules`/`game_access` rows) alongside the web-native chess title.
-- `054-register-sql-least-priv-role.xml` — creates the NOLOGIN, no-DDL Postgres role that an uploaded bundle's `register.sql` runs under (`SET LOCAL ROLE`), scoped to the catalog tables only. 060 renames it to `hugmesh_register_sql`.
-- `055-connect-four-godot-federation.xml` — same pattern as 053, for a `connect-four-godot` variant alongside the web-native connect-four title. The merge commit's own title flags the WASM export as not yet verified — the catalog/federation rows are real, but nobody has confirmed the produced bundle boots.
-- `056-shadows-of-the-net-federation.xml` — registers "Shadows of the Net – CHAT" (`shadows-of-the-net`): the pure-GDScript XR chat chamber under the same `kind='wasm-game'` launch shape (games/chapters/federation/game_access, metadata `{"sse":true,"hostAuthoritative":true,"engine":"godot","xr":true}`) plus the slug's `game_event_support` opt-in for the host-authoritative `world/state` room-state broadcast (the `input_event_types` reference row was already seeded by 050-1). Pinned end to end — including idempotent re-runs of every statement — by `ShadowsOfTheNetFederationSeedTest`.
+- `048-wave3-games.xml` — catalog rows for the wave-3 real-time duels (Tron, Bomberman, Asteroids Duel). Host-authoritative deterministic tick sims; the server only streams inputs.
+- `049-realtime-matches.xml` — the `realtime_matches` Postgres table for the 🚧 in-flight **server-authoritative** FPS/RTS engines. Postgres holds durable match metadata. Cassandra holds the *live* truth (`realtime_keyframes` and `realtime_command_log`, created by [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql)). **No FPS/RTS title is registered as a launchable catalog game.** This is engine and sim-core wiring, not a playable entry. See [`docs/realtime-server-authoritative-design.md`](../../realtime-server-authoritative-design.md).
+- `050-chess-relay-event-types.xml` — `input_event_types` and `game_event_support` rows for the chess move-relay channel.
+- `051-web-game-federation.xml` — one `federation_modules` row per web-native game with the new `kind='wasm-game'`, plus the matching `game_access` rows. Idempotent (`ON CONFLICT (slug) DO NOTHING`). This row is what moves the host off the legacy `<app-game-canvas>` for the 14 web-native titles. Future web-native games need no frontend change.
+- `052-web-game-relay-event-types.xml` — `input_event_types` and `game_event_support` rows for the generic web-native control and world relay channels.
+- `053-chess-godot-federation.xml` — registers the optional `chess-godot` Godot front-end variant (`games`, `chapters`, `federation_modules` and `game_access` rows) beside the web-native chess title.
+- `054-register-sql-least-priv-role.xml` — creates the NOLOGIN, no-DDL Postgres role that an uploaded bundle's `register.sql` runs under (`SET LOCAL ROLE`). It is scoped to the catalog tables only. 060 renames it to `hugmesh_register_sql`.
+- `055-connect-four-godot-federation.xml` — the same pattern as 053, for a `connect-four-godot` variant beside the web-native connect-four title. The merge commit's own title flags the WASM export as not yet verified. The catalog and federation rows are real; nobody has confirmed that the produced bundle boots.
+- `056-shadows-of-the-net-federation.xml` — registers "Shadows of the Net – CHAT" (`shadows-of-the-net`), the pure-GDScript XR chat chamber, under the same `kind='wasm-game'` launch shape (games, chapters, federation and game_access rows; metadata `{"sse":true,"hostAuthoritative":true,"engine":"godot","xr":true}`). It adds the slug's `game_event_support` opt-in for the host-authoritative `world/state` room-state broadcast; 050-1 already seeded the `input_event_types` reference row. `ShadowsOfTheNetFederationSeedTest` pins all of it, including idempotent re-runs of every statement.
 - `057-advance-games-id-seq.xml` — advances `games_id_seq` past the explicit ids the catalog seeds insert, so a fresh migrate no longer collides on `games_pkey`.
 - `058-six-realms-publisher-scope.xml` — publisher scope for the Six Realms fixture game.
 - `059-user-avatars.xml` — `user_avatars` and `player_characters.avatar_id`.
 - `060-rebrand-register-sql-role.xml` — renames the register.sql role in place (`ALTER ROLE … RENAME`).
-- `061-session-member-liveness.xml` — `session_members.last_seen_at`; stale members are released by `SessionMemberReaper`.
+- `061-session-member-liveness.xml` — `session_members.last_seen_at`. `SessionMemberReaper` releases stale members.
 - `062-character-forge-federation.xml` — registers Character Forge (`character-forge`): a games row, one chromeless chapter, a `kind='wasm-game'` row (metadata `{"sse":false,"hostAuthoritative":false,"engine":"godot","singlePlayer":true,"bridge":"CharForge","hostOwnsControls":true}`) and a `scope='all'` access row.
-- `063-input-gate-feature-flags.xml` — `games.features` default and backfill for the input gates (see below).
+- `063-input-gate-feature-flags.xml` — the `games.features` default and backfill for the input gates (see below).
 
-The catalog now spans **20 games** (6 Godot — three-wizards, dodecahedron, the `chess-godot` / `connect-four-godot` variants registered by 053/055, the `shadows-of-the-net` XR room registered by 056 and `character-forge` registered by 062 — + 14 web-native). Count: the `INSERT INTO games` statements in 012, 017, 044–048, 053, 055, 056 and 062. The `realtime_matches` work (049) adds engines and a match surface, not a launchable catalog title.
+The catalog now spans **20 games**: 6 Godot (three-wizards, dodecahedron, the `chess-godot` and `connect-four-godot` variants from 053 and 055, the `shadows-of-the-net` XR room from 056, and `character-forge` from 062) and 14 web-native. The count comes from the `INSERT INTO games` statements in 012, 017, 044–048, 053, 055, 056 and 062. The `realtime_matches` work (049) adds engines and a match surface, not a launchable catalog title.
 
-**Never edit a previously-merged changeset.** When something is missed, append a new changeset with `<preConditions onFail="MARK_RAN">` so re-runs are idempotent.
+**Never edit a changeset that has already merged.** When something is missed, append a new changeset with `<preConditions onFail="MARK_RAN">`, so re-runs stay idempotent.
 
 ## Side-service schemas (rpg-builder + vn-builder)
 
-Both maker side services own dedicated Postgres databases (`rpg_builder` and `vn_builder`) with schemas managed exclusively by Liquibase changelogs in their own service trees:
+Both maker side services own dedicated Postgres databases (`rpg_builder` and `vn_builder`). Liquibase changelogs in their own service trees manage the schemas, and nothing else does:
 
-- **rpg-builder** — `rpg_projects`, `rpg_areas`, `rpg_rooms`, `rpg_exits` (CHECK on direction enum: N/S/E/W/NE/NW/SE/SW/UP/DOWN/TELEPORT), `rpg_items`, `rpg_npcs`, `rpg_scripts` (CHECK kind: TRIGGER/ALIAS/KEY/SCRIPT), `rpg_assets`, `rpg_buildings`, `rpg_shop_stock`, `rpg_avatar_config`, `rpg_build_jobs` (CHECK status: QUEUED/RENDERING/EXPORTING/UPLOADING/DONE/FAILED). Every project's areas become Chapters in the BFF when built.
-- **vn-builder** — `vn_projects`, `vn_acts`, `vn_characters`, `vn_backgrounds`, `vn_scenes`, `vn_lines` (unique on `(scene_id, line_index)`; CHECK kind: SAY/PAUSE/RESUME), `vn_choices`, `vn_assets`, `vn_build_jobs` (same status enum). Every project's acts become Chapters.
+- **rpg-builder** — `rpg_projects`, `rpg_areas`, `rpg_rooms`, `rpg_exits` (CHECK on direction: N/S/E/W/NE/NW/SE/SW/UP/DOWN/TELEPORT), `rpg_items`, `rpg_npcs`, `rpg_scripts` (CHECK on kind: TRIGGER/ALIAS/KEY/SCRIPT), `rpg_assets`, `rpg_buildings`, `rpg_shop_stock`, `rpg_avatar_config` and `rpg_build_jobs` (CHECK on status: QUEUED/RENDERING/EXPORTING/UPLOADING/DONE/FAILED). Each project's areas become Chapters in the BFF when built.
+- **vn-builder** — `vn_projects`, `vn_acts`, `vn_characters`, `vn_backgrounds`, `vn_scenes`, `vn_lines` (unique on `(scene_id, line_index)`; CHECK on kind: SAY/PAUSE/RESUME), `vn_choices`, `vn_assets` and `vn_build_jobs` (same status enum). Each project's acts become Chapters.
 
-Build pipeline state lives in the `*_build_jobs` table; the worker claims rows atomically with `FOR UPDATE SKIP LOCKED` so a multi-pod deployment doesn't double-execute. See [decision 018](../decisions/018-rpg-and-vn-makers.md) for the full topology.
+Build pipeline state lives in the `*_build_jobs` table. The worker claims rows atomically with `FOR UPDATE SKIP LOCKED`, so a multi-pod deployment doesn't run a job twice. See [decision 018](../decisions/018-rpg-and-vn-makers.md) for the full topology.
 
 ## R2DBC + JDBC coexistence
 
-Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`, so [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java) declares an explicit `@Primary HikariDataSource` (pool size 3) just for the migration phase. R2DBC then connects in parallel against the same database via the `spring.r2dbc.url` property. See [decision 002](../decisions/002-r2dbc-jdbc-coexistence.md).
+Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `DataSource`, so [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java) declares an explicit `@Primary HikariDataSource` (pool size 3) for the migration phase only. R2DBC connects in parallel to the same database through `spring.r2dbc.url`. See [decision 002](../decisions/002-r2dbc-jdbc-coexistence.md).
 
 ### ⚠ MVCC snapshot race
 
-`@PostConstruct` services that touch the database can run **before** Liquibase commits, locking their R2DBC connection into a pre-migration snapshot. The fix in this codebase is `@DependsOn("liquibase")` on `GameTimeService` and `GameStateService`, plus `spring.r2dbc.pool.initial-size=0` in tests so the pool only opens connections after Liquibase finishes. Without these, the symptom is `BadSqlGrammarException: relation does not exist` from a query the test fixture clearly sets up.
+A `@PostConstruct` service that touches the database can run **before** Liquibase commits. Its R2DBC connection is then locked into a pre-migration snapshot. This codebase prevents that with `@DependsOn("liquibase")` on `GameTimeService` and `GameStateService`, plus `spring.r2dbc.pool.initial-size=0` in tests, so the pool opens connections only after Liquibase finishes. Without them, a query that the test fixture clearly set up fails with `BadSqlGrammarException: relation does not exist`.
 
 ## Cassandra cache
 
-The keyspace is `threewizards`; [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql) creates these tables, and `CassandraSyncService` creates `daily_snapshots` itself. What the code does with each:
+The keyspace is `threewizards`. [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql) creates the tables below, except `daily_snapshots`, which `CassandraSyncService` creates itself. The last column says what the code does with each.
 
 | Table | TTL | Used by |
 |---|---|---|
-| `character_position_cache` | 5 min | `PositionCacheService`. Partitioned `(character_id, chapter_id)`. Cross-pod write-through, so pod B sees pod A's position write within one SSE round-trip. |
+| `character_position_cache` | 5 min | `PositionCacheService`. Partitioned `(character_id, chapter_id)`. Cross-pod write-through: pod B sees pod A's position write within one SSE round-trip. |
 | `chapter_membership` | 60 s | `PositionCacheService`. Which characters are in which chapter, across pods. |
-| `pod_heartbeats` | 30 s | `CassandraSyncService`. Written every 15 s so the admin dashboard can show pod liveness. |
-| `daily_snapshots` | none | `CassandraSyncService`. Once every 24 h (60 s after boot) it copies Postgres aggregates *into* this table for offline analytics. |
+| `pod_heartbeats` | 30 s | `CassandraSyncService`. Written every 15 s, so the admin dashboard can show pod liveness. |
+| `daily_snapshots` | none | `CassandraSyncService`. Every 24 h (first run 60 s after boot) it copies Postgres aggregates *into* this table for offline analytics. |
 | `rate_limit_events` | 90 s | `DistributedRateLimitService`. |
 | `realtime_keyframes`, `realtime_command_log` | 24 h | `RealtimeTruthStore`, the live truth of server-authoritative matches. |
 | `revocations` | 24 h | `RevocationListService` creates it at boot. |
 | `active_sessions`, `controller_lease`, `aggregate_counters` | 60 s, 30 s, none | Defined in the CQL script. No Java code under `backend/src/main` reads or writes them. |
-| `session_membership` (30 s), `session_view_state` (60 s) | | Defined in the CQL script and described in the Javadoc of `GameSessionService` and `ViewEgressController`, which name a `SessionPresenceService`. That class does not exist and no code writes either table, so cross-pod presence and the view-sample ring are not built. |
+| `session_membership` (30 s), `session_view_state` (60 s) | | Defined in the CQL script. The Javadoc of `GameSessionService` and `ViewEgressController` describes them and names a `SessionPresenceService`. That class does not exist, and no code writes either table, so cross-pod presence and the view-sample ring are not built. |
 
-The Cassandra-backed services register through `CassandraBackedServicesAutoConfiguration` and fall back to no-ops when no Cassandra bean is present. Decision 021 introduces a Kafka → ClickHouse streaming pipeline as the long-term replacement for `CassandraSyncService`, which stays until the pipeline has demonstrated production stability.
+The Cassandra-backed services register through `CassandraBackedServicesAutoConfiguration` and fall back to no-ops when no Cassandra bean is present. Decision 021 introduces a Kafka → ClickHouse streaming pipeline as the long-term replacement for `CassandraSyncService`. The service stays until the pipeline has proven itself in production.
 
 ## Per-role accounts schema
 
-[Decision 020 (per-role schema split)](../../decisions/020-per-role-schema-split.md) introduces a dedicated `accounts` Postgres schema with one profile table per role. A user with several roles has one row in each; the role gates in `ProfileController` keep each request on the row that matches its authority.
+[Decision 020 (per-role schema split)](../../decisions/020-per-role-schema-split.md) adds an `accounts` Postgres schema with one profile table per role. A user with several roles has one row in each. The role gates in `ProfileController` keep each request on the row that matches its authority.
 
 | Table | Purpose |
 |---|---|
-| `accounts.players` | Display name, `xp_level`, `friend_count`, `block_count`. Lazy-created on the first `GET /api/profile/me/player`. PK: `casdoor_user_id`. |
+| `accounts.players` | Display name, `xp_level`, `friend_count`, `block_count`. Created lazily on the first `GET /api/profile/me/player`. PK: `casdoor_user_id`. |
 | `accounts.producers` | Contact email, jurisdiction, `approved_via_contact_id` (soft FK to `producer_contacts.id`). Index on `contact_email`. Nothing in the BFF inserts rows (see the note below the next table). |
 | `accounts.mods` | Contact email, `oncall_slot` (`primary` / `secondary` / NULL = off-rota), `approved_via_contact_id`. `AppealContactController` reads the `primary` slot, then `secondary`. Index on `oncall_slot`. Nothing in the BFF inserts rows (see the note below the next table). |
 
-Intake remains in the public schema:
+Intake stays in the public schema:
 
 | Table | Purpose |
 |---|---|
-| `producer_contacts` | Submission ledger for producer / mod applications via the `producer-registration` federated remote (`POST /api/producer-contacts`). One row per application; an admin moves `status` from PENDING to APPROVED or REJECTED. |
+| `producer_contacts` | Submission ledger for producer and mod applications from the `producer-registration` federated remote (`POST /api/producer-contacts`). One row per application. An admin moves `status` from PENDING to APPROVED or REJECTED. |
 
-**Not built:** the decision endpoint only records the status, the reviewer and the notes. No BFF code writes a row into `accounts.producers` or `accounts.mods` or grants a Casdoor role on approval, so those two steps happen outside this code today.
+**Not built:** the decision endpoint records the status, the reviewer and the notes, and nothing else. No BFF code writes a row into `accounts.producers` or `accounts.mods`, and none grants a Casdoor role on approval. Those two steps happen outside this code today.
 
 ## Streaming audit / telemetry pipeline (Kafka + ClickHouse)
 
-[Decision 021](../decisions/021-kafka-clickhouse-streaming-pipeline.md) introduces a streaming side-channel that runs alongside the in-process gameplay path without changing it. Gated by `app.kafka.enabled` (default `false`) so vanilla `compose up` keeps the slim path.
+[Decision 021](../decisions/021-kafka-clickhouse-streaming-pipeline.md) adds a streaming side-channel that runs beside the in-process gameplay path and leaves it unchanged. `app.kafka.enabled` (default `false`) gates it, so a plain `compose up` keeps the slim path.
 
 Four Kafka topics:
 
 | Topic | Producer | Purpose |
 |---|---|---|
 | `state_audit` | `GameAuditPublisher` | Every state transition emitted by `GameStateService`, kept durably. |
-| `game_events` | `GameEventPublisher` | All 9 SSE channels (movement / world / character / scene / input / audio / view / wasm-console / world-native) tee'd from `GameStateService.tryEmitNext`/`emitInput`. The cross-pod consumer `KafkaSessionSubscriber` filters self-published via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. `world-native` is the PR #117 addition — the raw web-native `sendWorld()` payload, teed separately from the typed Godot `world`/`WorldState` channel so a peer pod can re-emit it onto its own `worldNative` sink (merged client-side into the same `world` SSE event name). |
+| `game_events` | `GameEventPublisher` | All 9 SSE channels (movement / world / character / scene / input / audio / view / wasm-console / world-native), tee'd from `GameStateService.tryEmitNext` and `emitInput`. The cross-pod consumer `KafkaSessionSubscriber` skips its own messages via `pod_id` and dispatches per channel to handlers registered in `GameStateService.@PostConstruct`. `world-native` came in with PR #117: it carries the raw web-native `sendWorld()` payload, tee'd apart from the typed Godot `world` / `WorldState` channel, so a peer pod can re-emit it onto its own `worldNative` sink (merged client-side into the same `world` SSE event name). |
 | `game_kpi` | `GameKpiPublisher` | Per-game KPIs posted by federated game remotes via `POST /api/telemetry/game/{slug}`. Iframes hit the BFF directly (CORS allowlist `app.telemetry.cors.allowed-origins`). The route is public; an anonymous post lands with an empty `casdoor_id`. |
-| `session.<id>.events` | `SessionTopicManager` | Per-session topics created on session-create so a cross-pod subscriber can hydrate only the sessions it cares about. |
+| `session.<id>.events` | `SessionTopicManager` | Per-session topics, created on session-create so a cross-pod subscriber can hydrate only the sessions it cares about. |
 
-ClickHouse consumes via Kafka-engine tables + materialized views (`docker/clickhouse-init/01-hugmesh-schema.sql`) that land each topic in a durable MergeTree counterpart. The `player_state_current` ReplacingMergeTree captures the latest per-character state for session-reconnect recovery; `PlayerStateRecoveryService` queries it through the ClickHouse HTTP interface from `GameStateService.hydrate(...)`, with `Mono.empty()` as the expected miss path (SSE / gameplay never blocks). Rolling KPI aggregates (`kpi_rolling_avg_24h`) feed admin dashboards.
+ClickHouse reads the topics through Kafka-engine tables and materialized views (`docker/clickhouse-init/01-hugmesh-schema.sql`) that land each topic in a durable MergeTree table. The `player_state_current` ReplacingMergeTree keeps the latest state per character for session-reconnect recovery. `PlayerStateRecoveryService` queries it through the ClickHouse HTTP interface from `GameStateService.hydrate(...)`; `Mono.empty()` is the expected miss path, and SSE and gameplay never block on it. Rolling KPI aggregates (`kpi_rolling_avg_24h`) feed the admin dashboards.
 
 ## Object-storage backed uploads
 
-[Decision 020](../decisions/020-object-storage-uploads.md) introduces an `UploadStorage` strategy with two implementations:
+[Decision 020](../decisions/020-object-storage-uploads.md) adds an `UploadStorage` strategy with two implementations:
 
 | Strategy | Locator scheme | Notes |
 |---|---|---|
-| `filesystem` (default) | `file:<absolute-path>` | Bundles land under `app.uploads.games-dir`. Same behaviour the platform shipped with — no new infra. |
-| `s3` | `s3://<bucket>/<slug>/<sha-prefix>` | Bundles land in an S3-compatible bucket. `docker-compose.yml` ships a `minio` container for dev; prod points the `app.uploads.s3.*` settings (endpoint, region, access key, secret key, bucket, path style) at AWS S3, Cloudflare R2, Backblaze B2, etc. Both keys must be set: with `storage=s3` and blank credentials the BFF refuses to build the S3 client. |
+| `filesystem` (default) | `file:<absolute-path>` | Bundles land under `app.uploads.games-dir`. This is how the platform shipped; it needs no new infrastructure. |
+| `s3` | `s3://<bucket>/<slug>/<sha-prefix>` | Bundles land in an S3-compatible bucket. `docker-compose.yml` ships a `minio` container for dev. Prod points the `app.uploads.s3.*` settings (endpoint, region, access key, secret key, bucket, path style) at AWS S3, Cloudflare R2, Backblaze B2 and the like. Both keys must be set: with `storage=s3` and blank credentials the BFF refuses to build the S3 client. |
 
-Switch via `app.uploads.storage` (env `APP_UPLOADS_STORAGE`). The strategy is wrapped by `CircuitBreakerUploadStorage` (Resilience4j, instance `s3`) so an S3 outage soft-fails reads to the classpath fallback in `AssetController` instead of cascading 5xx. When `app.uploads.s3.presigned-reads=true`, `AssetController.tryPresignRedirect(...)` 302s to a short-lived pre-signed URL (default TTL 300 s, capped at 15 min) — the browser then fetches the WASM directly from the bucket and the BFF cold path stays cold. Existing `game_uploads.version_dir` rows that store raw paths (pre-prefix scheme) keep resolving via the filesystem strategy. Migration script: [`scripts/migrate-uploads-to-s3.sh`](../../../scripts/migrate-uploads-to-s3.sh) (DRY-RUN by default).
+Switch with `app.uploads.storage` (env `APP_UPLOADS_STORAGE`). `CircuitBreakerUploadStorage` (Resilience4j, instance `s3`) wraps the strategy. When S3 is down, reads fall back to the classpath copy in `AssetController` instead of cascading into 5xx errors.
+
+With `app.uploads.s3.presigned-reads=true`, `AssetController.tryPresignRedirect(...)` answers 302 with a short-lived pre-signed URL (default TTL 300 s, capped at 15 min). The browser then fetches the WASM straight from the bucket, and the BFF stays out of the hot path. Existing `game_uploads.version_dir` rows that hold raw paths (the pre-prefix scheme) keep resolving through the filesystem strategy. The migration script is [`scripts/migrate-uploads-to-s3.sh`](../../../scripts/migrate-uploads-to-s3.sh); it dry-runs by default.
 
 ## Postgres read replica
 
-[Decision 022](../decisions/022-postgres-read-replica.md) adds an opt-in read-replica routing layer. `R2dbcReadReplicaConfig` provides `@Qualifier("replica")` `ConnectionFactory` / `R2dbcEntityTemplate` / `DatabaseClient` beans, but only loads when `app.r2dbc.replica.url` is non-blank. With the URL empty (the default) the class is skipped and no `replica` bean exists. No class under `backend/src/main` injects the `replica` qualifier yet, so setting the URL creates the beans and routes nothing to them. The compose-level pair lives in the opt-in overlay [`docker-compose.replica.yml`](../../../docker-compose.replica.yml) — both nodes run the existing `postgres:16-alpine` image so the existing `pgdata` volume layout is preserved; bring it up with [`scripts/setup-pg-replica.sh`](../../../scripts/setup-pg-replica.sh), which bounces primary with `wal_level=replica` + a replication role and the replica `pg_basebackup`s on first boot via [`docker/postgres-replica-entrypoint.sh`](../../../docker/postgres-replica-entrypoint.sh).
+[Decision 022](../decisions/022-postgres-read-replica.md) adds an opt-in read-replica routing layer. `R2dbcReadReplicaConfig` provides `@Qualifier("replica")` `ConnectionFactory`, `R2dbcEntityTemplate` and `DatabaseClient` beans, but it loads only when `app.r2dbc.replica.url` is non-blank. With the URL empty (the default) the class is skipped and no `replica` bean exists. No class under `backend/src/main` injects the `replica` qualifier yet. Setting the URL creates the beans and routes nothing to them.
+
+The compose pair lives in the opt-in overlay [`docker-compose.replica.yml`](../../../docker-compose.replica.yml). Both nodes run the existing `postgres:16-alpine` image, so the `pgdata` volume layout is unchanged. [`scripts/setup-pg-replica.sh`](../../../scripts/setup-pg-replica.sh) brings the pair up: it restarts the primary with `wal_level=replica` and a replication role, and the replica runs `pg_basebackup` on first boot through [`docker/postgres-replica-entrypoint.sh`](../../../docker/postgres-replica-entrypoint.sh).
 
 ## Multiplayer session schema
 
-Five Postgres tables make up the multiplayer + RBAC surface (`user_relationships`, described above, feeds the session-visibility filter):
+Five Postgres tables make up the multiplayer and RBAC surface. (`user_relationships`, described above, feeds the session-visibility filter.)
 
 | Table | Purpose |
 |---|---|
-| `game_sessions` | Durable session ledger — `(id varchar(64), name, game_slug, creator_casdoor_id, max_players, visibility, created_at, closed_at, paused_at, paused_by_casdoor_id, pause_reason)`. `closed_at IS NULL` = open; `paused_at IS NOT NULL` = session-wide pause. |
-| `session_members` | Membership history. `(session_id, casdoor_id, character_id, slot_index, is_creator, joined_at, left_at, last_seen_at)`. Two partial unique indexes — one slot per session, one active row per (session, casdoor). `last_seen_at` is the liveness stamp `SessionMemberReaper` uses to release stale seats. A player's tab-switch pause is not stored; `GameSessionService` holds it in memory. |
-| `mod_game_scopes` | Per-game mod assignments. `(casdoor_id, game_slug, granted_by_casdoor_id, granted_at, revoked_at, revoked_by_casdoor_id)`. Soft-delete on revoke. |
-| `publisher_game_scopes` | Same shape as `mod_game_scopes` but for publisher capability. |
-| `system_settings` | `(key, value, updated_at, updated_by)` — runtime-toggled flags. Seeded with `wasm_console_debug_enabled='false'`. |
+| `game_sessions` | Durable session ledger: `(id varchar(64), name, game_slug, creator_casdoor_id, max_players, visibility, created_at, closed_at, paused_at, paused_by_casdoor_id, pause_reason)`. `closed_at IS NULL` means open. `paused_at IS NOT NULL` means a session-wide pause. |
+| `session_members` | Membership history: `(session_id, casdoor_id, character_id, slot_index, is_creator, joined_at, left_at, last_seen_at)`. Two partial unique indexes allow one slot per session and one active row per (session, casdoor). `last_seen_at` is the liveness stamp that `SessionMemberReaper` uses to release stale seats. A player's tab-switch pause is not stored; `GameSessionService` holds it in memory. |
+| `mod_game_scopes` | Per-game mod assignments: `(casdoor_id, game_slug, granted_by_casdoor_id, granted_at, revoked_at, revoked_by_casdoor_id)`. A revoke is a soft delete. |
+| `publisher_game_scopes` | The same shape as `mod_game_scopes`, for the publisher capability. |
+| `system_settings` | `(key, value, updated_at, updated_by)`: flags toggled at runtime. Seeded with `wasm_console_debug_enabled='false'`. |
 
-See [decision 010](../decisions/010-per-session-sse-sinks.md), [decision 011](../decisions/011-mod-publisher-rbac.md), [decision 012](../decisions/012-debug-mode-gate.md).
+See [decision 010](../decisions/010-per-session-sse-sinks.md), [decision 011](../decisions/011-mod-publisher-rbac.md) and [decision 012](../decisions/012-debug-mode-gate.md).
 
 ### Identifier shape: SHA3-256, not UUID
 
-`game_sessions.id` and the other URL-facing UIDs (launch tokens, session tokens, avatar ids) are minted by [`Crypto.mintUid()`](../../../backend/src/main/java/games/hugmesh/bff/util/Crypto.java): a SHA3-256 digest of 64 random bytes from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as URL-safe base64. The result is one 43-character token per UID — no leading entropy bytes, no version bits, no dashes.
+[`Crypto.mintUid()`](../../../backend/src/main/java/games/hugmesh/bff/util/Crypto.java) mints `game_sessions.id` and the other URL-facing UIDs (launch tokens, session tokens, avatar ids). It takes a SHA3-256 digest of 64 random bytes from a BouncyCastle SP800-90A HMAC-SHA256 DRBG and encodes it as URL-safe base64. Each UID is one 43-character token, with no leading entropy bytes, no version bits and no dashes.
 
-This replaces every prior call site of `UUID.randomUUID()` and JDK `SecureRandom`. The migration was driven by three goals:
+This replaces every earlier call to `UUID.randomUUID()` and the JDK `SecureRandom`. Three goals drove it:
 
-1. **One source of randomness.** `Crypto` is the only place that touches the DRBG; every other component asks it for bytes or a UID. Auditing entropy hygiene is a single-file review.
-2. **NIST-aligned construction.** SP800-90A HMAC-SHA256 with SHA3-256 mixing has a clearer cryptographic chain of custody than `SecureRandom + Type-4 UUID`.
-3. **Indistinguishable shape across UID kinds.** Launch UIDs, session ids, session tokens and avatar ids share the 43-char base64url shape, so a leak through a log line is equally hard to backtrack regardless of category. Pod ids are short tags cut from the same mint (the first 12 characters in `PodIdentity`; `pod-` plus 8 in `DistributedRateLimitService`).
+1. **One source of randomness.** `Crypto` is the only place that touches the DRBG. Every other component asks it for bytes or a UID, so auditing entropy hygiene is a single-file review.
+2. **NIST-aligned construction.** SP800-90A HMAC-SHA256 with SHA3-256 mixing has a clearer cryptographic chain of custody than `SecureRandom` plus a Type-4 UUID.
+3. **The same shape for every kind of UID.** Launch UIDs, session ids, session tokens and avatar ids share the 43-char base64url shape, so a UID leaked through a log line is equally hard to trace back, whatever its category. Pod ids are short tags cut from the same mint: the first 12 characters in `PodIdentity`, and `pod-` plus 8 in `DistributedRateLimitService`.
 
-Liquibase 036 widens the legacy `varchar(36)` columns; older UUID-shape rows continue to fit and are not migrated.
+Liquibase 036 widens the old `varchar(36)` columns. Old UUID-shaped rows still fit and are not migrated.
 
 ### Session-scoped control authorization
 
-Two players in different sessions may legitimately use the same `character_id` (e.g. both pick "wizard 1" in their own lobby). The unscoped `findActiveOwnerOfCharacter(character_id)` returns whichever row Postgres picks first, which means the second player's `POST /api/controls/{id}` always 403s with "character not owned by caller".
+Two players in different sessions may use the same `character_id`; both can pick "wizard 1" in their own lobby. The unscoped `findActiveOwnerOfCharacter(character_id)` returns whichever row Postgres picks first, so the second player's `POST /api/controls/{id}` always got a 403 with "character not owned by caller".
 
-Mitigation: when a control arrives with `X-Session-Id`, the controller passes that header through to the session-scoped overload `authorizeControl(casdoorId, characterId, sessionId)` which calls [`SessionMemberRepository.findActiveOwnerInSession(sessionId, characterId)`](../../../backend/src/main/java/games/hugmesh/bff/repository/SessionMemberRepository.java). The `(session_id, character_id)` tuple is unique among active members thanks to the partial constraint on `session_members`, so the lookup is deterministic.
+The fix: when a control arrives with `X-Session-Id`, the controller passes the header to the session-scoped overload `authorizeControl(casdoorId, characterId, sessionId)`. That calls [`SessionMemberRepository.findActiveOwnerInSession(sessionId, characterId)`](../../../backend/src/main/java/games/hugmesh/bff/repository/SessionMemberRepository.java). The `(session_id, character_id)` tuple is unique among active members because of the partial constraint on `session_members`, so the lookup is deterministic.
 
 ## Generalised input event surface
 
-The legacy game tables (`player_characters`, `character_skill_slots`, `player_sessions`, …) cover JRPG-shaped gameplay; the input surface added in changeset 026 covers *everything Godot can consume*: gamepad button / axis, mouse motion / button / wheel, keyboard up / down, touch gestures, audio cues, world events, plus the legacy control commands as one kind among many.
+The legacy game tables (`player_characters`, `character_skill_slots`, `player_sessions`, …) cover JRPG-shaped gameplay. The input surface added in changeset 026 covers *everything Godot can consume*: gamepad button and axis, mouse motion, button and wheel, keyboard up and down, touch gestures, audio cues and world events, with the legacy control commands as one kind among many.
 
-Three reference tables anchor the schema; an append-only audit table writes against them, and a `games.features` column holds the per-game flags.
+Three reference tables anchor the schema. An append-only audit table writes against them, and a `games.features` column holds the per-game flags.
 
 | Table | Purpose |
 |---|---|
@@ -263,7 +269,7 @@ Every input emit passes these gates in `InputEventController.submit()`, in this 
 
 Ahead of these three, a separate authorization pass runs first (403, not 400/405): session-membership + character-ownership (a caller may only submit for a `characterId` it owns in the target session), plus an authority-spoof gate specific to `kind:'world'` — only the session **creator** (the host running the wasm engine) may submit an authoritative `world` event; any other member gets 403. A session-scoped event must also carry the session's own `gameSlug`; gates 2 and 3 read their flags by that slug, so a mismatch gets 403 (`gameSlug does not match the session's game`, commit 1de4631). Legacy posts with no session id have nothing to bind against and are unchanged.
 
-The same surface persists the host shell's gamepad mirror (`POST /api/input/{characterId}`) and the audio cues the Godot bundle emits. WASM-iframe console lines take a different route: `POST /api/diagnostics/wasm-console`, which feeds the `wasm-console` SSE channel and is not persisted. The Rust GDExtension's `HostBridge` ships matching typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`, plus outbound `audio_egress` and `console_egress`) so a Godot developer wires gameplay to named signals without caring whether the source was a player's USB Pro Controller, a `<kbd>W</kbd>` keypress, or an SSE emit from a cross-tab subscriber.
+The same surface persists the host shell's gamepad mirror (`POST /api/input/{characterId}`) and the audio cues the Godot bundle emits. WASM-iframe console lines take a different route: `POST /api/diagnostics/wasm-console`, which feeds the `wasm-console` SSE channel and is not persisted. The Rust GDExtension's `HostBridge` ships matching typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`, plus outbound `audio_egress` and `console_egress`). A Godot developer wires gameplay to named signals without caring whether the source was a USB controller, a `<kbd>W</kbd>` keypress, or an SSE emit from a cross-tab subscriber.
 
 ---
 
