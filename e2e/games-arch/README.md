@@ -1,18 +1,17 @@
 # Multi-user games architecture e2e (`games-arch`)
 
 A **committed, re-runnable** harness that proves the 14 web-native games work
-correctly in the deployed architecture **with real users** — the
+in the deployed architecture **with real users**. It covers the
 host-authoritative SSE relay, session lifecycle, multiplayer event delivery,
-and cross-session isolation — at the **API/SSE layer**, without a browser.
+and cross-session isolation, at the **API/SSE layer**, without a browser.
 
-In the host-authoritative model, the BFF's job is to relay events between
-players over per-session Server-Sent Events; the game engine itself runs in the
-host player's WASM process. That means the meaningful "does multiplayer work?"
-proof lives at the relay layer, not in a headless Chrome. The harness exercises
-that layer directly.
+In the host-authoritative model, the BFF relays events between players over
+per-session Server-Sent Events, and the game engine runs in the host player's
+WASM process. So the real proof that multiplayer works lives at the relay layer,
+not in a headless Chrome. The harness exercises that layer directly.
 
-This is the live multi-user complement to the agent-free build proof (all 14
-wasm bundles rebuild byte-identically + 29/29 node suites pass). It does not
+It is the live multi-user complement to the agent-free build proof (all 14
+wasm bundles rebuild byte-identically, and 29/29 node suites pass). It does not
 repeat those checks.
 
 ## What it asserts
@@ -24,17 +23,17 @@ battleship, tron, bomberman, asteroids-duel):
 2. player1 `POST /api/sessions {gameSlug}` → `sessionId`.
 3. player2 `POST /api/sessions/{id}/join`.
 4. player2 opens and actively reads the **real** SSE stream
-   (`GET /api/game/stream?sessionId=…`) via a manual line-reader over the fetch
-   body. Reading the stream is not optional — a harness that only sends events
-   and never verifies receipt proves nothing.
+   (`GET /api/game/stream?sessionId=…`) with a manual line-reader over the fetch
+   body. Reading is not optional: a harness that sends events and never checks
+   receipt proves nothing.
 5. player1 sends the game's **representative move** via `POST /api/input/{cid}`,
    using the exact `(kind, type, payload)` tuple the game's frontend emits (see
    `scenarios.mjs`). For games that broadcast a world snapshot, the host's
-   `world/state` echo is sent as well.
+   `world/state` echo goes out as well.
 6. **Assert** that player2 receives the relayed event on the `input` channel
    within the timeout, and that the event content matches.
 
-The diagram below shows the event flow the harness exercises:
+The diagram shows the event flow the harness exercises:
 
 ```mermaid
 sequenceDiagram
@@ -56,13 +55,12 @@ sequenceDiagram
 
 **Isolation**: the harness opens a second session for a different game and
 asserts that its events do **not** appear on session 1's SSE stream. This is
-the live end-to-end counterpart to the unit-level `SessionIsolationTest` — it
-confirms that the in-process isolation guarantee holds through the full HTTP +
-SSE stack.
+the live end-to-end counterpart to the unit-level `SessionIsolationTest`. It
+confirms that the isolation guarantee holds through the full HTTP + SSE stack.
 
 **Per SOLO game** (tetris, minesweeper, sudoku, match-three): `POST
-/api/games/{slug}/launch` mints a uid and the bundle is served; no relay
-is involved.
+/api/games/{slug}/launch` mints a uid and the bundle is served. No relay is
+involved.
 
 **Global**: a plain `player` sees all 14 games via
 `/api/games/available/{cid}`; the federation manifest contains 14 `wasm-game`
@@ -74,16 +72,16 @@ rows, with the 14 web-native slugs. Changelogs 053, 055, 056 and 062 each add
 one enabled `wasm-game` row (`chess-godot`, `connect-four-godot`,
 `shadows-of-the-net`, `character-forge`), so the manifest has 18. Read against
 the current migrations, the manifest assertion fails. The harness has not been
-changed. UNVERIFIED against a live stack.
+changed.
 
 ## Relay contract (verified from source)
 
-**Reading events**: Clients subscribe to
+**Reading events**: clients subscribe to
 `GET /api/game/stream?sessionId={id}` as a standard `EventSource`. Both the
 guest's `kind:'control'` move and the host's `kind:'world', type:'state'` echo
-are delivered on the **`input`** SSE channel. This is because
+arrive on the **`input`** SSE channel, because
 `GameStateService.emitInput` fans every `/api/input` call to the
-session-scoped input sink regardless of the event's `kind` field.
+session-scoped input sink whatever the event's `kind` is.
 
 **Sending events**: `POST /api/input/{characterId}` with a JSON body of
 `{gameSlug, sessionId, kind, type, payload}` (called `sendInput` for control
@@ -91,16 +89,15 @@ events and `sendWorld` for world-state broadcasts).
 
 **Authorization gates in `InputEventController`**:
 - Gate 0: the caller must be a session member who owns `characterId`.
-- Gate 0b: a session-scoped `kind:'world'` event is the authoritative relay —
+- Gate 0b: a session-scoped `kind:'world'` event is the authoritative relay, so
   only the session **creator** (the host running the wasm engine) may submit
-  one. A guest posting `kind:'world'` is rejected with **403** (closes an
-  authority-spoof: without this gate any member could forge the host's
-  broadcast state).
+  one. A guest posting `kind:'world'` gets **403**. Without this gate any member
+  could forge the host's broadcast state.
 - Gate 1: the `(kind, type)` pair must exist in `input_event_types`. An
-  unrecognised pair is rejected with **400**.
+  unrecognised pair gets **400**.
 - Gate 2: the game's `games.features` must have the event's kind set to JSON
-  `true` (an absent flag is refused like `false`), and a few `(kind, type)`
-  pairs need a subsystem flag as well (today only `control:cast`, which needs
+  `true` (an absent flag is refused like `false`). A few `(kind, type)` pairs
+  need a subsystem flag as well (today only `control:cast`, which needs
   `instant_loadout`). Refused requests get **405**. Changeset 063 seeds
   `world` and `control` true for every game, so the relay passes.
 - Gate 3: a per-game opt-in through `game_event_support`. It exists but is
@@ -111,8 +108,8 @@ The source is the class Javadoc in `InputEventController`.
 
 ## Run it
 
-The BFF API is not exposed on a host port, so the harness must run from inside
-a container on the `sdgames_default` network.
+The BFF API is not exposed on a host port, so the harness must run inside a
+container on the `sdgames_default` network.
 
 ```bash
 # One-shot (brings the stack up, runs the harness, then tears down):
@@ -124,12 +121,11 @@ make games-arch-e2e
 PROJECT=sdgames bash e2e/games-arch/run-in-docker.sh
 ```
 
-`run-in-docker.sh` handles credential resolution automatically. Because Casdoor
-randomises the client secret and player passwords on every fresh database, the
-script greps the seed values out of `docker compose -p sdgames logs casdoor`
-and injects them as environment variables before starting the harness. To
-supply credentials manually, set any of these environment variables before
-invoking the script:
+`run-in-docker.sh` resolves credentials for you. Casdoor randomises the client
+secret and player passwords on every fresh database, so the script greps the
+seed values out of `docker compose -p sdgames logs casdoor` and passes them to
+the harness as environment variables. To supply credentials yourself, set any
+of these variables before you run the script:
 
 | Variable | What it overrides |
 |---|---|
