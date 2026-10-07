@@ -59,7 +59,7 @@ The protocol in both directions:
   the host to reclaim). A return value of `packed == 0` means `null`.
 
 ```js
-import { WasmHost } from '../_shared/wasm-host.js';
+import { WasmHost } from './_shared/wasm-host.js';
 
 const host = new WasmHost('./wasm/hugmesh_chess.wasm');
 await host.load();                              // instantiateStreaming, empty imports
@@ -73,8 +73,10 @@ host.callRaw('fps_new', configJson, [seed]);    // leading args BEFORE (ptr,len)
 Use `callPacked` / `callStatus` when you know the export's return shape.
 `call` auto-detects: if the packed return value points to a valid memory region
 it decodes it as JSON; otherwise it treats the value as a plain status integer.
-`callRaw` is for exports that take additional leading arguments before the
-standard `(ptr, len)` pair — pass those leading values as the third argument array.
+`callRaw` returns the export's raw return value, with no decoding. All four
+methods take two optional argument arrays after the payload: `leadingArgs`
+(passed before the `(ptr, len)` pair, as `[seed]` is for `fps_new`) and
+`trailingArgs` (passed after it, as `[size, side]` is for `go_from_board`).
 
 The string argument is written **verbatim** as UTF-8 bytes — `WasmHost` does not
 JSON-encode it for you. Pass exactly what the export expects: a raw token
@@ -104,10 +106,11 @@ It auto-selects its transport based on context:
   case): delegates to the parent window. It requests an `EventSource` via a
   `SD_SSE_SUBSCRIBE` postMessage and receives events as `SD_SSE_EVENT`; it sends
   via `SD_API_REQUEST`. This reuses the existing
-  [`ApiBridgeService`](../../frontend/src/app/services/api-bridge.service.ts) /
-  [`hugmesh-shim.js`](../../wasm-fragment/hugmesh-shim.js) transport, so
-  the JWT and `X-Session-Id` header are attached uniformly by the host shell
-  without any knowledge of them in the game iframe.
+  [`ApiBridgeService`](../../frontend/src/app/services/api-bridge.service.ts)
+  transport, so the JWT and `X-Session-Id` header are attached uniformly by the
+  host shell without any knowledge of them in the game iframe. (The
+  [`hugmesh-shim.js`](../../wasm-fragment/hugmesh-shim.js) that `wasm-fragment`
+  injects handles console capture and input events, not this SSE transport.)
 - **Standalone** (no distinct parent window — local dev or tests): opens its own
   `EventSource('/api/game/stream?sessionId=…')` and POSTs controls directly,
   attaching a bearer token via the optional `tokenProvider` callback.
@@ -145,10 +148,14 @@ const GAME = {
 };
 ```
 
-`ctx` (the `GameContext`) carries `{ host, client, params, isHost, container }`
-plus `handleLocalInput(evt)`. Feed every captured DOM event into
-`ctx.handleLocalInput(evt)` — the frame then runs the full apply → render →
-relay cycle on your behalf.
+`ctx` (the `GameContext`) carries `{ host, client, params, isHost, container,
+GAME }` plus `handleLocalInput(evt)` and `destroy()`. Feed every captured DOM
+event into `ctx.handleLocalInput(evt)` — the frame then runs the full apply →
+render → relay cycle on your behalf. The frame relays only when `character_id`
+is present; without it (single-player) nothing leaves the browser. It calls
+`GAME.onRemoteEvent` for the channels `input`, `world`, `movement`,
+`character`, `scene` and `session-control`, and calls the optional
+`GAME.destroy(ctx)` on `pagehide`.
 
 ### URL params the frame parses
 
@@ -165,31 +172,44 @@ time. `game-frame.js` reads them on mount and makes them available on `ctx.param
 
 ## The four files a new game adds
 
-Drop a `games/<slug>/` directory with **exactly four** artifacts — no build step,
-all served as static files:
+Drop a `games/<slug>/` directory with these artifacts — no build step, all
+served as static files. (Every shipped game has five: the four below plus a
+`<game>.css`. It also has a `test/` directory.)
 
 | File | Purpose |
 |---|---|
-| `index.html` | Imports `../_shared/game-frame.js`, defines the `GAME` object, calls `mountGame(GAME, { wasmUrl: './wasm/<engine>.wasm' })`, and routes DOM events to `ctx.handleLocalInput`. |
+| `index.html` | Imports `./_shared/game-frame.js`, defines the `GAME` object, calls `mountGame(GAME, { wasmUrl: './wasm/<engine>.wasm' })`, and routes DOM events to `ctx.handleLocalInput`. |
 | `<game>.js` | The `GAME` implementation: board or scene rendering plus the wasm call logic. For small games this can be inlined directly in `index.html`. |
 | `wasm/<engine>.wasm` | The freestanding `wasm32-unknown-unknown` engine binary (zero host imports). For example: `chess/wasm/hugmesh_chess.wasm`. |
 | `icon.svg` (or `.png`) | The catalog and launcher icon. |
 
-To wire the game into the catalog, add two database rows via a Liquibase changeset
-(see [`044-chess-game.xml`](../../backend/src/main/resources/db/changelog/044-chess-game.xml)
-for the exact seed shape):
+`games/<slug>/` has no `_shared/` directory. The import path `./_shared/` works
+only in the deployed bundle, where the three modules are copied to
+`backend/src/main/resources/assets/levels/<slug>/_shared/`.
+`test/bundle-sync.test.mjs` fails if any bundle's copy differs from
+`games/_shared/`.
 
-1. A `chapters` row whose `asset_url` points to `/api/assets/levels/<slug>/index.html`.
-2. A `federation_modules` row with `kind='wasm-game'` (and `exposed_module=NULL`) — this
+To wire the game into the catalog, add these database rows via Liquibase
+changesets (see [`044-chess-game.xml`](../../backend/src/main/resources/db/changelog/044-chess-game.xml)
+for the `games` and `chapters` shape, and
+[`051-web-game-federation.xml`](../../backend/src/main/resources/db/changelog/051-web-game-federation.xml)
+for the other two):
+
+1. A `games` row.
+2. A `chapters` row whose `asset_url` points to `/api/assets/levels/<slug>/index.html`.
+3. A `federation_modules` row with `kind='wasm-game'` (and `exposed_module=NULL`) — this
    is what tells the host shell to treat the game as web-native rather than a Godot
    bundle, without requiring a new Angular remote or any frontend change.
+4. A `game_access` row with `scope='all'`. A game with no `game_access` row is
+   hidden from every non-admin player and its launch returns 403 (see the
+   comment in `051`).
 
 ```mermaid
 flowchart TB
     A[Write GAME object<br/>games/&lt;slug&gt;/&lt;game&gt;.js] --> B[Build wasm engine<br/>wasm32-unknown-unknown]
     B --> C[Drop four files under<br/>games/&lt;slug&gt;/]
     C --> D[Copy bundle into<br/>backend/.../assets/levels/&lt;slug&gt;/]
-    D --> E[Add Liquibase changeset:<br/>chapters + federation_modules rows]
+    D --> E[Add Liquibase changeset:<br/>games + chapters + federation_modules + game_access rows]
     E --> F[Rebuild wasm-fragment image<br/>docker compose build wasm-fragment]
     F --> G[Game appears in<br/>host shell catalog]
 ```
@@ -204,10 +224,13 @@ flowchart TB
 node games/_shared/test/chess-wasm.test.mjs
 ```
 
-Syntax-check the shared modules without executing them:
+`make test-games-js` runs every `games/_shared/test/*.test.mjs`.
+
+Syntax-check the shared modules without executing them. `node --check` looks
+only at the first file you give it, so loop:
 
 ```bash
-node --check games/_shared/*.js
+for f in games/_shared/*.js; do node --check "$f"; done
 ```
 
 When adding a new game, add a corresponding `games/_shared/test/<slug>-wasm.test.mjs`
