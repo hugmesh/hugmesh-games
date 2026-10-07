@@ -1,10 +1,10 @@
 # HugMesh Game Studio
 
-A self-hosted multi-game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy a 19-title catalog through an **Angular** shell with live SSE multiplayer sessions, and the **HugMesh Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
+A self-hosted multi-game studio and portal — authors build RPG and visual-novel titles using the built-in makers, players enjoy a 20-title catalog through an **Angular** shell with live SSE multiplayer sessions, and the **HugMesh Gaming BFF** (Spring Boot) handles game state, controls, and role management. Authentication via **Casdoor** (OAuth2/OIDC); the Casdoor admin UI is never exposed to the network.
 
 The catalog ships titles in **two technical families** (see [Two game technologies](#two-game-technologies)):
 
-- **Godot 4 WASM titles** — the flagship *Three Wizards In A Trenchcoat* (a JRPG romp across cave depths and open fields), a *Spinning Dodecahedron* tech demo showing off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items), *Chess (Godot)* — a Godot reference game that reuses the same deterministic Rust chess rules engine as the web-native chess via the bridge (changelog [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)) — *Connect Four (Godot)*, the second title ported with the same reference recipe (changelog [`055-connect-four-godot-federation.xml`](backend/src/main/resources/db/changelog/055-connect-four-godot-federation.xml)); merged with its own Godot export still flagged export-unverified in its own PR title, so treat the live bundle as unproven until someone confirms a real `make build-godot` run — and *Shadows of the Net – CHAT*, a pure-GDScript XR chat chamber (no Rust bridge) seating up to 16 participants around a noir round table, with a WebXR/Quest entry on top of the desktop fallback (changelog [`056-shadows-of-the-net-federation.xml`](backend/src/main/resources/db/changelog/056-shadows-of-the-net-federation.xml); see [`games/shadows-of-the-net/README.md`](games/shadows-of-the-net/README.md)).
+- **Godot 4 WASM titles** — the flagship *Three Wizards In A Trenchcoat* (a JRPG romp across cave depths and open fields), a *Spinning Dodecahedron* tech demo showing off the chrome-less standalone-WASM path (no HUD, no controls overlay, no quests/items), *Chess (Godot)* — a Godot reference game that reuses the same deterministic Rust chess rules engine as the web-native chess via the bridge (changelog [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)) — *Connect Four (Godot)*, the second title ported with the same reference recipe (changelog [`055-connect-four-godot-federation.xml`](backend/src/main/resources/db/changelog/055-connect-four-godot-federation.xml)); merged with its own Godot export still flagged export-unverified in its own PR title, and no bundle for it is committed under `backend/src/main/resources/assets/levels/`, so treat it as unproven until someone confirms a real `make build-godot` run, *Shadows of the Net – CHAT*, a pure-GDScript XR chat chamber (no Rust bridge) seating up to 16 participants around a noir round table, with a WebXR/Quest entry on top of the desktop fallback (changelog [`056-shadows-of-the-net-federation.xml`](backend/src/main/resources/db/changelog/056-shadows-of-the-net-federation.xml); see [`games/shadows-of-the-net/README.md`](games/shadows-of-the-net/README.md)) — and *Character Forge*, a single-player 3D character maker (changelog [`062-character-forge-federation.xml`](backend/src/main/resources/db/changelog/062-character-forge-federation.xml); see [`games/character-forge/README.md`](games/character-forge/README.md)).
 - **Web-native Rust→wasm32 titles** — 14 board / puzzle / duel games (chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three) whose pure-Rust engines compile to `wasm32-unknown-unknown` and drive a canvas frontend through the host-authoritative SSE relay (see [`games/_shared/`](games/_shared/README.md)).
 
 > **State convention.** ✅ shipped = merged to `main`; 🚧 in-flight = code on an open branch/PR, not yet merged; 🔭 planned = design-complete, no code. The [Roadmap](#roadmap) gathers the 🚧 / 🔭 items.
@@ -37,29 +37,29 @@ The [in-repo wiki](docs/wiki/) is the fastest way into the codebase. Start with 
 At-a-glance summary of what's real on `main` today, evidenced by the code, tests, and merged PR history in this repo — full detail lives in [Roadmap](#roadmap) and [Known gaps / TODO](#known-gaps--todo).
 
 **Shipped and working:**
-- 19-title catalog (Godot 4 WASM + web-native Rust→wasm32), all launchable through Module Federation; see [Two game technologies](#two-game-technologies).
+- 20-title catalog (Godot 4 WASM + web-native Rust→wasm32), all registered for launch through Module Federation; see [Two game technologies](#two-game-technologies).
 - Multiplayer sessions with per-session SSE sink isolation, enforced at three independent layers (unit + two e2e specs).
-- The host-authoritative web-native relay is proven end-to-end on `main`: the guest-side gap and the cross-pod Kafka leg are both merged and mutation-tested (full backend suite green). 9 of the 10 relay-capable web-native games have full two-browser UI-level e2e coverage (`e2e/tests/web-games-multiplayer.spec.ts`); battleship is deliberately excluded (documented in-file) pending a two-sided driver. That relay e2e suite itself has not yet been confirmed green against a live two-browser stack.
+- The host-authoritative web-native relay is proven end-to-end on `main`: the guest-side gap and the cross-pod Kafka leg are both merged and mutation-tested (full backend suite green). All 10 relay-capable web-native games have two-browser UI-level e2e specs: nine in `e2e/tests/web-games-multiplayer.spec.ts`, and battleship, whose two-sided placement needs its own driver, in `e2e/tests/battleship-two-sided.spec.ts`. These relay e2e specs have not yet been confirmed green against a live two-browser stack.
 - RPG + VN makers compile authored projects to real Godot WASM bundles when `app.build.godot-enabled=true`, including byte-copied asset materialization and deterministic procedural-SVG asset generation — see [decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
 - Kafka → ClickHouse streaming/audit pipeline, object-storage uploads, Postgres read-replica routing, and the per-brand `DOMAIN_` tenancy foundation — decisions [021](docs/wiki/decisions/021-kafka-clickhouse-streaming-pipeline.md), [020](docs/wiki/decisions/020-object-storage-uploads.md), [022](docs/wiki/decisions/022-postgres-read-replica.md), [025](docs/wiki/decisions/025-bff-domain-guard.md)/[026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
 - A recent OWASP-driven security pass closed several IDOR/BOLA/fail-open findings across the games BFF (see recent history on [Pull Requests](https://github.com/hugmesh/hugmesh-games/pulls?q=is%3Apr)).
 
-**Known gaps** (see [Known gaps / TODO](#known-gaps--todo) for full detail): `InputEventController` enforces only 1 of its 3 documented validation gates; server-authoritative FPS/RTS engines exist and are tested in-JVM but have no catalog title yet; strict CSP isn't done; `CassandraSyncService` is superseded but not yet retired; *Connect Four (Godot)* is catalog-registered but its own merge commit flags the WASM export as unverified.
+**Known gaps** (see [Known gaps / TODO](#known-gaps--todo) for full detail): `InputEventController`'s third validation gate (per-game opt-in) exists but is switched off; the server-authoritative FPS/RTS surface runs only a Java reference sim and has no catalog title; strict CSP isn't done; `CassandraSyncService` is superseded but not yet retired; *Connect Four (Godot)* is catalog-registered but its own merge commit flags the WASM export as unverified.
 
 ---
 
 ## Two game technologies
 
-The 19-title catalog (✅ shipped on `main`) splits into two delivery models. They share the same SSE session transport, role gating, and launch-UID minting, but differ in how the game runs in the browser:
+The 20-title catalog (✅ registered on `main`) splits into two delivery models. They share the same SSE session transport, role gating, and launch-UID minting, but differ in how the game runs in the browser:
 
 | Family | Titles | Engine | Delivery | Authority |
 |---|---|---|---|---|
-| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)*, *Connect Four (Godot)*, *Shadows of the Net – CHAT* | Godot 4.6 project under [`games/<slug>/`](games/) exported to a self-contained WASM bundle | per-game `remote-game` Angular Web Component (or the legacy iframe path) loading the bundle from `wasm-fragment`; *Chess (Godot)* / *Connect Four (Godot)* / *Shadows of the Net – CHAT* federate via a `wasm-game` row straight at the `wasm-fragment` bundle (changelogs [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml), [`055-connect-four-godot-federation.xml`](backend/src/main/resources/db/changelog/055-connect-four-godot-federation.xml), [`056-shadows-of-the-net-federation.xml`](backend/src/main/resources/db/changelog/056-shadows-of-the-net-federation.xml)) | server (BFF) holds canonical game state (*Chess (Godot)* / *Connect Four (Godot)* are host-authoritative, reusing the matching Rust core via the bridge — the guest re-validates); *Shadows of the Net – CHAT* is also host-authoritative but pure GDScript — no Rust bridge, no rules core to reuse — with the session creator arbitrating room seat/stage state |
+| **Godot 4 WASM** | *Three Wizards In A Trenchcoat*, *Dodecahedron Demo*, *Chess (Godot)*, *Connect Four (Godot)*, *Shadows of the Net – CHAT*, *Character Forge* | Godot 4.6 project under [`games/<slug>/`](games/) exported to a self-contained WASM bundle | per-game `remote-game` Angular Web Component (or the legacy iframe path) loading the bundle from `wasm-fragment`; *Chess (Godot)* / *Connect Four (Godot)* / *Shadows of the Net – CHAT* / *Character Forge* federate via a `wasm-game` row straight at the `wasm-fragment` bundle (changelogs [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml), [`055-connect-four-godot-federation.xml`](backend/src/main/resources/db/changelog/055-connect-four-godot-federation.xml), [`056-shadows-of-the-net-federation.xml`](backend/src/main/resources/db/changelog/056-shadows-of-the-net-federation.xml), [`062-character-forge-federation.xml`](backend/src/main/resources/db/changelog/062-character-forge-federation.xml)) | server (BFF) holds canonical game state (*Chess (Godot)* / *Connect Four (Godot)* are host-authoritative, reusing the matching Rust core via the bridge — the guest re-validates); *Shadows of the Net – CHAT* is also host-authoritative but pure GDScript — no Rust bridge, no rules core to reuse — with the session creator arbitrating room seat/stage state; *Character Forge* is single-player (`"sse":false`) |
 | **Web-native Rust→wasm32** | chess, connect-four, reversi, gomoku, dots-and-boxes, go, battleship, tron, bomberman, asteroids-duel, tetris, minesweeper, sudoku, match-three | pure-Rust engine under [`extensions/hugmesh-<game>/`](extensions/) + a `-wasm` shim crate compiled to `wasm32-unknown-unknown` (zero host imports), driving a vanilla-JS canvas frontend under [`games/<slug>/`](games/) | **no per-game Angular remote** — a `federation_modules` row of `kind='wasm-game'` points the host straight at the `wasm-fragment` bundle (changelog [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml)) | **host-authoritative** — the host browser runs the engine, the BFF only relays `control`/`world` over the per-session SSE stream, the guest re-applies and re-validates |
 
 Each web-native engine runs identically in three environments — the browser (`WebAssembly.instantiateStreaming`), the JVM test harness (Chicory), and a Node functional test — so the same `.wasm` binary is verified end-to-end without environment-specific shims. See [`games/_shared/README.md`](games/_shared/README.md) for the shared shell contract, [`docs/multiplayer-chess-design.md`](docs/multiplayer-chess-design.md) for the host-authoritative relay model, and the "Web-native games" section of [CLAUDE.md](CLAUDE.md) for the add-a-game recipe.
 
-> Server-authoritative realtime FPS/RTS sim cores ([`extensions/hugmesh-fps-core`](extensions/), [`extensions/hugmesh-rts-core`](extensions/)) and their Cassandra-truth tick loop are 🚧 in-flight at the *engine* level — verified in-JVM via Chicory — but **no FPS/RTS title is registered in the catalog yet**. See [Roadmap](#roadmap).
+> Server-authoritative realtime FPS/RTS sim cores ([`extensions/hugmesh-fps-core`](extensions/), [`extensions/hugmesh-rts-core`](extensions/)) and the Cassandra-truth tick loop are 🚧 in-flight at the *engine* level, but **no FPS/RTS title is registered in the catalog yet**. The tick loop runs only a Java reference sim today. The FPS core also runs in-JVM through Chicory, but only in tests, and the RTS core has no wasm shim. See [Roadmap](#roadmap).
 
 ---
 
@@ -72,13 +72,13 @@ Six components build from the monorepo, chained by the root [`Makefile`](Makefil
 | **HugMesh Gaming BFF** | Java 25 / Spring WebFlux (Maven wrapper) | `make build-backend` (`./mvnw package`) | Builds + tests pass on a host with JDK 25. |
 | **Angular host + remotes** | Node 22 / Angular 22, [native-federation](docs/wiki/decisions/001-native-federation.md) | `make build-frontend` (host) · `make build-frontend-all` (host + every remote bundle) | Builds + Karma unit tests pass (frontend tests run in a Chromium-baked Docker image, so the host needs no browser). |
 | **hugmesh-bridge** (Rust → native `.so`) | `cargo build --release --features api-custom` | `make build-rust` | Builds + `cargo test` pass on a host with `cargo` + Godot (gdext regenerates `extension_api.json` against your Godot binary). |
-| **hugmesh-bridge** (Rust → WASM) | `wasm32-unknown-emscripten` | `make build-rust-wasm` (dockerised emsdk) | Needs emscripten. Built via a pinned `rust + emsdk` Docker image ([`tools/build-rust-wasm/Dockerfile`](tools/build-rust-wasm/Dockerfile)) so the host never installs emscripten; produces a 3.3 MB `hugmesh_bridge.wasm`. Skipped with a warning if Docker/emsdk is absent — normal browser play does not depend on it (the GDScript path covers the bridge events). |
+| **hugmesh-bridge** (Rust → WASM) | `wasm32-unknown-emscripten` | `make build-rust-wasm` (dockerised emsdk) | Needs Docker, not a host emscripten. Built via a pinned `rust + emsdk` Docker image ([`tools/build-rust-wasm/Dockerfile`](tools/build-rust-wasm/Dockerfile)); produces a 3.3 MB `hugmesh_bridge.wasm`. Not optional: `build-rust` depends on it, and its `deps-rust` step stops with an error when `docker` is missing. |
 | **Godot 4.6 web export** | Godot 4.6 CLI + export templates | `make build-godot` (one bundle per export preset, per game) | Needs the Godot 4.6 binary on `PATH` *and* installed 4.6 export templates. Writes one WASM bundle per chapter under `backend/src/main/resources/assets/levels/<slug>/`, then runs [`scripts/patch-godot-html.py`](scripts/patch-godot-html.py). |
 | **Web-native game cores** (14 × Rust → WASM) | `wasm32-unknown-unknown`, freestanding cdylib | `make build-games-wasm` (dockerised rustc) · `make clean-games-wasm` | Builds every `extensions/hugmesh-<game>-wasm/` shim via [`tools/build-games-wasm/Dockerfile`](tools/build-games-wasm/Dockerfile) — a thin layer on the official `rust` image, no emsdk. All 14 crates depend only on their sibling engine by path, so the build runs with `--offline` and needs no network at all. Output lands in `extensions/<crate>/target/wasm32-unknown-unknown/release/`; the target **builds only** and installs nothing. |
 
 `make build` runs all of the above **except** `build-games-wasm`, in dependency order (`build-rust → build-godot → build-backend → build-frontend`). The game cores stay out of the default chain for the same reason the committed bundles do: the shipped `.wasm` files under `games/<slug>/wasm/` are tracked artefacts, so regenerating them is an explicit, reviewable act rather than a side effect of `make build`.
 
-**Tests.** `make test` fans out to `test-rust` (cargo), `test-backend` (`./mvnw test`), and `test-frontend` (Karma in Docker). End-to-end is Playwright against the live Docker Compose stack: `make e2e` (canonical suite — TLS, all images, self-isolation specs), `make e2e-bdd` (Gherkin `.feature` files with per-step screenshots), and `make e2e-native` (the same suite against the GraalVM native image overlay). Godot has no GDScript unit suite yet — the runtime layer is exercised by `make e2e` loading the real WASM bundle in a browser.
+**Tests.** `make test` fans out to six legs: `test-rust` (cargo, in `extensions/hugmesh-bridge`), `test-rust-cores` (`cargo test --offline` in every other `extensions/hugmesh-*` crate), `test-backend` (`./mvnw test`), `test-godot` (headless GDScript suites for `shadows-of-the-net` and `character-forge`; needs a Godot binary), `test-games-js` (the node suites under `games/_shared/test/`), and `test-frontend` (Karma in Docker). End-to-end is Playwright against the live Docker Compose stack: `make e2e` (canonical suite — TLS, all images, self-isolation specs), `make e2e-bdd` (Gherkin `.feature` files with per-step screenshots), and `make e2e-native` (the same suite against the GraalVM native image overlay). The other Godot projects have no GDScript unit suite; `make e2e` exercises them by loading the real WASM bundle in a browser.
 
 **Run it.** `docker compose up -d` brings up Postgres + Cassandra + Casdoor + BFF + the Angular host + the federated remotes; Liquibase migrates the schema on first boot. `make lan-up` / `make lan-up-tls` expose the stack to the LAN via [`lan.properties`](lan.properties). Dev servers: `make dev-backend` (`:8080`) and `make dev-frontend` (`:4200`, proxied to the BFF). See [architecture · 06 — build and deploy](docs/wiki/architecture/06-build-and-deploy.md) for the full chain and the Docker 29.x buildx caveat.
 
@@ -104,6 +104,7 @@ Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-fede
 - **Chess (Godot) — Godot pivot pilot title.** Done (migration [`053-chess-godot-federation.xml`](backend/src/main/resources/db/changelog/053-chess-godot-federation.xml)). A `games/chess-godot/` Godot 4 project reuses the same deterministic `hugmesh-chess` Rust rules engine as the web-native `chess` title via the `ChessEngine` GDExtension node (no GDScript rules), federated as its own `kind='wasm-game'` row alongside — not replacing — the original web-native `chess` tile. `games/_godot-template/` documents it as the reference recipe for porting the remaining web-native titles to Godot. Reversible: disabling the `games-chess-godot` federation row rolls back to web-native-only with one UPDATE.
 - **Connect Four (Godot) — second Godot port, catalog-registered but export-unverified.** Catalog rows done (migration [`055-connect-four-godot-federation.xml`](backend/src/main/resources/db/changelog/055-connect-four-godot-federation.xml)): mirrors the chess-godot pattern exactly — `games/connect-four-godot/` reuses `hugmesh-connect-four` via a `ConnectFourEngine` GDExtension node, federated as its own `kind='wasm-game'` row alongside — not replacing — the web-native `connect-four` tile. The merge commit's own title flags the actual `make build-godot` WASM export as not yet verified in this repo's history — the game is discoverable/launchable per the catalog data, but nobody has confirmed the produced bundle boots. Treat as 🚧 until a real export is confirmed.
 - **Shadows of the Net – CHAT — XR chat chamber, the 19th catalog title.** Done (migration [`056-shadows-of-the-net-federation.xml`](backend/src/main/resources/db/changelog/056-shadows-of-the-net-federation.xml)). `games/shadows-of-the-net/` is a pure-GDScript Godot 4 project — unlike the chess/connect-four ports, it has no Rust rules core and no `hugmesh_bridge` GDExtension — implementing a 16-seat noir chat room with media surfaces and a WebXR/Quest entry on top of the desktop fallback. Federated as its own `kind='wasm-game'` row (`enabled=true`) with a `scope='all'` `game_access` row, so it is visible and launchable for every player, not gated behind a role or feature flag. Seat/stage relay rides the existing `control`/`world` SSE channels (session creator arbitrates), pinned end to end by `ShadowsOfTheNetFederationSeedTest`. See [`games/shadows-of-the-net/README.md`](games/shadows-of-the-net/README.md) and [decision 028](docs/wiki/decisions/028-parametric-humanoid-avatars.md) for the character-rendering contract it shares with `hugmesh-character-forge-bff-api`.
+- **Character Forge — 3D character maker, the 20th catalog title.** Done (migration [`062-character-forge-federation.xml`](backend/src/main/resources/db/changelog/062-character-forge-federation.xml)). `games/character-forge/` is a Godot 4 project that moved into this repo from the character-forge BFF repo. The engine renders and answers the bridge; every control lives in the Angular host. Federated as a `kind='wasm-game'` row with a `scope='all'` `game_access` row, single-player (`"sse":false`). No bundle for it is committed under `backend/src/main/resources/assets/levels/`. Its headless GDScript suite runs under `make test-godot`. See [`games/character-forge/README.md`](games/character-forge/README.md).
 - **Per-brand domain foundation (the `DOMAIN_` authority).** Done (merged via PR #65). The games BFF now derives a tenant the way hugmesh-gateway does — `DomainRegistry` (issuer → brand), `CasdoorAuthorities` stamping exactly one issuer-derived `DOMAIN_<x>` per token with a reserved-prefix anti-forgery guard, and `Roles.isSuperadmin` / fail-closed `Roles.domainOf`. *Note:* PR #65 stamped the authority and added the converter hardening; the **enforcement** layer that consumes it (the BFF-side guard and catalog partitioning below) has since merged to `main` as well.
 - **BFF-side `DOMAIN_` guard.** Done. `DomainGuardFilter` — a reactive `WebFilter` re-running the gateway's per-instance domain hard-deny as defence-in-depth for callers that reach the BFF without traversing the gateway. Gated on `app.tenancy.domain`; a complete no-op when unset (single-tenant today). [Decision 025](docs/wiki/decisions/025-bff-domain-guard.md), 16-spec `DomainGuardFilterTest`.
 - **Per-brand games-catalog domain partitioning.** Done. `games.domain` column (migration 043, defaults `'default'` = unscoped), `Roles.domainApplies` predicate, `DomainScopeService.requireGameDomain`, server-controlled first-writer-wins upload stamping (untrusted-`register.sql`-proof), and the `GameAccessController` list/grant/revoke enforcement surface. [Decision 026](docs/wiki/decisions/026-games-catalog-domain-partitioning.md).
@@ -111,7 +112,7 @@ Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-fede
 
 ### In progress — server-authoritative realtime engines (catalog launch deferred)
 
-- **FPS / RTS sim cores + Cassandra-truth tick loop.** 🚧 In-flight (engine level). The `hugmesh-fps-core` / `hugmesh-rts-core` Rust sim cores, the server-authoritative tick loop, the `realtime_matches` Postgres table (changelog [`049-realtime-matches.xml`](backend/src/main/resources/db/changelog/049-realtime-matches.xml)) and its Cassandra live-truth companions (`realtime_keyframes` + `realtime_command_log`), and the `RealtimeController` / `AdminRealtimeController` REST surface all exist on `main` and are verified in-JVM via Chicory. **But no FPS/RTS title is yet registered in the catalog or federation as a launchable game** — these are engines and a match surface, not a playable catalog entry. Design records: [`docs/realtime-server-authoritative-design.md`](docs/realtime-server-authoritative-design.md), [`docs/realtime-sim-wiring-p4.md`](docs/realtime-sim-wiring-p4.md).
+- **FPS / RTS sim cores + Cassandra-truth tick loop.** 🚧 In-flight (engine level). The `hugmesh-fps-core` / `hugmesh-rts-core` Rust sim cores, the server-authoritative tick loop (`AuthoritativeTickService`), the `realtime_matches` Postgres table (changelog [`049-realtime-matches.xml`](backend/src/main/resources/db/changelog/049-realtime-matches.xml)) and its Cassandra live-truth companions (`realtime_keyframes` + `realtime_command_log`), and the `RealtimeController` / `AdminRealtimeController` REST surface all exist on `main`. The tick loop registers only the Java `ReferenceArenaSim`. The Rust cores are not wired in: the FPS core runs in-JVM through Chicory in tests only, and the RTS core has no wasm shim. **No FPS/RTS title is registered in the catalog or federation as a launchable game** — these are engines and a match surface, not a playable catalog entry. Design records: [`docs/realtime-server-authoritative-design.md`](docs/realtime-server-authoritative-design.md), [`docs/realtime-sim-wiring-p4.md`](docs/realtime-sim-wiring-p4.md).
 - **Godot 4 + Web export templates baked into rpg-builder / vn-builder images.** Code-complete on `main` (PR #101, superseding the closed draft #89): both `rpg-builder/Dockerfile` and `vn-builder/Dockerfile` fetch the Godot 4.6 headless binary + Web export templates into the image, and `.gitlab-ci.yml` passes an optional `GODOT_MIRROR_BASE_URL` CI/CD variable through as the build-arg for the air-gapped runner. 🚧 Two ops steps remain, both still outstanding: mirroring the Godot release artifacts into the project's package registry + setting that CI/CD variable (today's builds still fall through to the public GitHub default), and flipping `APP_BUILD_GODOT_ENABLED=true` (plus ephemeral storage / `APP_BUILD_BRIDGE_DIR`) in the maker Deployment manifests, which is a deploy-time config change tracked outside this repo.
 - **More game ports.** 🔭 Planned. [`docs/game-ports-backlog.md`](docs/game-ports-backlog.md) is an explicit planning backlog (kdegames / FPS / RTS ports) — each row is a future epic, not yet built.
 
@@ -135,8 +136,8 @@ Status as of the current `main`. Phase-2 detail lives in [`docs/PLAN-module-fede
 
 Specific unfinished spots verified in the current source, beyond the roadmap items above:
 
-- **`InputEventController` only enforces gate 1 of 3.** The class Javadoc documents three validation gates for `POST /api/input/{characterId}`; only gate 1 (the `(kind, type)` pair exists in `input_event_types`) is wired in. Gate 2 (reject a kind the active game's `games.features` doesn't accept) and gate 3 (reject an `(game_slug, event_kind, event_type)` triple not present in `game_event_support`) are explicitly marked "Not yet implemented" in the class doc, with a `// TODO` at the end of `submit()` (`InputEventController.java:152`). Net effect: any registered `(kind, type)` pair is currently accepted for any game regardless of that game's declared feature flags or per-game opt-in table. The three blockers that keep this deferred — gate 2 having two incompatible specifications, `world`/`control` having no `games.features` key at all, and `game_event_support` carrying input-kind rows for only two of the catalog's slugs — are enumerated at that TODO and in [04 — data model](docs/wiki/architecture/04-data-model.md#generalised-input-event-surface).
-- **Server-authoritative FPS/RTS engines have no catalog title yet.** `hugmesh-fps-core` / `hugmesh-rts-core`, the `RealtimeController` / `AdminRealtimeController` REST surface, and the Cassandra-truth tick loop all exist and are verified in-JVM via Chicory, but no FPS/RTS game is registered in the `games` catalog or federation manifest — see [Roadmap](#roadmap).
+- **`InputEventController` gate 3 is off.** `POST /api/input/{characterId}` runs these gates in order: gate 0 (the caller is an active session member who owns the character, and a session-scoped `kind:'world'` event must come from the session creator, else 403), gate 1 (the `(kind, type)` pair exists in `input_event_types`, else 400), and gate 2 (the game's `games.features` has the event's kind set to `true`, plus a subsystem flag for `control:cast`, else 405). Gate 3 (an enabled `game_event_support` row for the `(game_slug, event_kind, event_type)` triple, else 405) is built but switched off by `app.input.gate3-enabled=false`. It stays off until every shipped title has its rows: only `three-wizards` and `dodecahedron` have input rows, and several titles have none, so switching it on would refuse real input. One more gap, from the class Javadoc: the export plugin's `register.sql` still replaces the whole `features` object without the `world`/`control` keys, so an uploaded or re-installed game gets 405 until hugmesh-games#17 lands. See also [04 — data model](docs/wiki/architecture/04-data-model.md#generalised-input-event-surface).
+- **Server-authoritative FPS/RTS engines have no catalog title yet.** `hugmesh-fps-core` / `hugmesh-rts-core`, the `RealtimeController` / `AdminRealtimeController` REST surface, and the Cassandra-truth tick loop all exist, but the tick loop runs only a Java reference sim. No FPS/RTS game is registered in the `games` catalog or federation manifest — see [Roadmap](#roadmap).
 - **Strict CSP not done.** Both nginx confs still ship `'unsafe-eval'`/`'unsafe-inline'` in `script-src` and `'unsafe-inline'` in `style-src` — load-bearing for es-module-shims and Angular's runtime style injection today. Dropping them is a documented follow-up, not started ([decision 023](docs/wiki/decisions/023-content-security-policy.md)).
 - **`CassandraSyncService` not yet retired.** Superseded in intent by the Kafka → ClickHouse streaming pipeline (`decision 021`), but still in the codebase pending a production soak period before removal.
 - **CI now has a test stage, but it has not yet been observed running on the real runner.** `.gitlab-ci.yml` gained a `test` stage whose four jobs (`test:backend`, `test:frontend`, `test:games-js`, `test:rust-cores`) `build:image` `needs:`, so a red suite should fail the pipeline before any image is built or pushed. What is *verified* is each job's command, run verbatim in its own container on a developer box: 700 backend tests, 219 Karma specs, 18 games-JS suites, and 496 Rust game-core tests across 31 crates, all green. What is *not* verified is the GitLab pipeline itself — there is no runner available outside the cluster, so the first run on `main` is the first real execution. The jobs bind-mount `${CI_PROJECT_DIR}` into sibling containers, which requires the shell executor the rest of this file already implies (no job declares an `image:`, yet `build:image` and the pentest jobs run bare `docker`/`bash`); a `before_script` guard on `.test:base` fails fast with an explicit message if that assumption is ever wrong, rather than surfacing as a confusing missing-file error. Treat the first pipeline on `main` as the acceptance test for the stage.
@@ -146,14 +147,14 @@ Specific unfinished spots verified in the current source, beyond the roadmap ite
 
 ## Multiplayer sessions
 
-The portal supports multiple concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker, then choose an existing session or start a new one. In Three Wizards, the server spawns one wizard `CharacterBody3D` per registered slot — the local player drives their own slot via `/api/controls/{characterId}`, while movement events from other players arrive on the per-session SSE stream and drive the remote wizards.
+The portal supports multiple concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker, then choose an existing session or start a new one. In Three Wizards, the game client (`HugMeshMultiplayerLobby`) spawns one wizard `CharacterBody3D` per registered slot — the local player drives their own slot via `/api/controls/{characterId}`, while movement events from other players arrive on the per-session SSE stream and drive the remote wizards.
 
 | Surface | What it does |
 |---|---|
 | `POST /api/sessions` | Create a named session for a game (creator becomes slot 0). |
 | `GET /api/sessions?gameSlug=` | List open sessions for the game-menu picker. |
 | `POST /api/sessions/{id}/join` | Join an existing session at a free slot. |
-| `GET /api/game/stream?sessionId=` | Per-session SSE stream — only this session's movement / world / character / view events. |
+| `GET /api/game/stream?sessionId=` | Per-session SSE stream — only this session's movement / world / character / input events. (`view` is not on this stream; see the admin stream below.) |
 | `GET /api/admin/sessions/{id}/stream` | Admin-only per-session merged stream including the `view` channel. |
 
 The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)) — a subscriber to session A never sees session B's events. This guarantee is enforced at three independent layers: [`SessionIsolationTest`](backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java) (BFF unit), [`multiplayer-same-session.spec.ts`](e2e/tests/multiplayer-same-session.spec.ts) (two players, one session — strict positive assertion), and [`cross-session-isolation.spec.ts`](e2e/tests/cross-session-isolation.spec.ts) (two players, two sessions — strict negative assertion). The e2e suite passes 21/21; see [howto/run-multi-user-e2e.md](docs/wiki/howto/run-multi-user-e2e.md) for adding new specs.
@@ -215,7 +216,7 @@ The **Godot 4 WASM** family is organised in three tiers (below), with one except
 
 ```mermaid
 flowchart TB
-    Game["<b>Game</b> — a title in the catalog<br/>Godot 4 WASM: Three Wizards In A Trenchcoat, Dodecahedron Demo, Chess (Godot), Connect Four (Godot), Shadows of the Net – CHAT<br/>… plus 14 web-native titles: chess, go, tetris, tron, …"]
+    Game["<b>Game</b> — a title in the catalog<br/>Godot 4 WASM: Three Wizards In A Trenchcoat, Dodecahedron Demo, Chess (Godot), Connect Four (Godot), Shadows of the Net – CHAT, Character Forge<br/>… plus 14 web-native titles: chess, go, tetris, tron, …"]
     Chapter["<b>Chapter</b> — one Godot WASM bundle<br/>e.g. The Enchanted Cave, Spinning Dodecahedron, The Chamber"]
     Scene["<b>Scene elements</b><br/>fairies · lights · geometry · NPCs"]
     Assets["<b>Chapter assets</b><br/>custom textures · plugins · sounds"]
@@ -227,7 +228,7 @@ flowchart TB
 ```
 
 - A **Game** is one row in the `games` table — it appears as a card on the HugMesh
-  Games portal home page. The catalog ships 19 titles in two families (see
+  Games portal home page. The catalog ships 20 titles in two families (see
   [Two game technologies](#two-game-technologies)): the Godot 4 WASM titles
   *Three Wizards In A Trenchcoat* (a JRPG with quests, HUD, and movement controls),
   the *Dodecahedron Demo* (a chrome-less single-scene tech demo with no HUD, no
@@ -236,7 +237,8 @@ flowchart TB
   *Shadows of the Net – CHAT* (a pure-GDScript XR chat chamber — its single
   chapter, "The Chamber", has no `scene_elements` rows of its own, so in
   practice it skips the Scene-element tier the same way the web-native family
-  does); plus 14 web-native Rust→wasm32 board / puzzle / duel titles.
+  does), and *Character Forge* (a single-player 3D character maker with one
+  chromeless chapter); plus 14 web-native Rust→wasm32 board / puzzle / duel titles.
   Web-native games are delivered as a single canvas bundle and do not use the
   Chapter → Scene-element tier described below.
 - Each **Chapter** inside a game is its own compiled Godot WASM bundle, served from
@@ -263,7 +265,7 @@ Up to three players may be connected simultaneously; exactly one holds the **con
 
 The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host: at runtime it loads role-gated sibling bundles (`login`, `admin`, `mod`, `publisher`, `games-three-wizards`, `games-dodecahedron`, `games-rpg-maker`, `games-vn-maker`, `registration`, `producer-registration`, `banned`, `api-docs`) plus a `wasm-fragment` asset-tier nginx, all served by per-remote services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The runtime data flow below describes the **post-federation** rendering path; legacy `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. See *Module Federation: host + remotes + a fragment* under [Key architectural decisions](#key-architectural-decisions) for the bundle-view companion to this runtime view.
 
-All browser traffic enters through the **hugmesh-gateway** (Spring Cloud Gateway). The gateway terminates TLS, enforces the primary rate limit, and holds the revocation list — stamping `X-Revoked` on requests from banned keys. It routes `/api/*` to the BFF and all other paths to the Angular host nginx. The BFF then re-runs the same revocation and rate-limit checks as defence-in-depth (`RevocationListService` / `RateLimitFilter`), so service-to-service traffic on the compose network that bypasses the gateway edge is still gated at the application layer.
+In a platform deployment, all browser traffic enters through the **hugmesh-gateway** (Spring Cloud Gateway). This repo's own `docker-compose.yml` has no gateway service: there the `frontend` nginx on `:8080` is the entry point. The gateway terminates TLS, enforces the primary rate limit, and holds the revocation list — stamping `X-Revoked` on requests from banned keys. It routes `/api/*` to the BFF and all other paths to the Angular host nginx. The BFF then re-runs the same revocation and rate-limit checks as defence-in-depth (`RevocationListService` / `RateLimitFilter`), so service-to-service traffic on the compose network that bypasses the gateway edge is still gated at the application layer.
 
 ```mermaid
 flowchart TB
@@ -359,26 +361,27 @@ Runtime data access is non-blocking R2DBC. Liquibase needs a blocking JDBC `Data
 **Per-brand domain isolation, mirrored from hugmesh.net.**
 The BFF derives tenant identity the same way the hugmesh-gateway does: each brand has its own Casdoor instance, producing a distinct cryptographically-validated `iss` claim. `DomainRegistry` maps that issuer to a brand name; `CasdoorAuthorities` stamps exactly one `DOMAIN_<x>` authority on every token, with a reserved-prefix guard that prevents a `permissions:["DOMAIN_other"]` entry from forging a cross-tenant identity. `DomainGuardFilter` is the first consumer of this authority: when `app.tenancy.domain` names the brand this BFF instance serves, it returns 403 (with `X-Domain-Denied`) for any authenticated non-SUPERADMIN token whose `DOMAIN_<x>` does not match — a defence-in-depth mirror of the gateway's domain hard-deny, covering compose-network traffic that reaches the BFF without traversing the gateway edge. When `app.tenancy.domain` is unset (the single-Casdoor default), the filter is a complete no-op. An optional `app.tenancy.issuers` CSV activates a per-brand multi-issuer decoder (`TenancyResourceServerConfig`). See [decision 025](docs/wiki/decisions/025-bff-domain-guard.md).
 
-**Module Federation: host + twelve remotes + a fragment + 14 `wasm-game` rows.**
-The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads role-gated sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The 14 web-native titles add no per-remote container — they ride the shared `wasm-fragment` via `wasm-game` manifest rows (last row below):
+**Module Federation: host + twelve remotes + a fragment + 18 `wasm-game` rows.**
+The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host. It loads role-gated sibling bundles at runtime, served by per-remote nginx services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The 14 web-native titles add no per-remote container — they ride the shared `wasm-fragment` via `wasm-game` manifest rows (last row below). The four Godot titles registered by changelogs 053, 055, 056 and 062 add four more `wasm-game` rows, 18 in all:
 
 | Slug | Kind | Exposes | Where in the host |
 |---|---|---|---|
 | `login` | `remote-shell` | `./LoginComponent` | `loadComponent` for `/login` |
-| `admin` | `remote-shell` | `./AdminShell` + `./UploadShell` | `loadComponent` for `/admin` and `/admin/games` |
+| `admin` | `remote-shell` | `./AdminShell` + `./UploadShell` + `./SessionsShell` | `loadComponent` for `/admin`, `/admin/games` and `/admin/sessions` |
 | `mod` | `remote-shell` | `./ModShell` | `loadComponent` for `/mod` (per-game moderation surface; gated by `mod_game_scopes`) |
 | `publisher` | `remote-shell` | `./PublisherShell` | `loadComponent` for `/publisher` (uploads + per-game grants; gated by `publisher_game_scopes`) |
-| `registration` | `remote-shell` | `./RegistrationComponent` | `loadComponent` for `/register` (player self-registration) |
-| `producer-registration` | `remote-shell` | `./RegistrationComponent` | `loadComponent` for `/register` (intake form → `POST /api/producer-contacts`) |
-| `banned` | `remote-shell` | `./BannedComponent` | `loadComponent` for `/banned` (auth-error interceptor redirects on `X-Revoked`; resolves appeal email via `GET /api/security/appeal-contact`) |
+| `api-docs` | `remote-shell` | `./DocsShell` | `loadComponent` for `/admin/docs` (OpenAPI explorer) |
+| `registration` | `remote-shell` | `./RegistrationComponent` | Served at `/_remotes/registration/` (player self-registration; manifest `mountAt` is `/registration`). `app.routes.ts` has no route that loads it. |
+| `producer-registration` | `remote-shell` | `./ProducerRegistrationComponent` | Served at `/_remotes/producer-registration/` (intake form → `POST /api/producer-contacts`; manifest `mountAt` is `/producer-registration`). `app.routes.ts` has no route that loads it. |
+| `banned` | `remote-shell` | `./BannedComponent` | Served at `/_remotes/banned/` (manifest `mountAt` is `/banned`). The host's own `/banned` route uses its local `BannedPageComponent` (auth-error interceptor redirects on `X-Revoked`; resolves appeal email via `GET /api/security/appeal-contact`). |
 | `games-three-wizards` | `remote-game` | `./GameRoot` | `<app-three-wizards-remote>` Web Component (cave + field) |
 | `games-dodecahedron` | `remote-game` | `./GameRoot` | `<app-dodecahedron-remote>` Web Component (chrome-less demo) |
 | `games-rpg-maker` | `remote-shell` | `./RpgMakerShell` | RPG maker UI; drives the `rpg-builder/` side service (decision 018) |
 | `games-vn-maker` | `remote-shell` | `./VnMakerShell` | VN maker UI; drives the `vn-builder/` side service (decision 018) |
 | `wasm-fragment` | `fragment` | — (asset tier) | Redirects `?slug=` to `/api/assets/levels/<slug>/index.html` |
-| `<game-slug>` (×14) | `wasm-game` | — (`exposed_module=NULL`) | Web-native titles. `remote_entry_url` points **directly** at `/_remotes/wasm-fragment/<slug>/index.html` (not a `remoteEntry.json`), `game_slug` carries the catalog slug. The host mounts it as a parametrised iframe; `home.component` reads `isWebNative` off the manifest. `main.ts` excludes `wasm-game` from `initFederation`. Seeded by [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml). |
+| `<game-slug>` (×14 web-native, plus `chess-godot`, `connect-four-godot`, `shadows-of-the-net`, `character-forge`) | `wasm-game` | — (`exposed_module=NULL`) | Web-native titles. `remote_entry_url` points **directly** at `/_remotes/wasm-fragment/<slug>/index.html` (not a `remoteEntry.json`), `game_slug` carries the catalog slug. The host mounts it as a parametrised iframe; `home.component` reads `isWebNative` off the manifest. `main.ts` excludes `wasm-game` from `initFederation`. The 14 web-native rows are seeded by [`051-web-game-federation.xml`](backend/src/main/resources/db/changelog/051-web-game-federation.xml); the Godot rows by 053, 055, 056 and 062. |
 
-The **`wasm-game`** federation kind was added specifically for the 14 web-native titles, and was later reused as-is for the *Chess (Godot)* pilot title (migration 053) — proof the kind works for a Godot-authored bundle too, not just the Rust→wasm32 engines. A `wasm-game` row carries no Angular module (`exposed_module=NULL`); its `remote_entry_url` resolves directly to the `wasm-fragment` bundle. This means a new web-native (or Godot) game can be federated simply by inserting one database row — no frontend rebuild required. Because `main.ts` only passes `kind ∈ {remote-game, remote-shell}` into `initFederation`, `wasm-game` rows are consumed only by the host's manifest reader and cannot affect the federation runtime. See the "Web-native games" section of [CLAUDE.md](CLAUDE.md).
+The **`wasm-game`** federation kind was added specifically for the 14 web-native titles, and was later reused as-is for the *Chess (Godot)* pilot title (migration 053), then for *Connect Four (Godot)* (055), *Shadows of the Net – CHAT* (056) and *Character Forge* (062) — proof the kind works for a Godot-authored bundle too, not just the Rust→wasm32 engines. A `wasm-game` row carries no Angular module (`exposed_module=NULL`); its `remote_entry_url` resolves directly to the `wasm-fragment` bundle. This means a new web-native (or Godot) game can be federated simply by inserting one database row — no frontend rebuild required. Because `main.ts` only passes `kind ∈ {remote-game, remote-shell}` into `initFederation`, `wasm-game` rows are consumed only by the host's manifest reader and cannot affect the federation runtime. See the "Web-native games" section of [CLAUDE.md](CLAUDE.md).
 
 `HomeComponent` forks the renderer on `SCENE_TYPE_TO_GAME_SLUG` for the Godot family (cave/field → `three-wizards`, dodecahedron → `dodecahedron`) and on the manifest's `isWebNative` flag for the web-native family; chapters with sceneTypes outside that map and no `wasm-game` row fall through to the legacy in-tree `<app-game-canvas>` iframe. SessionService.connect + the `TW_CHAPTER_TRANSITION` window listener live on `HomeComponent` so they fire regardless of which renderer mounts.
 
@@ -395,7 +398,7 @@ The host's `main.ts` calls `initFederation(...)` BEFORE `bootstrapApplication` (
 | `movement` | `x`, `y`, `z`, `rotationY`, `action`, `pressed`, `tick` | Every control event (press AND release, see `pressedChanged` gate) | Queued FIFO in-bridge |
 | `world` | `sessionId`, `tick`, `timestamp`, `characters[]` | When any character's state changes | Latest-wins snapshot |
 | `character` | `health`, `mana`, `level`, `xp`, `xpToNext` | Stat patch or item use | Latest-wins snapshot |
-| `time` | `dayNumber`, `hour`, `minute` | Every game-minute (~10 s real) | Latest-wins snapshot |
+| `time` | `dayNumber`, `hour`, `minute` | Every 5 game-minutes (~5 s real; one game-minute is one real second) | Latest-wins snapshot |
 | `scene` | `sceneId`, `sceneName`, `sceneType`, `eventType` | Scene transition / scene_element NOTIFY | Latest-wins snapshot |
 | `input` | `eventKind`, `eventType`, `payload` | Generalised input emit (gamepad / mouse / keyboard / touch / world / control) | Latest-wins snapshot |
 | `audio` | `eventKind`, `eventType`, `payload` | Audio cue from Godot bundle | Latest-wins snapshot |
@@ -496,7 +499,7 @@ The previous WASM is fully unloaded — persist any in-memory state via the API
 
 ## API reference
 
-> The canonical, every-controller list lives in [architecture · 05 — API + service reference](docs/wiki/architecture/05-api-reference.md) (38 controllers) and the live OpenAPI explorer at `/v3/api-docs`. The selection below is a representative set of reactive-pipeline walk-throughs, not the full surface. Notably, the **server-authoritative realtime PvP** controllers (`RealtimeController` at `/api/realtime`, `AdminRealtimeController` at `/api/admin/realtime`) back the 🚧 in-flight FPS/RTS match engines — see [Roadmap](#roadmap) — and are documented in the wiki, not here.
+> The canonical, every-controller list lives in [architecture · 05 — API + service reference](docs/wiki/architecture/05-api-reference.md) (38 of the 39 controllers) and the live OpenAPI explorer at `/v3/api-docs`. The selection below is a representative set of reactive-pipeline walk-throughs, not the full surface. Notably, the **server-authoritative realtime PvP** controllers (`RealtimeController` at `/api/realtime`, `AdminRealtimeController` at `/api/admin/realtime`) back the 🚧 in-flight FPS/RTS match engines — see [Roadmap](#roadmap) — and are documented in the wiki, not here.
 
 The reactive endpoints below are drawn as **pipeline flowcharts** — a request flows
 left-to-right through the Reactor operators to a terminal emission:
@@ -672,9 +675,10 @@ flowchart LR
 
 #### `GET /api/assets/levels/{slug}/{filename}`
 
-**Primary path** for per-level WASM bundles. Each level's compiled files live under
+The legacy path for per-level WASM bundles, with no launch uid required. Each level's compiled files live under
 `classpath:assets/levels/{slug}/`. The Angular iframe mounts `index.html` from here
-and Godot fetches its `.wasm`/`.pck` from the same directory.
+and Godot fetches its `.wasm`/`.pck` from the same directory. Setting `app.assets.require-launch-uid=true` makes this path return 403
+and forces callers onto the uid-gated `GET /api/assets/levels/{slug}/{uid}/{filename}`.
 
 #### `GET /api/assets/{filename}`
 
@@ -726,7 +730,7 @@ flowchart LR
 
 #### `POST /api/sessions/connect`
 
-Creates or resumes a player session, enforcing the 3-player cap.
+Creates or resumes a player session, enforcing the player cap (`app.session.max-players`, default 3).
 
 ```mermaid
 flowchart LR
@@ -980,7 +984,7 @@ flowchart LR
 
 #### `POST /api/games/{slug}/launch`
 
-Mints a 256-bit URL-safe `launch_uid` for the active session, persists a `game_launches` row with a 15-minute TTL (with `version_dir` snapshot from `games.current_version_dir`), and returns `{uid, expiresAt, gameSlug}`. The federated remote threads the uid into the iframe URL as `?launch_uid=…` for traceability; `AssetController.getLevelAssetByUid` validates it on the legacy launch-uid-gated asset path.
+Mints a 256-bit URL-safe `launch_uid` for the active session, persists a `game_launches` row with a 15-minute TTL (with `version_dir` snapshot from `games.current_version_dir`), and returns `{uid, expiresAt, gameSlug}`. The federated remote threads the uid into the iframe URL as `?launch_uid=…` for traceability; `AssetController.getLevelAssetByUid` (`GET /api/assets/levels/{slug}/{uid}/{filename}`) validates it. `GET /api/games/launches` (ROLE_ADMIN) lists the active launches.
 
 #### `DELETE /api/games/launches/{uid}`
 
@@ -988,7 +992,7 @@ Self-terminate. The owner of the launch (matched by JWT subject vs `game_launche
 
 #### `DELETE /api/admin/launches/{uid}`  *(ROLE_ADMIN)*
 
-Admin force-terminate. Skips the ownership check; surfaces from the admin UI's "kick" button alongside the active-launches list.
+The route in the code is `DELETE /api/games/admin/launches/{uid}` (`GameLaunchController`, mapped under `/api/games`). Admin force-terminate. Skips the ownership check; surfaces from the admin UI's "kick" button alongside the active-launches list.
 
 ---
 
@@ -1189,7 +1193,7 @@ Five starter spells auto-slotted for character 1 at slots 1–5; five advanced s
 | 4 | Stone Spike | earth | 11 | 24 | Heart of the Mountain → **Earthquake** (58 dmg, 28 MP) |
 | 5 | Holy Light | light | 14 | 18 + heal 20 | Dawn at the Cottage → **Solar Flare** (70 dmg + heal 40, 30 MP) |
 
-Projectile size scales with tier: starter radius ≈ 0.6, advanced ≈ 1.0.
+Projectile size scales with tier through `projectileScale` in `effect_json`: 0.8–1.2 for the starter spells, 1.4–2.0 for the advanced ones.
 
 ---
 
@@ -1198,7 +1202,7 @@ Projectile size scales with tier: starter radius ≈ 0.6, advanced ≈ 1.0.
 Each game lives in its **own** Godot project under `games/<game-slug>/`, and
 each chapter inside that project compiles to its **own** WASM bundle. Per-game
 `export_presets.cfg` holds one preset per chapter; the Makefile walks
-`GAME_PROJECTS` and the per-game `PRESETS_<dir>` variable, runs
+`GAME_PROJECTS` and the preset list in each game's `case` arm, runs
 `godot --headless --export-release "<preset>"` from each game's directory, and
 writes the output under `backend/src/main/resources/assets/levels/<slug>/`.
 
@@ -1206,22 +1210,23 @@ writes the output under `backend/src/main/resources/assets/levels/<slug>/`.
 flowchart TB
     subgraph br["make build-rust"]
         direction TB
-        BR0["sync-bridge-addon: rsync hugmesh_bridge/hugmesh_export addons into every game project"]
+        BR0["deps-rust: fails unless cargo and docker are on PATH"]
         BR1a["build-rust-wasm (dockerised emsdk 3.1.74 via tools/build-rust-wasm/Dockerfile)<br/>→ extensions/hugmesh-bridge/bin/hugmesh_bridge.wasm — requires Docker"]
+        BR1b["sync-bridge-addon: rsync hugmesh_bridge/hugmesh_export addons into every game project"]
         BR1["cd extensions/hugmesh-bridge · GODOT4_BIN=&lt;godot&gt; cargo build --release --features api-custom<br/>→ target/release/libhugmesh_bridge.so"]
         BR2["cp libhugmesh_bridge.so + hugmesh_bridge.wasm → games/(game)/bin/ — each game"]
-        BR0 --> BR1a --> BR1 --> BR2
+        BR0 --> BR1a --> BR1b --> BR1 --> BR2
     end
     subgraph bg["make build-godot — depends on build-rust"]
         direction TB
-        BG1["for game in GAME_PROJECTS · for preset in PRESETS_(game)<br/>cd games/(game) · godot --headless --export-release preset"]
+        BG1["for game in GAME_PROJECTS · for preset in the game's case-arm preset list<br/>cd games/(game) · godot --headless --export-release preset"]
         BG2["→ backend/src/main/resources/assets/levels/(slug)/<br/>index.html · index.wasm · index.pck · index.js · index.side.wasm"]
         BG3["scripts/patch-godot-html.py on (slug)/index.html + index.side.wasm"]
         BG4["✓ all bundles exported"]
         BG1 --> BG2 --> BG3 --> BG4
     end
     subgraph sd["make seed-db"]
-        SD1["scripts/seed-games.sql — ON CONFLICT (slug) DO UPDATE<br/>upserts game + chapter rows into the &quot;chapters&quot; table · asset_url = /api/assets/levels/(slug)/index.html<br/>⚠ currently broken: script still says INSERT INTO levels, table renamed to chapters by migration 028"]
+        SD1["scripts/seed-games.sql — ON CONFLICT (slug) DO UPDATE<br/>upserts game + chapter rows into the &quot;chapters&quot; table · asset_url = /api/assets/levels/(slug)/index.html"]
     end
     br --> bg --> sd --> Deploy["make deploy = build-godot + seed-db<br/>then rebuild api + wasm-fragment images so new classpath assets ship"]
 ```
@@ -1233,7 +1238,7 @@ games need) at `/_remotes/wasm-fragment/<slug>/index.html`. The Angular host's
 one via `SCENE_TYPE_TO_GAME_SLUG`.
 
 Adding a new chapter touches four places — the game's `export_presets.cfg`,
-the Makefile's `PRESETS_<game>`, the `chapters` DB row, and (optionally)
+the Makefile's `case` arms in `build-godot` and `patch-godot`, the `chapters` DB row, and (optionally)
 `chapter_prerequisites`. Adding a brand-new game touches a fifth (a row in
 `federation_modules`) — or you can let the editor's *HugMesh Export*
 plugin produce an upload zip and let `GameUploadController` register
@@ -1547,8 +1552,17 @@ Each app service is tagged `hugmesh-games/<svc>:${HUGMESH_TAG:-dev}` in the dev 
 | `login`                | `hugmesh-games/login-remote` |
 | `admin`                | `hugmesh-games/admin-remote` |
 | `api-docs`             | `hugmesh-games/api-docs-remote` |
+| `registration`         | `hugmesh-games/registration-remote` |
+| `producer-registration` | `hugmesh-games/producer-registration-remote` |
+| `banned`               | `hugmesh-games/banned-remote` |
+| `mod`                  | `hugmesh-games/mod-remote` |
+| `publisher`            | `hugmesh-games/publisher-remote` |
 | `games-three-wizards`  | `hugmesh-games/three-wizards-remote` |
 | `games-dodecahedron`   | `hugmesh-games/dodecahedron-remote` |
+| `games-rpg-maker`      | `hugmesh-games/rpg-maker-remote` |
+| `games-vn-maker`       | `hugmesh-games/vn-maker-remote` |
+| `rpg-builder`          | `hugmesh-games/rpg-builder` |
+| `vn-builder`           | `hugmesh-games/vn-builder` |
 | `wasm-fragment`        | `hugmesh-games/wasm-fragment` |
 
 **CORS posture across environments.** `WebConfig.java` ships a development-friendly default allowlist covering localhost, e2e origins, and `*.hugmesh.games`. The staging and prod overlays narrow this via `SPRING_WEB_CORS_ALLOWED_ORIGINS` so a production BFF only accepts requests whose `Origin` header is `hugmesh.games` or `*.hugmesh.games`. The two values are merged, so a developer pointing a local browser at a staging BFF for debugging remains unaffected.
@@ -1578,9 +1592,9 @@ Liquibase changeset 026 added a generalised input surface covering everything Go
 
 Plus a `games.features` JSONB column with per-game feature flags so JRPG-only subsystems (spell loadout / quests / items / character progression) and per-input-kind flags can be flipped off for non-JRPG games.
 
-`InputEventController` validates against these tables in three gates, of which only the first is currently wired in: the `(kind, type)` pair must exist in `input_event_types` (400 if not). The other two gates — rejecting a kind the active game's `games.features` doesn't accept, and rejecting an `(game_slug, event_kind, event_type)` triple not present in `game_event_support` — are not yet implemented; see [Known gaps / TODO](#known-gaps--todo).
+`InputEventController` validates against these tables in gates: gate 0 checks session membership and character ownership (and that a session-scoped `world` event comes from the session creator), gate 1 requires the `(kind, type)` pair to exist in `input_event_types` (400 if not), and gate 2 requires the game's `games.features` to switch the event's kind on (405 if not). The third check — rejecting an `(game_slug, event_kind, event_type)` triple not present in `game_event_support` — is implemented but off by default (`app.input.gate3-enabled`); see [Known gaps / TODO](#known-gaps--todo).
 
-The browser-tier [`GamepadService`](frontend/src/app/services/gamepad.service.ts) polls `navigator.getGamepads()` on every animation frame, diffs the state, and forwards canonical input events both into the active game iframe (via `postMessage` for Godot) and to the BFF (`POST /api/input/{characterId}`). Any standard-mapped gamepad — such as a Nintendo Pro Controller — drives gameplay without per-game JS changes. [`wasm-fragment/hugmesh-shim.js`](wasm-fragment/hugmesh-shim.js) is injected by `nginx sub_filter` into every Godot bundle's `index.html`, exposing inputs through `window._sdInputQueue`. The GDScript glue drains that queue every frame and dispatches through `HostBridge`, causing the Rust extension's typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`) to fire in-game.
+The browser-tier [`GamepadService`](frontend/src/app/services/gamepad.service.ts) polls `navigator.getGamepads()` on every animation frame, diffs the state, and forwards canonical input events both into the active game iframe (via `postMessage` for Godot) and to the BFF (`POST /api/input/{characterId}`). Any standard-mapped gamepad — such as a Nintendo Pro Controller — drives gameplay without per-game JS changes. [`wasm-fragment/hugmesh-shim.js`](wasm-fragment/hugmesh-shim.js) is injected by `nginx sub_filter` into every Godot bundle's `index.html`, exposing inputs through `window._sdInputQueue`. The Rust `BridgeGlue` does not drain that queue. The only drains in the repo are the reference script [`extensions/hugmesh-bridge/example/bridge_glue.gd`](extensions/hugmesh-bridge/example/bridge_glue.gd) and `games/shadows-of-the-net/scripts/session_bridge.gd`; a drain dispatches through `HostBridge`, which fires the Rust extension's typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`) in-game.
 
 The same shim also wraps `console.error`, `window.onerror`, and `unhandledrejection`. Captured errors are forwarded to `POST /api/diagnostics/wasm-console` and fanned out on the `wasm-console` SSE channel, so admin devtools can mirror crashes that occur inside the WASM iframe in real time.
 
@@ -1610,7 +1624,7 @@ Order: `cargo build --release` → `godot --export-release` → `patch-godot-htm
 make build-rust            # Rust GDExtension → extensions/hugmesh-bridge/bin/
 make build-godot           # Godot WebGL export + HTML patch → backend classpath assets
 make build-backend         # Spring Boot JAR (artifact: hugmesh-gaming-bff)
-make build-backend-native  # GraalVM native-image of the BFF (~70s, ~335 MB image)
+make build-backend-native  # GraalVM native-image of the BFF (~5–10 min, ~150 MB image per the Makefile)
 make build-frontend        # Angular dist (project: hugmesh-games-frontend)
 make seed-db               # Upsert game records with asset_url in running Postgres
 make seed-roles            # Idempotent per-game Casdoor role create (post-deploy)
@@ -1631,9 +1645,10 @@ make e2e-native                  # full Playwright suite against the native imag
   during the compile pass. On a 16 GB laptop the build takes roughly 5–10 minutes;
   on smaller machines it runs out of memory midway with no graceful fallback. Use
   `make build-backend` (JVM build) on memory-constrained hosts.
-- The build is **not** wired into PR CI by default. It is gated behind a
-  `[native]` commit-message marker so that ordinary PRs do not pay the 5–10 minute
-  compile cost. Enable it when preparing a release branch.
+- The build is **not** wired into CI. `.gitlab-ci.yml` has no native job, so
+  nothing pays the 5–10 minute compile cost unless you run
+  `make build-backend-native` or `make e2e-native` yourself, for example when
+  preparing a release branch.
 - Image runtime size is ~150 MB (vs ~600 MB for the JVM build). Cold start
   is **~0.4 s** (vs ~3 s JVM). RSS at idle is ~100 MB (vs ~400 MB JVM).
 - Liquibase migrations run from a separate init container at startup
@@ -1676,15 +1691,18 @@ Per-project unit tests are wired into `make`. Each one runs in isolation; `make 
 chains them sequentially.
 
 ```bash
-make test            # rust + backend + frontend (chains through all three)
+make test            # test-rust, test-rust-cores, test-backend, test-godot, test-games-js, test-frontend
 make test-rust       # cargo test in extensions/hugmesh-bridge (host toolchain; needs cargo)
+make test-rust-cores # cargo test --offline in every other extensions/hugmesh-* crate
 make test-backend    # mvnw test in backend/ (host toolchain; needs JDK 25)
+make test-godot      # headless GDScript suites (shadows-of-the-net, character-forge; needs a Godot binary)
+make test-games-js   # node games/_shared/test/*.test.mjs
 make test-frontend   # ng test inside Docker (Chromium baked into the image,
                      # so the host doesn't need a browser installed)
 ```
 
 The frontend runner builds [frontend/Dockerfile.test](frontend/Dockerfile.test) once
-(node:20-bookworm-slim + chromium) and reuses it on every run. Karma is configured
+(node:22-bookworm-slim + chromium) and reuses it on every run. Karma is configured
 with the `ChromeHeadlessCI` launcher (no-sandbox flags so it runs inside containers).
 
 ### Cross-platform end-to-end test
@@ -1709,7 +1727,7 @@ make e2e-logs        # tail logs from the running e2e stack
 `cassandra-init → api → frontend` chain to become healthy, then runs the Playwright
 suite which: logs in, opens the cave level (asserts WASM/PCK assets serve), closes
 it, opens the Dodecahedron Demo (asserts it loads chrome-less — no HUD, no controls
-overlay). Override the player password with `E2E_PLAYER_PASSWORD=...`.
+overlay). Pin the player password with `E2E_PLAYER_PASS=...` (otherwise a generated one is used).
 
 ### Clean
 
@@ -1764,8 +1782,10 @@ Open [http://localhost:4200](http://localhost:4200).
 | 1 | — | Cast Spell 1 (Fire) |
 | 2 | — | Cast Spell 2 (Ice) |
 | 3 | — | Cast Spell 3 (Lightning) |
+| 4 | — | Cast Spell 4 (Earth), from the Angular page only |
+| 5 | — | Cast Spell 5 (Light), from the Angular page only |
 
-Keyboard input works both from the Angular page and from inside the Godot canvas. Both paths POST to `/api/controls/{characterId}`. Only the session holding `is_controller = true` has its events applied.
+Keyboard input works both from the Angular page and from inside the Godot canvas. Both paths POST to `/api/controls/{characterId}`. The Godot canvas binds only keys 1–3 (`KEY_ACTIONS` in `game_bridge.gd`); keys 4 and 5 come from the Angular page's `game-controls` handler. Only the session holding `is_controller = true` has its events applied.
 
 ---
 
@@ -1803,6 +1823,7 @@ hugmesh.games/                         # HugMesh Game Studio repo
 │   │   ├── addons/hugmesh_bridge/    # plugin.gd + the one remaining GDScript UI piece (lobby menu)
 │   │   └── example/bridge_glue.gd       # Superseded reference (pre-dates BridgeGlue's Rust rewrite)
 │   ├── hugmesh-fps-core/, hugmesh-rts-core/  # 🚧 server-authoritative sim cores (no catalog title yet)
+│   ├── hugmesh-fps-core-wasm/          # wasm shim of the FPS core, used by the JVM/Chicory test only
 │   └── hugmesh-<game>/ + hugmesh-<game>-wasm/  # 14 pure-Rust engines → wasm32-unknown-unknown
 ├── games/                               # Per-game Godot 4.6 projects + web-native canvas frontends
 │   ├── three-wizards-in-a-trenchcoat/  # Flagship JRPG (cave + field)
@@ -1811,7 +1832,7 @@ hugmesh.games/                         # HugMesh Game Studio repo
 │   │   ├── scenes/{cave,field}.tscn
 │   │   ├── scripts/                     # game_bridge.gd, player_controller.gd,
 │   │   │                                  scene_loader.gd, camera_controller.gd,
-│   │   │                                  fairy.gd, api_client.gd, bridge_glue.gd
+│   │   │                                  fairy.gd, api_client.gd
 │   │   ├── addons/hugmesh_export/   # Project → Tools → HugMesh → Export plugin
 │   │   ├── bin/                         # libhugmesh_bridge.so (per-project copy)
 │   │   └── hugmesh_bridge.gdextension
@@ -1821,6 +1842,9 @@ hugmesh.games/                         # HugMesh Game Studio repo
 │   │   ├── scripts/dodecahedron_spinner.gd
 │   │   └── (same export plugin + bridge layout)
 │   ├── chess-godot/                     # Godot pilot port of chess (reuses ChessEngine GDExtension node)
+│   ├── connect-four-godot/              # Godot port of Connect Four (ConnectFourEngine node)
+│   ├── shadows-of-the-net/              # Pure-GDScript XR chat chamber
+│   ├── character-forge/                 # Single-player 3D character maker
 │   ├── _shared/                        # Shared GAME interface for web-native titles
 │   ├── _godot-template/                # Starter template for new Godot games (chess-godot is the reference)
 │   └── chess/, tetris/, go/, …          # 14 web-native canvas frontends (one per engine)
@@ -1861,20 +1885,21 @@ hugmesh.games/                         # HugMesh Game Studio repo
             │   ├── SecurityConfig.java         # JWT resource server, path rules
             │   ├── R2dbcReadReplicaConfig.java # @Qualifier("replica") beans (decision 022)
             │   ├── DomainGuardFilter.java       # Multi-brand DOMAIN_ hard-deny (decision 025)
+            │   ├── CasdoorAuthorities.java      # Stamps one DOMAIN_<x> authority per token
             │   └── WebConfig.java              # CORS
-            ├── controller/                     # See API reference below — 38 controllers
+            ├── controller/                     # See API reference below — 39 controllers
             ├── model/                          # R2DBC entities + DTOs + records
             ├── repository/                     # ReactiveCrudRepository interfaces
-            ├── security/                       # Roles.java, DomainRegistry.java, CasdoorAuthorities.java
+            ├── security/                       # Roles.java, DomainRegistry.java
             ├── audit/                           # Kafka producers/subscribers (decision 021)
             ├── upload/                          # UploadStorage strategy: filesystem / S3 (decision 020)
             └── service/
                 ├── GameStateService.java       # @DependsOn(liquibase) — per-session sinks, 8 typed channels
-                ├── GameTimeService.java        # @DependsOn(liquibase) — 10s = 1min scheduler
+                ├── GameTimeService.java        # @DependsOn(liquibase) — 1 s = 1 game minute scheduler
                 ├── GameUploadService.java      # Hot-upload pipeline: validate → stage → tx-install
                 ├── GameUploadPruner.java       # @Scheduled — keep-last-N version_dir trees
                 ├── GameLaunchSweeper.java      # @Scheduled — bulk-terminate expired launches
-                ├── PgNotificationService.java  # LISTEN game_events → SSE scene$
+                ├── PgNotificationService.java  # pg_notify publisher + in-process sink (no LISTEN consumer)
                 ├── SessionService.java         # Legacy 3-player-cap single-session path
                 ├── CassandraSyncService.java   # 🔭 planned retirement once Kafka pipeline soaks
                 └── AdminPasswordService.java   # Dev profile: prints credentials at startup
@@ -1990,10 +2015,10 @@ the browser always refetches.
 
 ### Movement events silently dropped at the API
 
-`POST /api/controls/{characterId}` returns `403` when the caller does not hold
+`POST /api/controls/{characterId}` returns `403` (reason `Not the current controller`) when the caller does not hold
 the controller role for the current session. The frontend must call
 `POST /api/sessions/connect` on login — which auto-grants the controller role
 to the first joiner — before sending any control events. If this handshake is
-skipped, the server logs `Not the current controller` and discards all input
-without any error visible to the player. The Angular home-page session bootstrap
+skipped, the server rejects every control event, and nothing in the UI shows
+the error to the player. The Angular home-page session bootstrap
 (`HomeComponent.ngOnInit`) is responsible for completing this handshake.
