@@ -6,8 +6,11 @@ Two layers: Casdoor owns the role catalog, the BFF owns visibility policy.
 
 Roles live in Casdoor. The portal recognises:
 
-- `ROLE_ADMIN` — admin dashboard access.
-- `ROLE_PLAY_<GAME>` — per-game play access.
+- `admin` (the BFF turns it into `ROLE_ADMIN`) — admin dashboard access.
+- `mod`, `publisher` — the per-game moderator and publisher roles.
+- `play-<slug>` (for example `play-three-wizards`) — per-game play access.
+
+Role names are lowercase in Casdoor and in `game_access.scope_value`; the BFF compares them with the lowercased `roles` claim of the JWT.
 
 Create via the Casdoor admin UI (port-forward, since Casdoor isn't publicly exposed — see [decision 008](../decisions/008-casdoor-internal.md)) or via the seed target:
 
@@ -15,17 +18,27 @@ Create via the Casdoor admin UI (port-forward, since Casdoor isn't publicly expo
 make seed-roles
 ```
 
-`make seed-roles` is the idempotent post-deploy entry point that creates the per-game `ROLE_PLAY_*` roles via the Casdoor admin API. Run it after deploying a new game.
+`make seed-roles` creates a `play-<slug>` role for every slug in the Makefile's `GAME_SLUGS` list, through the Casdoor admin API. It needs `curl`, `jq` and `CASDOOR_ADMIN_PASS` (the admin password from the Casdoor logs), and reads `CASDOOR_ENDPOINT` (default `http://localhost:8000`). Add the new game's slug to `GAME_SLUGS` first, then run it. Re-running is harmless: errors on roles that already exist are ignored.
 
 ## 2. Insert the `game_access` row
 
-Via the admin UI: `/admin/games` → *Per-game access* card → choose scope `role` → pick the role from the dropdown → Add.
+Via the admin UI: `/admin/games` → *Per-game access* card → enter the game slug → choose scope `role` → pick the role from the dropdown → *Grant*.
+
+Via the API:
+
+```bash
+curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"scope":"role","value":"play-three-wizards"}' \
+  /api/admin/games/three-wizards/access
+```
 
 Or via SQL:
 
 ```sql
-INSERT INTO game_access (game_slug, scope, scope_value)
-VALUES ('three-wizards', 'role', 'ROLE_PLAY_THREE_WIZARDS')
+INSERT INTO game_access (game_id, scope, scope_value, granted_by)
+SELECT id, 'role', 'play-three-wizards', 'manual-sql'
+  FROM games WHERE slug = 'three-wizards'
 ON CONFLICT ON CONSTRAINT uq_game_access_triple DO NOTHING;
 ```
 
@@ -38,11 +51,11 @@ Three scopes are unioned:
 | Configuration | Visibility |
 |---|---|
 | `(all, NULL)` only | Everyone authenticated. |
-| `(role, ROLE_PLAY_X)` only | **Only role-holders.** |
-| `(all, NULL)` + `(role, ROLE_PLAY_X)` | **Everyone** (the `all` row wins). |
-| `(role, ROLE_PLAY_X)` + `(user, alice)` | Role-holders OR alice. |
+| `(role, play-x)` only | **Only role-holders.** |
+| `(all, NULL)` + `(role, play-x)` | **Everyone** (the `all` row wins). |
+| `(role, play-x)` + `(user, alice)` | Role-holders OR alice. |
 
-To gate a game, **delete the `(all, NULL)` row** and keep only the role / user grants. Otherwise the role grant is just an unused additive on top of public visibility.
+To gate a game, **delete the `(all, NULL)` row** (*Revoke* with scope `all` in the UI, or `DELETE /api/admin/games/{slug}/access?scope=all`) and keep only the role / user grants. Otherwise the role grant is just an unused additive on top of public visibility.
 
 ## 4. Assign the role to a user
 
