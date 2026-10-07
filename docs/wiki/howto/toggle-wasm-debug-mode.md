@@ -4,7 +4,7 @@ The diagnostics ingest pipeline that captures iframe console errors back to the 
 
 ## Prerequisites
 
-- Casdoor `admin` role.
+- The Casdoor `admin` role (the BFF sees it as `ROLE_ADMIN`).
 
 ## Read the current state
 
@@ -59,7 +59,7 @@ Iframe console contents leak game-internal detail (file paths, partial state dum
 
 ## Cross-pod note
 
-The flag is mirrored per-pod (`AtomicBoolean` in `DebugModeService`). An admin toggle on pod A doesn't propagate to pod B until pod B's next `findById` (currently only on `@PostConstruct`). For multi-pod debug-mode synchronization, a `PgNotificationService` fan-out hook is the natural follow-up; today, restart pods or call the toggle endpoint targeted at each pod.
+The flag is mirrored per pod (an `AtomicBoolean` in `DebugModeService`). Each pod re-reads `system_settings` every 5 seconds (`REHYDRATE_INTERVAL`), so a toggle on pod A reaches pod B within about 5 s. The toggle also fires `pg_notify('debug_mode_changed')`, but no pod listens for it yet; propagation relies on the 5 s re-read. No restart is needed.
 
 ## See also
 
