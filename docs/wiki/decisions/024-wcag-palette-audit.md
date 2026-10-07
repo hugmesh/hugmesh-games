@@ -108,14 +108,16 @@ the whole palette without re-auditing each component.
 
 ## Follow-ups
 
-- Migrate component SCSS `$muted:` / `$accent:` declarations to
-  consume `var(--hug-text-muted)` / `var(--hug-accent)` instead of
-  redeclaring the literal. Schedule per-component as those files get
-  touched for other reasons; no urgency since the literals already
-  match the tokens.
+- Migrate component styles to consume `var(--hug-text-muted)` /
+  `var(--hug-accent)` instead of the literal. Schedule per-component as
+  those files get touched for other reasons; no urgency since the
+  literals already match the tokens. Status today: no `$muted` / `$accent`
+  SCSS variables are left, 3 files under `frontend/src` and
+  `frontend/projects` use `var(--hug-…)` (with the hex as fallback), and
+  13 files still hold the literal `#a8acc4`.
 - Document the tokens in `frontend/README.md` so contributors know to
   reach for the named token instead of pasting hex into a new
-  component.
+  component. Still open: `frontend/README.md` does not exist.
 - ~~Once decisions 020-023 (uploads / Kafka / replica / CSP) merge,
   remove the strike-through item from `CLAUDE.md` "Known gaps / TODO".~~
   — superseded. All four decisions merged; the strike-through bullets
