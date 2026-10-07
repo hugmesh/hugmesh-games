@@ -2,11 +2,11 @@
 
 > Mirror of [`chapters/05-api-reference.tex`](../../publishing/architecture/chapters/05-api-reference.tex).
 
-This page is a Markdown-rendered companion to the generated Javadoc HTML at [`docs/publishing/javadoc-output/index.html`](../../publishing/javadoc-output/) and the live OpenAPI document at `/v3/api-docs` (public with the `dev` profile, `ROLE_ADMIN` only in prod). Every controller is listed once with its endpoints, auth posture, and a one-line description of the contract.
+This page accompanies the generated Javadoc at [`docs/publishing/javadoc-output/index.html`](../../publishing/javadoc-output/) and the live OpenAPI document at `/v3/api-docs` (public with the `dev` profile, `ROLE_ADMIN` only in prod). It lists every controller once, with its endpoints, its auth rule and a one-line contract.
 
-The PDF version of this chapter ([`chapters/05-api-reference.tex`](../../publishing/architecture/chapters/05-api-reference.tex)) ships TikZ **marble diagrams** for each reactive controller and service (sources under [`docs/publishing/architecture/marbles/`](../../publishing/architecture/marbles/), rendered to PNG by `make docs-diagrams`). On GitHub those same reactive flows render as the **mermaid pipeline flowcharts** below; the per-endpoint pipelines live in the [root README API reference](../../../README.md#api-reference).
+The PDF version of this chapter ([`chapters/05-api-reference.tex`](../../publishing/architecture/chapters/05-api-reference.tex)) has TikZ **marble diagrams** for each reactive controller and service (sources in [`docs/publishing/architecture/marbles/`](../../publishing/architecture/marbles/), rendered to PNG by `make docs-diagrams`). On GitHub the same flows appear as the **mermaid pipeline flowcharts** below. The per-endpoint pipelines are in the [root README API reference](../../../README.md#api-reference).
 
-> **Reading the pipeline flowcharts** — a request flows through the Reactor operators to a terminal emission. `([ … ])` rounded ends are the request and the emitted value(s); plain boxes are operators (`findById`, `map`, `flatMap`, `save`); `{ … }` diamonds are branches; a red `✗` node is a 4xx / error terminal. A `Mono` completes after one value, a `Flux` after N, an SSE stream stays open until the client disconnects.
+> **Reading the pipeline flowcharts** — a request passes through the Reactor operators to a terminal emission. Rounded ends `([ … ])` are the request and the emitted values. Plain boxes are operators (`findById`, `map`, `flatMap`, `save`). Diamonds `{ … }` are branches. A red `✗` node is a 4xx or error terminal. A `Mono` completes after one value and a `Flux` after N. An SSE stream stays open until the client disconnects.
 
 ## Reactive pipelines at a glance
 
@@ -69,6 +69,8 @@ flowchart LR
 
 ## Public surface (no JWT required)
 
+The heading names the group; each entry states its own rule. `ControlController`, `DiagnosticsController` and `ProducerContactController` sit here because of their neighbours, and they are not public.
+
 ### `CasdoorAuthController` — `/api/auth`
 
 Public token exchange against Casdoor. It has one endpoint.
@@ -105,7 +107,8 @@ data: {"dayNumber":3,"hour":18,"minute":40}
 : keepalive
 ```
 The keepalive is an SSE comment line, sent at connect and every 15 s. With `?sessionId=` the stream needs a bearer token and an active membership in that session (*401*, *403*); admins may watch any session.
-**Client disconnects:** the underlying `Sinks.Many` instances stay open (`autoCancel=false`). A reconnect from the same client gets a fresh subscription on the same sinks.
+
+**Client disconnects:** the `Sinks.Many` instances stay open (`autoCancel=false`). A reconnect gets a fresh subscription on the same sinks.
 
 ### `GameController` — `/api/games`
 
@@ -138,7 +141,11 @@ Public classpath asset serving (`/api/assets/{filename}`), the legacy level path
 
 ### `ControlController` — `/api/controls`
 
-Session-validated control event ingestion, gated on `SecurityConfig.PLAYER_PATHS` requiring an authenticated principal. `ControlController.receiveControl` still declares `@RequestHeader(value = "X-Casdoor-Id", required = false)` and falls back to it whenever no JWT is present, with the JWT subject preferred when both are supplied. With `X-Session-Id` the caller must hold an active seat that owns `characterId` in that session (*401* without an identity, *403* otherwise); without it the legacy single-session rule applies and *403* means the subject isn't the controller-role holder. **Auto-recovery**: `game_bridge.gd`'s `send_control` detects the 403 and posts `SD_SESSION_EXPIRED` to the host shell; `ApiBridgeService.handleSessionExpired()` re-runs `session.connect()` → `session.claimControl()` so the next keypress succeeds. The recovery path is what makes a BFF restart survivable while the Angular SPA is still mounted (the in-memory `activeSessions` / `currentController` are wiped on restart, but the SPA never sees the gap).
+Control event ingestion. `SecurityConfig.PLAYER_PATHS` requires an authenticated principal. `ControlController.receiveControl` still declares `@RequestHeader(value = "X-Casdoor-Id", required = false)` and falls back to it when no JWT is present; the JWT subject wins when both are supplied.
+
+With `X-Session-Id`, the caller must hold an active seat that owns `characterId` in that session (*401* without an identity, *403* otherwise). Without it, the legacy single-session rule applies, and *403* means the subject isn't the controller-role holder.
+
+**Auto-recovery:** `game_bridge.gd`'s `send_control` detects the 403 and posts `SD_SESSION_EXPIRED` to the host shell. `ApiBridgeService.handleSessionExpired()` then re-runs `session.connect()` and `session.claimControl()`, so the next keypress succeeds. This is what makes a BFF restart survivable while the Angular SPA is still mounted: restart wipes the in-memory `activeSessions` and `currentController`, but the SPA never sees the gap.
 
 ### `FederationController` — `/api/federation/manifest`
 
@@ -154,11 +161,11 @@ Public game-clock snapshot — same DTO that the `time` SSE channel emits.
 
 ### `CspReportController` — `/api/security/csp-report`
 
-Anonymous CSP violation report sink for the `Content-Security-Policy` policy shipped by `frontend/nginx.conf` + `frontend/nginx-tls.conf` (decision 023). Two accepted content-types: `application/csp-report` (legacy `report-uri` envelope) and `application/reports+json` (modern Reporting API array). Log-only at WARN; no persistence. Allow-listed in `SecurityConfig.PUBLIC_PATHS` since browsers POST these unauthenticated. Rate-limited by the standard `api` zone at the host nginx.
+Anonymous sink for CSP violation reports against the `Content-Security-Policy` that `frontend/nginx.conf` and `frontend/nginx-tls.conf` ship (decision 023). It accepts two content types: `application/csp-report` (the legacy `report-uri` envelope) and `application/reports+json` (the modern Reporting API array). It logs at WARN and stores nothing. `SecurityConfig.PUBLIC_PATHS` allows it, because browsers POST these without credentials. The host nginx rate-limits it in the standard `api` zone.
 
 ### `AppealContactController` — `/api/security/appeal-contact`
 
-Anonymous resolver for the appeal email address shown to revoked users by the federated `banned` remote. Reads `accounts.mods` (primary on-call → secondary on-call), falling back to `app.security.appeal-contact-fallback` (default `support@hugmesh.games`). Returns `{ "email": "<address>" }`. Anonymous because a revoked user has no JWT.
+Anonymous resolver for the appeal email address shown to revoked users. It reads `accounts.mods` (primary on-call, then secondary), then falls back to `app.security.appeal-contact-fallback` (default `support@hugmesh.games`). It returns `{ "email": "<address>" }`. It is anonymous because a revoked user has no JWT. The `banned` remote and the host's `BannedPageComponent` both call it.
 
 ### `ProducerContactController` — `/api/producer-contacts` + admin variants
 
@@ -194,7 +201,7 @@ See [decision 010 — per-session SSE sinks](../decisions/010-per-session-sse-si
 
 ### `RealtimeController` — `/api/realtime`  *(🚧 server-authoritative match surface)*
 
-The REST surface for the server-authoritative FPS/RTS sim engines. The engines and the Cassandra-truth tick loop are wired and verified in-JVM via Chicory, but **no FPS/RTS title is yet registered as a launchable catalog game** — this is engine/match plumbing, not a playable entry. See [`docs/realtime-server-authoritative-design.md`](../../realtime-server-authoritative-design.md) and [`docs/realtime-sim-wiring-p4.md`](../../realtime-sim-wiring-p4.md).
+The REST surface for the server-authoritative FPS/RTS sim engines. The engines and the Cassandra-truth tick loop are wired and verified in-JVM via Chicory. **No FPS/RTS title is registered as a launchable catalog game yet**; this is engine and match plumbing, not a playable entry. See [`docs/realtime-server-authoritative-design.md`](../../realtime-server-authoritative-design.md) and [`docs/realtime-sim-wiring-p4.md`](../../realtime-sim-wiring-p4.md).
 
 | Method | Path | Notes |
 |---|---|---|
@@ -377,7 +384,7 @@ Both endpoints take `ROLE_ADMIN` or `ROLE_PUBLISHER`; a publisher is limited to 
 
 ### `RoleProxyController` — `/api/admin/roles`
 
-Server-side proxy of `/api/get-roles?owner=threewizards` so the admin UI's "grant role" dropdown loads from the live Casdoor catalog without exposing the Casdoor admin client secret to the browser. On Casdoor failure: returns an empty list (`onErrorReturn`) so the dashboard never crashes — the dropdown just empties.
+Server-side proxy of `/api/get-roles?owner=threewizards`. The admin UI's "grant role" dropdown loads the live Casdoor catalog through it, and the browser never sees the Casdoor admin client secret. If Casdoor fails, it returns an empty list (`onErrorReturn`): the dropdown empties and the dashboard keeps running.
 
 ### `AdminActionController` — `/api/admin/actions`
 
@@ -385,11 +392,11 @@ Kick / ban / unban a player: `POST /api/admin/actions/{kick,ban,unban}/{casdoorI
 
 ## BFF service tier
 
-The controllers above are thin: they decode the request, run a reactor chain through one or more services, and return a DTO. The real work lives in the services below.
+The controllers above are thin. They decode the request, run a reactor chain through one or more services, and return a DTO. The services below do the real work.
 
 ### `GameStateService`
 
-Owns eight `Sinks.Many`: `movement`, `world`, `character`, `scene`, `input`, `audio`, `wasm-console`, `session-control`. Every sink is built with `onBackpressureBuffer(N, /* autoCancel */ false)` so a disconnecting subscriber doesn't terminate the producer side. `@DependsOn("liquibase")` guarantees the `@PostConstruct` init query runs against the migrated schema.
+Owns eight `Sinks.Many`: `movement`, `world`, `character`, `scene`, `input`, `audio`, `wasm-console`, `session-control`. Every sink is built with `onBackpressureBuffer(N, /* autoCancel */ false)`, so a disconnecting subscriber doesn't end the producer side. `@DependsOn("liquibase")` makes the `@PostConstruct` init query run against the migrated schema.
 
 ### `GameTimeService`
 
@@ -397,7 +404,7 @@ A `Flux.interval(1s)` tick loop advances the in-memory clock by one game minute 
 
 ### `GameUploadService`
 
-The transactional install pipeline behind `POST /api/admin/games/upload`. `Mono.fromCallable(...)` for the blocking staging and storage work; `TransactionalOperator.transactional(...)` for the R2DBC commit that covers `game_uploads` insert + `register.sql` execution + `games.current_version_dir` update + supersede prior uploads.
+The transactional install pipeline behind `POST /api/admin/games/upload`. `Mono.fromCallable(...)` wraps the blocking staging and storage work. `TransactionalOperator.transactional(...)` wraps the R2DBC commit, which covers the `game_uploads` insert, `register.sql`, the `games.current_version_dir` update and the supersede of earlier uploads.
 
 ### `GameLaunchSweeper`
 
@@ -405,35 +412,42 @@ The transactional install pipeline behind `POST /api/admin/games/upload`. `Mono.
 
 ### `GameUploadPruner`
 
-`@Scheduled` task (default every hour) that keeps the last `app.uploads.versions-to-keep` version directories per slug on disk and deletes the older ones inside `Mono.fromCallable`.
+`@Scheduled` task (default every hour) that keeps the last `app.uploads.versions-to-keep` version directories per slug on disk and deletes older ones inside `Mono.fromCallable`.
 
 ### `CassandraSyncService`
 
-Heartbeat (every 15 s) writes a `pod_heartbeats` row with TTL 30 s into Cassandra so the admin dashboard can show pod liveness; daily snapshot (every 24 h, 60 s boot delay) mirrors Postgres aggregates into `daily_snapshots` for offline analytics. Slated for retirement once the Kafka → ClickHouse pipeline (decision 021) demonstrates production stability.
+Every 15 s it writes a `pod_heartbeats` row (TTL 30 s) into Cassandra, so the admin dashboard can show pod liveness. Every 24 h (first run 60 s after boot) it mirrors Postgres aggregates into `daily_snapshots` for offline analytics. The Kafka → ClickHouse pipeline (decision 021) will retire it once that pipeline has proven itself in production.
 
 ### `GameAuditPublisher` / `GameEventPublisher` / `GameKpiPublisher`
 
-Kafka producers introduced by decision 021. `GameAuditPublisher` emits state-transition rows to `state_audit`; `GameEventPublisher` tees all 9 SSE channels to `game_events` from `GameStateService.tryEmitNext`/`emitInput`; `GameKpiPublisher` ships federated-game KPI samples from `TelemetryController` to `game_kpi`. Gated by `app.kafka.enabled`; no-op when disabled.
+Kafka producers from decision 021. `GameAuditPublisher` emits state-transition rows to `state_audit`. `GameEventPublisher` tees all 9 SSE channels to `game_events` from `GameStateService.tryEmitNext` and `emitInput`. `GameKpiPublisher` ships federated-game KPI samples from `TelemetryController` to `game_kpi`. `app.kafka.enabled` gates all three; when it is off they do nothing.
 
 ### `KafkaSessionSubscriber`
 
-Cross-pod consumer for `game_events`. Filters self-published events via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. Covers all 9 channels. Through `reemitToSession` (private to `GameStateService`): movement, world and character go to the global and the per-session sink; view goes to the per-session sink only; scene, input, audio and wasm-console go to the global sink only; world-native goes to the per-session `worldNative` sink only, with no global sink — see decision 021.
+Cross-pod consumer for `game_events`. It skips events this pod published (by `pod_id`) and dispatches the rest per channel to handlers that `GameStateService.@PostConstruct` registers. It covers all 9 channels. Each handler calls `reemitToSession`, which is private to `GameStateService`:
+
+- movement, world and character go to the global sink and the per-session sink;
+- view goes to the per-session sink only;
+- scene, input, audio and wasm-console go to the global sink only;
+- world-native goes to the per-session `worldNative` sink only, with no global sink.
+
+See decision 021.
 
 ### `SessionTopicManager`
 
-Creates per-session Kafka topics (`session.<id>.events`) on session-create so a cross-pod subscriber can hydrate only the sessions it cares about.
+Creates per-session Kafka topics (`session.<id>.events`) on session-create, so a cross-pod subscriber can hydrate only the sessions it cares about.
 
 ### `PlayerStateRecoveryService`
 
-Queries the ClickHouse `player_state_current FINAL` table via the ClickHouse HTTP interface (WebClient) for session-reconnect recovery. The `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` consults this service before the legacy Cassandra → Postgres → defaults chain. `Mono.empty()` is the expected miss path; SSE / gameplay never blocks on this.
+Queries the ClickHouse `player_state_current FINAL` table over the ClickHouse HTTP interface (WebClient) for session-reconnect recovery. The `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` asks this service before it tries the older Cassandra → Postgres → defaults chain. `Mono.empty()` is the expected miss, and SSE and gameplay never wait on it.
 
 ### `DistributedRateLimitService`
 
-Cassandra-backed cluster-wide rate-limit augment to the local in-process `RateLimitFilter` bucket. Append-row log on the `rate_limit_events` table with a 90 s TTL; window-bounded `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`. Disable with `app.rate-limit.distributed.enabled=false`; falls back to local-only when Cassandra is unreachable. The `hugmesh-gateway` is the primary rate-limit enforcement point — this is defence-in-depth for the BFF.
+A cluster-wide rate limit, backed by Cassandra, on top of the local in-process `RateLimitFilter` bucket. It appends a row to `rate_limit_events` (TTL 90 s) and counts the rows in the window with `COUNT(*)` against `event_id >= minTimeuuid(now − WINDOW)`. Turn it off with `app.rate-limit.distributed.enabled=false`; it falls back to local-only when Cassandra is unreachable. The `hugmesh-gateway` is the primary rate-limit enforcement point; this is defence in depth for the BFF.
 
 ### `UploadStorage` strategy (decision 020)
 
-`filesystem` (default) + `s3` implementations behind a common interface. `CircuitBreakerUploadStorage` decorator wraps the S3 strategy with the `s3` Resilience4j breaker — reads soft-fall through to null on OPEN (and `AssetController` then falls back to classpath); writes propagate `UploadStorageException`. `AssetController.tryPresignRedirect(...)` returns a 302 to a short-lived pre-signed URL when both `app.uploads.s3.presigned-reads=true` and the strategy returns non-null.
+`filesystem` (default) and `s3` implementations behind one interface. The `CircuitBreakerUploadStorage` decorator wraps the S3 strategy in the `s3` Resilience4j breaker. While the breaker is OPEN, reads return null and `AssetController` falls back to the classpath; writes throw `UploadStorageException`. `AssetController.tryPresignRedirect(...)` answers 302 with a short-lived pre-signed URL when `app.uploads.s3.presigned-reads=true` and the strategy returns a non-null URL.
 
 ### `SessionService`
 
@@ -449,11 +463,11 @@ Resolves a hot-bar slot to a skill, checks MP cost, drains MP, persists the char
 
 ### `ProgressionService`
 
-Pure read composition: `game_access` × `characters` × `character_quests`. Drives the home page and `/api/games/available/{characterId}`.
+Pure read composition of `game_access`, `player_characters` and `character_quests`. Drives the home page and `/api/games/available/{characterId}`.
 
 ### `PgNotificationService`
 
-Cross-instance fan-out: posts to an in-process `Sinks.Many<String>` *and* fires a `pg_notify` SQL command so other pods on the same Postgres see the same events. `onErrorComplete()` swallows publish failures.
+Cross-instance fan-out. It posts to an in-process `Sinks.Many<String>` *and* fires a `pg_notify` SQL command, so other pods on the same Postgres see the same events. `onErrorComplete()` swallows publish failures.
 
 ### `PositionCacheService`
 
@@ -461,16 +475,16 @@ Cassandra write-through cache for cross-pod position visibility. Keyed by `(char
 
 ### `AdminActionService`
 
-Append-only writes to `admin_actions` plus a per-user `Sinks.Many` for live SSE that the kicked / banned player's host shell subscribes to.
+Append-only writes to `admin_actions`, plus a per-user `Sinks.Many` that feeds the live SSE the kicked or banned player's host shell subscribes to.
 
 ## Recurring non-happy paths
 
-The marbles in the PDF cover four scenarios beyond the happy path:
+The PDF's marble diagrams cover four scenarios beyond the happy path:
 
-- **Scenario 1 — Unauthenticated request.** A missing or expired bearer token is rejected by the OAuth2 resource-server filter *before* the controller's reactor pipeline starts; the response is *401* with no controller code touched.
-- **Scenario 2 — SSE subscriber drops mid-stream.** A browser tab closes; client TCP closes; Reactor sees `onCancel`; subscription 1 is deregistered; *the upstream Sinks stay open* because every `Sinks.many()` in this project sets `autoCancel=false`. A reconnect from the same client gets a fresh subscription against the same Sink.
+- **Scenario 1 — Unauthenticated request.** The OAuth2 resource-server filter rejects a missing or expired bearer token *before* the controller's reactor pipeline starts. The response is *401*, and no controller code runs.
+- **Scenario 2 — SSE subscriber drops mid-stream.** A browser tab closes and its TCP connection closes. Reactor sees `onCancel` and deregisters the subscription. *The upstream sinks stay open*, because every `Sinks.many()` in this project sets `autoCancel=false`. A reconnect from the same client gets a fresh subscription on the same sink.
 - **Scenario 3 — Admin force-revokes (kicks) a launch.** `ROLE_ADMIN` clicks *kick*; the BFF handles `DELETE /api/games/admin/launches/{uid}` by setting `game_launches.terminated_at` on the row (one `save`, no wider transaction). Bytes already in flight to the player's iframe finish; the next uid-gated asset request for that uid is answered *404*, because the lookup only matches rows with `terminated_at IS NULL`.
-- **Scenario 4 — Hot upload rolls back.** The install transaction is the most fragile path because it commits across two stores — Postgres (the games rows) *and* the filesystem (the staged bundle directory). When `register.sql` throws inside the transactional block, Reactor's `onError` unwinds: the R2DBC transaction rolls back *and* the service removes the new version directory from storage (best effort). The prior `games.current_version_dir` is unchanged and the active bundle keeps serving.
+- **Scenario 4 — Hot upload rolls back.** The install is the most fragile path, because it writes to two stores: Postgres (the games rows) and the filesystem (the staged bundle directory). When `register.sql` throws inside the transactional block, Reactor's `onError` unwinds. The R2DBC transaction rolls back, and the service removes the new version directory from storage (best effort). The earlier `games.current_version_dir` is unchanged, and the active bundle keeps serving.
 
 ```mermaid
 flowchart LR
@@ -497,7 +511,7 @@ flowchart LR
 
 ## Where to find more detail
 
-- The full Javadoc is published to [`docs/publishing/javadoc-output/`](../../publishing/javadoc-output/) when `make docs-javadocs` runs.
+- `make docs-javadocs` publishes the full Javadoc to [`docs/publishing/javadoc-output/`](../../publishing/javadoc-output/).
 - The Angular API explorer remote ([`frontend/projects/api-docs/`](../../../frontend/projects/api-docs/)) loads the same merged OpenAPI document, lets you override the auth token in a textbox, supports binary uploads, and streams SSE responses into an in-window terminal panel. Reachable at `/admin/docs` on a logged-in admin session.
 
 ---
