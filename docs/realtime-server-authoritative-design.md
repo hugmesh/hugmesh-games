@@ -6,6 +6,33 @@ server only streams), **FPS and RTS are SERVER-authoritative**: the event
 architecture keeps **server-level truth in Cassandra + Postgres**, and the
 frontends are **Godot-created WASM games served by the DB + fragments**.
 
+## Status
+
+This is a design record. Phases P1 and P2 are built; P3 and P4 are not. No FPS
+or RTS title is in the catalog.
+
+- **P1, built:** `extensions/hugmesh-fps-core` and `extensions/hugmesh-rts-core`
+  exist as deterministic Rust sims with `cargo test` suites.
+- **P2, built, with a Java sim:** the tick loop is `AuthoritativeTickService`.
+  Defaults: 30 Hz (`app.realtime.tick-hz`), input delay 2 ticks
+  (`app.realtime.input-delay-ticks`), a Cassandra keyframe every 30 ticks
+  (`app.realtime.keyframe-interval`). Cassandra holds `realtime_keyframes` and
+  `realtime_command_log`, both with a 24-hour TTL (`docker/cassandra-init.cql`).
+  Postgres holds `realtime_matches` (session, game, kind, seed, tick rate,
+  start and end times, `result_json`), not replays. The only sim the running BFF
+  registers is the Java `ReferenceArenaSim` (kind `reference-arena`). The Rust
+  cores are not wired in; see [the P4 record](realtime-sim-wiring-p4.md).
+- **Not the channels drawn below:** inputs and snapshots do not use the session
+  `input` and `world` channels. The surface is `POST /api/realtime/{sessionId}/start`
+  (creator only), `POST /api/realtime/{sessionId}/input`,
+  `GET /api/realtime/stream?sessionId=` (SSE, event `snapshot`),
+  `GET /api/realtime/{sessionId}/log?afterTick=`, and
+  `POST /api/admin/realtime/{sessionId}/recover`.
+- **Not native:** the text below says the server runs the Rust crate natively.
+  The P4 record chose WebAssembly inside the JVM (Chicory) instead.
+- **P3 and P4, not built:** no Godot FPS or RTS client, no lag-comp rewind, no
+  replay viewer.
+
 ## Why two models
 
 | | Waves 1–3 (board / puzzle / duel) | **Waves 4–5 (FPS / RTS)** |
