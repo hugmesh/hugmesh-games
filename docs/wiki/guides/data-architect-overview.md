@@ -6,14 +6,14 @@ Where data lives, how it flows, and how it stays consistent. The enterprise summ
 
 ## Executive summary
 
-A multi-game browser portal. One Spring Boot BFF brokers reads and writes for many concurrent games and players. **Two stores, by responsibility:**
+A multi-game browser portal. One Spring Boot BFF brokers reads and writes for many concurrent games and players. **Two stores, divided by job:**
 
-- **PostgreSQL** is the canonical relational state (catalog, players, federation, access, uploads).
+- **PostgreSQL** holds the canonical relational state (catalog, players, federation, access, uploads).
 - **Cassandra** is a high-write log + cache (movement events, audit log, short-lived sessions, position cache).
 
-Casdoor is the OAuth2 / OIDC identity provider; the JWT subject is the trust boundary.
+Casdoor is the OAuth2 / OIDC identity provider. The JWT subject is the trust boundary.
 
-All persistence is inside one compose stack today; cloud-relocation swap-points are documented for future migration without code changes.
+All persistence runs inside one compose stack today. Cloud-relocation swap-points are documented for a later move without code changes.
 
 ## Domains and clusters
 
@@ -40,20 +40,20 @@ Hot is recoverable from Cassandra. Cassandra is recoverable from Postgres + repl
 
 ## Cross-cutting concerns
 
-- **Auditability** — every state transition emitted by `GameStateService` writes to the Cassandra audit log. Admin moderation also writes to `admin_actions` in Postgres.
-- **Reproducibility** — `game_launches.version_dir` snapshots `games.current_version_dir` at mint, so an in-flight launch keeps reading from its install. See [decision 005](../decisions/005-launch-uid-versioning.md).
-- **Reversibility** — `game_uploads.superseded_at` lets administrators pin to a prior version through the admin UI.
-- **Consistency** — `register.sql` executes inside the upload R2DBC transaction; failure rolls everything back. *Not* atomic vs the on-disk move — recovery procedure in the [maintainer runbook](maintainer-runbook.md), Runbook 5.
+- **Auditability** — every state transition emitted by `GameStateService` is written to the Cassandra audit log. Admin moderation also writes to `admin_actions` in Postgres.
+- **Reproducibility** — `game_launches.version_dir` snapshots `games.current_version_dir` at mint, so an in-flight launch keeps reading from its own install. See [decision 005](../decisions/005-launch-uid-versioning.md).
+- **Reversibility** — `game_uploads.superseded_at` lets an administrator pin a prior version. No admin UI does this; it is a SQL update (see [upload-and-rollback-game](../howto/upload-and-rollback-game.md), option B).
+- **Consistency** — `register.sql` runs inside the upload R2DBC transaction, and a failure rolls everything back. The transaction is *not* atomic with the on-disk move; recovery is in the [maintainer runbook](maintainer-runbook.md), Runbook 5.
 - **Observability** — scheduled jobs (`GameLaunchSweeper`, `GameUploadPruner`, `CassandraSyncService`) emit one line per run for log scraping. The admin dashboard SSE streams `pod_heartbeats` rows from Cassandra.
 
 ## Identity, regulatory, DR
 
-- **PII surface:** Casdoor user email + display name, stored in Casdoor's Postgres; **not duplicated**.
-- **Auth tokens:** issued by Casdoor, verified at the BFF; **never logged**.
+- **PII surface:** Casdoor user email + display name, stored in Casdoor's Postgres and **not duplicated**.
+- **Auth tokens:** issued by Casdoor, verified at the BFF, **never logged**.
 - **Audit log:** stores `casdoor_user_id`; combine with Casdoor's tenant DB for traceback.
 - **RPO** 24 hours (nightly Postgres + uploads-dir snapshot).
 - **RTO** ≈30 minutes (compose up against a restored VM).
-- **Right-to-erasure:** delete the Casdoor user, cascade to `characters`, NULL out `casdoor_user_id` in audit rows.
+- **Right-to-erasure:** delete the Casdoor user, cascade to `player_characters`, NULL out `casdoor_user_id` in audit rows.
 
 ## Cloud relocation swap-points
 
@@ -70,16 +70,16 @@ Hot is recoverable from Cassandra. Cassandra is recoverable from Postgres + repl
 
 ## Shipped — was "future" in earlier versions of this guide
 
-These items are now in production-shaped state. The data model didn't need a rewrite to land any of them; each was additive.
+These items are built. The data model needed no rewrite for any of them; each was additive.
 
-- **Streaming audit + telemetry pipeline.** Kafka topics `state_audit`, `game_events`, `game_kpi`, `session.<id>.events` produced by `GameAuditPublisher` / `GameEventPublisher` / `GameKpiPublisher`. ClickHouse consumes via Kafka-engine + materialised views. Gated by `app.kafka.enabled` (default `false`). Cross-pod consumer + `PlayerStateRecoveryService` close the F4 fan-out loop. See [decision 021](../decisions/021-kafka-clickhouse-streaming-pipeline.md).
-- **Postgres read replica routing.** `R2dbcReadReplicaConfig` provides `@Qualifier("replica")` beans; per-service migration pattern in [decision 022](../decisions/022-postgres-read-replica.md). Compose-level overlay at `docker-compose.replica.yml`.
-- **Object-storage-backed uploads.** `UploadStorage` strategy with `filesystem` (default) + `s3` (compose ships MinIO; prod points at AWS / R2 / B2). `app.uploads.s3.presigned-reads=true` flips `AssetController` into 302-to-presigned-URL mode so the WASM hot path stays off the BFF. Resilience4j circuit breaker (`s3` instance) wraps the strategy. See [decision 020](../decisions/020-object-storage-uploads.md).
-- **Cross-pod rate-limit storage.** `DistributedRateLimitService` runs the cluster-wide augment on Cassandra `rate_limit_events` (90 s TTL); disable via `app.rate-limit.distributed.enabled=false`. The `hugmesh-gateway` is the primary enforcement; the BFF's `RateLimitFilter` is defence-in-depth.
-- **Per-role accounts schema.** `accounts.players` / `accounts.producers` / `accounts.mods` (Liquibase 041). Lazy-populated for players; producers + mods are populated when a `producer_contacts` application is APPROVED.
+- **Streaming audit + telemetry pipeline.** Kafka topics `state_audit`, `game_events`, `game_kpi`, `session.<id>.events` are produced by `GameAuditPublisher` / `GameEventPublisher` / `GameKpiPublisher`. ClickHouse consumes via Kafka-engine + materialised views. Gated by `app.kafka.enabled` (default `false`). A cross-pod consumer + `PlayerStateRecoveryService` close the F4 fan-out loop. See [decision 021](../decisions/021-kafka-clickhouse-streaming-pipeline.md).
+- **Postgres read replica routing.** `R2dbcReadReplicaConfig` provides `@Qualifier("replica")` beans; the per-service migration pattern is in [decision 022](../decisions/022-postgres-read-replica.md). The compose overlay is `docker-compose.replica.yml`.
+- **Object-storage-backed uploads.** The `UploadStorage` strategy offers `filesystem` (default) and `s3` (compose ships MinIO; prod points at AWS / R2 / B2). `app.uploads.s3.presigned-reads=true` makes `AssetController` answer with a 302 to a presigned URL, which keeps the WASM hot path off the BFF. A Resilience4j circuit breaker (`s3` instance) wraps the strategy. See [decision 020](../decisions/020-object-storage-uploads.md).
+- **Cross-pod rate-limit storage.** `DistributedRateLimitService` runs the cluster-wide augment on Cassandra `rate_limit_events` (90 s TTL); disable it with `app.rate-limit.distributed.enabled=false`. The `hugmesh-gateway` is the primary enforcement point; the BFF's `RateLimitFilter` is defence-in-depth.
+- **Per-role accounts schema.** `accounts.players` / `accounts.producers` / `accounts.mods` (Liquibase 041). Players are populated lazily; producers and mods are populated when a `producer_contacts` application is APPROVED.
 
 ## Still future
 
-- AWS S3 + Cloudflare R2 + Backblaze B2 acceptance matrix (the `s3` strategy works against all three; the matrix would document pass/fail per provider for the edge cases like CORS and pre-signed URL semantics).
-- `CassandraSyncService` retirement once the streaming pipeline has soaked in production. The audit / heartbeat are double-written today.
-- Per-route CSP tightening (`/login` doesn't need `worker-src blob:`, `/admin` doesn't need `frame-src 'self'`); strict CSP via the three-step plan in [decision 023](../decisions/023-content-security-policy.md).
+- An AWS S3 + Cloudflare R2 + Backblaze B2 acceptance matrix. The `s3` strategy works against all three; the matrix would record pass/fail per provider for edge cases like CORS and pre-signed URL semantics.
+- Retirement of `CassandraSyncService` once the streaming pipeline has proved itself in production. The audit and heartbeat data are double-written today.
+- Per-route CSP tightening (`/login` doesn't need `worker-src blob:`, `/admin` doesn't need `frame-src 'self'`), and strict CSP via the three-step plan in [decision 023](../decisions/023-content-security-policy.md).
