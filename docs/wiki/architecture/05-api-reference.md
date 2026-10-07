@@ -2,9 +2,9 @@
 
 > Mirror of [`chapters/05-api-reference.tex`](../../publishing/architecture/chapters/05-api-reference.tex).
 
-This page is a Markdown-rendered companion to the generated Javadoc HTML at [`docs/publishing/javadoc-output/index.html`](../../publishing/javadoc-output/) and the live OpenAPI explorer at `/v3/api-docs`. Every controller is listed once with its endpoints, auth posture, and a one-line description of the contract.
+This page is a Markdown-rendered companion to the generated Javadoc HTML at [`docs/publishing/javadoc-output/index.html`](../../publishing/javadoc-output/) and the live OpenAPI document at `/v3/api-docs` (public with the `dev` profile, `ROLE_ADMIN` only in prod). Every controller is listed once with its endpoints, auth posture, and a one-line description of the contract.
 
-The PDF version of this chapter ([`chapters/05-api-reference.tex`](../../publishing/architecture/chapters/05-api-reference.tex)) ships TikZ **marble diagrams** for each reactive controller and service (sources under [`docs/publishing/architecture/marbles/`](../../publishing/architecture/marbles/), rendered to PNG by `make docs-rendered-diagrams`). On GitHub those same reactive flows render as the **mermaid pipeline flowcharts** below; the per-endpoint pipelines live in the [root README API reference](../../../README.md#api-reference).
+The PDF version of this chapter ([`chapters/05-api-reference.tex`](../../publishing/architecture/chapters/05-api-reference.tex)) ships TikZ **marble diagrams** for each reactive controller and service (sources under [`docs/publishing/architecture/marbles/`](../../publishing/architecture/marbles/), rendered to PNG by `make docs-diagrams`). On GitHub those same reactive flows render as the **mermaid pipeline flowcharts** below; the per-endpoint pipelines live in the [root README API reference](../../../README.md#api-reference).
 
 > **Reading the pipeline flowcharts** — a request flows through the Reactor operators to a terminal emission. `([ … ])` rounded ends are the request and the emitted value(s); plain boxes are operators (`findById`, `map`, `flatMap`, `save`); `{ … }` diamonds are branches; a red `✗` node is a 4xx / error terminal. A `Mono` completes after one value, a `Flux` after N, an SSE stream stays open until the client disconnects.
 
@@ -37,7 +37,7 @@ sequenceDiagram
     FE->>API: POST /api/auth/token {username, password}
     API->>CAS: WebClient.post(/api/login/oauth/access_token) grant_type=password + client_secret
     CAS-->>API: {access_token, …}
-    API-->>FE: {access_token, token_type, expires_in}
+    API-->>FE: {access_token, token_type, expires_in, …}
 ```
 
 **`RealtimeController` / `AdminRealtimeController` — 🚧 server-authoritative match surface (engine wired, catalog launch deferred).**
@@ -59,11 +59,11 @@ flowchart LR
 flowchart LR
     R(["POST /api/admin/games/upload — multipart zip"]) --> V["validate manifest v2 + slug regex + zip-slip-safe paths"]
     V --> H["SHA-256 the bundle/ tree → version_dir"]
-    H --> Mv["Mono.fromCallable — atomic move to gamesDir/(slug)/(sha-prefix)"]
+    H --> Mv["Mono.fromCallable — move staged tree to storage (gamesDir/(slug)/(sha-prefix))"]
     Mv --> Tx["TransactionalOperator.transactional:<br/>insert game_uploads · run register.sql · update games.current_version_dir · supersede prior"]
     Tx --> OK(["● {slug, contentHash, versionDir, uploadedAt}"])
     V -. "bad zip / bad manifest → 400" .-> BadReq["reject 400"]:::err
-    Tx -. "register.sql throws → onError" .-> RB["rollback R2DBC tx + reverse on-disk move"]:::err
+    Tx -. "register.sql throws → onError" .-> RB["rollback R2DBC tx + remove new version dir"]:::err
     classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
@@ -71,12 +71,11 @@ flowchart LR
 
 ### `CasdoorAuthController` — `/api/auth`
 
-Public reverse-proxy of the Casdoor login flow. (The Java class is `CasdoorAuthController`.)
+Public token exchange against Casdoor. It has one endpoint.
 
 | Method | Path | Notes |
 |---|---|---|
 | `POST` | `/api/auth/token` | Exchanges username + password for a Casdoor access token via ROPC (`grant_type=password`). The `client_secret` is injected server-side — the browser never sees it. The federated `login` remote calls this directly. |
-| `GET` | `/api/auth/me` | Returns the resolved Casdoor user from the bearer token. |
 
 **Call example.**
 ```bash
@@ -84,27 +83,28 @@ curl -sS -X POST http://localhost:8080/api/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"username":"player","password":"<the seed password — see .e2e-credentials or the casdoor container log>"}'
 ```
-*200 OK*: `{ "accessToken": "eyJ…", "expiresAt": "2026-04-26T12:30:00Z", "casdoorUserId": "alice@threewizards" }`
-*400 Bad Request*: `{ "status":400, "error":"invalid_grant", "message":"Casdoor: authorization code expired or already used" }`
+*200 OK*: Casdoor's token response, passed through unchanged — `{ "access_token": "eyJ…", "token_type": "Bearer", "expires_in": 3600, … }`.
 
 ### `GameStreamController` — `/api/game/stream`
 
-Public SSE merge stream — nine typed channels plus a keepalive. See [02 — Runtime architecture](02-runtime.md#server-sent-events--nine-channels-on-one-stream).
+SSE merge stream — nine typed channels plus a keepalive. The unscoped stream is public; `GET /api/game/state` (a snapshot for clients that cannot use SSE) sits beside it. See [02 — Runtime architecture](02-runtime.md#server-sent-events--nine-channels-on-one-stream).
 
 ```bash
 curl -N http://localhost:8080/api/game/stream
 ```
 *200 OK — `text/event-stream` (excerpt):*
 ```
-event: keepalive
-data: {"ts":"2026-04-26T12:30:00Z"}
-
+id: 1
 event: movement
-data: {"characterId":1,"x":12.4,"y":0.0,"z":-3.1,"action":"walk","tick":4421}
+data: {"characterId":1,"chapterId":1,"x":12.4,"y":0.0,"z":-3.1,"rotationY":0.0,"action":"walk","pressed":true,"tick":4421}
 
+id: 2
 event: time
-data: {"day":3,"hour":18,"minute":42,"phase":"dusk"}
+data: {"dayNumber":3,"hour":18,"minute":40}
+
+: keepalive
 ```
+The keepalive is an SSE comment line, sent at connect and every 15 s. With `?sessionId=` the stream needs a bearer token and an active membership in that session (*401*, *403*); admins may watch any session.
 **Client disconnects:** the underlying `Sinks.Many` instances stay open (`autoCancel=false`). A reconnect from the same client gets a fresh subscription on the same sinks.
 
 ### `GameController` — `/api/games`
@@ -115,7 +115,7 @@ Public game catalog (filtered by `game_access` when a JWT is present). Composes 
 |---|---|---|
 | `GET` | `/api/games` | List of all games. |
 | `GET` | `/api/games/{id}` | One game by id. |
-| `GET` | `/api/games/{id}/levels` | Its chapters by id. |
+| `GET` | `/api/games/{id}/chapters` (alias `/levels`) | Its chapters by id. |
 | `GET` | `/api/games/available/{characterId}` | JWT-aware availability list with per-game lock state. |
 
 ### `ChapterController` — `/api/chapters` (also accepts `/api/levels`)
@@ -124,20 +124,21 @@ Public per-chapter metadata and scene DTOs. The `@RequestMapping({"/api/chapters
 
 | Method | Path | Notes |
 |---|---|---|
+| `GET` | `/api/chapters` | List of chapters. |
 | `GET` | `/api/chapters/{id}` | Chapter row including `asset_url`. |
 | `GET` | `/api/chapters/{id}/scene` | Typed `SceneDto` that `scene_loader.gd` consumes. |
 
 ### `ChapterAssetController` — `/api/chapters/{id}/assets`
 
-Public per-chapter asset registry — `GET` / `POST` / `DELETE` for textures / plugins / audio looked up by stable label.
+Per-chapter asset registry — `GET` (list, and `/by-label/{label}`), `POST` and `DELETE` for textures / plugins / audio looked up by stable label. The path sits under the public `/api/chapters/**` rule and the controller adds no check of its own, so all three methods are public.
 
 ### `AssetController` — `/api/assets`
 
-Public legacy classpath asset serving plus the launch-uid-gated filesystem path for hot-uploaded bundles. Resolves filesystem `<gamesDir>/<slug>/<sha-prefix>/...` first, classpath fallback second.
+Public classpath asset serving (`/api/assets/{filename}`), the legacy level path `/api/assets/levels/{slug}/...` (403 when `app.assets.require-launch-uid=true`; default `false`) and the launch-uid-gated path `/api/assets/levels/{slug}/{uid}/...` for hot-uploaded bundles. The gated path resolves the version directory pinned at launch, then falls back to the current version and the classpath. A terminated, expired or wrong-slug uid gets *404*, so a caller cannot tell whether a uid exists.
 
 ### `ControlController` — `/api/controls`
 
-Session-validated control event ingestion, gated on `SecurityConfig.PLAYER_PATHS` requiring an authenticated principal — a caller with neither a JWT nor the legacy `X-Casdoor-Id` header gets *401* before any authorization check runs. The legacy `X-Casdoor-Id` header path is still live (not removed): `ControlController.receiveControl` declares `@RequestHeader(value = "X-Casdoor-Id", required = false)` and falls back to it whenever no JWT is present, with the JWT subject always preferred when both are supplied. Once identity is resolved, *403* when the subject isn't the controller-role holder for that session. **Auto-recovery**: `game_bridge.gd`'s `send_control` detects the 403 and posts `SD_SESSION_EXPIRED` to the host shell; `ApiBridgeService.handleSessionExpired()` re-runs `session.connect()` → `session.claimControl()` so the next keypress succeeds. The recovery path is what makes a BFF restart survivable while the Angular SPA is still mounted (the in-memory `activeSessions` / `currentController` are wiped on restart, but the SPA never sees the gap).
+Session-validated control event ingestion, gated on `SecurityConfig.PLAYER_PATHS` requiring an authenticated principal. `ControlController.receiveControl` still declares `@RequestHeader(value = "X-Casdoor-Id", required = false)` and falls back to it whenever no JWT is present, with the JWT subject preferred when both are supplied. With `X-Session-Id` the caller must hold an active seat that owns `characterId` in that session (*401* without an identity, *403* otherwise); without it the legacy single-session rule applies and *403* means the subject isn't the controller-role holder. **Auto-recovery**: `game_bridge.gd`'s `send_control` detects the 403 and posts `SD_SESSION_EXPIRED` to the host shell; `ApiBridgeService.handleSessionExpired()` re-runs `session.connect()` → `session.claimControl()` so the next keypress succeeds. The recovery path is what makes a BFF restart survivable while the Angular SPA is still mounted (the in-memory `activeSessions` / `currentController` are wiped on restart, but the SPA never sees the gap).
 
 ### `FederationController` — `/api/federation/manifest`
 
@@ -149,11 +150,11 @@ Public game-clock snapshot — same DTO that the `time` SSE channel emits.
 
 ### `DiagnosticsController` — `/api/diagnostics`
 
-Anonymous endpoint for forwarded WASM-iframe console captures. Stamps a server timestamp and pushes onto the `wasm-console` SSE channel so admin docs explorers can mirror crashes live.
+`POST /api/diagnostics/wasm-console` — forwarded WASM-iframe console lines. `ROLE_ADMIN` only, and only while the debug-mode flag is on (see `DebugModeController` below); otherwise *403*. Stamps a server timestamp and pushes onto the `wasm-console` SSE channel so admin docs explorers can mirror crashes live.
 
 ### `CspReportController` — `/api/security/csp-report`
 
-Anonymous CSP violation report sink for the `Content-Security-Policy` policy shipped by `frontend/nginx.conf` + `frontend/nginx-tls.conf` (decision 023). Two accepted content-types: `application/csp-report` (legacy `report-uri` envelope) and `application/reports+json` (modern Reporting API array). Log-only at WARN; no persistence. Allow-listed in `SecurityConfig.PUBLIC_PATHS` since browsers POST these unauthenticated. Rate-limited by the standard `api` zone.
+Anonymous CSP violation report sink for the `Content-Security-Policy` policy shipped by `frontend/nginx.conf` + `frontend/nginx-tls.conf` (decision 023). Two accepted content-types: `application/csp-report` (legacy `report-uri` envelope) and `application/reports+json` (modern Reporting API array). Log-only at WARN; no persistence. Allow-listed in `SecurityConfig.PUBLIC_PATHS` since browsers POST these unauthenticated. Rate-limited by the standard `api` zone at the host nginx.
 
 ### `AppealContactController` — `/api/security/appeal-contact`
 
@@ -165,14 +166,14 @@ Anonymous resolver for the appeal email address shown to revoked users by the fe
 |---|---|---|---|
 | `POST` | `/api/producer-contacts` | JWT | Producer / mod application submitted via the `producer-registration` federated remote. One row per submission in `producer_contacts`; status starts `PENDING`. |
 | `GET`  | `/api/producer-contacts/me` | JWT | Caller's own submission history (newest first). |
-| `GET`  | `/api/admin/producer-contacts` | `ROLE_ADMIN` | All submissions for moderation review. |
-| `POST` | `/api/admin/producer-contacts/{id}/decision` | `ROLE_ADMIN` | `{decision: 'APPROVED'\|'REJECTED', reviewerNotes?}`. On APPROVED, writes a row into `accounts.producers` or `accounts.mods` and grants the matching Casdoor role. |
+| `GET`  | `/api/admin/producer-contacts` | `ROLE_ADMIN` | PENDING submissions, oldest first. |
+| `POST` | `/api/admin/producer-contacts/{id}/decision` | `ROLE_ADMIN` | `{status: 'APPROVED'\|'REJECTED', reviewerNotes?}`. Records the status, the reviewer and the time; *409* if the row is no longer PENDING. It does not write `accounts.producers` / `accounts.mods` and does not grant a Casdoor role. |
 
 ## Authenticated surface (JWT required)
 
 ### `SessionController` — `/api/sessions/{connect,control,me,history}`
 
-Legacy single-session connect / disconnect / control-claim / history — retained for the single-player path. **Capacity is hard-capped at three concurrent players**; first connect auto-claims controller. *409 server_full* when full.
+Legacy single-session connect / disconnect / control-claim / history — retained for the single-player path: `POST /connect`, `POST /control`, `DELETE /me`, `GET /history`. Capacity is capped by `app.session.max-players` (default 3); the first connect auto-claims the controller. Past the cap, `SessionService.tryConnect` fails with `IllegalStateException("Server is full (max N players)")`; no handler in the code maps that exception to a status code.
 
 ### `MultiplayerSessionController` — `/api/sessions` (multiplayer)
 
@@ -180,12 +181,14 @@ Named multiplayer sessions. Distinct from the legacy single-session path above.
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/sessions` | `{gameSlug, name, maxPlayers?, characterId?, slotIndex?}` → mint UUID + write `game_sessions` row + first `session_members` row flagged `is_creator=true`. |
+| `POST` | `/api/sessions` | `{gameSlug, name, maxPlayers?, visibility?, characterId?, slotIndex?}` → mint a `Crypto.mintUid()` id + write `game_sessions` row + first `session_members` row flagged `is_creator=true`. |
 | `GET` | `/api/sessions?gameSlug=` | Open sessions (`closed_at IS NULL`), optionally filtered. Used by the home-page picker. |
 | `GET` | `/api/sessions/{id}` | Session detail with active members. |
 | `POST` | `/api/sessions/{id}/join` | `{characterId?, slotIndex?}`. Idempotent on `(sessionId, casdoorId)`; slot collisions resolve as *409* via the partial unique index. |
 | `DELETE` | `/api/sessions/{id}/me` | Leave. Auto-closes the session if the leaver was the last active member. |
 | `DELETE` | `/api/sessions/{id}` | Force-close. Creator-only. |
+| `POST` | `/api/sessions/{id}/pause`, `/resume` | Session-wide pause and resume; the creator or an admin. Emits `SESSION_PAUSED` / resume on `session-control`. |
+| `POST` | `/api/sessions/{id}/players/me/pause`, `/resume` | Tab-takeover pause for the caller; kept in memory, not in Postgres. |
 
 See [decision 010 — per-session SSE sinks](../decisions/010-per-session-sse-sinks.md) for the isolation contract.
 
@@ -218,16 +221,16 @@ Per-user session-history reads, with role-scoped variants.
 
 ### `ProfileController` — `/api/profile/me/{player,producer,mod}`
 
-Per-role profile read / write against the `accounts` schema introduced in Liquibase 041 (decision: `docs/decisions/020-per-role-schema-split.md`).
+Per-role profile read / write against the `accounts` schema introduced in Liquibase 041 (decision: `docs/decisions/020-per-role-schema-split.md`). Nothing in the BFF creates producer or mod rows (see [04](04-data-model.md#per-role-accounts-schema)), so the producer and mod endpoints answer *404* until a row exists.
 
 | Method | Path | Notes |
 |---|---|---|
 | `GET`  | `/api/profile/me/player` | Caller's `accounts.players` row (xp / level / friend-count / block-count). Lazy-populated on first call. |
 | `PUT`  | `/api/profile/me/player` | Patch the same row. |
 | `GET`  | `/api/profile/me/producer` | Caller's `accounts.producers` row. `404` if the caller hasn't been approved as a producer. |
-| `PUT`  | `/api/profile/me/producer` | Update contact email / jurisdiction. Gated on `ROLE_PRODUCER`. |
+| `PUT`  | `/api/profile/me/producer` | Update display name, contact email and jurisdiction. Gated on `ROLE_PUBLISHER` or `ROLE_PRODUCER` (the GET is gated the same way). |
 | `GET`  | `/api/profile/me/mod` | Caller's `accounts.mods` row. `404` if not approved as a mod. |
-| `PUT`  | `/api/profile/me/mod` | Update contact email / `oncall_slot`. Gated on `ROLE_MOD`. |
+| `PUT`  | `/api/profile/me/mod` | Update contact email / `oncall_slot`. Gated on `ROLE_MOD` (the GET is gated the same way). |
 
 ### `UserRelationshipController` — `/api/relationships/{friends,blocks}`
 
@@ -238,20 +241,20 @@ Friend graph + block list, persisted in `user_relationships`. See [decision 015]
 | `GET`  | `/api/relationships/friends` | Accepted friends. |
 | `GET`  | `/api/relationships/friends/incoming` | Pending requests received. |
 | `GET`  | `/api/relationships/friends/outgoing` | Pending requests sent. |
-| `POST` | `/api/relationships/friends/request` | Send a friend request. Soft-rejected (no-op) if the target has the caller blocked. |
+| `POST` | `/api/relationships/friends/request` | Send a friend request. Re-sending is a no-op; if the other user already asked, it accepts. *403* `blocked` if the target has blocked the caller. |
 | `POST` | `/api/relationships/friends/accept` | Accept an incoming request. |
 | `POST` | `/api/relationships/friends/remove` | Unfriend (also cancels pending). |
 | `GET`  | `/api/relationships/blocks` | Caller's block list. |
-| `POST` | `/api/relationships/blocks/add` | Block a user. Side-effects: cancels any pending / accepted friendship in both directions. |
+| `POST` | `/api/relationships/blocks/add` | Block a user. Side-effects: cancels any pending / accepted friendship in both directions. *403* if the target is a publisher. |
 | `POST` | `/api/relationships/blocks/remove` | Unblock. |
 
 ### `TelemetryController` — `POST /api/telemetry/game/{slug}`
 
-Per-game KPI ingest from federated game remotes (decision 021, follow-up F2). Iframes POST batched samples directly; `GameKpiPublisher` ships them to the `game_kpi` Kafka topic, which ClickHouse aggregates into `kpi_rolling_avg_24h` for admin dashboards. JWT-authenticated (the player's bearer is forwarded by the iframe); existing `WebConfig` CORS allowlist covers federated origins.
+Per-game KPI ingest from federated game remotes (decision 021, follow-up F2). Iframes POST batched samples directly; `GameKpiPublisher` ships them to the `game_kpi` Kafka topic, which ClickHouse aggregates into `kpi_rolling_avg_24h` for admin dashboards. The route is public (`/api/telemetry/**` in `PUBLIC_PATHS`): a bearer token fills `casdoor_id`, and an anonymous post is accepted with it empty. Batches are cut at 100 entries, and the answer is *202* whatever the broker does. `app.telemetry.cors.allowed-origins` covers federated origins.
 
 ### `ViewEgressController` — `POST /api/view`
 
-Per-player camera/orientation sample ingest. Authorized via `session_members.findActiveOwnerOfCharacter` — JWT subject must be the active member who owns `characterId`. Fans out on the per-session `view` SSE channel admins watch via `/api/admin/sessions/{id}/stream`.
+Per-player camera/orientation sample ingest. Authorized through `GameSessionService.authorizeControl` — the JWT subject must be the active member who owns `characterId`. Fans out on the per-session `view` SSE channel admins watch via `/api/admin/sessions/{id}/stream`.
 
 ### `ModerationController` — `/api/mod/*` (`ROLE_MOD` or `ROLE_ADMIN`)
 
@@ -276,7 +279,7 @@ Per-game publisher actions. `publisher_game_scopes` decides which games.
 
 ### `CharacterController` — `/api/characters`
 
-Character read / patch / dashboard / quest completion / use-first-item. The patch path emits a `character` SSE event after persisting.
+Character list / read / update (`PUT /{id}`) / dashboard / quest completion / use-first-item. The update path emits a `character` SSE event after persisting.
 
 ### `SkillController` — `/api/skills`
 
@@ -284,7 +287,7 @@ Skill catalog, per-character known skills, and hot-bar slot assignment. Casting 
 
 ### `ItemController` — `/api/items`
 
-Inventory + per-character equipment slots. Slot vocabulary is closed — *404 unknown_slot* on a literal not in `head` / `torso` / `mainhand` / …
+Inventory (`GET /api/items/character/{id}/inventory`) and equipment (`GET …/equipment`, `PUT …/equipment/{slot}?itemId=`). Equipping a slot the character has no row for answers *404*; equipping on a character the caller doesn't own answers *403*.
 
 ### `QuestController` — `/api/quests`
 
@@ -292,21 +295,23 @@ Quest catalog (full) and per-character started-quest list.
 
 ### `InputEventController` — `/api/input`
 
-Generalised input ingestion — gamepad / mouse / keyboard / touch / audio / world / control. Documented three-gate validation, only gate 1 of which is wired in today (see [04 — Data model](04-data-model.md#generalised-input-event-surface) and [README § Known gaps / TODO](../../../README.md#known-gaps--todo)).
+Generalised input ingestion — gamepad / mouse / keyboard / touch / audio / world / control. `POST /api/input/{characterId}` submits an event; `GET /api/input/character/{characterId}` and `GET /api/input/session/{sessionId}` read recent history (membership or ownership required). The web-native relay posts here (see [02](02-runtime.md#browser-side-flow--web-native-host-authoritative)). Every submit passes the validation gates described in [04 — Data model](04-data-model.md#generalised-input-event-surface); gate 3 is implemented but off by default.
 
 | Status | When |
 |---|---|
-| *403* | Session-scoped submit where the caller isn't the active `session_member` owning `characterId`; OR a non-creator submitting `kind:'world'` (authority-spoof defence — only the session creator may post the authoritative world relay). |
-| *400* | `(kind, type)` not in `input_event_types`. The upload-time validator should have caught this. |
-| *405* | *Not yet implemented* — the documented `games.features.<kind>=false` / `(slug, kind, type)` not in `game_event_support` gates don't run yet; any registered `(kind, type)` currently passes regardless of the game's feature flags. |
+| *401* | No JWT. |
+| *403* | Session-scoped submit where the caller isn't the active `session_member` owning `characterId`; OR a non-creator submitting `kind:'world'` (authority-spoof defence — only the session creator may post the authoritative world relay); OR a `gameSlug` that doesn't match the session's game. |
+| *400* | `(kind, type)` not in `input_event_types`, or a missing `kind`, `type` or `gameSlug`. The upload-time validator should have caught the first. |
+| *405* | `games.features.<kind>` is `false` or absent, or (for `control:cast`) the `instant_loadout` flag is; with `app.input.gate3-enabled=true`, also a `(slug, kind, type)` triple that isn't an enabled `game_event_support` row. |
 
-### `GameLaunchController` — `/api/games/{slug}/launch` + `/api/admin/launches`
+### `GameLaunchController` — `/api/games/{slug}/launch` + `/api/games/admin/launches`
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/games/{slug}/launch` | Mints a `launch_uid`, snapshots `games.current_version_dir`, returns `{uid, expiresAt, gameSlug, versionDir}`. |
+| `POST` | `/api/games/{slug}/launch` | Mints a `launch_uid` (15-minute TTL), snapshots `games.current_version_dir` into the row, returns `{uid, expiresAt, gameSlug}`. *403* if `game_access` hides the game from the caller. |
 | `DELETE` | `/api/games/launches/{uid}` | Owner self-terminate. |
-| `DELETE` | `/api/admin/launches/{uid}` | Admin force-terminate. |
+| `GET` | `/api/games/launches` | Active launches, brand-scoped. `ROLE_ADMIN`. |
+| `DELETE` | `/api/games/admin/launches/{uid}` | Admin force-terminate. `ROLE_ADMIN`. |
 
 ### `RoleAdminController` — `/api/admin/role-grants/*` (`ROLE_ADMIN`)
 
@@ -331,21 +336,35 @@ Runtime toggle for diagnostic ingest from the WASM iframe. Default OFF.
 
 `DiagnosticsController.POST /api/diagnostics/wasm-console` is now `ROLE_ADMIN` + flag-gated; non-admin callers always get *403*. See [decision 012](../decisions/012-debug-mode-gate.md).
 
+### `AvatarController` — `/api/avatars`, `/api/characters/{cid}/avatar`
+
+Saved parametric avatars (decision 028): up to 12 per user, one active. Create, update, delete and select are owner-only. The rendered image and model are readable by any authenticated user, with no owner check, because an avatar exists to be seen by others; ids are unguessable 43-character tokens.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` / `POST` | `/api/avatars` | List the caller's avatars; create one from `{name, document}`. |
+| `PUT` / `DELETE` | `/api/avatars/{id}` | Update or delete. |
+| `POST` | `/api/avatars/{id}/select` | Make it the active avatar. |
+| `PUT` | `/api/characters/{cid}/avatar` | Bind `{avatarId}` to one character. |
+| `GET` | `/api/avatars/{id}/image.svg`, `/model.glb` | Rendered SVG and glTF binary. |
+
 ### `AdminSessionStreamController` — `/api/admin/sessions/{id}/stream` (`ROLE_ADMIN`)
 
 Per-session SSE merge — movement / world / character / view channels scoped to one session id. The `view` channel is the per-player camera/orientation feed driven by the Rust GDExtension's `view_egress` signal. See [decision 013](../decisions/013-player-view-channel.md).
 
-## Admin-only surface (`ROLE_ADMIN`)
+## Admin surface (`ROLE_ADMIN`, except as noted)
 
 ### `AdminController` — `/api/admin`
 
-Dashboard reads + force-disconnect + character moderation; backed by a `ROLE_ADMIN`-gated SSE merge.
+Dashboard reads, force-disconnect and character moderation, all `ROLE_ADMIN` through the `/api/admin/**` rule: `GET /sessions`, `GET /multiplayer-sessions`, `GET /stats`, `GET /characters`, `PUT /characters/{id}`, `DELETE /sessions/{casdoorId}` (force-disconnect) and `GET /stream` (an SSE merge for the dashboard).
 
 ### `GameUploadController` — `/api/admin/games`
 
+Both endpoints take `ROLE_ADMIN` or `ROLE_PUBLISHER`; a publisher is limited to games in `publisher_game_scopes`.
+
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/admin/games/upload` | Multipart bundle zip; the install pipeline validates manifest schema v2 + slug regex + zip-slip-safe paths, hashes the bundle, atomically moves into `<gamesDir>/<slug>/<sha-prefix>`, runs the bundle's `register.sql` inside a single R2DBC transaction, and supersedes prior uploads. Returns `{slug, contentHash, versionDir, uploadedAt}`. |
+| `POST` | `/api/admin/games/upload` | Multipart bundle zip; the install pipeline validates manifest schema v2 + slug regex + zip-slip-safe paths, hashes the bundle, moves the staged tree into storage (`<gamesDir>/<slug>/<sha-prefix>` on the filesystem strategy), runs the bundle's `register.sql` inside a single R2DBC transaction under the least-privilege `hugmesh_register_sql` role, and supersedes prior uploads. Returns `{slug, contentHash, versionDir, uploadedAt}`. |
 | `GET` | `/api/admin/games/{slug}/uploads` | Rollback history, newest first; `supersededAt = NULL` marks the current. |
 
 ### `GameAccessController` — `/api/admin/games/{slug}/access`
@@ -362,7 +381,7 @@ Server-side proxy of `/api/get-roles?owner=threewizards` so the admin UI's "gran
 
 ### `AdminActionController` — `/api/admin/actions`
 
-Kick / ban / unban a player. Writes to `admin_actions` and broadcasts on the per-user SSE channel that the host's `AdminActionsListenerService` subscribes to (which closes any open game window via `BroadcastChannel` and redirects to `/banned`). See [howto/kick-or-ban.md](../howto/kick-or-ban.md).
+Kick / ban / unban a player: `POST /api/admin/actions/{kick,ban,unban}/{casdoorId}` and `GET /api/admin/actions/{casdoorId}` (history), all `ROLE_ADMIN`. Writes to `admin_actions` and broadcasts on the per-user SSE channel `GET /api/me/admin-actions/stream`, which the host's `AdminActionsListenerService` subscribes to (it closes any open game window via `BroadcastChannel` and redirects to `/banned`). Any authenticated user can read their own status at `GET /api/me/ban-status`. See [howto/kick-or-ban.md](../howto/kick-or-ban.md).
 
 ## BFF service tier
 
@@ -374,15 +393,15 @@ Owns eight `Sinks.Many`: `movement`, `world`, `character`, `scene`, `input`, `au
 
 ### `GameTimeService`
 
-A `Flux.interval(1s)` tick loop advances the in-memory clock, persists snapshots every 10 ticks, and emits a `GameTimeDto` on the `time` SSE channel every 5 game-minutes (or whenever `phase` changes).
+A `Flux.interval(1s)` tick loop advances the in-memory clock by one game minute per second, persists `game_time_state` every 10 ticks, and emits a `GameTimeDto` (`dayNumber`, `hour`, `minute`) on the `time` SSE channel whenever the minute is a multiple of 5, that is every 5 real seconds. The DTO has no `phase`.
 
 ### `GameUploadService`
 
-The transactional install pipeline behind `POST /api/admin/games/upload`. `Mono.fromCallable(...)` for the blocking filesystem moves; `TransactionalOperator.transactional(...)` for the R2DBC commit that covers `game_uploads` insert + `register.sql` execution + `games.current_version_dir` update + supersede prior uploads.
+The transactional install pipeline behind `POST /api/admin/games/upload`. `Mono.fromCallable(...)` for the blocking staging and storage work; `TransactionalOperator.transactional(...)` for the R2DBC commit that covers `game_uploads` insert + `register.sql` execution + `games.current_version_dir` update + supersede prior uploads.
 
 ### `GameLaunchSweeper`
 
-`@Scheduled` task (default every 5 minutes) that marks expired `game_launches` rows so the admin dashboard stops counting them and the asset-tier launch-uid check stops resolving.
+`@Scheduled` task (default every 5 minutes, `app.launches.sweep-fixed-rate-ms`) that terminates stale `game_launches` rows so the admin dashboard stops counting them.
 
 ### `GameUploadPruner`
 
@@ -398,7 +417,7 @@ Kafka producers introduced by decision 021. `GameAuditPublisher` emits state-tra
 
 ### `KafkaSessionSubscriber`
 
-Cross-pod consumer for `game_events`. Filters self-published events via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. Covers all 9 channels (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only; world-native → per-session only, no global sink — see decision 021).
+Cross-pod consumer for `game_events`. Filters self-published events via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. Covers all 9 channels. Through `reemitToSession` (private to `GameStateService`): movement, world and character go to the global and the per-session sink; view goes to the per-session sink only; scene, input, audio and wasm-console go to the global sink only; world-native goes to the per-session `worldNative` sink only, with no global sink — see decision 021.
 
 ### `SessionTopicManager`
 
@@ -418,7 +437,11 @@ Cassandra-backed cluster-wide rate-limit augment to the local in-process `RateLi
 
 ### `SessionService`
 
-Concurrent in-memory map of active sessions (`ConcurrentHashMap<String, SessionDto>`) capped at three players, plus `AtomicReference<String>` for the current controller.
+Concurrent in-memory map of active sessions (`ConcurrentHashMap<String, SessionDto>`) capped at `app.session.max-players` (default 3), plus `AtomicReference<String>` for the current controller. Serves the legacy single-session path only.
+
+### `GameSessionService` and `SessionMemberReaper`
+
+`GameSessionService` owns the durable multiplayer ledger (`game_sessions`, `session_members`): create, join, leave, close, pause, resume, and the `authorizeControl` check every control and input write passes. `SessionMemberReaper` runs every 30 s (`app.sessions.reap-fixed-rate-ms`) and releases the seats of members whose `last_seen_at` is older than 3 minutes (`app.sessions.member-timeout-ms`); `app.sessions.reap-enabled=false` turns it off.
 
 ### `InstantService` (formerly `SpellService`)
 
@@ -446,8 +469,8 @@ The marbles in the PDF cover four scenarios beyond the happy path:
 
 - **Scenario 1 — Unauthenticated request.** A missing or expired bearer token is rejected by the OAuth2 resource-server filter *before* the controller's reactor pipeline starts; the response is *401* with no controller code touched.
 - **Scenario 2 — SSE subscriber drops mid-stream.** A browser tab closes; client TCP closes; Reactor sees `onCancel`; subscription 1 is deregistered; *the upstream Sinks stay open* because every `Sinks.many()` in this project sets `autoCancel=false`. A reconnect from the same client gets a fresh subscription against the same Sink.
-- **Scenario 3 — Admin force-revokes (kicks) a launch.** `ROLE_ADMIN` clicks *kick*; the BFF runs the `DELETE` inside a transactional block that sets `game_launches.terminated_at = NOW()`. Bytes already in flight to the player's iframe finish; the kick lands at the next level-transition where the player's request is denied with *410 Gone*.
-- **Scenario 4 — Hot upload rolls back.** The install transaction is the most fragile path because it commits across two stores — Postgres (the games rows) *and* the filesystem (the staged bundle directory). When `register.sql` throws inside the transactional block, Reactor's `onError` unwinds: the R2DBC transaction rolls back *and* the on-disk move is reversed. The prior `games.current_version_dir` is unchanged and the active bundle keeps serving.
+- **Scenario 3 — Admin force-revokes (kicks) a launch.** `ROLE_ADMIN` clicks *kick*; the BFF handles `DELETE /api/games/admin/launches/{uid}` by setting `game_launches.terminated_at` on the row (one `save`, no wider transaction). Bytes already in flight to the player's iframe finish; the next uid-gated asset request for that uid is answered *404*, because the lookup only matches rows with `terminated_at IS NULL`.
+- **Scenario 4 — Hot upload rolls back.** The install transaction is the most fragile path because it commits across two stores — Postgres (the games rows) *and* the filesystem (the staged bundle directory). When `register.sql` throws inside the transactional block, Reactor's `onError` unwinds: the R2DBC transaction rolls back *and* the service removes the new version directory from storage (best effort). The prior `games.current_version_dir` is unchanged and the active bundle keeps serving.
 
 ```mermaid
 flowchart LR
@@ -461,13 +484,13 @@ flowchart LR
     end
     subgraph s3["Scenario 3 — admin kicks a launch"]
         direction LR
-        C1(["ROLE_ADMIN kick — DELETE /api/admin/launches/{uid}"]) --> C2["tx: game_launches.terminated_at = NOW()"] --> C3["in-flight bytes finish"] --> C4["next chapter-transition denied → ✗ 410 Gone"]:::err
+        C1(["ROLE_ADMIN kick — DELETE /api/games/admin/launches/{uid}"]) --> C2["game_launches.terminated_at = now"] --> C3["in-flight bytes finish"] --> C4["next uid-gated asset request → ✗ 404"]:::err
     end
     subgraph s4["Scenario 4 — hot upload rolls back"]
         direction LR
         D1(["install tx — Postgres rows + staged dir"]) --> D2["register.sql executes"] --> D3{"throws?"}
         D3 -->|no| D4(["● commit — new current_version_dir"])
-        D3 -->|yes| D5["onError unwind: R2DBC rollback + reverse on-disk move<br/>prior current_version_dir unchanged"]:::err
+        D3 -->|yes| D5["onError unwind: R2DBC rollback + remove new version dir<br/>prior current_version_dir unchanged"]:::err
     end
     classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
