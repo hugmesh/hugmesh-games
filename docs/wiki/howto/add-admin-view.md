@@ -1,6 +1,6 @@
 # How to add an admin view
 
-Adding a new screen under `/admin/<view-name>` without standing up a new federated remote — the existing `admin` remote can expose any number of standalone components.
+Add a screen under `/admin/<view-name>` without a new federated remote. The existing `admin` remote can expose any number of standalone components.
 
 ## 1. Author the component
 
@@ -19,7 +19,7 @@ Name the file `foo-remote.component.ts`, like `admin-remote.component.ts` and `u
 
 ## 2. Expose it
 
-In `frontend/projects/admin/federation.config.mjs`, add the new component to the `exposes` map of the `hugmeshRemote({ name: 'admin', exposes })` call:
+In `frontend/projects/admin/federation.config.mjs`, add the component to the `exposes` map of the `hugmeshRemote({ name: 'admin', exposes })` call:
 
 ```js
 exposes: {
@@ -30,9 +30,9 @@ exposes: {
 },
 ```
 
-The admin remote is a single nginx image; `AdminShell`, `UploadShell` and `SessionsShell` already ship from it. `FooShell` becomes the fourth.
+The admin remote is one nginx image. `AdminShell`, `UploadShell` and `SessionsShell` already ship from it; `FooShell` becomes the fourth.
 
-Re-export the new component from `projects/admin/src/main.ts` (`export { FooRemoteComponent } from './app/foo-remote.component';`) so esbuild's TS pipeline walks it.
+Re-export the component from `projects/admin/src/main.ts` (`export { FooRemoteComponent } from './app/foo-remote.component';`) so esbuild's TS pipeline walks it.
 
 ## 3. Wire the route in the host
 
@@ -42,9 +42,9 @@ In [`frontend/src/app/app.routes.ts`](../../../frontend/src/app/app.routes.ts):
 { path: 'admin/foo', loadComponent: () => loadRemote('admin', './FooShell', 'FooRemoteComponent'), canActivate: [authGuard], title: 'Foo — HugMesh Games' },
 ```
 
-`authGuard` only checks that the user is signed in. There is no admin route guard; the BFF enforces `ROLE_ADMIN` on the endpoints your view calls, so put `@PreAuthorize("hasRole('ADMIN')")` on any new one.
+`authGuard` only checks that the user is signed in. There is no admin route guard. The BFF enforces `ROLE_ADMIN` on the endpoints your view calls, so put `@PreAuthorize("hasRole('ADMIN')")` on every new one.
 
-Add a `FEDERATED_ROUTE_LABELS` entry in `frontend/src/app/app.component.ts` — longest-prefix-first, so `/admin/foo` should appear before `/admin`.
+Add a `FEDERATED_ROUTE_LABELS` entry in `frontend/src/app/app.component.ts`. Order matters, longest prefix first, so `/admin/foo` goes before `/admin`.
 
 ## 4. Add a nav link
 
@@ -62,7 +62,7 @@ Visit `/admin/foo`.
 
 ## DTOs
 
-If the view calls a new BFF endpoint, follow the rule from [howto/add-federated-route.md](add-federated-route.md): redeclare the interface inside the remote. Don't try to import from the host.
+If the view calls a new BFF endpoint, follow the rule in [howto/add-federated-route.md](add-federated-route.md): redeclare the interface inside the remote. Do not import it from the host.
 
 ## See also
 

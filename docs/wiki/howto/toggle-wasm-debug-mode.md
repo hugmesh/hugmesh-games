@@ -1,6 +1,6 @@
 # How to toggle WASM-console debug mode
 
-The diagnostics ingest pipeline that captures iframe console errors back to the BFF is **off by default**. Admins flip it on briefly while triaging an iframe issue, then off again.
+The pipeline that sends iframe console errors back to the BFF is **off by default**. Admins switch it on briefly to triage an iframe issue, then off again.
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ curl -sS -X PUT -H "Authorization: Bearer $ADMIN_JWT" \
 # → { "wasmConsoleEnabled": true }
 ```
 
-The flag is persisted in `system_settings` (Liquibase 031) and mirrored into `DebugModeService.AtomicBoolean` so subsequent diagnostic ingests pass the gate without a DB round-trip per emit.
+The flag is stored in `system_settings` (Liquibase 031) and mirrored into the `DebugModeService.AtomicBoolean`. Diagnostic ingests then pass the gate without a database round-trip per emit.
 
 ## Confirm captures are flowing
 
@@ -51,11 +51,11 @@ curl -sS -X PUT -H "Authorization: Bearer $ADMIN_JWT" \
   http://localhost:8080/api/admin/debug-mode/wasm-console
 ```
 
-When the gate is off, `POST /api/diagnostics/wasm-console` returns *403* — even from admin callers. The frontend's `WasmConsoleForwarderService` consults the same flag and suppresses the round-trip on the client side too, so non-admin players never even attempt the POST.
+While the gate is off, `POST /api/diagnostics/wasm-console` returns *403*, even for admin callers. The frontend's `WasmConsoleForwarderService` reads the same flag and skips the request, so non-admin players never attempt the POST.
 
 ## Why it's off by default
 
-Iframe console contents leak game-internal detail (file paths, partial state dumps, stack traces). Always-on capture sends every player's iframe state to the BFF and fans out to admin devtools subscribers. Closing the surface by default is the conservative posture; admins enable for triage windows. See [decision 012](../decisions/012-debug-mode-gate.md).
+Iframe console output leaks game-internal detail: file paths, partial state dumps, stack traces. Always-on capture sends every player's iframe state to the BFF and fans it out to admin devtools subscribers. The safe default is closed; admins open it for a triage window. See [decision 012](../decisions/012-debug-mode-gate.md).
 
 ## Cross-pod note
 
