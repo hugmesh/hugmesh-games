@@ -5,6 +5,31 @@ the full request; the keystone decision is to **reimplement the chess engine in
 Rust as a project component** (not depend on GNU Chess at runtime) and drive it
 through the **existing event/session architecture**.
 
+## Status
+
+This record is partly built. What is in the repo:
+
+- **P1, built in part:** `extensions/hugmesh-chess` has the full rules and 18
+  unit tests in `src/lib.rs`: Fool's Mate, Scholar's Mate and Légal's Mate,
+  en passant, promotion with underpromotion, castling (including through
+  check), stalemate, insufficient material, the fifty-move rule, threefold
+  repetition, resignation, and perft counts. **Not built:** the gnuchess
+  differential oracle (no test calls `gnuchess`; the name appears only in
+  comments) and the rest of the famous-games matrix below (Opera Game,
+  Immortal Game, Byrne–Fischer, Kasparov–Topalov, and the curated endgames).
+- **P2, built:** the relay is `GameStateService.reemitToSession`. Changelog
+  `050-chess-relay-event-types.xml` registers the event types, and
+  `SessionIsolationTest` covers isolation.
+- **P3, built as web-native, not as Godot:** `games/chess/` is a canvas
+  frontend driven by the `hugmesh-chess-wasm` shim through `games/_shared/`. It
+  is registered by `044-chess-game.xml` and a `wasm-game` row, `games-chess`,
+  in `051-web-game-federation.xml`. There is no `frontend/projects/games-chess`.
+  The Godot version is a separate title, `games/chess-godot/`
+  (`053-chess-godot-federation.xml`).
+- **P4, built in minimum form:** the browser e2e in
+  `e2e/tests/web-games-multiplayer.spec.ts` plays one move, 1.e4. The famous
+  games are not played through the UI.
+
 ## Requirements (consolidated)
 
 1. A new **multiplayer chess game**, coded like Three Wizards (Godot 4, 2D), in
@@ -51,7 +76,7 @@ Pure rules core; public API the BFF, the WASM client, and the tests all use:
 pub struct Game { /* board, side, castling rights, ep square, halfmove clock, history */ }
 impl Game {
     pub fn new() -> Game;                       // standard start
-    pub fn from_fen(fen: &str) -> Result<Game, FenError>;
+    pub fn from_fen(fen: &str) -> Result<Game, String>;
     pub fn fen(&self) -> String;
     pub fn side_to_move(&self) -> Color;
     pub fn board(&self) -> [Option<Piece>; 64];
@@ -78,8 +103,9 @@ into check, pins); **checkmate**; **stalemate**; **draws** — fifty-move,
 threefold repetition, insufficient material. Optional negamax+material AI for a
 later vs-computer mode (not needed for PvP).
 
-Targets: production is **`wasm32-unknown-unknown`** for the Godot/browser client
-(reusing `tools/build-rust-wasm/`); a native `rlib` build exists only for
+Targets: production is **`wasm32-unknown-unknown`** for the browser client
+(the `hugmesh-chess-wasm` shim, built by `make build-games-wasm` through
+`tools/build-games-wasm/`); a native `rlib` build exists only for
 `cargo test` + the gnuchess differential oracle. The server links nothing.
 
 ## Authority model — host-in-browser, server relays events (req 4 & 6)
@@ -115,8 +141,8 @@ Flow:
 
 Trust note: a friendly host-authoritative model (you host a game in your
 browser; your opponent joins). The guest's local re-validation is the integrity
-check; a server-side referee is an *optional, off-by-default* add-on (§below)
-for ranked/untrusted play.
+check. There is no server-side referee: the section "Server runs no chess"
+below drops it, even as an option.
 
 ## The Godot game: `games/chess/` (req 1, 2)
 
@@ -126,9 +152,10 @@ check/mate banners). **Driven over events**, not local rules: local input →
 `input_egress` (the UCI move) → render the authoritative board from
 `world_received`. The **WASM `hugmesh-chess`** gives instant local
 legal-move highlighting + optimistic preview; the **host's** browser is authoritative, the guest re-validates locally.
-Ships as a federated remote `frontend/projects/games-chess` + a WASM bundle via
-the existing pipeline, registered by a Liquibase changeset (game + chapter +
-`federation_modules` row) exactly like three-wizards.
+As shipped, `games/chess/` is a web-native canvas bundle, not a Godot scene. It
+has no Angular remote of its own. A `wasm-game` row in `federation_modules` (with
+a game + chapter row from a Liquibase changeset) points the host at the
+`wasm-fragment` bundle. The Godot board described here is `games/chess-godot/`.
 
 ## e2e test matrix — every state × a handful of famous games (req 5)
 
