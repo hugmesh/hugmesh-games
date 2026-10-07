@@ -22,6 +22,8 @@ games/
 │   └── …
 ├── connect-four-godot/              # slug: connect-four-godot (same recipe as chess-godot)
 │   └── …
+├── character-forge/                 # slug: character-forge (single-player 3D character maker)
+│   └── …
 └── shadows-of-the-net/              # slug: shadows-of-the-net ("Shadows of the Net – CHAT")
     ├── project.godot                #   PURE GDScript — deliberately NO hugmesh_bridge
     ├── export_presets.cfg           #   Web (threads OFF) + Linux/Windows PCVR presets
@@ -35,13 +37,13 @@ A Rust GDExtension (`extensions/hugmesh-bridge/`) supplies the bridge ABI. `make
 
 ## The contract in one page
 
-Every chapter must have a **slug** that appears in exactly the same lowercase, hyphen-free form in **four** places:
+Every chapter must have a **slug** that appears in exactly the same lowercase form in **four** places. Hyphens are fine (`chess-godot`); the upload pipeline accepts `^[a-z0-9][a-z0-9-]{0,63}$`:
 
 | Place | Example |
 |---|---|
 | `chapters.slug` DB column | `cave` |
 | `games/<game-slug>/export_presets.cfg` → `export_path` directory | `.../assets/levels/cave/index.html` |
-| `Makefile` `PRESETS_<game-slug>` entry (preset name, capitalised) | `Cave` |
+| `Makefile` preset name, in the `case` arms of `build-godot` and `patch-godot` (capitalised; any hyphens must already be in the name) | `Cave` |
 | `chapters.asset_url` DB column | `/api/assets/levels/cave/index.html` (legacy) **or** `/_remotes/wasm-fragment/cave/index.html` (federated) |
 
 If any of those four drift, the chapter 404s in the iframe or loads the wrong bundle. **Never use spaces or uppercase in the slug itself** — the Makefile lowercases the preset name with `tr '[:upper:]' '[:lower:]'`, so `Cave` (preset) → `cave` (directory).
@@ -51,10 +53,10 @@ A **game slug** (parent of one or more chapter slugs) appears in three more plac
 | Place | Example |
 |---|---|
 | `games.slug` DB column | `three-wizards` |
-| `federation_modules.slug` (the Module Federation remote) | `three-wizards` |
+| `federation_modules.game_slug` (the Module Federation remote's slug column is `games-three-wizards`) | `three-wizards` |
 | `Makefile` `GAME_PROJECTS` row (filesystem dir under `games/`) | `three-wizards-in-a-trenchcoat` |
 
-The directory under `games/` is allowed to be longer / more descriptive than the database slug — the Makefile maps one to the other via the `PRESETS_<dir>` variable.
+The directory under `games/` is allowed to be longer / more descriptive than the database slug — the Makefile maps one to the other in the `case` arms of `build-godot` and `patch-godot`. (`PRESETS_<dir>` variables exist beside `GAME_PROJECTS`, but no recipe reads them.)
 
 Supporting contracts:
 
@@ -77,7 +79,7 @@ You don't have to pick — both paths read the same exports. The federated path 
 
 ## Running the Godot editor against the live stack
 
-Each project under `games/<slug>/` opens directly in Godot 4.5+. `scripts/api_client.gd` auto-selects between native run and web export:
+Each project under `games/<slug>/` opens directly in Godot 4.6 (the projects' `config/features` say `4.6`). `scripts/api_client.gd` auto-selects between native run and web export:
 
 ```
 Editor / native run  → fetch('http://localhost:8080/api/…')
@@ -173,7 +175,7 @@ A chapter is **one compiled WASM bundle** that lives inside an existing game pro
 
 ### 1. Pick a chapter slug
 
-Lowercase, hyphen-free, stable. Examples: `cave`, `field`, `forest-glade`, `tower`. Do **not** use `CaveOfDoom` or `cave_of_doom`. The slug will be written into `export_presets.cfg`, `Makefile`, and the DB, so make it short and final.
+Lowercase letters, digits and hyphens; stable. Examples: `cave`, `field`, `forest-glade`, `tower`. Do **not** use `CaveOfDoom` or `cave_of_doom`. The slug will be written into `export_presets.cfg`, `Makefile`, and the DB, so make it short and final.
 
 ### 2. Create the scene file
 
@@ -186,33 +188,35 @@ Open `games/<game-slug>/export_presets.cfg` and append a new `[preset.N]` block.
 ```ini
 [preset.N]
 
-name="ForestGlade"                              ; CamelCase, no spaces. Used by Makefile.
+name="Forest-Glade"                             ; No spaces. The Makefile only lowercases it, so it must become the slug: Forest-Glade -> forest-glade.
 platform="Web"
 runnable=true
 custom_features="level_forest-glade"            ; matches lowercase slug — the `level_` prefix is literal, see the terminology note
-exclude_filter="*.gdextension"                  ; GDExtension is shipped via build-rust
+exclude_filter=""                               ; three-wizards leaves this empty; dodecahedron-demo uses "*.gdextension" 
 export_path="../../backend/src/main/resources/assets/levels/forest-glade/index.html"
 ```
 
 The `../../` prefix is relative to the game project directory and resolves to the repo's `backend/src/main/resources/assets/levels/`. Keep the `[preset.N.options]` block identical to a working preset — `html/canvas_resize_policy=2`, `extensions_support=true` (or `false` if you don't need GDExtension at runtime), etc.
 
-> **Note on `exclude_filter`.** With per-game projects you no longer need to enumerate other chapters' `.tscn` files — Godot's tree-shaking ships only what each preset references, and only one game's scenes live in the project. The single `*.gdextension` exclusion stays.
+> **Note on `exclude_filter`.** With per-game projects you no longer need to enumerate other chapters' `.tscn` files — Godot's tree-shaking ships only what each preset references, and only one game's scenes live in the project. The stock projects differ: `dodecahedron-demo` excludes `*.gdextension`; `three-wizards-in-a-trenchcoat`, `chess-godot`, `connect-four-godot` and `shadows-of-the-net` leave the filter empty; `character-forge` excludes `tests/*`. Copy the filter from the project you are editing.
 
 ### 4. Register the preset in the Makefile
 
-Open `Makefile` at the project root and append the preset name to `PRESETS_<game-slug>`:
+Open `Makefile` at the project root. Append the preset name in **two** places: the `PRESETS_<game-slug>` record, and the matching arm of the `case` block in **both** `build-godot` and `patch-godot`:
 
 ```makefile
-GAME_PROJECTS = three-wizards-in-a-trenchcoat dodecahedron-demo
-PRESETS_three-wizards-in-a-trenchcoat = Cave Field ForestGlade
-PRESETS_dodecahedron-demo             = Dodecahedron
+PRESETS_three-wizards-in-a-trenchcoat = Cave Field Forest-Glade
 ```
 
-`build-godot` iterates `GAME_PROJECTS`, looks up the per-game preset list, lowercases each entry to derive the output directory, and calls `godot --headless --export-release "<preset>"` from inside that game's directory.
+```makefile
+    three-wizards-in-a-trenchcoat) presets="Cave Field Forest-Glade";; \
+```
+
+`build-godot` iterates `GAME_PROJECTS`, takes the preset list from its `case` arm for each game, lowercases each entry to derive the output directory, and calls `godot --headless --export-release "<preset>"` from inside that game's directory. The `PRESETS_<dir>` variables are not read by any recipe, so editing only them exports nothing, silently. A project missing from the `case` arms falls through to an empty list and is skipped the same way.
 
 ### 5. Seed the DB
 
-Either add a Liquibase changeset (preferred for committed content) or run `make seed-db` after an SQL insert like:
+Either add a Liquibase changeset (preferred for committed content), or add an insert like the one below to `scripts/seed-games.sql` and run `make seed-db`:
 
 ```sql
 INSERT INTO chapters (name, slug, scene_type, sort_order, asset_url, game_id, scene_config, created_at)
@@ -259,7 +263,7 @@ Once the request returns, the game is live: the host shell's federation manifest
 
 If you're committing a game to the repo (rather than uploading at runtime), do all four:
 
-1. Add the project dir to `GAME_PROJECTS` and define `PRESETS_<dir>` in the Makefile.
+1. Add the project dir to `GAME_PROJECTS`, define `PRESETS_<dir>`, and add the project to the `case` arms of `build-godot` and `patch-godot` (these decide what gets exported). Add the slug to `GAME_SLUGS` too if per-game roles should be seeded.
 2. Add a Liquibase changeset that inserts the `games` row, the `federation_modules` row, and `chapter_prerequisites`/`game_access` if needed. See `db/changelog/017-snapdragon-catalog.xml` and `018-federation-modules.xml` for the patterns — or, for a `kind='wasm-game'` title (iframe straight off the wasm-fragment, no per-game Angular remote), mirror `053-chess-godot-federation.xml` / `056-shadows-of-the-net-federation.xml` instead.
 3. (Optional) Add a `games-<slug>` service to `docker-compose.yml` if the game ships its own remote (separate Angular project under `frontend/projects/games-<slug>/`). Stock games use this; one-off uploads can ride the shared `wasm-fragment` remote instead.
 4. Run the section-6 build chain.
@@ -350,7 +354,7 @@ What happens:
 | Symptom | Cause |
 |---|---|
 | Iframe 404 on `index.html` | `chapters.asset_url` slug differs from the classpath directory, or `wasm-fragment` not rebuilt after `make build-godot` |
-| Blank iframe, no error | Preset name in `PRESETS_<game>` doesn't match `export_presets.cfg`, or `GAME_PROJECTS` row pointing at a nonexistent directory |
+| Blank iframe, no error | Preset name in the Makefile's `case` arm doesn't match `export_presets.cfg`, the project is missing from the `case` arms (nothing exported), or the `GAME_PROJECTS` row points at a nonexistent directory |
 | Wrong scene loads | `scene_elements.chapter_id` FK is stale — check it matches the new `chapters.id` |
 | `resolve_asset` returns 404 | `label` isn't in `chapter_assets` or `chapter_id` wrong |
 | `postMessage` transition doesn't fire | Payload shape wrong — must be literally `TW_CHAPTER_TRANSITION` and include `slug` + `chapterId` |
