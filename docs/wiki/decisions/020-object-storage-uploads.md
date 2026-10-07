@@ -31,6 +31,10 @@ interface UploadStorage {
     boolean exists(String locator, String relativePath);
     void deleteVersion(String locator);
     String label();   // "filesystem" / "s3" — surfaced in boot logs
+
+    // default methods:
+    Map<String, String> contentTypeOverrides();                         // default: Map.of()
+    URI presignReadUrl(String locator, String relativePath, Duration ttl); // default: null
 }
 ```
 
@@ -50,13 +54,13 @@ Three call sites:
 
 ### Negative
 
-- Two extra containers in dev (`minio` + `minio-init` one-shot bucket bootstrap) — gated behind opt-in (the default `app.uploads.storage=filesystem` keeps vanilla `docker compose up -d` working).
+- Two extra containers in dev (`minio` + `minio-init` one-shot bucket bootstrap). `docker-compose.yml` gives them no profile, so a plain `docker compose up -d` starts them even in the default `app.uploads.storage=filesystem` mode, where nothing uses them. (The comment on the `minio` service says they are opt-in. That is wrong.)
 - `AssetController` now goes through a `Resource` rather than a `FileSystemResource` directly — S3 reads bring the whole file into memory via `ByteArrayResource`. Acceptable for game-bundle sizes (manifest+SQL+small bundle/ tree, capped at 200 MB); the hot path is the WASM `.wasm` file which streams once per launch.
 - Tests that previously checked filesystem state directly need updating to go through the strategy interface (or to run only against the `filesystem` mode).
 
 ### Neutral
 
-- Resilience4j circuit breakers around S3 calls deferred to a follow-up; today an S3 outage cascades as a 5xx on `/api/assets/levels/*`. The classpath fallback in `AssetController` covers the games shipped in the API image.
+- Resilience4j circuit breakers around S3 calls were deferred at first and have since landed (see Follow-ups). The classpath fallback in `AssetController` covers the games shipped in the API image whenever a read returns null.
 
 ## Implementation
 
@@ -85,6 +89,8 @@ docker compose up -d minio minio-init
 APP_UPLOADS_STORAGE=s3 docker compose up -d api
 curl -X POST /api/admin/games/upload -F file=@bundle.zip   # → 200, version_dir = s3://hugmesh-uploads/<slug>/<hash>
 ```
+
+The S3 recipe does not work as written. The `api` service in `docker-compose.yml` forwards `APP_UPLOADS_GAMES_DIR` and nothing else under `APP_UPLOADS_*`, so a shell-level `APP_UPLOADS_STORAGE=s3` never reaches the container. The endpoint (`APP_UPLOADS_S3_ENDPOINT`) has an empty default, and with `s3` selected the BFF refuses to start while `APP_UPLOADS_S3_ACCESS_KEY` or `APP_UPLOADS_S3_SECRET_KEY` is blank. Add the variables to the `api` environment in an overlay first. For the compose MinIO that means the endpoint `http://minio:9000` and the keys `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`.
 
 ## Follow-ups
 
