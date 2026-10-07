@@ -28,14 +28,14 @@ The legacy admin role is a single global authority — fine for a one-game porta
 - BFF endpoints:
   - `POST /api/mod/sessions/{id}/{stop,kick}` — per-game mod actions; `ModerationService.requireScope(casdoorId, gameSlug)` is the gate.
   - `POST /api/publisher/{grant,revoke}-mod` — per-game mod role grants; `PublisherService.requireOwns` is the gate.
-  - `POST /api/admin/role-grants/grant-{publisher,mod}` — admin variant, bypasses scope checks.
+  - `POST /api/admin/role-grants/grant-{publisher,mod}` — admin variant, bypasses the per-game ownership check. It is still brand-gated: the caller's brand must own the game (`RoleAdminController.requireGameDomain`).
 - Frontend: separate federated remotes at `/mod` (`frontend/projects/mod/`) and `/publisher` (`frontend/projects/publisher/`); role-conditional nav links via `AuthService.isMod()` + `isPublisher()`.
 
 ## Trade-offs accepted
 
 - **Two layers to update on grant.** Adding a publisher requires (a) the Casdoor `publisher` role membership AND (b) a `publisher_game_scopes` row. Documented in [howto/grant-mod-or-publisher.md](../howto/grant-mod-or-publisher.md); admins flip both via `/api/admin/role-grants` + Casdoor admin UI.
 - **No deny-list.** A revoked scope is soft-deleted (`revoked_at`); the user simply has no active scope. There's no way to mark a user "may never moderate game X again" beyond the audit trail.
-- **Per-game upload scoping is BFF-side only.** `GameUploadController` accepts `ROLE_PUBLISHER` but the per-game match against `publisher_game_scopes` happens after manifest parse. A publisher uploading a bundle for a game they don't own gets a 403 mid-install. Acceptable trade-off; the alternative (knowing the slug before the multipart wrapper) would require a wrapper protocol change.
+- **Per-game upload scoping is BFF-side only.** `GameUploadController` accepts `ROLE_PUBLISHER` but the per-game match against `publisher_game_scopes` happens after manifest parse. A publisher uploading a bundle for a game they don't own gets a 403 mid-install. Acceptable trade-off; the alternative (knowing the slug before the multipart wrapper) would require a wrapper protocol change. The same hook now also runs a brand check: the uploader's brand must own an existing slug, and only `SUPERADMIN` bypasses it (`GameUploadController.requireScope`).
 
 ## Reference
 
