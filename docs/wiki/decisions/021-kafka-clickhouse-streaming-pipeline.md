@@ -1,6 +1,6 @@
 # Decision 021 — Streaming audit + telemetry pipeline (Kafka → ClickHouse)
 
-**Status**: Accepted 2026-05-12. Foundation lands in `feature/kafka-clickhouse-pipeline`; cross-pod consumer integration deferred to a follow-up phase.
+**Status**: Accepted 2026-05-12. Foundation landed in `feature/kafka-clickhouse-pipeline`. Producers, the cross-pod subscriber and the ClickHouse recovery service have since landed. Two parts are not live: nothing uses the per-session topics, and nothing calls the ClickHouse recovery path (see Follow-ups).
 
 ## Context
 
@@ -20,10 +20,10 @@ Doing each in isolation produces three different storage surfaces. Doing them to
 
 | Topic | Producer | Purpose |
 |---|---|---|
-| `state_audit` | `GameAuditPublisher` | Session lifecycle (created / joined / left / closed). Replaces the analytics half of `CassandraSyncService`. |
+| `state_audit` | `GameAuditPublisher` | Session lifecycle (`session.created` / `session.left` / `session.closed` / `session.paused` / `session.resumed`; there is no `joined` event). Replaces the analytics half of `CassandraSyncService`. |
 | `game_events` | `GameEventPublisher` | Every SSE-channel emission (movement / world / character / scene / input / audio / view / wasm-console / world-native). Tee from `GameStateService`'s `Sinks.Many.tryEmitNext` sites (`world-native` tees from `emitInput`, added in the PR #117 cross-pod web-native relay fix). |
-| `game_kpi` | (F2, follow-up) | Per-game KPIs emitted by federated game remotes. Schema ready; producer lands in Phase 7. |
-| `session.<sessionId>.events` | per-session writes | One topic per multiplayer session; cross-pod consumers subscribe only to the sessions they serve. Created by `SessionTopicManager` on session-create, deleted on session-close. |
+| `game_kpi` | `GameKpiPublisher` | Per-game KPIs emitted by federated game remotes (F2), through `POST /api/telemetry/game/{slug}`. |
+| `session.<sessionId>.events` | none (see below) | One topic per multiplayer session, created by `SessionTopicManager` on session-create and deleted on session-close (1 partition, 6 h retention by default). Nothing writes to it and nothing reads from it: `topicFor` is called only inside `SessionTopicManager`, `GameEventPublisher` writes every channel to `game_events`, and `KafkaSessionSubscriber` reads only `game_events`. |
 
 ### ClickHouse tables
 
@@ -32,15 +32,15 @@ All under the `hugmesh` database (see `docker/clickhouse-init/01-hugmesh-schema.
 - `state_audit` (MergeTree) — 90-day TTL, partitioned by month, ordered by `(game_slug, occurred_at, event_id)`.
 - `game_events` (MergeTree) — 30-day TTL, ordered by `(game_slug, channel, occurred_at, event_id)`.
 - `game_kpi` (MergeTree) — 90-day TTL, ordered by `(game_slug, kpi_name, occurred_at)`.
-- `player_state_current` (**ReplacingMergeTree**) — keyed by `(game_slug, session_id, character_id, channel)`; the `updated_at` column is the dedup signal. Cross-pod state recovery queries this view.
+- `player_state_current` (**ReplacingMergeTree**) — keyed by `(game_slug, session_id, character_id, channel)`; the `updated_at` column is the dedup signal; 7-day TTL, partitioned by `game_slug`. `PlayerStateRecoveryService` queries this table.
 
 Each `_stream` Kafka-engine table feeds a `_mv` MaterializedView that writes into the durable MergeTree.
 
 ### Publisher wiring (BFF)
 
 - `KafkaProducerConfig` — gated by `app.kafka.enabled` (default `false`). Builds an idempotent + acks=all + lz4-compressed producer.
-- `GameAuditPublisher` — emit lifecycle events. Hooked into `GameSessionService.create / leave / close`.
-- `GameEventPublisher` — emit SSE-channel events. Hooked into `GameStateService.applyControl` (movement first; remaining channels follow the same pattern in a follow-up).
+- `GameAuditPublisher` — emit lifecycle events. Hooked into `GameSessionService` (create, leave, close, pause, resume).
+- `GameEventPublisher` — emit SSE-channel events. Hooked into `GameStateService`, which publishes all nine channels.
 - `SessionTopicManager` — `createForSession(sessionId)` on session-create, `deleteForSession(sessionId)` on session-close. AdminClient bean inside the same file.
 
 Every publisher is injected as `Optional<...>` so the in-process gameplay path keeps working when Kafka is disabled. SSE remains the gameplay-driving path; Kafka is purely additive.
@@ -50,13 +50,13 @@ Every publisher is injected as `Optional<...>` so the in-process gameplay path k
 ### Positive
 
 - One streaming surface replaces the nightly batch. Analytics queries see fresh data.
-- Cross-pod state recovery via ClickHouse `player_state_current` ReplacingMergeTree — same query shape regardless of which pod a player reconnects to.
+- Cross-pod state recovery via the ClickHouse `player_state_current` ReplacingMergeTree table is built. It is not wired in yet: see the Phase-8b follow-up.
 - F2 telemetry inherits the existing pipeline; the Phase-7 PR adds one producer + one feature flag.
-- Per-session topics mean a cross-pod consumer only reads the events it serves — no filtering a global firehose.
+- Per-session topics were meant to let a cross-pod consumer read only the events it serves. That did not happen: the subscriber still reads the global `game_events` topic and filters on `pod_id`.
 
 ### Negative
 
-- Two extra containers in dev (`kafka` + `zookeeper`) + one (`clickhouse`) when `app.kafka.enabled=true`. ~2 GB additional RAM in the dev stack. Gated behind the env flag so vanilla compose-up stays light.
+- Three extra containers in dev (`zookeeper`, `kafka`, `clickhouse`), about 2 GB more RAM. `app.kafka.enabled` (default `false`) gates only the BFF side. `docker-compose.yml` gives the three services no profile, so a plain `docker compose up -d` starts them regardless, and it does not pass `APP_KAFKA_ENABLED` to the `api` service. The comment above the `zookeeper` service claims they are opt-in via `--profile analytics`. No such profile exists.
 - Topic-count growth — every session creates a topic. 100 concurrent sessions per game × 1 000 games = 100 000 topics. Cleanup on session-close mitigates orphans; broker capacity planning for prod is a separate item.
 - Two analytics-relevant retentions to track: Cassandra `rate_limit_events` at 90 s, ClickHouse tables at 30 / 90 days.
 
@@ -83,7 +83,7 @@ Every publisher is injected as `Optional<...>` so the in-process gameplay path k
 
 - ~~Tee the remaining `GameStateService.tryEmitNext` sites (world / character / scene / input / audio / view / wasm-console) into the event publisher.~~ — done in the Phase-7 PR. All 8 channels tee to the `game_events` topic.
 - ~~F2 — federated game telemetry producer.~~ — done in the Phase-7 PR. `GameKpiPublisher` + `POST /api/telemetry/game/{slug}` ingest. Iframes call directly; existing `WebConfig` CORS allowlist covers the federated origins.
-- ~~Cross-pod subscriber — read from the per-session topic into another pod's `SessionSinks`.~~ — done in the Phase-8a PR. `KafkaSessionSubscriber` consumes `game_events`, filters self-published via `pod_id`, dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. All 8 channels covered (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only).
+- ~~Cross-pod subscriber — read events into another pod's `SessionSinks`.~~ — done in the Phase-8a PR. `KafkaSessionSubscriber` consumes `game_events`, filters self-published via `pod_id`, dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. All 8 channels covered (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only). It reads the global topic, not the per-session ones.
 - ~~Cross-pod parity for the web-native `sendWorld()` relay.~~ — done in games PR #117. A 9th channel, `world-native`, carries the raw web-native world payload (distinct from the typed Godot `WorldState` `world` channel) so a peer pod's `KafkaSessionSubscriber` re-emits it onto that pod's `worldNative` sink; `GameStreamController` merges `worldNative` into the same client-facing `world` SSE event name, so the guest bridge needs no change. See [`InputEventController`](../../../backend/src/main/java/games/hugmesh/bff/controller/InputEventController.java) and [`GameStateService.emitInput`](../../../backend/src/main/java/games/hugmesh/bff/service/GameStateService.java).
-- ~~BFF read-path against `player_state_current` for session-reconnect recovery.~~ — done in the Phase-8b PR. `PlayerStateRecoveryService` queries `hugmesh.player_state_current FINAL` via the ClickHouse HTTP interface (WebClient). New `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` consults the recovery service before the legacy Cassandra → Postgres → defaults chain. `Mono.empty()` is the expected miss path; SSE / gameplay never blocks on this.
+- BFF read-path against `player_state_current` for session-reconnect recovery — built in the Phase-8b PR, but not in use. `PlayerStateRecoveryService` queries `hugmesh.player_state_current FINAL` via the ClickHouse HTTP interface (WebClient); it exists only when `app.clickhouse.enabled=true` (default `false`). The new `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` consults it before the legacy Cassandra → Postgres → defaults chain. Its only production caller, `SessionController`, uses the two-argument `hydrate(characterId, chapterId)`, which passes null for `gameSlug` and `sessionId` and skips recovery. `Mono.empty()` is the expected miss path; SSE / gameplay never blocks on this.
 - Retire `CassandraSyncService` once the streaming pipeline has demonstrated production stability.
