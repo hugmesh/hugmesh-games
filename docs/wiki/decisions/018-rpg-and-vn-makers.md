@@ -90,7 +90,10 @@ flowchart LR
   channel out of the box.
 - **Exporting** iterates the project's Areas (RPG) / Acts (VN) and
   produces one `bundle/<area-slug>/index.html` per — exactly the shape
-  the BFF's existing chapters schema expects. The actual Godot CLI
+  the BFF's existing chapters schema expects. With the real export, the
+  RPG worker runs Godot once, moves the shared engine files into
+  `bundle/_engine/`, and gives each area a patched `index.html` that
+  points at them. The actual Godot CLI
   invocation is gated behind `app.build.godot-enabled`; with the flag
   off the worker writes a stub bundle so the rest of the pipeline
   (manifest.json, register.sql, zip, BFF upload) runs end-to-end without
@@ -162,10 +165,10 @@ restart.
 
 ## What this doesn't solve
 
-- **Asset preview in the editor.** The asset upload endpoint stores
-  bytes on disk and serves them back via `GET /projects/{id}/assets/{aid}`,
-  but the editor only references icons by id; preview thumbnails are
-  a small follow-up.
+- **Asset preview in the editor** (closed since this was written).
+  Both editors now fetch `GET /projects/{id}/assets/{aid}` and show a
+  thumbnail for image assets (`loadAssetPreview` in each maker
+  component).
 - **Live collaborative editing.** Each project is single-author for
   now. The BFF's per-session SSE infrastructure could be reused for
   multi-author later but isn't wired yet.
