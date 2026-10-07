@@ -1,6 +1,6 @@
 # Data architect overview
 
-> Mirror of [`docs/publishing/userguides/data-architect-overview/guide.tex`](../../publishing/userguides/data-architect-overview/guide.tex).
+> A typeset edition lives in [`docs/publishing/userguides/data-architect-overview/guide.tex`](../../publishing/userguides/data-architect-overview/guide.tex). The two are edited separately and can differ.
 
 Where data lives, how it flows, and how it stays consistent. The enterprise summary.
 
@@ -21,7 +21,8 @@ All persistence is inside one compose stack today; cloud-relocation swap-points 
 |---|---|
 | Catalog | `games`, `chapters`, `scene_elements`, `chapter_assets`, `chapter_prerequisites` |
 | Federation & access | `federation_modules`, `game_access`, `game_launches`, `game_uploads` |
-| Players | `characters`, `skills_loadout`, `character_quests`, `character_items`, `controls`, `player_positions` |
+| Players | `player_characters`, `character_skills`, `character_skill_slots`, `character_equipment`, `character_quests`, `character_items`, `player_positions`, `player_sessions` |
+| Multiplayer & RBAC | `game_sessions`, `session_members`, `mod_game_scopes`, `publisher_game_scopes`, `system_settings` |
 | Generalised input | `input_event_kinds`, `input_event_types`, `game_event_support`, `input_events` |
 | Identity | Casdoor's tenant in Postgres (separate database within the same instance) |
 | Audit & cache | Cassandra keyspace — movement events, position cache, state-transition audit log |

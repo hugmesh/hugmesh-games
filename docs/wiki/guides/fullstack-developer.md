@@ -1,12 +1,12 @@
 # Full-stack developer guide
 
-> Mirror of [`docs/publishing/userguides/fullstack-developer/guide.tex`](../../publishing/userguides/fullstack-developer/guide.tex).
+> A typeset edition lives in [`docs/publishing/userguides/fullstack-developer/guide.tex`](../../publishing/userguides/fullstack-developer/guide.tex). The two are edited separately and can differ.
 
 DB to browser, with the rules that hold the federated stack together.
 
 ## Mental model
 
-One repository, three languages, four runtimes. The BFF is Java 21 + Spring Boot 4.0 + WebFlux + R2DBC + JDBC. The frontend is TypeScript + Angular standalone components + Module Federation. The games are GDScript + Godot 4.6, with a Rust GDExtension shared across them. The GraalVM native AOT build of the BFF is the same Java code with a sub-second cold start.
+One repository, four languages (Java, TypeScript, GDScript, Rust), four runtimes. The BFF is Java 25 + Spring Boot 4.0 + WebFlux + R2DBC + JDBC. The frontend is TypeScript + Angular standalone components + Module Federation. The games are GDScript + Godot 4.6, with a Rust GDExtension shared across them. The GraalVM native AOT build of the BFF is the same Java code with a sub-second cold start.
 
 ## How requests are shaped
 
@@ -20,7 +20,7 @@ The browser hits the host nginx; the host routes to the matching per-remote ngin
 | [`GameUploadService`](../../../backend/src/main/java/games/hugmesh/bff/service/GameUploadService.java) | The install transaction. Understanding this gives the whole hot-upload story. |
 | [`FederationController`](../../../backend/src/main/java/games/hugmesh/bff/controller/FederationController.java) | The manifest endpoint that drives the host's import map. Trivial code, foundational consequence. |
 | [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java) | The one-line `@Primary HikariDataSource` that explains R2DBC + JDBC coexistence. |
-| [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) | Registers every entity for native-image reflection. Adding a new entity touches one place. |
+| [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) | Registers the two reading converters (`OffsetDateTime` and `LocalDateTime` to `Instant`) that R2DBC needs. Native-image reflection hints live elsewhere, in `HugMeshRuntimeHints` (see below). |
 
 ## Reactive vs blocking
 
@@ -33,14 +33,14 @@ Mono.fromCallable(() -> blockingCall())
 
 ### ⚠ `Sinks.many()` must set `autoCancel=false`
 
-The default kills the sink on the first reconnect. Long-lived merges go through `Flux.merge` — see [`GameStreamController`](../../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java) for the canonical 8-channel pattern. See [decision 003](../decisions/003-autocancel-false.md).
+The default kills the sink on the first reconnect. Long-lived merges go through `Flux.merge` — see [`GameStreamController`](../../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java) for the canonical nine-channel pattern. See [decision 003](../decisions/003-autocancel-false.md).
 
 ## Adding a federated route
 
-1. Create `frontend/projects/<remote>/` with its own `federation.config.js`.
+1. Create `frontend/projects/<remote>/` with its own `federation.config.mjs` (it calls `hugmeshRemote` from `frontend/federation-base.mjs`).
 2. Expose the entry component in the `exposes` map.
 3. Insert a `federation_modules` row (Liquibase changeset). `kind=remote-shell` for full route components.
-4. Add a `loadRemote(...)` entry to [`frontend/src/app/app.routes.ts`](../../../frontend/src/app/app.routes.ts).
+4. Add a route to [`frontend/src/app/app.routes.ts`](../../../frontend/src/app/app.routes.ts) that calls `loadRemote('<remote>', './<Exposed>', '<ExportedClass>')` inside `loadComponent`.
 5. Add a `/_remotes/<remote>/` proxy block to [`frontend/nginx.conf`](../../../frontend/nginx.conf).
 6. Add the per-remote service to [`docker-compose.yml`](../../../docker-compose.yml).
 7. Redeclare DTOs inside the remote — types erase across the federation boundary.
@@ -49,7 +49,7 @@ Step-by-step: [howto/add-federated-route.md](../howto/add-federated-route.md).
 
 ## Common code-review patterns
 
-- **New endpoint?** Check that [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) is updated and `make gen-api` ran.
+- **New endpoint?** Check that `make gen-api` ran. If it returns a new JSON record, check that the record is listed in `JSON_BOUNDARY_DTOS` in [`HugMeshRuntimeHints`](../../../backend/src/main/java/games/hugmesh/bff/aot/HugMeshRuntimeHints.java) so the native image can serialise it.
 - **New SSE channel?** Check `Sinks.many(...).onBackpressureBuffer(N, false)` — the `false` is `autoCancel`.
 - **New federated remote?** Check the host `nginx.conf`'s `/_remotes/` block AND the `federation_modules` row.
 - **New Liquibase changeset?** Next integer prefix and included in [`db.changelog-master.xml`](../../../backend/src/main/resources/db/changelog/db.changelog-master.xml). Never edit a previously-merged changeset.

@@ -1,14 +1,14 @@
 # Intro for coders
 
-> Mirror of [`docs/publishing/userguides/intro-for-coders/guide.tex`](../../publishing/userguides/intro-for-coders/guide.tex).
+> A typeset edition lives in [`docs/publishing/userguides/intro-for-coders/guide.tex`](../../publishing/userguides/intro-for-coders/guide.tex). The two are edited separately and can differ.
 
-A 12-section orientation for someone who has shipped some code in some language and is brand new to this codebase. Assumes nothing about Spring, Angular, Godot, or federation; points at where to read more.
+A nine-section orientation for someone who has shipped some code in some language and is brand new to this codebase. Assumes nothing about Spring, Angular, Godot, or federation; points at where to read more.
 
 ## What is HugMesh Games?
 
 A browser-native portal that hosts multiple Godot 4 games on one page. The Angular shell wraps each game with HUD, login, admin; a Spring Boot BFF streams game state and controls over Server-Sent Events. PostgreSQL holds the catalog and player state, Cassandra is the cross-pod movement cache and audit log, and Casdoor handles OAuth2 / OIDC behind a federated login remote.
 
-The portal is delivered as one `docker compose` stack of roughly twelve containers: a host shell, four federated route or game remotes, an asset-tier nginx for the WASM bundles, the BFF, two databases, the identity provider, and a few init containers.
+The portal is delivered as one `docker compose` stack of 28 services: a host shell, twelve federated route, game and maker remotes, an asset-tier nginx for the WASM bundles, the BFF, the RPG and VN maker back-ends, three Postgres instances, Cassandra, the identity provider, a Kafka/ClickHouse/MinIO group, and a few init containers.
 
 ## Three sentences
 
@@ -27,7 +27,7 @@ See the diagram in [02 — Runtime architecture](../architecture/02-runtime.md#t
 | Path | Purpose |
 |---|---|
 | [`frontend/`](../../../frontend/) | Angular host (one project). |
-| [`frontend/projects/`](../../../frontend/projects/) | The four federated remotes (`login`, `admin`, `games-three-wizards`, `games-dodecahedron`). |
+| [`frontend/projects/`](../../../frontend/projects/) | The twelve federated remotes (`login`, `registration`, `producer-registration`, `banned`, `admin`, `mod`, `publisher`, `api-docs`, `games-three-wizards`, `games-dodecahedron`, `games-rpg-maker`, `games-vn-maker`). |
 | [`wasm-fragment/`](../../../wasm-fragment/) | Asset-tier nginx that serves Godot bundles. |
 | [`backend/`](../../../backend/) | Spring Boot BFF (WebFlux + R2DBC). |
 | [`games/<slug>/`](../../../games/) | One Godot project per game. |
@@ -47,18 +47,19 @@ See the sequence diagram in [02 — Runtime architecture](../architecture/02-run
 
 ## Server-Sent Events: one stream, eight channels
 
-`GET /api/game/stream` emits **eight typed channels** plus a 15-second keepalive:
+`GET /api/game/stream` emits **nine typed channels** plus a 15-second keepalive:
 
 | Channel | What it carries |
 |---|---|
-| `movement` | `PlayerMovement` — x, y, z, rotationY, action, pressed, tick |
-| `world` | `WorldEvent` — spawn / despawn / transition |
-| `character` | `CharacterEvent` — hp, mp, xp, status flags |
-| `scene` | scene mount / unmount events |
-| `time` | `GameTimeDto` — day, hour, minute, phase |
+| `movement` | `PlayerMovement` — characterId, chapterId, x, y, z, rotationY, action, pressed, tick |
+| `world` | `WorldState` — chapterId, the roster of characters in that chapter, tick |
+| `character` | `CharacterDto` — level, xp, xpToNext, current and max hp/mp, attack, defense, speed, magicPower |
+| `scene` | `SceneEvent` — chapterId, eventType, elementId, payload |
+| `time` | `GameTimeDto` — dayNumber, hour, minute |
 | `input` | generalised input events (gamepad, mouse, keyboard, touch) |
 | `audio` | audio cues; auto-routed off `input` whenever `kind=='audio'` |
 | `wasm-console` | forwarded WASM-iframe `error` / `warn` lines |
+| `session-control` | `SessionControlEvent` — session paused / resumed / closed, player paused / resumed |
 
 A 15-second keepalive fires immediately on subscribe so `EventSource.onopen` lands fast. **Every `Sinks.many()` in this project sets `autoCancel=false`** — see [decision 003](../decisions/003-autocancel-false.md). If you forget, the sink dies on the first reconnect.
 
