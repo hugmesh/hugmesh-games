@@ -126,7 +126,7 @@ equivalent.
 
 | Artefact | Tool | Notes |
 |---|---|---|
-| Architecture PDF | `pdflatex` (TeX Live 2024+), `tikz`, `tcolorbox`, `titlesec`, `csquotes`, `enumitem`, `inconsolata`, `fontawesome` | On Debian/Ubuntu: `apt install texlive-latex-extra texlive-fonts-extra texlive-pictures`. On Gentoo: `dev-tex/tex-live` with USE `extra`. |
+| Architecture PDF | `pdflatex` (TeX Live 2024+) with the packages that `architecture.tex` and `hugmesh-theme.sty` load: `tikz`, `tcolorbox`, `titlesec`, `csquotes`, `enumitem`, `listings`, `fancyhdr`, `microtype`, `pdfpages`, `hyperref`, `tabularx`, `longtable`, `booktabs`, and others | On Debian/Ubuntu: `apt install texlive-latex-extra texlive-fonts-extra texlive-pictures`. On Gentoo: `dev-tex/tex-live` with USE `extra`. |
 | PowerPoints | `python3.12` + `python-pptx` | The Make target creates a venv at `~/.venvs/hugmesh-publishing` on first run. |
 | Javadoc | `mvn` (Maven 3.9+), Java 25 | Plugin config lives in `backend/pom.xml`; the BFF targets Java 25 (`java.version`). |
 
@@ -207,7 +207,7 @@ the installer leaves it alone, prints a warning, and exits with status 1.
 It writes nothing in that case. It writes
 `docs/publishing/scripts/pre-push.sample` (git-ignored) only on a fresh
 install, so to merge by hand you must copy the hook body from
-`scripts/install-hooks.sh` yourself.
+`docs/publishing/scripts/install-hooks.sh` yourself.
 
 ## CI
 
