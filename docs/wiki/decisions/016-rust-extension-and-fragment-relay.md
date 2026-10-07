@@ -11,16 +11,20 @@ Two coupled changes:
    `bridge_api_client.gd`, `multiplayer_lobby.gd`, plus per-game
    `bridge_glue.gd` copies) becomes three Rust modules — `BridgeGlue`,
    `BridgeApiClient`, `HugMeshMultiplayerLobby` — registered as
-   GDExtension classes alongside the existing `HostBridge`. Game
-   scenes reference them by class type (`type="BridgeGlue"`,
-   `type="BridgeApiClient"`); no script files to chase.
+   GDExtension classes alongside the existing `HostBridge`. Shipped
+   scenes place `HostBridge` and `BridgeGlue` by class type
+   (`type="BridgeGlue"`); games create `BridgeApiClient` in code. No
+   bridge script files to chase.
 
 2. **The Angular wrapper is now the sole HTTP + SSE transport for the
    iframe.** The wasm / Godot / Rust window is a passive data
    consumer:
-     - Wrapper opens an `EventSource` on the iframe's behalf in
+     - Wrapper opens an SSE stream on the iframe's behalf in
        response to `SD_SSE_SUBSCRIBE`, then postMessages each typed
-       event back as `SD_SSE_EVENT`.
+       event back as `SD_SSE_EVENT`. It uses the fetch-based
+       `openAuthenticatedSse` reader, not `EventSource`, because
+       `EventSource` cannot send an `Authorization` header and the
+       session-scoped stream is membership-gated.
      - Wrapper performs `HttpClient` calls in response to
        `SD_API_REQUEST`, then postMessages the response back as
        `SD_API_RESPONSE`.
@@ -59,16 +63,20 @@ Two reasons drove the split:
 
 ## How to apply
 
-- **Add a HugMesh node trio to the scene root** (or use the
-  bundled `multiplayer_lobby_menu.tscn`):
+- **Add the bridge nodes to the scene root** (or use the bundled
+  `multiplayer_lobby_menu.tscn`). This is the shape of the shipped
+  `chess.tscn`:
 
   ```
-  [node name="HostBridge"   type="HostBridge"]
-  [node name="BridgeGlue"   type="BridgeGlue"   parent="GameBridge"]
-  [node name="BridgeApiClient" type="BridgeApiClient" parent="GameBridge"]
+  [node name="GameBridge" type="Node" parent="."]
+  [node name="HostBridge" type="HostBridge" parent="."]
+  [node name="BridgeGlue" type="BridgeGlue" parent="GameBridge"]
   ```
 
-  No `script=` references — every class is GDExtension-registered.
+  The bridge classes need no `script=`; they are GDExtension-registered.
+  The `GameBridge` node in shipped scenes carries the game's own
+  `game_bridge.gd`, which posts `SD_SSE_SUBSCRIBE`. `BridgeApiClient`
+  is added from code (`BridgeApiClient.new()` + `add_child`).
 
 - **Subscribe to SSE from the iframe** by sending exactly one
   postMessage on boot:
@@ -79,7 +87,7 @@ Two reasons drove the split:
   ```
 
   After that, every typed channel (`movement` / `world` / `character`
-  / `time` / `scene`) flows in via `HostBridge.movement_received`
+  / `time` / `scene` / `session-control`) flows in via `HostBridge.movement_received`
   etc. The wrapper auto-tears-down and re-subscribes on chapter
   remount.
 
