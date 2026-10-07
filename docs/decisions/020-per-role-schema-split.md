@@ -6,8 +6,8 @@ The BFF historically kept a single `users`-shaped surface in the
 public Postgres schema. As the platform grew, role-specific state
 piled up in scattered tables:
 
-- Player state: `player_characters`, `chapter_membership`,
-  `user_relationships` (friends + blocks).
+- Player state: `player_characters` and `user_relationships`
+  (friends + blocks). (`chapter_membership` is a Cassandra table, not Postgres.)
 - Mod state: `mod_game_scopes` — per-game scope claims for the
   moderation chain.
 - Publisher / producer state: `publisher_game_scopes`,
@@ -64,13 +64,14 @@ preconditions so re-runs are idempotent.
 
 ## How profiles get populated
 
-- **Player profile.** Lazy-created on the first authenticated
-  request a player makes. `ProfileController.getPlayer()` calls
+- **Player profile.** Lazy-created on the first `GET /api/profile/me/player`.
+  `ProfileController.getPlayer()` calls
   `findById(casdoorUserId)` and `switchIfEmpty` constructs a
   default row.
-- **Producer / Mod profile.** Created by an admin when they flip
-  a `producer_contacts` application from PENDING to APPROVED. The
-  decision flow:
+- **Producer / Mod profile.** Meant to be created by an admin when they flip
+  a `producer_contacts` application from PENDING to APPROVED. No code
+  creates these rows today (`ProfileController` only reads and updates
+  them). The intended decision flow:
     1. Player submits the form (federated `producer-registration`
        remote → `POST /api/producer-contacts`).
     2. Admin reviews via `GET /api/admin/producer-contacts` and
@@ -80,7 +81,9 @@ preconditions so re-runs are idempotent.
        console or the hugmesh-actions service).
     4. Admin (or the actions service) creates the
        `accounts.{producers,mods}` row carrying the contact email
-       + jurisdiction copied off the application.
+       + jurisdiction copied off the application. Not built: the
+       `decision` endpoint (`ProducerContactController.decide`) only
+       records status and reviewer notes.
 
 The four-step flow stays separate from the schema migration here —
 this PR lands the tables + the read/write surface; the admin-side
@@ -88,7 +91,7 @@ this PR lands the tables + the read/write surface; the admin-side
 
 ## Update channels
 
-The `ProfileController` `PUT /me/{player,producer,mod}` endpoints
+The `ProfileController` `PUT /api/profile/me/{player,producer,mod}` endpoints
 let the role-holder mutate their OWN row. Display name + contact
 email + jurisdiction + on-call slot are mutable; the admin-only
 fields (`approved_via_contact_id`, `approved_at`) are not.
@@ -96,7 +99,6 @@ fields (`approved_via_contact_id`, `approved_at`) are not.
 ## Cross-references
 
 - Decision 018 — RPG + VN makers (producer-facing tooling).
-- Decision 019 — production posture (where the role gates live).
 - Roadmap item #11 (this PR).
-- Liquibase 031 — `producer_contacts` intake table (item #8).
-- Liquibase 032 — schema + profile tables (this PR).
+- `040-producer-contacts.xml` — `producer_contacts` intake table (item #8; changeset ids `031-*`).
+- `041-accounts-schema-split.xml` — schema + profile tables (this PR; changeset ids `032-*`).
