@@ -35,10 +35,13 @@ Two design tensions surfaced:
   `(user_casdoor_id, other_casdoor_id)` means a block silently
   overrides any prior friend edge in that direction.
 - **Block target gating.** Per the directive, players can block
-  *players* and *moderators* but not *publishers* or *admins* — the
-  data layer rejects publisher targets via a `publisher_game_scopes`
-  lookup; the admin role lives only in Casdoor (no local table) and is
-  enforced at the controller boundary using the JWT role claim.
+  *players* and *moderators* but not *publishers* or *admins*. Only
+  the publisher half is built: the service rejects publisher targets
+  via a `publisher_game_scopes` lookup
+  (`UserRelationshipService.block`, 403). Nothing refuses an admin
+  target. The admin role lives only in Casdoor (no local table), and
+  `UserRelationshipController.block` has no role check, so an admin
+  can be blocked today.
 
 ## How to apply
 
@@ -51,7 +54,9 @@ Two design tensions surfaced:
 - **`GameSessionService.listOpen(gameSlug, callerCasdoorId)`** loads
   the caller's friend set + blocklist once, then filters the lobby
   source `Flux<GameSession>` accordingly. Anonymous (no JWT) callers
-  see only public sessions.
+  see only public sessions. The blocklist merges both directions
+  (`blocklistFor`), so a blocked user also stops seeing the blocker's
+  sessions.
 - **`SessionLogController`** is the read seam — `@PreAuthorize`'d at
   the method level so non-admin callers can't reach
   `/admin/{casdoorId}`, and the `/scoped/{casdoorId}` query
@@ -78,11 +83,11 @@ Two design tensions surfaced:
 - **No notification on incoming requests / friend acceptance.** The
   player has to refresh `/friends` to see new state. Real-time
   push via the existing per-user SSE channel is on the backlog.
-- **Admin role check on `block()` is at the controller, not the
-  service.** Casdoor's role membership isn't mirrored into Postgres;
-  pushing the check down to the service would require a Casdoor
-  round-trip on every block. Keeping it at the controller boundary is
-  cheaper and matches how every other admin-only endpoint is gated.
+- **The admin check on `block()` was meant to sit at the controller,
+  not the service**, because Casdoor's role membership isn't mirrored
+  into Postgres and a service-level check would cost a Casdoor
+  round-trip per block. That controller check was never written (see
+  Block target gating above).
 - **Visibility filter is server-side.** The lobby `GET /api/sessions`
   returns only what the caller can see. Clients can't enumerate
   hidden sessions even with a crafted request — the filter is the
