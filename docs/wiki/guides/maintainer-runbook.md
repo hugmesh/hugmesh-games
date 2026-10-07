@@ -1,6 +1,6 @@
 # Maintainer runbook
 
-> Mirror of [`docs/publishing/userguides/maintainer-runbook/guide.tex`](../../publishing/userguides/maintainer-runbook/guide.tex).
+> A typeset edition lives in [`docs/publishing/userguides/maintainer-runbook/guide.tex`](../../publishing/userguides/maintainer-runbook/guide.tex). The two are edited separately and can differ.
 
 Detect, triage, mitigate. The runbook for whoever owns the live stack on call.
 
@@ -13,8 +13,8 @@ Audience: on-call engineer with shell access to the compose host. Assumes Docker
 ## Health checks at a glance
 
 ```bash
-docker compose ps                            # every service should be `healthy` (not `up`)
-curl /api/actuator/health                    # Spring Boot health composite
+docker compose ps                            # services that define a healthcheck should be `healthy` (not `up`)
+docker compose exec frontend wget -qO- http://api:8080/actuator/health   # Spring Boot health; {"status":"UP"} anonymously
 curl /api/federation/manifest                # 200 with non-empty `remotes` list
 curl -N /api/game/stream                     # holds open with `ping` keepalive every 15s
 docker compose logs casdoor                  # casdoor is internal; only logs to inspect
@@ -22,7 +22,7 @@ docker compose logs casdoor                  # casdoor is internal; only logs to
 
 ## Runbook 1 — BFF flapping
 
-**Symptom.** `api` (or `api-native`) restarts every 30–60 s.
+**Symptom.** `api` restarts every 30–60 s.
 
 1. `docker compose logs api --tail=200`. Look for the boot trace.
 2. Liquibase failure? It will be the FIRST stack trace. Read the changeset id.
@@ -61,7 +61,7 @@ docker compose logs casdoor                  # casdoor is internal; only logs to
 | CORP missing on `wasm-fragment` | Network → Headers shows no `Cross-Origin-Resource-Policy` | Add `add_header Cross-Origin-Resource-Policy cross-origin` |
 | COOP/COEP duplicates from upstream nginx | DevTools shows `NotSameOriginAfterDefaultedToSameOriginByCoep` | Host nginx must `proxy_hide_header` upstream pair, re-emit canonical |
 | Browser cached a stale `index.html` | Ctrl+Shift+R fixes it | The cache-bust `&t=...` should make this rare |
-| Bundle missing on disk | `<gamesDir>/<slug>/<version-dir>/` doesn't exist | Restore from snapshot or pin to a previous version |
+| Bundle missing on disk | `<gamesDir>/<slug>/<version-dir>/` doesn't exist | Restore from snapshot or pin to a previous version (SQL) |
 | `ERROR: Cannot get class 'HostBridge'` in console | Rust GDExtension WASM not in bundle | `make build-rust && make build-godot`. Confirm `extensions_support=true` and no `*.gdextension` exclude filter. |
 
 ## Runbook 5 — Hot upload failed mid-flight
@@ -72,14 +72,14 @@ The install transaction is atomic in Postgres but **NOT** atomic vs the on-disk 
 
 - `GET /api/admin/games/{slug}/uploads`. Latest row `supersededAt=NULL` is the active version.
 - If on-disk dir exists but no row, manually delete the dir; the next upload will recreate.
-- If row exists but dir is missing, restore from snapshot or pin to a previous version.
+- If row exists but dir is missing, restore from snapshot or pin to a previous version (SQL; see [upload-and-rollback-game](../howto/upload-and-rollback-game.md), option B).
 
 ## Runbook 6 — No games showing for a player
 
 **Symptom.** Logged-in player sees an empty home page; admin sees the games normally.
 
 1. `curl /api/games/available/{characterId}` with the player's JWT — if it's empty, the access policy is locking them out.
-2. `SELECT * FROM game_access WHERE game_slug = '<slug>'` — verify there's at least one row matching the player (an `(all, NULL)` row, or a `(role, ROLE_PLAY_X)` row whose role they hold).
+2. `SELECT ga.* FROM game_access ga JOIN games g ON g.id = ga.game_id WHERE g.slug = '<slug>'` — verify there's at least one row matching the player (an `(all, NULL)` row, or a `(role, play-x)` row whose role they hold).
 3. If a chapter prerequisite is in play, `SELECT * FROM character_quests WHERE character_id = ?` — incomplete prerequisite quests lock chapters.
 4. After a Liquibase rename PR, check `chapter_prerequisites` exists and the column is `chapter_id` not `level_id`. PR #24's 028-9/10/11 added the missed rename. The 028-12 follow-up also renamed `scene_elements.level_id → chapter_id`.
 
@@ -125,9 +125,9 @@ If the 403 persists past the second keypress, the auto-recovery itself failed �
 
 ## LAN exposure (workstation demos)
 
-Default `make up` binds the frontend to `127.0.0.1` only — every other device on the local Wi-Fi gets `Connection refused`. To open it for a demo:
+A plain `docker compose up -d` (no env-file) binds the frontend to `127.0.0.1` only — every other device on the local Wi-Fi gets `Connection refused`. To open it for a demo:
 
-1. Edit [`lan.properties`](../../../lan.properties): set `FRONTEND_BIND=0.0.0.0:` (keep the trailing `:` — it's spliced into the port mapping). `lan.properties` is a docker-compose env-file — `FRONTEND_BIND` / `FRONTEND_PORT` / `POSTGRES_BIND` are literal KEY=VALUE lines.
+1. Check [`lan.properties`](../../../lan.properties): `FRONTEND_BIND=0.0.0.0:` is set there already (keep the trailing `:` — it's spliced into the port mapping). `lan.properties` is a docker-compose env-file — `FRONTEND_BIND` / `FRONTEND_PORT` / `POSTGRES_BIND` are literal KEY=VALUE lines.
 2. Bring the stack up one of two equivalent ways:
    - `make lan-up` — recommended, includes a post-up `lan-info` print of reachable URLs.
    - `docker compose --env-file lan.properties up -d` — plain compose, same result.
@@ -140,7 +140,7 @@ For HTTPS over the same LAN access pattern (useful when testing OAuth flows / Se
 2. `make lan-up-tls` — same `lan.properties` env file, plus the [`docker-compose.tls.yml`](../../../docker-compose.tls.yml) overlay which mounts `nginx-tls.conf` and remaps host port 8080 → container 8443.
 3. Browsers will prompt because the CA is self-signed; accept the warning once. To skip the prompt entirely, import `e2e/certs/ca.crt` into the system trust store.
 
-Casdoor login is password-grant (no OAuth redirect URI to whitelist), so LAN clients log in normally. Postgres + Casdoor stay loopback regardless; set `POSTGRES_BIND=0.0.0.0:` for one-off DB-GUI access from a peer machine — rarely needed and a security footgun.
+Casdoor login is password-grant (no OAuth redirect URI to whitelist), so LAN clients log in normally. Casdoor publishes no host port at all. Postgres binds to `POSTGRES_BIND` (default `127.0.0.1:`); set `POSTGRES_BIND=0.0.0.0:` for one-off DB-GUI access from a peer machine — rarely needed and a security footgun.
 
 ## Production exposure + rate-limit knobs
 
