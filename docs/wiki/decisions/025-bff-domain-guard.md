@@ -12,9 +12,9 @@ The `domain-foundation` work (same branch) taught the games BFF to derive a tena
 
 That branch deliberately stopped at the seam — its own Javadoc says *"The games BFF currently has no per-domain request-scoped data, so no `@PreAuthorize`/query DOMAIN predicate is wired."* So the authority was **stamped but never read**. Nothing enforced it.
 
-Meanwhile the gateway already does enforce it: [`GatewayRouteAccessFilter`](../../../../hugmesh-gateway/src/main/java/systems/hugmesh/gateway/filter/GatewayRouteAccessFilter.java) hard-denies (403) a non-superadmin principal whose `DOMAIN_<x>` ≠ the request's target brand (derived from the `Host` header), *before* the route-access grant layer.
+Meanwhile the gateway already does enforce it: `GatewayRouteAccessFilter` (in hugmesh-gateway, `net.hugmesh.gateway.filter`) hard-denies (403) a non-superadmin principal whose `DOMAIN_<x>` ≠ the request's target brand (derived from the `Host` header), *before* the route-access grant layer.
 
-The games README documents a standing defence-in-depth posture: the gateway is the primary enforcement point, but **the BFF re-runs the gateway's checks** (revocation, rate-limit) so that *"service-to-service traffic on the compose network that bypasses the gateway stays gated."* The domain check was the one gateway control the BFF had the inputs for (`DOMAIN_<x>` is now on the token) but did not re-run. A request reaching the BFF directly on the compose network — skipping the gateway — could present a foreign-brand Casdoor token and sail past the (absent) edge domain check.
+The games README documents a standing defence-in-depth posture: the gateway is the primary enforcement point, but **the BFF re-runs the gateway's checks** (revocation, rate-limit) so that *"service-to-service traffic on the compose network that bypasses the gateway edge is still gated at the application layer."* The domain check was the one gateway control the BFF had the inputs for (`DOMAIN_<x>` is now on the token) but did not re-run. A request reaching the BFF directly on the compose network — skipping the gateway — could present a foreign-brand Casdoor token and sail past the (absent) edge domain check.
 
 ## Decision
 
@@ -40,7 +40,7 @@ The match contract (`DomainGuardFilter.domainMatches`) is copied verbatim from t
 
 ### Ordering
 
-`@Order(HIGHEST_PRECEDENCE + 40)` — the same tier as [`BanGateFilter`](../../../backend/src/main/java/games/hugmesh/bff/config/BanGateFilter.java) (`+50`), one notch earlier, so a foreign-brand token is rejected as a tenant violation *before* any per-user ban lookup (a cheaper, more fundamental deny that never touches the `AdminActionService` cache). Both read the JWT from the reactive `ReactiveSecurityContextHolder` Spring Security's authentication filter populates.
+`@Order(SECURITY_CHAIN_ORDER + 40)`, where `SECURITY_CHAIN_ORDER = -100` is Spring Security's `WebFilterChainProxy` order, so the filter runs at `-60`, after the security context is populated. It sits between `RateLimitFilter` (`-70`) and [`BanGateFilter`](../../../backend/src/main/java/games/hugmesh/bff/config/BanGateFilter.java) (`-50`), so a foreign-brand token is rejected as a tenant violation *before* any per-user ban lookup (a cheaper, more fundamental deny that never touches the `AdminActionService` cache). Both read the JWT from the reactive `ReactiveSecurityContextHolder` Spring Security's authentication filter populates.
 
 ## Why a BFF copy of a gateway check (and not just trust the gateway)
 
@@ -50,8 +50,8 @@ It is **not** a substitute for the gateway: the gateway derives the target brand
 
 ## What this does NOT do (deferred)
 
-- **No per-row catalog partitioning.** `games` / `chapters` / `federation_modules` are not yet domain-columned. In the per-brand-instance model each brand runs its own BFF against its own data, so the catalog is already physically partitioned; a `domain` column + query predicate is only needed if a single BFF ever serves multiple brands from one database. When that lands it should mirror the gateway's `GatewayRouteAccessService.domainApplies` (a `null`/`default` row is global; a branded row matches only its brand; SUPERADMIN sees all).
-- **No public-endpoint brand derivation.** Anonymous public reads are not brand-scoped (they pass through). A brand-partitioned *public* catalog would require the gateway to forward the Host-derived brand to the BFF (e.g. an `X-Domain` header); it does not today.
+- **No per-row catalog partitioning.** (Done since: [decision 026](026-games-catalog-domain-partitioning.md) added `games.domain`.) At the time of this decision `games` / `chapters` / `federation_modules` were not domain-columned. In the per-brand-instance model each brand runs its own BFF against its own data, so the catalog is already physically partitioned; a `domain` column + query predicate is only needed if a single BFF ever serves multiple brands from one database. When that lands it should mirror the gateway's `GatewayRouteAccessService.domainApplies` (a `null`/`default` row is global; a branded row matches only its brand; SUPERADMIN sees all).
+- **No public-endpoint brand derivation.** Anonymous public reads are not brand-scoped (they pass through). A brand-partitioned *public* catalog would require the gateway to forward the Host-derived brand to the BFF (e.g. an `X-Domain` header); it did not do so by default. Since then the gateway can stamp `X-Domain` behind `app.domain-header.forward` (default `false`), but the BFF does not read the header.
 
 ## Alternatives considered
 
