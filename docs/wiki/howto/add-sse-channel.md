@@ -9,38 +9,42 @@ In [`backend/src/main/java/games/hugmesh/bff/service/GameStateService.java`](../
 ```java
 private final Sinks.Many<FooEvent> fooSink = Sinks.many()
     .multicast()
-    .onBackpressureBuffer(BUFFER_SIZE, /* autoCancel */ false);
+    .onBackpressureBuffer(64, /* autoCancel */ false);
 ```
+
+The buffer size is a literal; the existing sinks use 16 to 128 (`GameStateService.java:188-203`).
 
 > ⚠ **`autoCancel=false` is mandatory.** See [decision 003](../decisions/003-autocancel-false.md). Default-`true` sinks die on the first reconnect.
 
-Add a public `emitFoo(FooEvent e)` method that calls `fooSink.tryEmitNext(e)`.
+Add a public `emitFoo(FooEvent e)` method that calls `fooSink.tryEmitNext(e)`, and a public `Flux<FooEvent> fooStream()` that returns `fooSink.asFlux()`.
+
+If the channel must be filtered by session, also add a sink to `SessionSinks` and a `fooStream(String sessionId)` overload, as `movementStream(sessionId)` does, and emit to both sinks.
 
 ## 2. Build the SSE flux wrapper
 
+The wrapping to `ServerSentEvent` happens in the controller, not the service. In `stream(...)` of `GameStreamController`, next to the other channel definitions:
+
 ```java
-public Flux<ServerSentEvent<FooEvent>> fooFlux() {
-  return fooSink.asFlux()
-      .map(e -> ServerSentEvent.<FooEvent>builder(e)
-          .event("foo")
-          .build());
-}
+Flux<ServerSentEvent<Object>> foo = gameStateService.fooStream()
+        .map(f -> sse(sseId, "foo", f));
 ```
 
 ## 3. Merge it in `GameStreamController`
 
-In [`backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java`](../../../backend/src/main/java/games/hugmesh/bff/controller/GameStreamController.java)'s `Flux.merge(...)` call, add `gameState.fooFlux()` alongside the existing channels and the keepalive.
+In the same method's `Flux.merge(...)` call, add `foo` alongside the existing channels and the keepalive.
 
 ## 4. Add a DTO if needed
 
-If `FooEvent` is a new shape, add the record to `model/` and register it for native-image binding:
+If `FooEvent` is a new shape, add the record to `model/`. For the GraalVM native image, add the class to `JSON_BOUNDARY_DTOS` in [`HugMeshRuntimeHints`](../../../backend/src/main/java/games/hugmesh/bff/aot/HugMeshRuntimeHints.java) so Jackson can read its record components by reflection:
 
 ```java
-@RegisterReflectionForBinding(FooEvent.class)
-public record FooEvent(...) {}
+private static final Class<?>[] JSON_BOUNDARY_DTOS = {
+        // …existing DTOs…
+        FooEvent.class,
+};
 ```
 
-Add it to [`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) only if it's a *persistence* shape (an R2DBC entity); SSE-only shapes don't need that.
+[`R2dbcConvertersConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java) only registers two timestamp converters (`OffsetDateTime`/`LocalDateTime` to `Instant`). A new SSE shape or entity does not touch it.
 
 ## 5. Wire the frontend listener
 
@@ -66,10 +70,10 @@ curl -N /api/game/stream
 ## When to NOT add a channel
 
 - For request-response — keep it as a normal `@GetMapping` controller method, not an SSE channel.
-- For events scoped to one user — consider a dedicated SSE endpoint (e.g. `/api/admin/actions/stream` is per-user) rather than emitting on the global stream and filtering client-side.
+- For events scoped to one user — consider a dedicated SSE endpoint (e.g. `/api/me/admin-actions/stream`, which is per-user) rather than emitting on the global stream and filtering client-side.
 
 ## See also
 
-- [02 — Runtime architecture](../architecture/02-runtime.md#server-sent-events--eight-channels-on-one-stream)
+- [02 — Runtime architecture](../architecture/02-runtime.md#server-sent-events--nine-channels-on-one-stream)
 - [Decision 003 — `autoCancel=false`](../decisions/003-autocancel-false.md)
 - [Full-stack developer guide](../guides/fullstack-developer.md)
