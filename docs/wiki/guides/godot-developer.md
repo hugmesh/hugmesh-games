@@ -1,6 +1,6 @@
 # Godot developer guide
 
-> Mirror of [`docs/publishing/userguides/godot-developer/guide.tex`](../../publishing/userguides/godot-developer/guide.tex).
+> A typeset edition lives in [`docs/publishing/userguides/godot-developer/guide.tex`](../../publishing/userguides/godot-developer/guide.tex). The two are edited separately and can differ.
 
 From `mkdir games/my-game/` to a row on the home page: a step-by-step Godot 4 walkthrough.
 
@@ -20,7 +20,7 @@ Run once: `make build-rust` so every `games/<dir>/bin/` gets a fresh `libhugmesh
 
 1. `mkdir games/my-game-slug/`
 2. Open Godot → New Project → set path → Create.
-3. Copy `hugmesh_bridge.gdextension` and `addons/hugmesh_export/` from [`games/three-wizards-in-a-trenchcoat/`](../../../games/three-wizards-in-a-trenchcoat/).
+3. Copy `hugmesh_bridge.gdextension` from [`games/three-wizards-in-a-trenchcoat/`](../../../games/three-wizards-in-a-trenchcoat/). The `addons/hugmesh_bridge/` and `addons/hugmesh_export/` folders are not committed per game; they come from [`extensions/hugmesh-bridge/addons/`](../../../extensions/hugmesh-bridge/addons/). Copy them by hand, or add the game to `GAME_PROJECTS` (Step 5a) and run `make sync-bridge-addon` (`make build-rust` runs it too).
 4. Drop a starter scene at `scenes/main.tscn`.
 
 ## Step 2 — Pick your slugs
@@ -28,37 +28,42 @@ Run once: `make build-rust` so every `games/<dir>/bin/` gets a fresh `libhugmesh
 **GAME slug** appears in `games.slug`, `federation_modules.slug`, and (sometimes) the directory name under [`games/`](../../../games/).
 **CHAPTER slug(s)** — one per export preset; appear in `chapters.slug`, the export path, and the Makefile.
 
-Lowercase, hyphen-free, kebab-case (`forest-glade`, not `ForestGlade`). Once committed, slugs do not change without a coordinated DB migration. Pick well.
+Lowercase kebab-case (`forest-glade`, not `ForestGlade`). Once committed, slugs do not change without a coordinated DB migration. Pick well.
 
 ## Step 3 — Wire HostBridge
 
 The reusable GDExtension exposes a `HostBridge` node with typed signals:
 
-| Signal | Payload |
+Every payload is a JSON string (`GString`) that your script parses, unless noted.
+
+| Signal | Carries |
 |---|---|
-| `movement(x, y, z, action, pressed)` | Player movement / cast / interact |
-| `world_state(state)` | Spawn / despawn / chapter transition |
-| `character_state(state)` | HP / MP / XP / flags |
-| `scene_state(state)` | Scene mount / unmount |
-| `time(state)` | Game-clock tick |
-| `gamepad_received(payload)` | Generalised input — gamepad |
-| `mouse_received(payload)` | Generalised input — mouse |
-| `keyboard_received(payload)` | Generalised input — keyboard |
-| `touch_received(payload)` | Generalised input — touch |
-| `audio_received(payload)` | Audio cue ingress |
+| `movement_received(payload)` | Player movement / cast / interact |
+| `world_received(payload)` | Roster snapshot for the chapter |
+| `character_received(payload)` | HP / MP / XP / level |
+| `time_received(payload)` | Game-clock tick |
+| `scene_received(payload)` | Scene element changes |
+| `scene_ready(payload)` | Fired once per scene boot (standalone mode fires it from `_ready`) |
+| `gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received` `(payload)` | Generalised input and audio cues |
+| `session_control_received(action, payload)` | Pause / resume / close: `SESSION_PAUSED`, `SESSION_RESUMED`, `PLAYER_PAUSED`, `PLAYER_RESUMED`, `SESSION_CLOSED` |
+| `sse_event_received(event_type, payload)` | Raw SSE event relayed by the Angular wrapper |
+| `slot_registered(slot, character_id, is_local)`, `slot_released(slot)` | Player-slot bookkeeping (native `int` / `bool` arguments) |
+| `input_egress(payload)` | Streaming-mode outbound input |
 | `audio_egress(payload)` | Audio cue outgoing |
-| `console_egress(level, message)` | Forward WASM console line to BFF |
+| `console_egress(payload)` | Forward WASM console line to BFF (`report_error(level, message, source, line)` raises it) |
+| `view_egress(payload)` | Camera sample for admin observation (`report_view(slot, x, y, z, yaw, pitch, fov)`, about 10 Hz) |
+| `api_request_egress(payload)`, `api_response_received(payload)` | API calls through the host; use the addon's `BridgeApiClient` instead of touching these |
 
 Add a HostBridge node to the scene tree, then connect signals from your gameplay scripts. See [`games/three-wizards-in-a-trenchcoat/scripts/scene_loader.gd`](../../../games/three-wizards-in-a-trenchcoat/) for a reference subscriber.
 
 ## Step 4 — Author export presets
 
-Project → Export → Add new preset → Web → name it after the chapter slug (e.g. `ForestGlade`).
+Project → Export → Add new preset → Web → name it so that its lower-case form is the chapter slug (the Makefile lower-cases the preset name to get the slug; for `forest-glade` name it `Forest-Glade`, as `Chess-Godot` and `Shadows-Of-The-Net` do).
 
 ```ini
-export_path  = ../../backend/src/main/resources/assets/levels/forest-glade/index.html
-custom_features = level_forest-glade
-variant/extensions_support = true
+export_path="../../backend/src/main/resources/assets/levels/forest-glade/index.html"
+custom_features="level_forest-glade"
+variant/extensions_support=true
 # Do NOT exclude *.gdextension — the Rust binary needs to ship with the bundle.
 ```
 
@@ -67,9 +72,9 @@ Save the `.cfg`, do not export from the editor. The Makefile drives headless exp
 ## Step 5a — Commit and ship
 
 1. Add `games/<dir>/` to `GAME_PROJECTS` in the root [`Makefile`](../../../Makefile).
-2. Define `PRESETS_<dir>` with the preset names.
-3. Write a Liquibase changeset for `games`, `chapters`, `federation_modules`, `game_access` (use [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) as the template).
-4. Commit. CI runs `make build` and your game lands.
+2. Define `PRESETS_<dir>` with the preset names, add the game's slug to `GAME_SLUGS` (so `make seed-roles` creates its `play-<slug>` role), and add a `<dir>) presets="…";;` arm to the `case` in the `build-godot` target. `build-godot` reads that `case`, not `PRESETS_<dir>`.
+3. Write a Liquibase changeset for `games`, `chapters`, `federation_modules`, `game_access` (use [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) as the template; [`053-chess-godot-federation.xml`](../../../backend/src/main/resources/db/changelog/053-chess-godot-federation.xml) is a newer example that also adds the `game_access` row).
+4. Commit the project, the exported bundle under `backend/src/main/resources/assets/levels/<slug>/` (git tracks those files), and the changeset. CI builds the images from the tree (`.gitlab-ci.yml`, `build` stage); it does not run `make build`.
 
 ## Step 5b — Upload through admin
 
@@ -82,8 +87,8 @@ See [howto/upload-and-rollback-game.md](../howto/upload-and-rollback-game.md).
 ## Local test loop
 
 1. `docker compose up -d postgres cassandra casdoor api wasm-fragment`.
-2. In Godot, press Play. `scripts/api_client.gd` auto-targets `http://localhost:8080`.
-3. `scripts/scene_loader.gd` polls `/api/chapters/{id}/scene` and spawns elements.
+2. In Godot, press Play. `scripts/api_client.gd` wraps `BridgeApiClient`, which in the editor sends a plain `HTTPRequest` to `http://localhost:8080`.
+3. `scripts/api_client.gd` fetches `/api/chapters/{id}/scene`; `scripts/scene_loader.gd` spawns the elements.
 4. Edit a scene; press Play again. No build step required for local iteration.
 5. Ready to ship: `make build-godot && docker compose restart api wasm-fragment`.
 
