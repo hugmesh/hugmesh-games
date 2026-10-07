@@ -3,7 +3,10 @@
 Equivalent ports of well-known open-source games onto the HugMesh platform
 (Godot 4 WASM client + the event-streaming multiplayer architecture). Generated
 as a planning backlog; each row was a future epic, not yet built, at the time
-this doc was written.
+this doc was written. The rows that shipped did not use a Godot client: they
+are web-native (a Rust engine compiled to `wasm32`, a canvas frontend, and the
+`games/_shared/` shell). Only chess and Connect Four also have Godot versions
+(`games/chess-godot/`, `games/connect-four-godot/`).
 
 > **Since then, 13 of the rows below have shipped** (Wave 1 partially, Wave 2
 > partially, Wave 3 completely) — see [Already shipped](#already-shipped-13-titles-since-this-backlog-was-written)
@@ -43,7 +46,11 @@ are partially shipped; the tables below list only their remaining rows.
 
 The chess work established the template ([multiplayer-chess-design.md](multiplayer-chess-design.md)):
 **a first-party rules/sim engine (Rust → WASM) runs in the browser; the server
-only streams events.** That generalizes by genre:
+only streams events.** That generalizes by genre. The RTS and FPS rows predate
+[the server-authoritative design](realtime-server-authoritative-design.md),
+which chose a server-run tick for both genres and keeps lockstep only as a
+scale fallback for RTS. Read those two rows as the original assumption, not the
+current plan:
 
 | Genre | Netcode model | Server role | Fit |
 |---|---|---|---|
@@ -62,7 +69,7 @@ budget for **libre assets** (or original Godot art) per game.
 ## A. KDE Plasma games (`kdegames` meta-package) equivalents
 
 ### A1. Two-player abstract — reuse the chess template directly (Wave 1)
-Each = a small Rust rules crate (sibling to `hugmesh-chess`) + a Godot board + the chess relay.
+Each = a small Rust rules crate (sibling to `hugmesh-chess`) + a board frontend + the chess relay. The shipped rows use a canvas frontend under `games/<slug>/`; a Godot board is the optional second step (see `games/_godot-template/`).
 
 **6 of the original 10 rows have shipped** — Reversi, Connect Four, Gomoku, Go,
 Battleship, and Dots and Boxes are done; see
@@ -174,6 +181,6 @@ scale; reuse Warzone 2100 / 0 A.D. libre assets where license-compatible.
    engine, not a title) is likewise 🚧 in-flight per the README roadmap.
 
 Cross-cutting per port: pick libre assets, a rules/sim engine where applicable
-(Rust→WASM, chess pattern), Godot remote + federation seed + Liquibase catalog
-row, and the e2e test taxonomy (single-player state coverage; for MP, the
-two-player/relay/isolation suite).
+(Rust→WASM, chess pattern), a frontend plus a federation seed (a `wasm-game` row)
+and Liquibase catalog row, and the e2e test taxonomy (single-player state
+coverage; for MP, the two-player/relay/isolation suite).
