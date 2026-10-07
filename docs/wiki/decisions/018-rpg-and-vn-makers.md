@@ -3,47 +3,45 @@
 ## Context
 
 Publishers want to author and ship games without leaving the portal or
-touching Godot directly. Two genres cover ~80% of demand on the
-roadmap:
+touching Godot. Two genres cover ~80% of the demand on the roadmap:
 
 - **MUD-style RPG** with rooms, areas, exits in N/S/E/W/NE/NW/SE/SW/UP/
-  DOWN/TELEPORT directions, items, NPCs and per-room scripts. Mirrors
+  DOWN/TELEPORT directions, items, NPCs and per-room scripts. It mirrors
   Mudlet's editable-world domain (`TArea`, `TRoom`, `TExit`, `TScript`,
   `TKey`, `TAlias`, `TTrigger`).
 - **Visual novel** with characters, backgrounds, scenes, dialogue lines
-  and branching choices. Mirrors `gdquest-demos/godot-2d-visual-novel`'s
-  `Character.gd` / `Background.gd` / `ScenePlayer.gd` shape.
+  and branching choices. It mirrors the shape of
+  `gdquest-demos/godot-2d-visual-novel` (`Character.gd` /
+  `Background.gd` / `ScenePlayer.gd`).
 
-The produced games must federate under the building user just like any
-admin-uploaded bundle, must use the existing hugmesh-bridge
-GDExtension (so multiplayer + per-player view channel come for free),
-and must support multiple Areas / Acts so they map cleanly onto the BFF
-`chapters` schema (one WASM bundle per chapter, as the host portal
-already expects).
+The produced games must federate under the building user like any
+admin-uploaded bundle, use the existing hugmesh-bridge GDExtension
+(multiplayer and the per-player view channel come free), and support
+multiple Areas / Acts so they map onto the BFF `chapters` schema (one
+WASM bundle per chapter).
 
 ## Options considered
 
-1. **Single side service handling both genres.** Lower service count;
-   one codebase to maintain. Rejected — mixing two unrelated domains
-   into one Spring Boot app produces a worse REST surface (longer
-   paths, weaker package boundaries) and the user explicitly asked
-   for two separate Postgres DBs, which would have meant two R2DBC
-   connection factories + two Liquibase configs in one process. That
-   complexity outweighs the duplication.
+1. **One side service for both genres.** Fewer services, one codebase.
+   Rejected. Two unrelated domains in one Spring Boot app give a worse
+   REST surface (longer paths, weaker package boundaries). The user also
+   asked for two Postgres DBs, which would mean two R2DBC connection
+   factories and two Liquibase configs in one process. That costs more
+   than the duplication.
 2. **Twin sibling services (`rpg-builder` + `vn-builder`).** Each owns
-   its own DB (`postgres-rpg-builder`, `postgres-vn-builder`), its own
-   REST surface (`/api/rpg/*`, `/api/vn/*`), and its own Liquibase
-   changelog. Build pipelines are independent but follow an identical
-   shape (BuildJob queue → renderer → Godot CLI → BFF upload). Chosen.
-3. **Inline the editor + build into the BFF.** Rejected — the BFF is
+   its DB (`postgres-rpg-builder`, `postgres-vn-builder`), its REST
+   surface (`/api/rpg/*`, `/api/vn/*`) and its Liquibase changelog. The
+   build pipelines are independent but share one shape (BuildJob queue
+   → renderer → Godot CLI → BFF upload). Chosen.
+3. **Put the editor and build inside the BFF.** Rejected. The BFF is
    the runtime hot path (SSE per-session sinks, control authorization,
-   asset streaming) and a build worker that fans out a 4 GB Godot
-   container would compete for the same threads + RAM.
+   asset streaming). A build worker that fans out a 4 GB Godot
+   container would fight it for threads and RAM.
 
 ## Decision
 
 Two reactive Spring Boot side services, twin remotes, separate DBs,
-all schemas managed by Liquibase from day one.
+and Liquibase-managed schemas from day one.
 
 ```mermaid
 flowchart LR
@@ -70,8 +68,9 @@ flowchart LR
 
 ## Build pipeline
 
-Both services follow the same five-state lifecycle, persisted in a
-`*_build_jobs` row claimed atomically with `FOR UPDATE SKIP LOCKED`:
+Both services follow the same five-state lifecycle, kept in a
+`*_build_jobs` row that a worker claims atomically with
+`FOR UPDATE SKIP LOCKED`:
 
 ```mermaid
 flowchart LR
@@ -83,85 +82,82 @@ flowchart LR
 ```
 
 - **Rendering** writes a Godot 4 project tree under `<workdir>/<job-id>/godot-src/`.
-  The RPG renderer emits one `.gd` + `.tscn` pair per room; the VN
-  renderer emits a per-act `scenes_data.json` the runtime ScenePlayer
-  parses. Both projects bake in `hugmesh_bridge.gdextension` so the
-  produced WASM speaks our HostBridge / multiplayer lobby / view
+  The RPG renderer emits one `.gd` + `.tscn` pair per room. The VN
+  renderer emits a per-act `scenes_data.json` that the runtime
+  ScenePlayer parses. Both projects bake in `hugmesh_bridge.gdextension`,
+  so the produced WASM speaks our HostBridge / multiplayer lobby / view
   channel out of the box.
 - **Exporting** iterates the project's Areas (RPG) / Acts (VN) and
   produces one `bundle/<area-slug>/index.html` per — exactly the shape
   the BFF's existing chapters schema expects. With the real export, the
   RPG worker runs Godot once, moves the shared engine files into
   `bundle/_engine/`, and gives each area a patched `index.html` that
-  points at them. The actual Godot CLI
-  invocation is gated behind `app.build.godot-enabled`; with the flag
-  off the worker writes a stub bundle so the rest of the pipeline
-  (manifest.json, register.sql, zip, BFF upload) runs end-to-end without
-  the multi-GB Godot image.
-- **Uploading** posts the resulting zip to the BFF's
-  `/api/admin/games/upload` endpoint with the originating user's
-  bearer token. The BFF runs its own `PublisherService.requireOwns`
-  scope check at upload time — the side services never have to know
-  which slugs the user is allowed to ship.
+  points at them. The Godot CLI call sits behind `app.build.godot-enabled`.
+  With the flag off, the worker writes a stub bundle, so the rest of the
+  pipeline (manifest.json, register.sql, zip, BFF upload) runs end to
+  end without the multi-GB Godot image.
+- **Uploading** posts the zip to the BFF's `/api/admin/games/upload`
+  endpoint with the originating user's bearer token. The BFF runs its
+  own `PublisherService.requireOwns` scope check at upload time, so the
+  side services never need to know which slugs the user may ship.
 
 ## Why bearer-forwarding instead of a service-to-service token
 
-A service-to-service token would let the side service POST as itself,
-but then the BFF couldn't enforce per-game scope (the publisher might
-not own the manifest's `game.slug`). Forwarding the user's bearer
+A service-to-service token would let the side service POST as itself.
+Then the BFF couldn't enforce per-game scope, because the publisher
+might not own the manifest's `game.slug`. Forwarding the user's bearer
 keeps the existing `@PreAuthorize("hasAnyRole('ADMIN','PUBLISHER')")`
-+ scope check intact and produces a correct audit trail
+and scope check intact, and gives a correct audit trail
 (`game_uploads.uploaded_by` = the building user).
 
-The trade-off is that a queued build that misses its bearer expiration
-window fails fast with HTTP 401 — surfaced to the editor as a clean
-`error_message`. Re-running the build mints a fresh token. Acceptable
-because the build queue is single-flight per pod and bundles produce
-in seconds (stub) or minutes (real Godot export), well under the JWT
-TTL.
+The cost: a queued build that outlives its bearer token fails fast with
+HTTP 401, shown in the editor as a clean `error_message`; re-running
+mints a fresh token. We accept that. The queue is single-flight per pod
+and bundles take seconds (stub) or minutes (real export), well under the
+JWT TTL.
 
 ## Liquibase-only schema
 
-Every table in `postgres-rpg-builder` and `postgres-vn-builder` is
-created by a numbered Liquibase changeset. No psql-init seed file, no
-runtime DDL, no JPA `ddl-auto`. This matches the BFF's posture and
-means any contributor's local DB drift heals on the next service
-restart.
+Every table in `postgres-rpg-builder` and `postgres-vn-builder` comes
+from a numbered Liquibase changeset. No psql-init seed file, no runtime
+DDL, no JPA `ddl-auto`. This matches the BFF, and a drifted local DB
+heals on the next service restart.
 
 ## Tests
 
-- **Unit:** `SlugUtilTest` (regex), `RpgProjectServiceTest` /
+- **Unit:** `SlugUtilTest` (regex), and `RpgProjectServiceTest` /
   `VnProjectServiceTest` (every form-error path returns the right
-  ResponseStatusException + the repository never sees the bad input).
+  ResponseStatusException and the repository never sees the bad input).
 - **WebFlux slice:** `RpgProjectControllerTest` /
-  `VnProjectControllerTest` (auth → 401, mocked service →
-  controller projects 400/201 onto the wire).
-- **e2e BDD:** `features/makers/rpg-maker.feature` +
+  `VnProjectControllerTest` (auth → 401; with a mocked service, the
+  controller maps 400/201 onto the wire).
+- **e2e BDD:** `features/makers/rpg-maker.feature` and
   `features/makers/vn-maker.feature` cover the launch-from-publisher
   flow, the inline form-error states (slug shape, blank name, bad
-  colour, missing target scene), and the full create-→-build progress
-  flow. Per-step PNG screenshots via the AfterStep hook in
-  `features/support/fixtures.ts`.
+  colour, missing target scene) and the full create-→-build progress
+  flow. An AfterStep hook in `features/support/fixtures.ts` saves a
+  PNG screenshot per step.
 
 ## Since this decision was written
 
-- **Real Godot export.** No longer stubbed-only. `GodotExporter.exportWeb`
-  runs `godot --headless --export-release "Web"` for real and fails the
-  build loudly on a non-zero exit / timeout / empty bundle when
-  `app.build.godot-enabled=true` (default `false`, which keeps the dev
-  stub-bundle path so the rest of the pipeline runs without the multi-GB
-  Godot image). `make godot-export-tools` + `make build-with-godot` wire a
-  real Godot binary in via the `docker-compose.godot.yml` overlay. See the
-  "Twin maker side services" section of [`CLAUDE.md`](../../../CLAUDE.md).
+- **Real Godot export.** No longer stub-only. `GodotExporter.exportWeb`
+  runs `godot --headless --export-release "Web"` for real. With
+  `app.build.godot-enabled=true` it fails the build loudly on a non-zero
+  exit, a timeout or an empty bundle. The default is `false`, which keeps
+  the dev stub-bundle path so the pipeline runs without the multi-GB
+  Godot image. `make godot-export-tools` and `make build-with-godot`
+  wire in a real Godot binary through the `docker-compose.godot.yml`
+  overlay. See the "Twin maker side services" section of
+  [`CLAUDE.md`](../../../CLAUDE.md).
 - **Asset materialization + procedural generation.** Both renderers now
-  copy the actual asset bytes into the staged Godot tree (previously they
-  serialized asset UUIDs into the export JSON without shipping the bytes,
-  so exports referenced art that wasn't there) and the runtime GDScript
-  loads the shipped texture instead of falling back to primitives-only.
-  A new `ProceduralAssetService` (deterministic FNV-1a/SplitMix64 SVG
-  generator, no wall-clock/random/UUID in its output) backs
+  copy the actual asset bytes into the staged Godot tree. Before, they
+  wrote asset UUIDs into the export JSON without shipping the bytes, so
+  exports pointed at art that wasn't there. The runtime GDScript now
+  loads the shipped texture instead of falling back to primitives only.
+  A new `ProceduralAssetService` (a deterministic FNV-1a/SplitMix64 SVG
+  generator; no wall-clock, random or UUID in its output) backs
   `POST /api/{rpg|vn}/projects/{pid}/assets/generate` in both services,
-  gated by the same ownership check as manual upload.
+  behind the same ownership check as upload.
 
 ## What this doesn't solve
 
@@ -170,5 +166,5 @@ restart.
   thumbnail for image assets (`loadAssetPreview` in each maker
   component).
 - **Live collaborative editing.** Each project is single-author for
-  now. The BFF's per-session SSE infrastructure could be reused for
-  multi-author later but isn't wired yet.
+  now. The BFF's per-session SSE infrastructure could serve multiple
+  authors later; nothing is wired yet.

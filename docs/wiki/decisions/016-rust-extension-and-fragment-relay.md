@@ -31,28 +31,26 @@ Two coupled changes:
      - Inside the iframe, Rust `BridgeGlue` runs a single
        `window.message` listener that buckets payloads onto two
        JS-side queues (`window._twApiResponseQueue`,
-       `window._twSseEventQueue`); `_process` drains both per frame
+       `window._twSseEventQueue`). `_process` drains both per frame
        and routes through `HostBridge.dispatch_api_response` /
-       `HostBridge.dispatch_event` so the typed signals fire.
+       `HostBridge.dispatch_event`, so the typed signals fire.
 
-Game scripts continue to consume `HostBridge.movement_received`,
-`world_received`, etc. — the surface they connect to is unchanged.
+Game scripts keep consuming `HostBridge.movement_received`,
+`world_received`, etc. The surface they connect to is unchanged.
 
 ## Why
 
-Two reasons drove the split:
+- **One transport seam.** The Angular host already owns auth,
+  X-Session-Id, retry and telemetry for every other request. Routing
+  the iframe through the same `HttpClient` applies interceptors,
+  `withCredentials` and any future header policy uniformly, with no
+  parallel implementation in the wasm bundle.
 
-- **One transport seam.** Auth, X-Session-Id, retry, telemetry — the
-  Angular host already owns these for every other request. Routing
-  the iframe through the same `HttpClient` keeps interceptors,
-  `withCredentials`, and any future header policy applied uniformly
-  with no parallel implementation in the wasm bundle.
-
-- **Move data handling into Rust.** GDScript was carrying
-  request-id correlation, JSON parsing, queue draining, and
-  Callable-bound HTTP fallbacks. None of that benefits from being in
-  GDScript; all of it benefits from compile-time checks and a smaller
-  WASM surface. The Rust side now owns:
+- **Move data handling into Rust.** GDScript carried request-id
+  correlation, JSON parsing, queue draining and Callable-bound HTTP
+  fallbacks. None of that benefits from GDScript, and all of it
+  benefits from compile-time checks and a smaller WASM surface. The
+  Rust side now owns:
     - HostBridge mode arbitration (`set_streaming_mode`)
     - `request_api` outbound payload framing
     - JSON-array splitting for queue drains
@@ -88,36 +86,34 @@ Two reasons drove the split:
 
   After that, every typed channel (`movement` / `world` / `character`
   / `time` / `scene` / `session-control`) flows in via `HostBridge.movement_received`
-  etc. The wrapper auto-tears-down and re-subscribes on chapter
-  remount.
+  etc. The wrapper tears down and re-subscribes on chapter remount.
 
-- **Make API calls through `BridgeApiClient`** — its method set is
+- **Make API calls through `BridgeApiClient`.** Its methods are
   `http_get` / `http_post` / `http_put` / `http_delete` (renamed so
-  it doesn't shadow `Node.get(property)`). Each takes a `Callable`
-  that fires with `(status: int, body: Variant)` once the response
+  they don't shadow `Node.get(property)`). Each takes a `Callable`
+  that fires with `(status: int, body: Variant)` when the response
   lands.
 
-- **Editor F5 still works.** Standalone mode falls through to a
-  Godot `HttpRequest` against `http://localhost:8080`, and SSE
-  reception simply doesn't fire (the wrapper isn't there) — game
-  scripts that gate on the channel having data continue to function.
+- **Editor F5 still works.** Standalone mode falls back to a Godot
+  `HttpRequest` against `http://localhost:8080`. SSE reception simply
+  doesn't fire (the wrapper isn't there), and game scripts that gate
+  on the channel having data keep working.
 
 ## Trade-offs accepted
 
-- **Initial-load chattiness.** The first `SD_SSE_SUBSCRIBE` round-trip
-  adds one postMessage hop before SSE events flow. In practice this
-  is sub-millisecond and only fires once per chapter mount.
+- **Initial-load chattiness.** The first `SD_SSE_SUBSCRIBE` adds one
+  postMessage hop before events flow: sub-millisecond, once per chapter
+  mount.
 
-- **Two JS queues vs one.** API responses and SSE events are bucketed
-  separately so a noisy SSE channel can't starve the API drain (and
-  vice versa). The Rust drain runs both per `_process`; cost is one
-  `JavaScriptBridge.eval` per channel.
+- **Two JS queues, not one.** API responses and SSE events are
+  bucketed separately, so a noisy SSE channel can't starve the API
+  drain (or the reverse). The Rust drain runs both per `_process`, at
+  a cost of one `JavaScriptBridge.eval` per channel.
 
-- **Wrapper is a shared chokepoint.** Every game's API + SSE flows
-  through `ApiBridgeService`. If we ever need per-game egress
-  policies (e.g. moderator-toggled rate limits), they layer on top of
-  the existing service rather than splintering across federated
-  remotes.
+- **The wrapper is a shared chokepoint.** Every game's API and SSE
+  traffic passes through `ApiBridgeService`. Per-game egress policies
+  (e.g. moderator-toggled rate limits) would layer on top of that
+  service, not splinter across federated remotes.
 
 ## Reference
 
