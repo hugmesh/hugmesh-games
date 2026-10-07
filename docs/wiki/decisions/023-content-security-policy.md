@@ -10,8 +10,9 @@ The `CLAUDE.md` "Known gaps" entry called out CSP as needing "an inventory of th
 
 | Surface | Need | Why |
 |---|---|---|
-| `es-module-shims` in shimMode | `script-src 'unsafe-eval'` | Forced via `<script type="esms-options">{ "shimMode": true }</script>` in [`src/index.html`](../../../frontend/src/index.html). The shim rewrites bare ESM specifiers (`@angular/core`, `rxjs`, …) against the federation import map using `new Function(...)`. Dropping `'unsafe-eval'` breaks the host boot entirely. |
-| The `esms-options` inline block | `script-src 'unsafe-inline'` | The federation runtime reads its options from that inline script tag. Could be moved to a separate JSON file (see follow-up below) to drop this token. |
+| `es-module-shims` in shimMode | `script-src 'unsafe-eval'` | Forced by the options block in [`src/index.html`](../../../frontend/src/index.html) (first an inline `<script type="esms-options">{ "shimMode": true }</script>`, now `assets/esms-init.js`; see Step 1). The shim rewrites bare ESM specifiers (`@angular/core`, `rxjs`, …) against the federation import map using `new Function(...)`. Dropping `'unsafe-eval'` breaks the host boot entirely. |
+| The `esms-options` inline block | `script-src 'unsafe-inline'` | The federation runtime read its options from that inline script tag. Step 1 below moved them into `assets/esms-init.js`. The token stays for three other reasons. |
+| `es-module-shims` rewritten modules | `script-src blob:` | The shim materialises each rewritten ESM module as a `blob:` script. Without `blob:` the SPA blank-screens at bootstrap (observed in an e2e run on the integration branch, per the `nginx.conf` comment). |
 | Angular runtime style injection | `style-src 'unsafe-inline'` | Angular's component-encapsulation strategy injects per-component `<style>` elements at runtime. Strict CSP requires `ngCspNonce` wired on every dynamically-bootstrapped module — federated remotes complicate that. Defer to a follow-up. |
 | WASM workers + blob URLs | `worker-src 'self' blob:` | Godot's web build occasionally spawns blob-URL workers for threading. |
 | Data + blob images | `img-src 'self' data: blob:` | Inline SVGs in some Angular components. |
@@ -31,7 +32,7 @@ Ship the following CSP from both `frontend/nginx.conf` and `frontend/nginx-tls.c
 
 ```
 default-src   'self';
-script-src    'self' 'unsafe-eval' 'unsafe-inline';
+script-src    'self' 'unsafe-eval' 'unsafe-inline' blob:;
 style-src     'self' 'unsafe-inline';
 img-src       'self' data: blob:;
 font-src      'self' data:;
@@ -42,9 +43,13 @@ frame-ancestors 'self';
 form-action   'self';
 base-uri      'self';
 object-src    'none';
+report-uri    /api/security/csp-report;
+report-to     csp
 ```
 
-The two `'unsafe-*'` tokens are deliberately retained as load-bearing constraints. Everything else clamps to same-origin.
+The first cut had no `blob:` and no reporting directives. Both were added later; the block above is the policy in both nginx files today.
+
+The two `'unsafe-*'` tokens are deliberately retained as load-bearing constraints. Everything else clamps to same-origin, except `blob:` for scripts, images and workers.
 
 The TLS conf had drifted from the plain conf — it was missing `Cross-Origin-Resource-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy`. All seven (including the new CSP) are now present in both files in lockstep.
 
@@ -67,7 +72,7 @@ The TLS conf had drifted from the plain conf — it was missing `Cross-Origin-Re
 
 ### Neutral
 
-- No `report-uri` / `report-to` directive in this first cut. Adding a reporting endpoint is in the follow-up list.
+- The first cut had no `report-uri` / `report-to` directive. Both have since been added (see Follow-ups).
 
 ## Path to strict CSP (follow-up)
 
@@ -114,7 +119,7 @@ Each step is independent and lands as its own PR; all three together produce a "
 ## Verification
 
 - [x] `frontend/nginx.conf` + `frontend/nginx-tls.conf` both carry the same `Content-Security-Policy` header in lockstep.
-- [ ] Boot the stack (`docker compose up -d frontend` or `make lan-up`) and navigate to `/`, `/login`, `/admin`, `/three-wizards`. No `Refused to ...` CSP violations in the browser console.
+- [ ] Boot the stack (`docker compose up -d frontend` or `make lan-up`) and navigate to `/`, `/login`, `/admin`, `/rpg-maker`. No `Refused to ...` CSP violations in the browser console.
 - [ ] Confirm `curl -sI http://localhost:8080/ | grep -i content-security-policy` returns the policy verbatim.
 - [ ] Confirm same on the TLS listener: `curl -ksI https://localhost:8080/`.
 
