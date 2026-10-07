@@ -2,7 +2,7 @@
 
 ## Context
 
-`RateLimitFilter` ([backend/src/main/java/games/hugmesh/bff/config/RateLimitFilter.java](../../../backend/src/main/java/games/hugmesh/bff/config/RateLimitFilter.java)) caps each `(remote-IP, path-prefix)` to 20 requests / minute on the credential-grant endpoints (`/api/auth/`, `/api/admin/actions/`). The original implementation kept its bucket state in a per-pod `ConcurrentHashMap`. That holds up under a single-pod deploy but a multi-pod fleet defeats it: a credential-stuffing attacker fanning across N pods sees N × MAX_PER_WINDOW headroom because each pod's bucket is isolated.
+`RateLimitFilter` ([backend/src/main/java/games/hugmesh/bff/config/RateLimitFilter.java](../../../backend/src/main/java/games/hugmesh/bff/config/RateLimitFilter.java)) caps each `(remote-IP, path-prefix)` to 20 requests / minute by default on the credential-grant endpoints (`/api/auth/`, `/api/admin/actions/`). The cap and window are the properties `app.rate-limit.auth.max-per-window` and `app.rate-limit.auth.window-seconds`; the integration-test profile raises the cap to 1000. The original implementation kept its bucket state in a per-pod `ConcurrentHashMap`. That holds up under a single-pod deploy but a multi-pod fleet defeats it: a credential-stuffing attacker fanning across N pods sees N × MAX_PER_WINDOW headroom because each pod's bucket is isolated.
 
 ## Options considered
 
@@ -29,7 +29,7 @@ flowchart TB
     Dist --> Cass
 ```
 
-Local-bucket-rejected requests never round-trip Cassandra. Cluster-rejected requests already passed the local cap on this pod, so we know the rejection is multi-pod fan-out and not single-pod overshoot. Either rejection returns `429 Too Many Requests` with `Retry-After: 60`.
+Local-bucket-rejected requests never round-trip Cassandra. Cluster-rejected requests already passed the local cap on this pod, so we know the rejection is multi-pod fan-out and not single-pod overshoot. Either rejection returns `429 Too Many Requests` with `Retry-After` set to the window (60 s by default).
 
 ## Why local + cluster, not cluster-only
 
@@ -37,9 +37,9 @@ A pure cluster check would add the Cassandra round-trip to every gated request. 
 
 ## Failure mode
 
-When Cassandra is unreachable (network partition, cassandra-init still running on a fresh stack, scheduled maintenance), `DistributedRateLimitService.recordAndCount` falls back to `Mono.just(0L)` so the filter allows. The local bucket is still doing its job; the cluster augmentation is best-effort defense in depth.
+When Cassandra is unreachable (network partition, cassandra-init still running on a fresh stack, scheduled maintenance), `DistributedRateLimitService.recordAndCount` falls back to `Mono.just(0L)` so the filter allows. The filter also wraps the call in a resilience4j circuit breaker named `cassandra`; once it opens, the cluster check is skipped and the local bucket decides alone. The local bucket is still doing its job; the cluster augmentation is best-effort defense in depth.
 
-`@ConditionalOnBean(ReactiveCqlTemplate.class)` mirrors `PositionCacheService` — the service no-ops when Cassandra isn't wired (e.g. unit-test profile), so unit tests of `RateLimitFilter` don't need a Cassandra fixture.
+The service bean is registered by `CassandraBackedServicesAutoConfiguration` with `@ConditionalOnBean(ReactiveCqlTemplate.class)`, as `PositionCacheService` is. It is absent when Cassandra isn't wired (e.g. unit-test profile), so unit tests of `RateLimitFilter` don't need a Cassandra fixture. (It was once a component-scanned `@Service`; `@ConditionalOnBean` on a scanned class evaluates too early and was always false, so the service silently never existed in real deployments.)
 
 `app.rate-limit.distributed.enabled=false` disables the cluster layer at runtime so a deployment that explicitly wants in-process-only throttling doesn't have to remove Cassandra wiring.
 
@@ -62,7 +62,7 @@ The 90 s TTL is `RATE_LIMIT_WINDOW = 60 s` plus a 30 s grace so a count read nev
 ## Tests
 
 - `DistributedRateLimitServiceTest` (unit): hand-rolled `ReactiveCqlTemplate` stub (the Mockito-inline agent is brittle on JDK 25); pins the happy path + the three failure-mode paths (insert error → 0, count error → 0, empty count → 0).
-- `make e2e`: the integration-test stack brings Cassandra up alongside Postgres; the existing rate-limit pin in `tests/full-stack.spec.ts` (when present) exercises the real Cassandra path.
+- `make e2e`: the integration-test stack brings Cassandra up alongside Postgres, but its profile sets the cap to 1000 per window and no spec under `e2e/tests/` asserts a 429. Nothing in the tree exercises the real Cassandra path end to end.
 
 ## What this doesn't solve
 
