@@ -179,7 +179,7 @@ Four Kafka topics:
 
 | Topic | Producer | Purpose |
 |---|---|---|
-| `state_audit` | `GameAuditPublisher` | Every state transition emitted by `GameStateService` — durable replacement for the Cassandra audit log. |
+| `state_audit` | `GameAuditPublisher` | Every state transition emitted by `GameStateService`, kept durably. |
 | `game_events` | `GameEventPublisher` | All 9 SSE channels (movement / world / character / scene / input / audio / view / wasm-console / world-native) tee'd from `GameStateService.tryEmitNext`/`emitInput`. The cross-pod consumer `KafkaSessionSubscriber` filters self-published via `pod_id` and dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. `world-native` is the PR #117 addition — the raw web-native `sendWorld()` payload, teed separately from the typed Godot `world`/`WorldState` channel so a peer pod can re-emit it onto its own `worldNative` sink (merged client-side into the same `world` SSE event name). |
 | `game_kpi` | `GameKpiPublisher` | Per-game KPIs posted by federated game remotes via `POST /api/telemetry/game/{slug}`. Iframes hit the BFF directly (CORS allowlist `app.telemetry.cors.allowed-origins`). The route is public; an anonymous post lands with an empty `casdoor_id`. |
 | `session.<id>.events` | `SessionTopicManager` | Per-session topics created on session-create so a cross-pod subscriber can hydrate only the sessions it cares about. |
@@ -235,9 +235,9 @@ Mitigation: when a control arrives with `X-Session-Id`, the controller passes th
 
 ## Generalised input event surface
 
-The five legacy game tables (`characters`, `controls`, `skills_loadout`, …) cover JRPG-shaped gameplay; the input surface added in changeset 026 covers *everything Godot can consume*: gamepad button / axis, mouse motion / button / wheel, keyboard up / down, touch gestures, audio cues, world events, plus the legacy control commands as one kind among many.
+The legacy game tables (`player_characters`, `character_skill_slots`, `player_sessions`, …) cover JRPG-shaped gameplay; the input surface added in changeset 026 covers *everything Godot can consume*: gamepad button / axis, mouse motion / button / wheel, keyboard up / down, touch gestures, audio cues, world events, plus the legacy control commands as one kind among many.
 
-Three reference tables anchor the schema; an append-only audit table writes against them.
+Three reference tables anchor the schema; an append-only audit table writes against them, and a `games.features` column holds the per-game flags.
 
 | Table | Purpose |
 |---|---|
@@ -263,7 +263,7 @@ Every input emit passes these gates in `InputEventController.submit()`, in this 
 
 Ahead of these three, a separate authorization pass runs first (403, not 400/405): session-membership + character-ownership (a caller may only submit for a `characterId` it owns in the target session), plus an authority-spoof gate specific to `kind:'world'` — only the session **creator** (the host running the wasm engine) may submit an authoritative `world` event; any other member gets 403. A session-scoped event must also carry the session's own `gameSlug`; gates 2 and 3 read their flags by that slug, so a mismatch gets 403 (`gameSlug does not match the session's game`, commit 1de4631). Legacy posts with no session id have nothing to bind against and are unchanged.
 
-Same surface persists every browser-tier gamepad poll, every WASM-iframe console line forwarded by the host shell, every audio cue the Godot bundle emits. The Rust GDExtension's `HostBridge` ships matching typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`, plus outbound `audio_egress` and `console_egress`) so a Godot developer wires gameplay to named signals without caring whether the source was a player's USB Pro Controller, a `<kbd>W</kbd>` keypress, or an SSE emit from a cross-tab subscriber.
+The same surface persists the host shell's gamepad mirror (`POST /api/input/{characterId}`) and the audio cues the Godot bundle emits. WASM-iframe console lines take a different route: `POST /api/diagnostics/wasm-console`, which feeds the `wasm-console` SSE channel and is not persisted. The Rust GDExtension's `HostBridge` ships matching typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`, plus outbound `audio_egress` and `console_egress`) so a Godot developer wires gameplay to named signals without caring whether the source was a player's USB Pro Controller, a `<kbd>W</kbd>` keypress, or an SSE emit from a cross-tab subscriber.
 
 ---
 
