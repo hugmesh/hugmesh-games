@@ -13,7 +13,7 @@ floating primitives: a tapered cylinder "robe", a sphere/box head, and an option
 hat.
 
 That model cannot express what we now need, and the gaps are structural rather
-than cosmetic:
+than cosmetic. This list describes the code before this decision:
 
 - **There are no limbs.** No arms, no legs, no hands, no feet — so "vary chest,
   height, leg height and all limbs within humanoid bounds" has nothing to vary.
@@ -25,8 +25,10 @@ than cosmetic:
 - **The 2D and 3D sides are independent hard-coded geometry tables.**
   `avatar_factory.gd` (GDScript primitives) and `drawAvatarPreview()`
   (`rpg-maker-remote.component.ts`, canvas 2D) each hard-code their own numbers.
-  They already disagree and can drift silently on every change.
-- **The platform has no user-avatar concept at all.** `avatarUrl` /
+  They already disagree and can drift silently on every change. (The canvas
+  routine is gone: the maker now POSTs the config to `/api/rpg/avatar-preview.svg`
+  and shows the returned SVG.)
+- **The platform has no user-avatar concept at all** (now it has: see Cross-service avatars). `avatarUrl` /
   `profile_picture` / `photoUrl` appear **zero** times across `frontend/src`,
   `frontend/projects` and `backend/src`. `player_characters` stores stats only.
 - **Nothing is exportable.** No `.glb`/`.gltf` exists in the repo and nothing
@@ -107,7 +109,7 @@ omitted primitive from becoming a wrong non-default).
 
 The bounds are the "reasonable humanoid" contract: the extremes stay recognisably
 bipedal — no zero-length limbs, no limbs longer than the body, no head larger than
-the torso. They are enforced in **four** places that must move together (below).
+the torso. They are mirrored in several places that must move together (see Consequences).
 
 ### Shape tokens
 
@@ -119,8 +121,8 @@ the torso. They are enforced in **four** places that must move together (below).
 | `hairStyle` | `none`, `short`, `long`, `ponytail`, `spiky`, `bun`, `braid` | `short` |
 | `outfitType` | `robe`, `tunic`, `armor`, `dress`, `jumpsuit`, `bare` | `robe` |
 
-`renderStyle=lowpoly` is the **N64 mode**: radial segment counts drop to 6–8,
-rings to 1, materials switch to unshaded-ish flat shading with vertex colours and
+`renderStyle=lowpoly` is the **N64 mode**: radial segment counts drop from 16
+to 6 and rings from 8 to 3 (`avatar_factory.gd`), materials switch to per-vertex shading with specular off and
 `TEXTURE_FILTER_NEAREST`. This is not a stylistic filter bolted on top — it is how
 the rig is *built*, and it matches how N64 characters actually were built: rigid
 segmented limbs pivoting at plain joints, which is exactly the rig below.
@@ -185,8 +187,9 @@ const RIG    := {"name":"Root","pos":Vector3(0,0,0),"parts":[…],"children":[�
 const EXPRESSIONS := {"happy":{"Mouth":{"pos":Vector3(…),"scale":Vector3(…)}, …}, …}
 ```
 
-A part is `{"name", "shape":"box|cyl|sphere|cone|quad", "pos":Vector3,
-"size":Vector3, "rot":Vector3, "color":Color, "tex":"skin|outfit|none"}`.
+A part is `{"name", "shape":"box|cyl|sphere|quad", "pos":Vector3,
+"size":Vector3, "rot":Vector3, "taper":float, "color":Color,
+"tex":"skin|outfit|none", "slot":"body|hair|hat|face|back|held_main|held_off"}`.
 Raw `#rrggbb` strings still never reach GDScript (pinned by
 `RpgGodotProjectRendererTest`).
 
@@ -206,9 +209,12 @@ server-observable shape as `SHOP_BUY` / `TALK_NPC`), so remote players see them.
 ## Cross-service avatars
 
 New in the BFF: `user_avatars` (many named avatars per user, each storing a
-Character Document), `user_profiles.active_avatar_id` (the one in use), and
-`player_characters.avatar_id` (a per-character override — "account profiles for
-specific characters"). Swapping is a `PUT`, not a re-upload.
+Character Document; the one in use carries `is_active`, and a partial unique
+index allows at most one active row per user), and `player_characters.avatar_id`
+(a per-character override — "account profiles for specific characters",
+`ON DELETE SET NULL`). There is no `user_profiles.active_avatar_id` column.
+Swapping is a `PUT`, not a re-upload. The routes sit under `/api`
+(`AvatarController`, Liquibase changelog 059).
 
 | endpoint | purpose |
 |---|---|
@@ -216,9 +222,12 @@ specific characters"). Swapping is a `PUT`, not a re-upload.
 | `PUT/DELETE /api/avatars/{id}` | edit / remove |
 | `POST /api/avatars/{id}/select` | make it the active avatar |
 | `PUT /api/characters/{cid}/avatar` | bind an avatar to one character |
-| `GET /api/avatars/{id}/image.svg?expression=&size=` | renderable everywhere |
+| `GET /api/avatars/{id}/image.svg?expression=&w=&h=&portrait=&mouth=` | renderable everywhere |
+| `GET /api/avatars/{id}/model.glb` | glTF export of the saved avatar |
 
-That last one is the integration primitive: any service that can render an `<img>`
+`rpg-builder` serves the same model per project under `/api/rpg`: `projects/{pid}/avatar-config` (GET/PUT), `avatar.svg`, `avatar.glb`, `avatar.json` (GET/POST), `avatar-char3d.json` and the unsaved-config `POST /avatar-preview.svg`.
+
+The image route is the integration primitive: any service that can render an `<img>`
 gets avatars for free, and the expression parameter is what produces the stills
 another service attaches to a post.
 
@@ -248,7 +257,7 @@ their files** — that tree is a vendored copy of
 
 ## Consequences
 
-**Extending a whitelist now touches five places, and they are all tested:**
+**Extending a whitelist now touches five places, and they are all tested** (the checklist is also in a comment at the top of `CharacterSpec.java`):
 canonical `CharacterSpec` (bounds + token sets) → a new Liquibase changeset
 (append-only; drop + re-add the CHECK) → `HumanoidRig` geometry → the Angular
 constant → the maker UI control. `avatar_factory.gd` is *no longer* one of them:

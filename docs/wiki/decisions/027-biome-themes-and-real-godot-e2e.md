@@ -138,7 +138,9 @@ analysis; canvas `getImageData` reads blank because Godot 4.6 web exports
 don't set `preserveDrawingBuffer`), drives real WASD and asserts the
 movement SSE, and a two-player scenario proving one player sees the
 other's avatar move in the same session. Per-step PNGs and a full webm
-per scenario are harvested into `docs/publishing/`.
+per scenario are harvested by `docs/publishing/screenshots/harvest-from-e2e.py`
+into `docs/publishing/screenshots/build/` (PNGs) and `docs/publishing/videos/`
+(webm).
 
 ## Consequences
 
