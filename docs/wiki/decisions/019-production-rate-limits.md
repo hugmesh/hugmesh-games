@@ -26,7 +26,7 @@ indirection). It carries:
 
 ```
 FRONTEND_BIND=0.0.0.0:     # 127.0.0.1: keeps the portal loopback-only
-FRONTEND_PORT=8080         # host-side port (container always 8080)
+FRONTEND_PORT=8080         # host-side port (container 8080; 8443 with the TLS overlay)
 POSTGRES_BIND=127.0.0.1:   # 0.0.0.0: exposes Postgres to the LAN too
 ```
 
@@ -65,7 +65,7 @@ directly so both invocation paths produce the same result.
 ## Production: `compose.prod.yml` + edge rate limits
 
 [`compose.prod.yml`](../../../compose.prod.yml)'s frontend port
-defaults to `${PROD_FRONTEND_BIND:-127.0.0.1:}8080:8080` — loopback
+defaults to `${PROD_FRONTEND_BIND:-127.0.0.1:}${PROD_FRONTEND_PORT:-8080}:8080` — loopback
 because the standard prod posture is an upstream LB / TLS terminator
 (nginx, Caddy, ELB, Cloud LB) at `hugmesh.games` that forwards to
 this host's `127.0.0.1:8080`. Set `PROD_FRONTEND_BIND=0.0.0.0:` for a
@@ -151,6 +151,12 @@ cheaper.
   not on the JWT subject. A logged-in attacker can't blow past the
   IP cap, but a single user behind a corporate NAT shares the cap
   with their colleagues. Per-user caps need to move into the BFF.
+- **Client address behind a proxy**: `frontend/nginx.conf` has no
+  `real_ip` configuration, so behind an upstream load balancer every
+  zone keys on the balancer's address. All clients then share one
+  bucket per zone. `compose.prod.yml` says the zones still work per
+  client if the balancer forwards `X-Forwarded-For`; without
+  `set_real_ip_from` they do not.
 - **Worker scaling**: 10 000 concurrent connections on a single
   host's nginx is comfortable; SSE streams pin a worker per
   connection, so a fleet running this stack needs sticky-session or
