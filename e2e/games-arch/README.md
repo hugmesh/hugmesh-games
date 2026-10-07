@@ -91,8 +91,8 @@ events and `sendWorld` for world-state broadcasts).
   broadcast state).
 - Gate 1: the `(kind, type)` pair must exist in `input_event_types`. An
   unrecognised pair is rejected with **400**.
-- Gates 2/3 (per-game `features` + `game_event_support` opt-in) are not yet
-  implemented — see the README's "Known gaps / TODO" section.
+- Gate 2: `games.features.<kind>` must be `true` for the game (absent is refused), and `control:cast` also needs `instant_loadout`. Refused with **405**.
+- Gate 3 (per-game `game_event_support` opt-in, **405**) is implemented but off unless `app.input.gate3-enabled=true`; it defaults to `false` until every shipped title's rows are seeded. See `docs/wiki/architecture/04-data-model.md`.
 
 ## Run it
 
