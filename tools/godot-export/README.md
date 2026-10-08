@@ -129,7 +129,7 @@ chooser in the host portal handles multi-chapter games automatically.
   ```
   The resulting bundle sizes were: `index.wasm` 1,509,558 B, `index.side.wasm`
   41,113,842 B, `index.pck` ~18–20 KB, `hugmesh_bridge.wasm` 2,678,048 B (the copy in
-  `assets/levels/cave/` is 2,618,956 B today). All four
-  files were confirmed as valid WASM via their `\0asm` magic bytes. The maker BDD e2e
-  suite (`make e2e-bdd` with the Godot overlay) additionally asserts that each bundle
-  file is non-empty before the build is considered passing.
+  `assets/levels/cave/` is 2,618,956 B today). The `.wasm`
+  files were confirmed as valid WASM via their `\0asm` magic bytes. `make e2e-godot`
+  (real exports; `make e2e-bdd` skips the `@godot` scenarios) also checks, on the player
+  launch step, that the served `index.wasm` and `index.pck` are non-empty.
