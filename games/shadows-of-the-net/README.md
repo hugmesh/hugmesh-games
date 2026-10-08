@@ -250,7 +250,7 @@ GDExtension). `export_presets.cfg` gives the full rationale.
 | `scripts/chat3d_bridge.gd` | versioned Chat3D interface (matrix mode) |
 | `scripts/character_assembler.gd` | room-local Char3DConfig→rig assembler (shares the DATA CONTRACT — not the code — with the character-forge sibling; read its header) |
 | `scripts/avatar_manager.gd` | roster → rigs, pose smoothing, openness/blendshape/speaking drives |
-| `scripts/media_surfaces.gd` | surface registry, PNG texturing, ray hit-testing |
+| `scripts/media_surfaces.gd` | surface registry, image texturing, ray hit-testing |
 | `scripts/local_controller.gd` | desktop controls + local pose authority |
 | `scripts/xr_boot.gd` | WebXR / OpenXR / fallback branching |
 | `tests/` | headless GDScript regression suites (`make test-godot`) |
