@@ -4,8 +4,9 @@ How to add or fix a Playwright spec that drives two browser contexts through the
 
 ## Prereqs
 
-- `make e2e` brings the full stack up under the `integration-test` Spring profile (deterministic Casdoor seed passwords, TLS, verbose multiplayer logging) and runs the suite in Docker. No host-side Playwright install needed.
-- The e2e image `tests/` directory is COPYed into the Playwright container at build time. After editing a spec, run `docker compose -f docker-compose.yml -f docker-compose.e2e.yml build e2e` before invoking the suite.
+- `make e2e` builds the images (including `e2e`), brings the full stack up under the `integration-test` Spring profile (TLS, verbose multiplayer logging), runs the suite in Docker, then tears the stack down (`down -v`). No host-side Playwright install needed.
+- Every seed user shares one per-run password, `E2E_PASSWORD`. `make` generates it and saves it in `.e2e-credentials`. It is not a fixed value.
+- The e2e image copies `e2e/tests/` in at build time. `make e2e` rebuilds the image on every run, so a spec edit needs nothing extra. To `docker compose run` against a stack that is already up, rebuild first with `docker compose -f docker-compose.yml -f docker-compose.e2e.yml build e2e`. Export `E2E_PASSWORD` first (`set -a; . .e2e-credentials; set +a`), because the compose file refuses to parse without it.
 - All e2e specs live under [`e2e/tests/`](../../../e2e/tests/). Helpers under [`e2e/tests/helpers/`](../../../e2e/tests/helpers/).
 
 ## The two race conditions you have to navigate
@@ -52,7 +53,7 @@ const sessionId = await createSessionViaLobby(p1, sessionName, /* characterId */
 await launchFirstChapter(p1);
 ```
 
-Both helpers live inline in `multiplayer-same-session.spec.ts` and `cross-session-isolation.spec.ts`. They're spec-local because the modal markup is specific to the home component.
+`createSessionViaLobby` and `launchFirstChapter` live inline in both `multiplayer-same-session.spec.ts` and `cross-session-isolation.spec.ts`. `joinSessionViaLobby` exists only in the first. They are spec-local because the modal markup is specific to the home component.
 
 ## Distinct character IDs per player
 
@@ -72,7 +73,7 @@ The two multiplayer specs both pin contracts strictly:
 - `multiplayer-same-session.spec.ts` — P2's iframe MUST receive `>= 1` `SD_SSE_EVENT` after P1 moves.
 - `cross-session-isolation.spec.ts` — session A MUST hear its own movement; session B MUST NOT receive any event carrying session A's character.
 
-Neither spec has a "soft warn when the iframe lacks a session-scoped subscription" branch any more — the lobby flow + `waitForResponse` make that observable, and a missing subscription should fail loudly.
+Neither spec has a "soft warn" branch for an iframe without a session-scoped subscription. The lobby flow and `waitForResponse` make that observable, so a missing subscription fails the test. (Some comments in `cross-session-isolation.spec.ts` still describe the old warn-and-continue behaviour. The assertions do not.)
 
 The `SessionIsolationTest` Junit unit pin under [`backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java`](../../../backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java) covers the contract at the BFF layer; the e2e pair is the through-every-hop counterpart (sink fan-out → SSE → Angular wrapper relay → iframe consumer).
 
@@ -82,7 +83,7 @@ The `SessionIsolationTest` Junit unit pin under [`backend/src/test/java/games/hu
 2. Drive sessions through the lobby UI (`createSessionViaLobby` / `joinSessionViaLobby`). Pass distinct character IDs.
 3. `await Promise.all([pX.waitForResponse(...), pY.waitForResponse(...)])` before any `sendControl`.
 4. Drain captured events with `drainCapturedEvents(page)` after the action, then assert with `toBeGreaterThan(0)` (positive) or `toEqual([])` (negative).
-5. Rebuild the e2e image (`docker compose -f docker-compose.yml -f docker-compose.e2e.yml build e2e`) and run with `make e2e` or the targeted variant.
+5. Run `make e2e`. It rebuilds the e2e image itself.
 
 ## Where to look next
 
