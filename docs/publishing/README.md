@@ -155,9 +155,9 @@ The PDF builds into `architecture/build/architecture.pdf` and is
 git-ignored. To include it in a release, attach the built PDF as a
 GitHub release asset. Do not commit the binary.
 
-### `slides/` — eight PowerPoint walkthroughs
+### `slides/` — six PowerPoint walkthroughs
 
-Slide counts are one cover, one slide per `SECTIONS` entry, and one closing
+There are eight decks. (The heading says six because it predates the moderator and publisher decks; it is left as is so its link anchor keeps working.) Slide counts are one cover, one slide per `SECTIONS` entry, and one closing
 slide, counted from the source. They were not checked against a rendered deck
 (`python-pptx` is not installed here).
 
