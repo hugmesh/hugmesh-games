@@ -14,12 +14,13 @@ WebFlux requires non-blocking IO on the dispatcher thread. Liquibase has no reac
 
 - Spring's auto-config disables `DataSourceAutoConfiguration` when an R2DBC `ConnectionFactory` is present, so [`JdbcDataSourceConfig`](../../../backend/src/main/java/games/hugmesh/bff/config/JdbcDataSourceConfig.java) declares an explicit `@Primary HikariDataSource` of pool size 3 just for the migration phase.
 - R2DBC connects in parallel against the same database via `spring.r2dbc.url`.
-- `@PostConstruct` services that touch the database **must** carry `@DependsOn("liquibase")`. Without it they can run before Liquibase commits, locking their R2DBC connection into a pre-migration MVCC snapshot. `GameStateService` and `GameTimeService` carry this annotation; symptom of forgetting is `BadSqlGrammarException: relation does not exist` from a query the test fixture clearly sets up.
-- Tests need `spring.r2dbc.pool.initial-size=0` so the pool only opens connections after Liquibase finishes.
+- The native-image overlay is the exception. `docker-compose.native.yml` runs Liquibase in a separate `liquibase/liquibase:4.29` init container and sets `SPRING_LIQUIBASE_ENABLED=false` on the `api` service (see [decision 004](004-graalvm-native.md)).
+- `@PostConstruct` services that touch the database **must** carry `@DependsOn("liquibase")`. Without it they can run before Liquibase commits, locking their R2DBC connection into a pre-migration MVCC snapshot. `GameStateService`, `GameTimeService` and `DebugModeService` carry this annotation; symptom of forgetting is `BadSqlGrammarException: relation does not exist` from a query the test fixture clearly sets up.
+- Integration tests that run against a real database set `spring.r2dbc.pool.initial-size=0` (for example `GameUploadIntegrationTest`), so the pool only opens connections after Liquibase finishes.
 
 ## Trade-offs accepted
 
-- **Two pools' worth of memory.** Hikari pool 3 + R2DBC pool 10 = 13 baseline connections on a small instance. Watched on the admin dashboard's heartbeat panel.
+- **Two pools' worth of memory.** Hikari pool 3 + R2DBC pool 10 (Spring Boot's default `initialSize`) = 13 baseline connections on a small instance. No admin panel shows pool counts.
 - **Two URL configs to keep in sync.** `spring.datasource.url` and `spring.r2dbc.url` look superficially identical but differ in protocol prefix (`jdbc:postgresql://` vs `r2dbc:postgresql://`). One hand-edited config file with both keys avoids drift.
 
 ## Reference
