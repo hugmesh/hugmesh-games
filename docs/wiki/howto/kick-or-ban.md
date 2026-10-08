@@ -1,11 +1,11 @@
 # How to kick or ban a player
 
-Three actions, one ledger. Each call to the admin-actions API writes a row to `admin_actions` and pushes it to the target's per-user SSE stream. The host shell removes every game iframe in the tab and sends the player to `/banned`.
+Three actions, one ledger. Each call to the admin-actions API writes a row to `admin_actions` and pushes it to the target's per-user SSE stream. For a kick or a ban, the host shell removes every game iframe in the tab and sends the player to `/banned`. An unban only clears the local ban marker.
 
 ## Prerequisites
 
 - `ROLE_ADMIN` in Casdoor.
-- The user's Casdoor ID. The admin console shows it in the *Per-user usage* table, column *Casdoor ID*.
+- The user's Casdoor ID, written `<casdoorId>` below. It must be the user's JWT `sub`. The player's stream and the ban gate match rows against `jwt.getSubject()` (`AdminActionController`, `BanGateFilter`), so a row that names a username takes effect for nobody. The admin console shows the `sub` in the *Per-user usage* table, column *Casdoor ID*. Casdoor re-mints the `sub` of a seeded user on a fresh boot, so look it up each time.
 
 ## Kick
 
@@ -23,7 +23,7 @@ This button is not the API below. It calls `DELETE /api/admin/sessions/{casdoorI
 curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
   -H 'Content-Type: application/json' \
   -d '{"message":"connection issue"}' \
-  http://localhost:8080/api/admin/actions/kick/alice@threewizards
+  http://localhost:8080/api/admin/actions/kick/<casdoorId>
 ```
 
 The body is optional. `message` is stored with the row and reaches the player's tab, so the UI can show a reason.
@@ -50,7 +50,7 @@ A ban is a row with `action='ban'`. It does what a kick does. It also blocks the
 curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
   -H 'Content-Type: application/json' \
   -d '{"message":"violated TOS section 3","expiresAt":"2026-12-31T00:00:00Z"}' \
-  http://localhost:8080/api/admin/actions/ban/alice@threewizards
+  http://localhost:8080/api/admin/actions/ban/<casdoorId>
 ```
 
 `expiresAt` is optional. Leave it out and the ban lasts until an unban.
@@ -70,7 +70,7 @@ Player side, on the next navigation:
 curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
   -H 'Content-Type: application/json' \
   -d '{"message":"appeal accepted"}' \
-  http://localhost:8080/api/admin/actions/unban/alice@threewizards
+  http://localhost:8080/api/admin/actions/unban/<casdoorId>
 ```
 
 This appends an `action='unban'` row. A user counts as banned only while their latest row is a `ban` that has not expired, so the unban supersedes it. The audit trail stays.
@@ -80,7 +80,7 @@ This appends an `action='unban'` row. A user counts as banned only while their l
 ```bash
 # History for one user, newest first:
 curl -H "Authorization: Bearer $ADMIN_JWT" \
-  "http://localhost:8080/api/admin/actions/alice@threewizards" | jq
+  "http://localhost:8080/api/admin/actions/<casdoorId>" | jq
 
 # The player's own stream (any signed-in user; it carries only that user's rows):
 curl -N -H "Authorization: Bearer $JWT" \

@@ -36,7 +36,7 @@ A role without a scope row does nothing. There are two ways to add the row.
 
 ### Option A — admin role-grants endpoint
 
-`targetCasdoorId` is the user's Casdoor ID. Rows you grant at runtime are keyed on the JWT `sub`. Liquibase-seeded rows are keyed on the username, because Casdoor re-mints the `sub` on a fresh boot.
+`targetCasdoorId` is the user's Casdoor ID. Rows you grant at runtime are keyed on the JWT `sub`. Changeset 032 seeds its rows by username (`mod-three-wizards`, and so on). Changeset 038 seeds `publisher-flatland` by Casdoor `id` (`tw-pub-flat-001`). `PublisherService` checks both identifiers.
 
 ```bash
 ADMIN_JWT=...

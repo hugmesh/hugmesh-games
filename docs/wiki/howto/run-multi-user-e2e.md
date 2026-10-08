@@ -57,7 +57,7 @@ await launchFirstChapter(p1);
 
 ## Distinct character IDs per player
 
-Two players in one session need distinct `character_id`s. Otherwise the BFF's `findActiveOwnerOfCharacter` returns the first owner and answers `403` to the other. The home component reads `?characterId=` from the URL as an override, so:
+Two players in one session need distinct `character_id`s. Otherwise the BFF's `findActiveOwnerOfCharacter` (`LIMIT 1`, no `ORDER BY`) returns one of the two owners and answers `403` to the other. The home component reads `?characterId=` from the URL as an override, so:
 
 ```ts
 await createSessionViaLobby(p1, name, 1);   // P1 = character 1
