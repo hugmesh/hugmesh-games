@@ -60,7 +60,7 @@ Until then, production sets `APP_R2DBC_REPLICA_URL` to point at a managed-RDS re
 
 ### Neutral
 
-- `AbstractRoutingConnectionFactory` was rejected in favour of explicit qualifiers. A wrong choice then fails loudly instead of routing silently to the wrong DB. (The ADR first said "compile error"; a `@Qualifier` string is resolved when Spring wires the bean, so the failure shows at startup.)
+- `AbstractRoutingConnectionFactory` was rejected in favour of explicit qualifiers. A wrong choice then fails loudly instead of routing silently to the wrong DB. The failure comes at startup, when Spring resolves the qualifier.
 
 ## Implementation
 
