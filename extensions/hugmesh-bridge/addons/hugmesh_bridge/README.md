@@ -127,8 +127,8 @@ func _ready() -> void:
             print("members: ", body.members)
     )
 
-    api.http_post("/api/controls/1", {"action": "MOVE_FORWARD", "pressed": true, "timestamp": Time.get_ticks_msec()}, func(status, body):
-        if status != 200:
+    api.http_post("/api/controls/1", {"action": "MOVE_FORWARD", "pressed": true, "timestamp": int(Time.get_unix_time_from_system() * 1000)}, func(status, body):
+        if status != 204:
             push_error("control rejected: %d" % status)
     )
 ```
