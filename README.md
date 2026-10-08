@@ -460,7 +460,7 @@ flowchart TB
     API --> Stream --> SSE --> Drain --> OnState --> Match
 ```
 
-Spells are cast via two redundant paths — the direct in-WASM call fires the visual instantly; the round-trip through the API exists so the server can eventually subtract MP, grant XP, resolve collisions with enemies, etc.
+Spells are cast by two redundant paths. The direct in-WASM call fires the visual at once. The round trip through the API exists so the server can eventually subtract MP, grant XP, resolve collisions with enemies, and so on.
 
 ### `ControlEvent` — `POST /api/controls/{characterId}` body
 
@@ -484,7 +484,7 @@ Spells are cast via two redundant paths — the direct in-WASM call fires the vi
 
 ### Chapter transitions — `TW_CHAPTER_TRANSITION` postMessage
 
-When a running Godot WASM needs to hand off to another chapter's bundle:
+When a running Godot WASM must hand off to another chapter's bundle:
 
 ```mermaid
 sequenceDiagram
@@ -498,17 +498,17 @@ sequenceDiagram
     Godot->>Godot: cold-boot → fetch /api/chapters/2/scene
 ```
 
-The previous WASM is fully unloaded — persist any in-memory state via the API
-(`PUT /api/characters/{id}` etc) *before* calling `request_chapter_transition`.
+The previous WASM is fully unloaded. Persist any in-memory state through the API
+(`PUT /api/characters/{id}` and so on) *before* you call `request_chapter_transition`.
 
 ---
 
 ## API reference
 
-> The canonical, every-controller list lives in [architecture · 05 — API + service reference](docs/wiki/architecture/05-api-reference.md) (38 of the 39 controllers) and the live OpenAPI explorer at `/v3/api-docs`. The selection below is a representative set of reactive-pipeline walk-throughs, not the full surface. Notably, the **server-authoritative realtime PvP** controllers (`RealtimeController` at `/api/realtime`, `AdminRealtimeController` at `/api/admin/realtime`) back the 🚧 in-flight FPS/RTS match engines — see [Roadmap](#roadmap) — and are documented in the wiki, not here.
+> The canonical list of every controller is in [architecture · 05 — API + service reference](docs/wiki/architecture/05-api-reference.md) (38 of the 39 controllers) and the live OpenAPI explorer at `/v3/api-docs`. The selection below is a representative set of reactive-pipeline walk-throughs, not the full surface. In particular, the **server-authoritative realtime PvP** controllers (`RealtimeController` at `/api/realtime`, `AdminRealtimeController` at `/api/admin/realtime`) back the 🚧 in-flight FPS/RTS match engines (see [Roadmap](#roadmap)) and are documented in the wiki, not here.
 
-The reactive endpoints below are drawn as **pipeline flowcharts** — a request flows
-left-to-right through the Reactor operators to a terminal emission:
+The reactive endpoints below are drawn as **pipeline flowcharts**. A request flows
+left to right through the Reactor operators to a terminal emission:
 
 ```mermaid
 flowchart LR
@@ -532,7 +532,7 @@ flowchart LR
 
 #### `POST /api/auth/token`
 
-Exchanges username + password for a Casdoor OAuth2 access token via the Resource Owner Password Credentials grant. The `client_secret` is injected server-side — the browser never sees it.
+Exchanges username and password for a Casdoor OAuth2 access token through the Resource Owner Password Credentials grant. The `client_secret` is injected server-side; the browser never sees it.
 
 ```mermaid
 sequenceDiagram
@@ -552,7 +552,7 @@ sequenceDiagram
 
 #### `GET /api/game/stream`
 
-Multiplexed SSE stream. Nine typed channels plus a keepalive are merged into a single connection; each event carries an `event:` type field so clients can register per-type listeners.
+A multiplexed SSE stream. Nine typed channels plus a keepalive are merged into one connection. Each event carries an `event:` type field, so clients can register per-type listeners.
 
 ```mermaid
 flowchart LR
@@ -571,7 +571,7 @@ flowchart LR
 
 #### `GET /api/game/state`
 
-Snapshot of the current game state without subscribing to the stream.
+A snapshot of the current game state, with no subscription to the stream.
 
 ```mermaid
 flowchart LR
@@ -582,7 +582,7 @@ flowchart LR
 
 ### `GameController` — `/api/games`  *(public)*
 
-Umbrella tier. Each game groups one or more chapters.
+The umbrella tier. Each game groups one or more chapters.
 
 #### `GET /api/games` · `GET /api/games/{id}`
 
@@ -594,9 +594,9 @@ flowchart LR
 #### `GET /api/games/{id}/chapters` · `GET /api/games/{id}/levels` (legacy alias)
 
 Returns every Chapter inside the umbrella game, ordered by sort_order. The
-Java controller method is `listChapters(...)`; `/levels` is kept as a
-back-compat alias (same dual-mapping pattern `ChapterController` uses) for
-any already-exported WASM bundle still calling the pre-PR-#20 path.
+Java controller method is `listChapters(...)`. `/levels` is kept as a
+back-compat alias (the same dual mapping `ChapterController` uses) for
+any already-exported WASM bundle that still calls the pre-PR-#20 path.
 
 ```mermaid
 flowchart LR
@@ -605,9 +605,9 @@ flowchart LR
 
 #### `GET /api/games/available/{characterId}`
 
-Nested structure — every umbrella game with its chapters, each chapter annotated
-with `unlocked` / quest-progress for the caller's character. Drives the home
-page games-with-chapters drilldown.
+A nested structure: every umbrella game with its chapters, each chapter annotated
+with `unlocked` / quest progress for the caller's character. It drives the home
+page's games-with-chapters drilldown.
 
 ```mermaid
 flowchart LR
@@ -641,8 +641,8 @@ flowchart LR
 
 ### `ChapterAssetController` — `/api/chapters/{chapterId}/assets`  *(public)*
 
-Registry for user-added textures / plugins / sounds attached to a chapter. GDScript
-uses labels to look up assets without hardcoding filenames.
+A registry for user-added textures, plugins and sounds attached to a chapter. GDScript
+uses labels to look assets up without hardcoding filenames.
 
 #### `GET /api/chapters/{chapterId}/assets`
 
@@ -688,8 +688,8 @@ and forces callers onto the uid-gated `GET /api/assets/levels/{slug}/{uid}/{file
 
 #### `GET /api/assets/{filename}`
 
-Root-level static assets fetched directly from the classpath. Reserved for
-backward-compat with content that hasn't been moved to the `levels/` hierarchy yet.
+Root-level static assets, fetched directly from the classpath. Kept for
+backward compatibility with content that has not moved into the `levels/` hierarchy.
 
 ```mermaid
 flowchart LR
@@ -699,7 +699,7 @@ flowchart LR
     classDef err fill:#ffe5e5,stroke:#a14a4a;
 ```
 
-Supported extensions → content-types:
+Supported extensions and their content types:
 
 | ext | type |
 |---|---|
@@ -716,7 +716,7 @@ Supported extensions → content-types:
 
 #### `POST /api/controls/{characterId}`
 
-Accepts control events. `SecurityConfig.PLAYER_PATHS` requires an authenticated principal on `/api/controls/**` — a caller with no JWT and no legacy `X-Casdoor-Id` header gets `401` before either authorization mode below runs (added as a deliberate hardening fix: the endpoint used to fall through to `anyExchange().permitAll()`). Two authorization modes then apply, gated on whether `X-Session-Id` is present: multiplayer mode checks `gameSessionService.authorizeControl` (session_members ownership, `403` on mismatch); legacy single-session mode checks `sessionService.isController(casdoorId)` (`403` if not the controller). The legacy `X-Casdoor-Id` header is still a live fallback for the caller identity when no JWT is present — see the API reference for the identity-resolution detail.
+Accepts control events. `SecurityConfig.PLAYER_PATHS` requires an authenticated principal on `/api/controls/**`. A caller with no JWT and no legacy `X-Casdoor-Id` header gets `401` before either authorization mode below runs. (This was a deliberate hardening fix: the endpoint used to fall through to `anyExchange().permitAll()`.) Two authorization modes then apply, depending on whether `X-Session-Id` is present. Multiplayer mode checks `gameSessionService.authorizeControl` (session_members ownership, `403` on mismatch). Legacy single-session mode checks `sessionService.isController(casdoorId)` (`403` if not the controller). The legacy `X-Casdoor-Id` header is still a live fallback for the caller identity when no JWT is present. See the API reference for the identity-resolution detail.
 
 ```mermaid
 flowchart LR
@@ -748,7 +748,7 @@ flowchart LR
 
 #### `POST /api/sessions/control`
 
-Attempts to claim the exclusive controller role.
+Tries to claim the exclusive controller role.
 
 ```mermaid
 flowchart LR
@@ -798,7 +798,7 @@ flowchart LR
 
 #### `PUT /api/characters/{id}/quests/{questId}/complete`
 
-Marks the quest complete and, if it has a `reward_skill_id`, grants the character that skill (idempotent).
+Marks the quest complete. If the quest has a `reward_skill_id`, the character is granted that skill (idempotent).
 
 ```mermaid
 flowchart TB
@@ -815,7 +815,7 @@ flowchart TB
 
 #### `POST /api/characters/{id}/use-first-item`
 
-Consumes the lowest-id inventory item (typically a potion), applies its JSON effect, decrements quantity, and broadcasts the updated character over SSE so the HUD HP/MP bars update instantly.
+Consumes the lowest-id inventory item (typically a potion), applies its JSON effect, decrements the quantity, and broadcasts the updated character over SSE, so the HUD HP/MP bars update at once.
 
 ```mermaid
 flowchart TB
@@ -829,7 +829,7 @@ flowchart TB
 
 #### `GET /api/characters/{id}/dashboard`
 
-Passive snapshot for the player dashboard — character stats, time, games with levels, quests, session playtime — without loading the game canvas.
+A passive snapshot for the player dashboard (character stats, time, games with levels, quests, session playtime), with no need to load the game canvas.
 
 ```mermaid
 flowchart LR
@@ -931,7 +931,7 @@ flowchart LR
 
 #### `DELETE /api/admin/sessions/{casdoorId}`
 
-Force-disconnects a player session regardless of controller status.
+Force-disconnects a player session, whether or not it holds the controller role.
 
 ```mermaid
 flowchart LR
@@ -947,7 +947,7 @@ flowchart LR
 
 #### `PUT /api/admin/characters/{id}`
 
-Same patch pipeline as the player `CharacterController`, without the ownership check.
+The same patch pipeline as the player `CharacterController`, without the ownership check.
 
 ```mermaid
 flowchart LR
@@ -960,7 +960,7 @@ flowchart LR
 
 #### `GET /api/time`
 
-Returns the current in-game clock state. The `GameTimeService` scheduler advances 1 game-minute every real second (persisted to `game_time_state` every 10 s).
+Returns the current in-game clock state. The `GameTimeService` scheduler advances 1 game-minute every real second and persists it to `game_time_state` every 10 s.
 
 ```mermaid
 flowchart TB
@@ -977,7 +977,7 @@ flowchart TB
 
 #### `GET /api/federation/manifest`
 
-Returns the active rows of `federation_modules` (slug + display name + kind + remote_entry_url + exposed_module + version + metadata) ordered by kind/slug. The Angular host calls this BEFORE `bootstrapApplication` and feeds the result into `initFederation(...)`. Public on purpose: the host needs the `login` remote URL before any user authenticates.
+Returns the active rows of `federation_modules` (slug, display name, kind, remote_entry_url, exposed_module, version, metadata), ordered by kind and slug. The Angular host calls this BEFORE `bootstrapApplication` and feeds the result into `initFederation(...)`. It is public on purpose: the host needs the `login` remote URL before any user authenticates.
 
 ```mermaid
 flowchart LR
@@ -990,15 +990,15 @@ flowchart LR
 
 #### `POST /api/games/{slug}/launch`
 
-Mints a 256-bit URL-safe `launch_uid` for the active session, persists a `game_launches` row with a 15-minute TTL (with `version_dir` snapshot from `games.current_version_dir`), and returns `{uid, expiresAt, gameSlug}`. The federated remote threads the uid into the iframe URL as `?launch_uid=…` for traceability; `AssetController.getLevelAssetByUid` (`GET /api/assets/levels/{slug}/{uid}/{filename}`) validates it. `GET /api/games/launches` (ROLE_ADMIN) lists the active launches.
+Mints a 256-bit URL-safe `launch_uid` for the active session, persists a `game_launches` row with a 15-minute TTL (with a `version_dir` snapshot from `games.current_version_dir`), and returns `{uid, expiresAt, gameSlug}`. The federated remote threads the uid into the iframe URL as `?launch_uid=…` for traceability. `AssetController.getLevelAssetByUid` (`GET /api/assets/levels/{slug}/{uid}/{filename}`) validates it. `GET /api/games/launches` (ROLE_ADMIN) lists the active launches.
 
 #### `DELETE /api/games/launches/{uid}`
 
-Self-terminate. The owner of the launch (matched by JWT subject vs `game_launches.casdoor_user_id`) can clear the `terminated_at` column. Mismatched user → 403.
+Self-terminate. The owner of the launch (matched by JWT subject against `game_launches.casdoor_user_id`) can clear the `terminated_at` column. A different user gets 403.
 
 #### `DELETE /api/admin/launches/{uid}`  *(ROLE_ADMIN)*
 
-The route in the code is `DELETE /api/games/admin/launches/{uid}` (`GameLaunchController`, mapped under `/api/games`). Admin force-terminate. Skips the ownership check; surfaces from the admin UI's "kick" button alongside the active-launches list.
+The route in the code is `DELETE /api/games/admin/launches/{uid}` (`GameLaunchController`, mapped under `/api/games`). Admin force-terminate. It skips the ownership check and backs the admin UI's "kick" button beside the active-launches list.
 
 ---
 
@@ -1006,11 +1006,11 @@ The route in the code is `DELETE /api/games/admin/launches/{uid}` (`GameLaunchCo
 
 #### `POST /api/admin/games/upload`
 
-Multipart bundle zip → install pipeline (validate manifest_json schema_version=2 + slug regex + zip-slip-safe paths → SHA-256 the bundle/ tree → atomic move to `<gamesDir>/<slug>/<sha-prefix>` → ONE R2DBC tx that inserts `game_uploads`, runs the bundle's `register.sql` statement-by-statement, UPDATEs `games.current_version_dir`, and supersedes prior uploads). Returns `{slug, contentHash, versionDir, uploadedAt}`. Bound by the `app.uploads.versions-to-keep` (default 3) `GameUploadPruner` scheduled task.
+A multipart bundle zip goes through the install pipeline: validate manifest_json schema_version=2, the slug regex, and zip-slip-safe paths → SHA-256 the bundle/ tree → atomic move to `<gamesDir>/<slug>/<sha-prefix>` → ONE R2DBC tx that inserts `game_uploads`, runs the bundle's `register.sql` statement by statement, UPDATEs `games.current_version_dir`, and supersedes prior uploads. Returns `{slug, contentHash, versionDir, uploadedAt}`. The `GameUploadPruner` scheduled task, bound by `app.uploads.versions-to-keep` (default 3), trims old versions.
 
 #### `GET /api/admin/games/{slug}/uploads`
 
-Rollback history for a slug — newest first. Each row carries `supersededAt` (NULL = current).
+Rollback history for a slug, newest first. Each row carries `supersededAt` (NULL = current).
 
 ---
 
@@ -1018,7 +1018,7 @@ Rollback history for a slug — newest first. Each row carries `supersededAt` (N
 
 #### `POST /api/admin/games/{slug}/access`
 
-Body: `{scope:"all"|"role"|"user", value?:"<role-name | casdoor-user-id>"}`. Adds a row to `game_access`. Idempotent — duplicates absorbed by the `uq_game_access_triple` unique constraint.
+Body: `{scope:"all"|"role"|"user", value?:"<role-name | casdoor-user-id>"}`. Adds a row to `game_access`. Idempotent: the `uq_game_access_triple` unique constraint absorbs duplicates.
 
 #### `DELETE /api/admin/games/{slug}/access?scope=…&value=…`
 
@@ -1026,7 +1026,7 @@ Removes the matching `game_access` row.
 
 #### `GET /api/admin/games/{slug}/access`
 
-Lists active access policies for a slug. Multiple rows are additive (union).
+Lists the active access policies for a slug. Multiple rows are additive (union).
 
 ---
 
@@ -1034,7 +1034,7 @@ Lists active access policies for a slug. Multiple rows are additive (union).
 
 #### `GET /api/admin/roles`
 
-Proxies Casdoor's `/api/get-roles?owner=threewizards` so the admin UI's "grant role" dropdown loads from the live Casdoor catalog instead of a free-text input. The BFF holds the Casdoor admin client_secret; the browser doesn't.
+Proxies Casdoor's `/api/get-roles?owner=threewizards`, so the admin UI's "grant role" dropdown loads from the live Casdoor catalog and not from a free-text input. The BFF holds the Casdoor admin client_secret; the browser does not.
 
 ---
 
