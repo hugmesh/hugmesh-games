@@ -6,41 +6,42 @@
 ## Context
 
 The character maker that landed with the biome-worlds work gives a project **one**
-hero avatar built from seven whitelisted fields — `body_shape` (slim/stocky/round),
+hero avatar built from seven whitelisted fields: `body_shape` (slim/stocky/round),
 `head_shape` (round/square), `hat_type` (none/cap/cone/top_hat), a Y-only
-`height_scale`, and three colours. `avatar_factory.gd` turns that into three
-floating primitives: a tapered cylinder "robe", a sphere/box head, and an optional
-hat.
+`height_scale`, and three colours. `avatar_factory.gd` turns them into three
+floating primitives: a tapered cylinder "robe", a sphere or box head, and an
+optional hat.
 
-That model cannot express what we now need, and the gaps are structural rather
-than cosmetic. This list describes the code before this decision:
+That model cannot express what we now need. The gaps are structural, not
+cosmetic. This list describes the code before this decision:
 
-- **There are no limbs.** No arms, no legs, no hands, no feet — so "vary chest,
+- **There are no limbs.** No arms, legs, hands or feet, so "vary chest,
   height, leg height and all limbs within humanoid bounds" has nothing to vary.
 - **There is no rig.** Every avatar in this repo (`avatar_factory.gd`,
   `room_builder._build_npc`, `multiplayer_lobby.rs`) is a flat bag of
   `MeshInstance3D`. A repo-wide grep for `AnimationPlayer|AnimationTree|Skeleton3D|
-  BoneAttachment` returns **nothing**. Walking, gestures and expressions are not
-  "turn on animation" — there is no articulated structure to animate.
-- **The 2D and 3D sides are independent hard-coded geometry tables.**
+  BoneAttachment` returns **nothing**. Walking, gestures and expressions cannot
+  be "turned on": there is no articulated structure to animate.
+- **The 2D and 3D sides are two hard-coded geometry tables.**
   `avatar_factory.gd` (GDScript primitives) and `drawAvatarPreview()`
   (`rpg-maker-remote.component.ts`, canvas 2D) each hard-code their own numbers.
-  They already disagree and can drift silently on every change. (The canvas
+  They already disagree, and every change can widen the gap. (The canvas
   routine is gone: the maker now POSTs the config to `/api/rpg/avatar-preview.svg`
   and shows the returned SVG.)
-- **The platform has no user-avatar concept at all** (now it has: see Cross-service avatars). `avatarUrl` /
-  `profile_picture` / `photoUrl` appear **zero** times across `frontend/src`,
-  `frontend/projects` and `backend/src`. `player_characters` stores stats only.
-- **Nothing is exportable.** No `.glb`/`.gltf` exists in the repo and nothing
+- **The platform has no user-avatar concept at all** (it has one now: see
+  Cross-service avatars). `avatarUrl` / `profile_picture` / `photoUrl` appear
+  **zero** times across `frontend/src`, `frontend/projects` and `backend/src`.
+  `player_characters` stores stats only.
+- **Nothing is exportable.** No `.glb`/`.gltf` exists in the repo, and nothing
   imports one.
 
 ## Decision
 
-Introduce **one canonical, pure-Java character model** — package
-`games.hugmesh.character` — that is the single source of truth for *every*
-representation of a character: the 3D Godot rig, the 2D SVG, the glTF export, and
-the portable interchange document. Every surface derives from it; none re-derives
-geometry independently.
+Add **one canonical, pure-Java character model**, package
+`games.hugmesh.character`. It is the single source of truth for *every*
+representation of a character: the 3D Godot rig, the 2D SVG, the glTF export and
+the portable interchange document. Every surface derives from it. None derives
+geometry on its own.
 
 ```
                         CharacterSpec  (validated params + humanoid bounds)
@@ -57,38 +58,37 @@ geometry independently.
 ```
 
 **The 2D SVG matches the 3D model because it is an orthographic projection of the
-same rig**, not a parallel drawing routine. This is the mechanism that satisfies
-"make the 2d svg side match as intended" — parity is structural, not maintained
-by discipline.
+same rig**, not a parallel drawing routine. That is how "make the 2d svg side
+match as intended" is met: parity is built in, not kept up by discipline.
 
 ### Why a synced copy rather than a shared Maven module
 
 `backend/`, `rpg-builder/` and `vn-builder/` are three independent Maven projects,
 each Dockerised with **its own directory as the build context**
-(`build: ./rpg-builder`). A shared library would require an aggregator pom, a
-repo-root build context for all three images, and `mvn install` ordering — invasive
-build surgery.
+(`build: ./rpg-builder`). A shared library would need an aggregator pom, a
+repo-root build context for all three images, and `mvn install` ordering. That is
+invasive build surgery.
 
 Instead the model is **canonical in `rpg-builder`** and synced into the consumers
-by `make sync-character-model`, mirroring the existing `make sync-bridge-addon`
-idiom. The package is deliberately `games.hugmesh.character` (not
-`…rpgbuilder.…`) to mark it portable, and it has **no Spring and no third-party
-dependencies**, so it copies verbatim.
+by `make sync-character-model`, like the existing `make sync-bridge-addon`. The
+package is `games.hugmesh.character` (not `…rpgbuilder.…`) on purpose, to mark it
+portable. It has **no Spring and no third-party dependencies**, so it copies
+verbatim.
 
-> **Status: live.** `backend/` and `vn-builder/` both carry the copy, each
+> **Status: live.** `backend/` and `vn-builder/` both carry the copy. Each is
 > guarded by a byte-identical `CharacterModelSyncTest` that fails the service's
-> own test run on any divergence — changed bytes, missing files, files added at
+> own test run on any divergence: changed bytes, missing files, files added at
 > any depth, or a missing canonical tree (fail, never skip). `build-backend`
-> runs the sync as a prerequisite. The converse cost of the contract: editing a
-> canonical file without re-running `make sync-character-model` turns both
-> consumers' suites red — which is the guard doing its job.
+> runs the sync as a prerequisite. The cost of the contract: edit a canonical
+> file without re-running `make sync-character-model` and both consumers' suites
+> go red. That is the guard doing its job.
 
 ## The parameter set
 
 All fields are optional on the wire; an omitted field takes its column default.
-A **present** out-of-range value is a `400`, never silently clamped (the existing
-`heightScale` rule, extended to every numeric — boxed types + reject keeps an
-omitted primitive from becoming a wrong non-default).
+A **present** out-of-range value is a `400`. It is never silently clamped. This is
+the existing `heightScale` rule, extended to every numeric. Boxed types plus
+rejection keep an omitted primitive from turning into a wrong non-default.
 
 ### Proportions — "reasonable humanoid bounds"
 
@@ -107,9 +107,9 @@ omitted primitive from becoming a wrong non-default).
 | `handScale` | 0.60 | 1.60 | 1.00 | hand size |
 | `footScale` | 0.60 | 1.60 | 1.00 | foot size |
 
-The bounds are the "reasonable humanoid" contract: the extremes stay recognisably
-bipedal — no zero-length limbs, no limbs longer than the body, no head larger than
-the torso. They are mirrored in several places that must move together (see Consequences).
+The bounds are the "reasonable humanoid" contract. At the extremes the figure stays
+recognisably bipedal: no zero-length limbs, no limbs longer than the body, no head
+larger than the torso. They are mirrored in several places that must move together (see Consequences).
 
 ### Shape tokens
 
@@ -121,11 +121,12 @@ the torso. They are mirrored in several places that must move together (see Cons
 | `hairStyle` | `none`, `short`, `long`, `ponytail`, `spiky`, `bun`, `braid` | `short` |
 | `outfitType` | `robe`, `tunic`, `armor`, `dress`, `jumpsuit`, `bare` | `robe` |
 
-`renderStyle=lowpoly` is the **N64 mode**: radial segment counts drop from 16
-to 6 and rings from 8 to 3 (`avatar_factory.gd`), materials switch to per-vertex shading with specular off and
-`TEXTURE_FILTER_NEAREST`. This is not a stylistic filter bolted on top — it is how
-the rig is *built*, and it matches how N64 characters actually were built: rigid
-segmented limbs pivoting at plain joints, which is exactly the rig below.
+`renderStyle=lowpoly` is the **N64 mode**. Radial segment counts drop from 16 to 6
+and rings from 8 to 3 (`avatar_factory.gd`). Materials switch to per-vertex
+shading with specular off and `TEXTURE_FILTER_NEAREST`. This is not a filter
+bolted on top. It is how the rig is *built*, and it matches how N64 characters
+were built: rigid segmented limbs pivoting at plain joints, which is the rig
+below.
 
 ### Item slots — "all items where possible"
 
@@ -143,23 +144,24 @@ segmented limbs pivoting at plain joints, which is exactly the rig below.
 `hatColor` (`#202020`), `hairColor` (`#3a2a1c`), `accentColor` (outfit trim,
 `#d8b45a`), `itemColor` (held/back items, `#8a8f98`), `eyeColor` (`#2b2b33`).
 
-`skinTextureAssetId` — nullable UUID referencing an uploaded project asset,
-applied as albedo to the `skin` and `outfit` texture slots. Uses the existing
-`AssetStorageService` (mime whitelist, 4 MB cap, cross-project IDOR filter).
+`skinTextureAssetId` is a nullable UUID that references an uploaded project asset.
+It is applied as albedo to the `skin` and `outfit` texture slots. It uses the
+existing `AssetStorageService` (mime whitelist, 4 MB cap, cross-project IDOR
+filter).
 
 ### Expressions
 
 `neutral`, `happy`, `sad`, `angry`, `surprised`, `wink`, `sleepy`, `determined`,
-`shout`. Expression is **render-time**, not stored geometry: it is a table of
+`shout`. Expression is **render-time**, not stored geometry. It is a table of
 transforms applied to the five face joints (`EyeL`, `EyeR`, `BrowL`, `BrowR`,
 `Mouth`). The *same* table drives the Godot poser and the SVG renderer, so an
 expression still and the in-game face agree.
 
 ## The rig
 
-Joint nodes are plain `Node3D`s; meshes hang off them. No `Skeleton3D`, no skinning
-— segmented rigid limbs, which keeps the N64 look honest, keeps the GDScript
-trivial, and animates by rotating joints.
+Joint nodes are plain `Node3D`s, and meshes hang off them. There is no `Skeleton3D`
+and no skinning. The limbs are rigid segments, which keeps the N64 look honest and
+the GDScript trivial, and animates by rotating joints.
 
 ```
 Root
@@ -176,9 +178,9 @@ Root
 
 ### Baked contract (`scripts/avatar_config.gd`)
 
-The renderer computes the rig **in Java** and bakes the result; `avatar_factory.gd`
-becomes a dumb instantiator that walks the baked tree. GDScript never re-derives a
-single dimension, so 3D/2D/glTF cannot diverge.
+The renderer computes the rig **in Java** and bakes the result. `avatar_factory.gd`
+is a plain instantiator that walks the baked tree. GDScript never re-derives a
+dimension, so 3D, 2D and glTF cannot diverge.
 
 ```gdscript
 const AVATAR := { … raw tokens + Color() values … }
@@ -195,15 +197,15 @@ Raw `#rrggbb` strings still never reach GDScript (pinned by
 
 ### Animation (`avatar_poser.gd`)
 
-Procedural, driven per-frame from the body's own velocity — no animation assets,
-no import pipeline, and it works identically for the local hero and every remote
-avatar:
+Procedural, and driven every frame by the body's own velocity. There are no
+animation assets and no import pipeline, and it works the same for the local hero
+and every remote avatar:
 
 - **idle** — chest breathing, slight arm sway
-- **walk / run** — thigh/shin/arm counter-swing on a distance-keyed phase, body bob
+- **walk / run** — thigh, shin and arm counter-swing on a distance-keyed phase, body bob
 - **gestures** — `wave`, `point`, `nod`, `bow`, `clap`, `shrug`, `cheer`, `dance`
 
-Gestures relay over the existing control/SSE channel as `GESTURE:<name>` (same
+Gestures relay over the existing control/SSE channel as `GESTURE:<name>` (the same
 server-observable shape as `SHOP_BUY` / `TALK_NPC`), so remote players see them.
 
 ## Cross-service avatars
@@ -227,13 +229,13 @@ Swapping is a `PUT`, not a re-upload. The routes sit under `/api`
 
 `rpg-builder` serves the same model per project under `/api/rpg`: `projects/{pid}/avatar-config` (GET/PUT), `avatar.svg`, `avatar.glb`, `avatar.json` (GET/POST), `avatar-char3d.json` and the unsaved-config `POST /avatar-preview.svg`.
 
-The image route is the integration primitive: any service that can render an `<img>`
-gets avatars for free, and the expression parameter is what produces the stills
-another service attaches to a post.
+The image route is the integration primitive. Any service that can render an
+`<img>` gets avatars for free, and the expression parameter produces the stills
+that another service attaches to a post.
 
 ## Portable Character Document v1
 
-The interchange format — "transferable to games where there's character generation
+The interchange format, "transferable to games where there's character generation
 in 2d or 3d":
 
 ```json
@@ -248,31 +250,31 @@ in 2d or 3d":
   "texture": { "assetId": null }, "expression": "neutral" }
 ```
 
-`CharacterDocument` also carries a lossy **mapping to `Char3DConfig` v1** — the
-shape `games/shadows-of-the-net/scripts/character_assembler.gd` already consumes
+`CharacterDocument` also carries a lossy **mapping to `Char3DConfig` v1**, the
+shape that `games/shadows-of-the-net/scripts/character_assembler.gd` already consumes
 (`{body:{archetype,build,height}, head:{family,…}, materials:{7 regions}, style}`).
-This lets the XR/Matrix 3D-chat track ingest our characters **without us editing
-their files** — that tree is a vendored copy of
-`hugmesh-character-forge-bff-api` and is read-only from here.
+The XR/Matrix 3D-chat track can ingest our characters **without us editing
+their files**. That tree is a vendored copy of `hugmesh-character-forge-bff-api`
+and is read-only from here.
 
 ## Consequences
 
-**Extending a whitelist now touches five places, and they are all tested** (the checklist is also in a comment at the top of `CharacterSpec.java`):
+**Extending a whitelist now touches five places, and they are all tested** (a
+comment at the top of `CharacterSpec.java` points back to this list):
 canonical `CharacterSpec` (bounds + token sets) → a new Liquibase changeset
 (append-only; drop + re-add the CHECK) → `HumanoidRig` geometry → the Angular
 constant → the maker UI control. `avatar_factory.gd` is *no longer* one of them:
-it consumes the baked rig. Parity between 2D and 3D is no longer a review
-obligation.
+it consumes the baked rig. Reviewers no longer have to check 2D/3D parity by hand.
 
-**Out of scope here — genuinely other repos.** The 3D chat (`shadows-of-the-net`)
-is another track's vendored tree; the Matrix client and Akkoma live in
-`hugmesh-matrix-ui` and `hugmesh-mastodon` entirely outside this repo. What this
-decision delivers for them is the *contract*: a stable Character Document, a
-`Char3DConfig` mapping, a rendered-image URL with an expression parameter, and a
-glTF export. Wiring those into the Matrix and Akkoma clients is follow-on work in
-those repos and is tracked as such — it is not claimed as done here.
+**Out of scope here: these live in other repos.** The 3D chat (`shadows-of-the-net`)
+is another track's vendored tree. The Matrix client and Akkoma live in
+`hugmesh-matrix-ui` and `hugmesh-mastodon`, outside this repo. This decision gives
+them the *contract*: a stable Character Document, a `Char3DConfig` mapping, a
+rendered-image URL with an expression parameter, and a glTF export. Wiring those
+into the Matrix and Akkoma clients is follow-on work in those repos. This decision
+does not claim it as done.
 
-**Existing data keeps working.** Changelog 009 adds columns with defaults; the
-seven original fields keep their names, meanings and values, and the Six Realms
-red-hero seed (`#e21422`) stays exactly as-is so the `@godot` centre-crop pixel
+**Existing data keeps working.** Changelog 009 adds columns with defaults. The
+seven original fields keep their names, meanings and values. The Six Realms
+red-hero seed (`#e21422`) stays as it was, so the `@godot` centre-crop pixel
 proof in `character-maker.feature` still holds.
