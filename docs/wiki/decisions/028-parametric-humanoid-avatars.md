@@ -109,7 +109,7 @@ rejection keep an omitted primitive from turning into a wrong non-default.
 
 The bounds are the "reasonable humanoid" contract. At the extremes the figure stays
 recognisably bipedal: no zero-length limbs, no limbs longer than the body, no head
-larger than the torso. They are mirrored in several places that must move together (see Consequences).
+larger than the torso. They are mirrored in five places that must move together (see Consequences).
 
 ### Shape tokens
 
