@@ -4,12 +4,12 @@
 
 ## Context
 
-`/api/games/*` + `/api/chapters/*` + `/api/federation/*` are the heaviest catalog-read paths. Today they hit the same primary Postgres as every write. The platform's data-architect-overview chapter listed catalog reads as one of four explicit cloud-relocation swap-points; this is F3 from the consolidated post-docs plan.
+`/api/games/*`, `/api/chapters/*` and `/api/federation/*` are the heaviest catalog-read paths. They hit the same primary Postgres as every write. The data-architect-overview chapter named catalog reads as one of four cloud-relocation swap-points. This is F3 from the consolidated post-docs plan.
 
 Two infrastructure decisions were confirmed by the user:
 
 - **Deployment**: Bitnami `postgres-replica` container with streaming replication (same shape as hugmesh-id-gateway). Superseded: the overlay uses `postgres:16-alpine` (see Follow-ups).
-- **Routing**: Two R2DBC `ConnectionFactory` beans + `@Qualifier` on repos / services. Explicit type-checked at compile time. Same pattern as the existing JDBC + R2DBC coexistence in `JdbcDataSourceConfig`.
+- **Routing**: Two R2DBC `ConnectionFactory` beans + `@Qualifier` on repos / services. Each call site names the replica. It follows the existing JDBC + R2DBC coexistence in `JdbcDataSourceConfig`.
 
 ## Decision
 
@@ -21,7 +21,7 @@ Two infrastructure decisions were confirmed by the user:
 - `@Qualifier("replica") R2dbcEntityTemplate`
 - `@Qualifier("replica") DatabaseClient`
 
-The whole config class is conditional on `app.r2dbc.replica.url` being non-empty (`@Conditional(NonEmptyReplicaUrl)`). With the URL **empty** (the default), the class does not load and no `replica` beans exist. The "alias the primary" branch inside `replicaConnectionFactory` is therefore dead in a running app, and a service that injects `@Qualifier("replica")` fails to start in a single-DB deployment. Spring's `@ConditionalOnProperty` would match an empty value, which is why the class uses a custom condition. When the URL is set, the qualified beans build a separate `ConnectionFactory` against it.
+The whole class is conditional on a non-empty `app.r2dbc.replica.url` (`@Conditional(NonEmptyReplicaUrl)`). With the URL **empty** (the default), the class does not load and no `replica` beans exist. The "alias the primary" branch inside `replicaConnectionFactory` is dead in a running app. A service that injects `@Qualifier("replica")` fails to start in a single-DB deployment. The class uses a custom condition because Spring's `@ConditionalOnProperty` would match an empty value. When the URL is set, the qualified beans build a separate `ConnectionFactory` against it.
 
 Call-site pattern:
 
@@ -35,11 +35,11 @@ public CatalogService(R2dbcEntityTemplate template,
 
 ### Compose side (deferred follow-up)
 
-The existing `postgres:16-alpine` container uses the official Postgres image. Switching to Bitnami's `postgresql` image for streaming replication is a breaking change for existing `pgdata:/var/lib/postgresql/data` volumes (Bitnami's path layout differs). The compose-level replica will land as a separate PR that:
+The existing `postgres:16-alpine` container uses the official Postgres image. Bitnami's `postgresql` image lays out its data differently, so switching to it for streaming replication would break existing `pgdata:/var/lib/postgresql/data` volumes. The compose-level replica was to land as a separate PR that:
 
 1. Renames the volume or runs a one-shot `pg_dumpall` → restore migration.
-2. Adds `postgres-primary` (Bitnami, with `POSTGRESQL_REPLICATION_MODE=master`) + `postgres-replica` (Bitnami, slave mode) services.
-3. Updates the existing `postgres` service to be an alias of `postgres-primary` for backwards-compat.
+2. Adds `postgres-primary` (Bitnami, with `POSTGRESQL_REPLICATION_MODE=master`) and `postgres-replica` (Bitnami, slave mode) services.
+3. Makes the existing `postgres` service an alias of `postgres-primary`, for backwards compatibility.
 
 Until then, production sets `APP_R2DBC_REPLICA_URL` to point at a managed-RDS replica (or any external Postgres replica). That only creates the `replica` beans. Reads move only when a service injects the qualified template; no service does today (`grep 'Qualifier("replica")'` over `backend/src/main` finds only the config class).
 
@@ -50,17 +50,17 @@ Until then, production sets `APP_R2DBC_REPLICA_URL` to point at a managed-RDS re
 - Catalog reads can move to the replica without touching call-site code beyond annotating services with `@Qualifier("replica")`. (None have moved.)
 - Single-DB deployments continue to work while no service uses the qualifier. Once one does, that service needs the replica URL set or it fails at startup.
 - Cloud-relocation swap-point: a managed RDS / Cloud SQL replica needs an env-var flip plus the per-service migration below.
-- The pattern mirrors the existing JDBC + R2DBC coexistence in `JdbcDataSourceConfig` — engineers familiar with one understand the other.
+- The pattern mirrors the JDBC + R2DBC coexistence in `JdbcDataSourceConfig`, so anyone who knows one knows the other.
 
 ### Negative
 
-- Per-repo migration: each service that wants to read from the replica must be edited individually. There's no global "all reads to replica" switch (intentionally — write-after-read inside a transaction must stay on the primary, and routing-magic would obscure that).
-- Replica lag: reads from the replica are eventually-consistent vs the primary. Acceptable for catalog reads (60-second federation manifest cache already tolerates lag); not for active-session reads (which stay on primary).
+- Each service that wants the replica must be edited by hand. There is no global "all reads to replica" switch, on purpose: a write-after-read inside a transaction must stay on the primary, and routing magic would hide that.
+- Replica lag: replica reads are eventually consistent with the primary. That is fine for catalog reads (the 60-second federation manifest cache already tolerates lag). It is not fine for active-session reads, which stay on the primary.
 - Single-host dev deploys keep using one DB unless the replica overlay is on. No traffic uses the replica until services are migrated, whichever way the replica is provisioned.
 
 ### Neutral
 
-- AbstractRoutingConnectionFactory was rejected in favour of explicit qualifiers — failure mode is louder this way (compile error vs silent routing to wrong DB).
+- `AbstractRoutingConnectionFactory` was rejected in favour of explicit qualifiers. A wrong choice then fails loudly instead of routing silently to the wrong DB. (The ADR first said "compile error"; a `@Qualifier` string is resolved when Spring wires the bean, so the failure shows at startup.)
 
 ## Implementation
 
@@ -80,6 +80,6 @@ Until then, production sets `APP_R2DBC_REPLICA_URL` to point at a managed-RDS re
 
 ## Follow-ups
 
-- ~~Compose-level Bitnami primary + replica pair~~ — done. The compose-level pair landed as an OPT-IN OVERLAY at [`docker-compose.replica.yml`](../../../docker-compose.replica.yml) using the existing `postgres:16-alpine` image for BOTH primary and replica (no Bitnami swap — keeps the existing `pgdata` volume layout). Activation flow + smoke test in [`scripts/setup-pg-replica.sh`](../../../scripts/setup-pg-replica.sh): bounces primary with `wal_level=replica` + replication role + mounted `pg_hba.conf`, brings the replica up which `pg_basebackup`s on first boot via [`docker/postgres-replica-entrypoint.sh`](../../../docker/postgres-replica-entrypoint.sh), then writes a tag to primary and reads it back from replica to prove streaming is live.
-- Snapshot of migrated services in `CLAUDE.md` once the catalog repos are switched.
-- Decision-023 if production picks a managed replica that needs a different routing strategy (e.g., pgpool-II in front of both).
+- ~~Compose-level Bitnami primary + replica pair~~ — done. The pair landed as an opt-in overlay, [`docker-compose.replica.yml`](../../../docker-compose.replica.yml). It uses the existing `postgres:16-alpine` image for both primary and replica (no Bitnami swap), so the `pgdata` volume layout stays. [`scripts/setup-pg-replica.sh`](../../../scripts/setup-pg-replica.sh) activates it and smoke-tests it. The script bounces the primary with `wal_level=replica`, a replication role and a mounted `pg_hba.conf`. It brings up the replica, which runs `pg_basebackup` on first boot via [`docker/postgres-replica-entrypoint.sh`](../../../docker/postgres-replica-entrypoint.sh). Then it writes a tag to the primary and reads it back from the replica to prove streaming is live.
+- List the migrated services in `CLAUDE.md` once the catalog repos are switched.
+- Write a new decision if production picks a managed replica that needs a different routing strategy (e.g. pgpool-II in front of both). The number 023 is taken by the CSP decision.
