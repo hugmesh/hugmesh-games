@@ -1318,7 +1318,7 @@ rustup target add wasm32-unknown-emscripten
 
 ### 2. Godot 4.6
 
-Download the **Linux (64-bit)** export from [godotengine.org/download](https://godotengine.org/download/linux/).
+Download the **Linux (64-bit)** build from [godotengine.org/download](https://godotengine.org/download/linux/).
 
 ```bash
 unzip Godot_v4.6-stable_linux.x86_64.zip -d ~/tools/godot
@@ -1329,8 +1329,8 @@ godot --version
 **Export templates** are required for `make build-godot`:
 
 1. Open Godot → Editor → Manage Export Templates
-2. Download templates for **4.6 stable**
-3. Or place them manually at `~/.local/share/godot/export_templates/4.6.stable/`
+2. Download the templates for **4.6 stable**
+3. Or place them by hand at `~/.local/share/godot/export_templates/4.6.stable/`
 
 ### 3. Java 25
 
@@ -1391,19 +1391,19 @@ docker compose version
 The Rust GDExtension (`extensions/hugmesh-bridge/`) compiles to a native
 `.so` for the editor and to `wasm32-unknown-emscripten` for the web build.
 The native path needs no extra tooling. The WASM path runs inside a pinned
-Docker image (`tools/build-rust-wasm/Dockerfile`, `EMSDK_VERSION=3.1.74`) —
-install Docker (step 7) and run:
+Docker image (`tools/build-rust-wasm/Dockerfile`, `EMSDK_VERSION=3.1.74`).
+Install Docker (step 7) and run:
 
 ```bash
 make build-rust-wasm
 ```
 
-No host emscripten install is needed; the Makefile builds and caches the
-`hugmesh-rust-wasm` image on first run (~5 min one-time), then runs
+You need no host emscripten install. The Makefile builds and caches the
+`hugmesh-rust-wasm` image on first run (~5 min, once), then runs
 `cargo build --release --target wasm32-unknown-emscripten` inside the
 container.
 
-**Legacy/manual fallback (no Docker).** May drift from the pinned emsdk
+**Legacy/manual fallback (no Docker).** This may drift from the pinned emsdk
 version (3.1.74) the Docker image uses:
 
 ```bash
@@ -1427,8 +1427,8 @@ PATH=$HOME/.cargo/bin:$PATH cargo build --release \
 ```
 
 godot-rust gates the WASM target behind an `experimental-wasm` Cargo
-feature; `extensions/hugmesh-bridge/Cargo.toml` enables it by default
-via the local `wasm-opt-in` feature, so a plain `cargo build` works on
+feature. `extensions/hugmesh-bridge/Cargo.toml` enables it by default
+through the local `wasm-opt-in` feature, so a plain `cargo build` works on
 both target triples without extra flags.
 
 Add `source ~/Tools/emsdk/emsdk_env.sh` to your shell profile to persist it (manual fallback only).
@@ -1485,7 +1485,7 @@ choco install make
 
 ### 7. Docker Desktop
 
-Download from [docs.docker.com/desktop/install/windows-install](https://docs.docker.com/desktop/install/windows-install/). Enable WSL 2 backend.
+Download it from [docs.docker.com/desktop/install/windows-install](https://docs.docker.com/desktop/install/windows-install/). Enable the WSL 2 backend.
 
 ---
 
@@ -1503,7 +1503,7 @@ docker compose logs casdoor | grep -A 6 "Casdoor seed"
 open http://localhost:8080
 ```
 
-The `api` container waits for `postgres`, `casdoor`, and `cassandra` to report healthy, plus the one-shot `cassandra-init` keyspace-bootstrap job to complete, before starting. Liquibase runs schema migrations automatically on first boot.
+The `api` container starts only after `postgres`, `casdoor`, and `cassandra` report healthy and the one-shot `cassandra-init` keyspace-bootstrap job completes. Liquibase runs the schema migrations automatically on first boot.
 
 ```mermaid
 flowchart TB
@@ -1549,7 +1549,7 @@ HUGMESH_TAG=2026-04-26.42 \
   docker compose -f docker-compose.yml -f compose.prod.yml up -d
 ```
 
-Each app service is tagged `hugmesh-games/<svc>:${HUGMESH_TAG:-dev}` in the dev compose, so the same images can be pushed to a registry without modification. Staging and prod overlays require `HUGMESH_TAG` to be set explicitly (no `:dev` fallback). The image-name map:
+Each app service is tagged `hugmesh-games/<svc>:${HUGMESH_TAG:-dev}` in the dev compose, so the same images can be pushed to a registry unchanged. The staging and prod overlays require `HUGMESH_TAG` to be set explicitly (no `:dev` fallback). The image-name map:
 
 | Compose service | Image |
 |---|---|
@@ -1571,11 +1571,11 @@ Each app service is tagged `hugmesh-games/<svc>:${HUGMESH_TAG:-dev}` in the dev 
 | `vn-builder`           | `hugmesh-games/vn-builder` |
 | `wasm-fragment`        | `hugmesh-games/wasm-fragment` |
 
-**CORS posture across environments.** `WebConfig.java` ships a development-friendly default allowlist covering localhost, e2e origins, and `*.hugmesh.games`. The staging and prod overlays narrow this via `SPRING_WEB_CORS_ALLOWED_ORIGINS` so a production BFF only accepts requests whose `Origin` header is `hugmesh.games` or `*.hugmesh.games`. The two values are merged, so a developer pointing a local browser at a staging BFF for debugging remains unaffected.
+**CORS posture across environments.** `WebConfig.java` ships a development-friendly default allowlist that covers localhost, e2e origins, and `*.hugmesh.games`. The staging and prod overlays narrow it with `SPRING_WEB_CORS_ALLOWED_ORIGINS`, so a production BFF accepts only requests whose `Origin` header is `hugmesh.games` or `*.hugmesh.games`. The two values are merged, so a developer who points a local browser at a staging BFF for debugging is unaffected.
 
-**Casdoor public URL.** Both overlays set `CASDOOR_PUBLIC_BASE_URL` to the matching environment's Casdoor host (`login.staging.hugmesh.games` / `login.hugmesh.games`) so OAuth2 redirect URIs match the public DNS.
+**Casdoor public URL.** Both overlays set `CASDOOR_PUBLIC_BASE_URL` to the matching environment's Casdoor host (`login.staging.hugmesh.games` / `login.hugmesh.games`), so OAuth2 redirect URIs match the public DNS.
 
-**Large-file upload + storage.** Game bundle zips can reach gigabyte sizes. The relevant Spring and compose environment variables (defaults shown in parentheses):
+**Large-file upload + storage.** Game bundle zips can reach gigabytes. These Spring and compose environment variables control it (defaults in parentheses):
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -1586,23 +1586,23 @@ Each app service is tagged `hugmesh-games/<svc>:${HUGMESH_TAG:-dev}` in the dev 
 | `APP_UPLOADS_GAMES_DIR` | `/var/hugmesh/games` | In-container path the BFF writes installed bundles into. |
 | `APP_GAMES_UPLOAD_HOST_DIR` | (named volume in dev; required in prod) | **Host** path the in-container `/var/hugmesh/games` is bind-mounted from. Set to a fast SSD / NFS / managed volume in staging+prod. |
 
-Production refuses to start without `APP_GAMES_UPLOAD_HOST_DIR` set. `compose.prod.yml` declares it required so that a misconfigured deploy fails immediately rather than silently writing game bundles into ephemeral container storage.
+Production refuses to start without `APP_GAMES_UPLOAD_HOST_DIR` set. `compose.prod.yml` declares it required, so a misconfigured deploy fails at once and does not silently write game bundles into ephemeral container storage.
 
 ### Gamepad / generalised input / WASM error capture
 
-Liquibase changeset 026 added a generalised input surface covering everything Godot can consume — gamepad button / axis, mouse motion / button / wheel, keyboard up / down, touch gestures, audio cues, world events, plus the legacy JRPG control commands as one kind among many. Three reference tables anchor it:
+Liquibase changeset 026 added a generalised input surface that covers everything Godot can consume: gamepad button and axis, mouse motion, button and wheel, keyboard up and down, touch gestures, audio cues, world events, and the legacy JRPG control commands as one kind among many. Three reference tables anchor it:
 
 - `input_event_kinds` — closed vocabulary (`gamepad`, `mouse`, `keyboard`, `touch`, `audio`, `world`, `control`).
-- `input_event_types` — **composite** primary key on `(kind, type)`. Per-kind type vocabulary + example payloads.
+- `input_event_types` — **composite** primary key on `(kind, type)`. The per-kind type vocabulary, with example payloads.
 - `game_event_support` — per-game opt-in. **Composite** key `(game_slug, event_kind, event_type)`. The HugMesh Export plugin writes this table on upload.
 
-Plus a `games.features` JSONB column with per-game feature flags so JRPG-only subsystems (spell loadout / quests / items / character progression) and per-input-kind flags can be flipped off for non-JRPG games.
+A `games.features` JSONB column adds per-game feature flags. They let you switch off JRPG-only subsystems (spell loadout, quests, items, character progression) and individual input kinds for non-JRPG games.
 
-`InputEventController` validates against these tables in gates: gate 0 checks session membership and character ownership (and that a session-scoped `world` event comes from the session creator), gate 1 requires the `(kind, type)` pair to exist in `input_event_types` (400 if not), and gate 2 requires the game's `games.features` to switch the event's kind on (405 if not). The third check — rejecting an `(game_slug, event_kind, event_type)` triple not present in `game_event_support` — is implemented but off by default (`app.input.gate3-enabled`); see [Known gaps / TODO](#known-gaps--todo).
+`InputEventController` validates against these tables in gates. Gate 0 checks session membership and character ownership (and that a session-scoped `world` event comes from the session creator). Gate 1 requires the `(kind, type)` pair to exist in `input_event_types` (400 if not). Gate 2 requires the game's `games.features` to switch the event's kind on (405 if not). The third check, which rejects a `(game_slug, event_kind, event_type)` triple missing from `game_event_support`, is implemented but off by default (`app.input.gate3-enabled`). See [Known gaps / TODO](#known-gaps--todo).
 
-The browser-tier [`GamepadService`](frontend/src/app/services/gamepad.service.ts) polls `navigator.getGamepads()` on every animation frame, diffs the state, and forwards canonical input events both into the active game iframe (via `postMessage` for Godot) and to the BFF (`POST /api/input/{characterId}`). Any standard-mapped gamepad — such as a Nintendo Pro Controller — drives gameplay without per-game JS changes. [`wasm-fragment/hugmesh-shim.js`](wasm-fragment/hugmesh-shim.js) is injected by `nginx sub_filter` into every Godot bundle's `index.html`, exposing inputs through `window._sdInputQueue`. The Rust `BridgeGlue` does not drain that queue. The only drains in the repo are the reference script [`extensions/hugmesh-bridge/example/bridge_glue.gd`](extensions/hugmesh-bridge/example/bridge_glue.gd) and `games/shadows-of-the-net/scripts/session_bridge.gd`; a drain dispatches through `HostBridge`, which fires the Rust extension's typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`) in-game.
+The browser-tier [`GamepadService`](frontend/src/app/services/gamepad.service.ts) polls `navigator.getGamepads()` on every animation frame, diffs the state, and forwards canonical input events both into the active game iframe (by `postMessage` for Godot) and to the BFF (`POST /api/input/{characterId}`). Any standard-mapped gamepad, such as a Nintendo Pro Controller, drives gameplay with no per-game JS changes. [`wasm-fragment/hugmesh-shim.js`](wasm-fragment/hugmesh-shim.js) is injected by `nginx sub_filter` into every Godot bundle's `index.html` and exposes inputs through `window._sdInputQueue`. The Rust `BridgeGlue` does not drain that queue. The only drains in the repo are the reference script [`extensions/hugmesh-bridge/example/bridge_glue.gd`](extensions/hugmesh-bridge/example/bridge_glue.gd) and `games/shadows-of-the-net/scripts/session_bridge.gd`. A drain dispatches through `HostBridge`, which fires the Rust extension's typed signals (`gamepad_received`, `mouse_received`, `keyboard_received`, `touch_received`, `audio_received`) in-game.
 
-The same shim also wraps `console.error`, `window.onerror`, and `unhandledrejection`. Captured errors are forwarded to `POST /api/diagnostics/wasm-console` and fanned out on the `wasm-console` SSE channel, so admin devtools can mirror crashes that occur inside the WASM iframe in real time.
+The same shim also wraps `console.error`, `window.onerror`, and `unhandledrejection`. It forwards captured errors to `POST /api/diagnostics/wasm-console`, and they fan out on the `wasm-console` SSE channel, so admin devtools can mirror crashes inside the WASM iframe in real time.
 
 ---
 
@@ -1614,7 +1614,7 @@ The same shim also wraps `console.error`, `window.onerror`, and `unhandledreject
 make install
 ```
 
-This installs frontend `node_modules` and generates the Maven wrapper.
+This installs the frontend `node_modules` and generates the Maven wrapper.
 
 ### Full production build
 
@@ -1639,7 +1639,7 @@ make deploy                # build-godot + seed-db (rebuild api image afterwards
 
 ### GraalVM native-image build (BFF)
 
-The native build trades a longer compile time (~5–10× vs JVM) for a sub-second cold start and a ~70% smaller container image. Flow:
+The native build trades a longer compile (~5–10× the JVM build) for a sub-second cold start and a container image about 70% smaller. The flow:
 
 ```bash
 make build-backend-native        # one-shot: docker build -f backend/Dockerfile.native
@@ -1647,54 +1647,54 @@ make e2e-native                  # full Playwright suite against the native imag
 ```
 
 **Prerequisites + tradeoffs**:
-- The AOT compiler (GraalVM `native-image`) requires **6–8 GB of free RAM**
-  during the compile pass. On a 16 GB laptop the build takes roughly 5–10 minutes;
-  on smaller machines it runs out of memory midway with no graceful fallback. Use
-  `make build-backend` (JVM build) on memory-constrained hosts.
+- The AOT compiler (GraalVM `native-image`) needs **6–8 GB of free RAM**
+  during the compile pass. On a 16 GB laptop the build takes roughly 5–10 minutes.
+  On smaller machines it runs out of memory midway, with no graceful fallback. Use
+  `make build-backend` (the JVM build) on memory-constrained hosts.
 - The build is **not** wired into CI. `.gitlab-ci.yml` has no native job, so
   nothing pays the 5–10 minute compile cost unless you run
   `make build-backend-native` or `make e2e-native` yourself, for example when
   preparing a release branch.
-- Image runtime size is ~150 MB (vs ~600 MB for the JVM build). Cold start
+- The image is ~150 MB at runtime (vs ~600 MB for the JVM build). Cold start
   is **~0.4 s** (vs ~3 s JVM). RSS at idle is ~100 MB (vs ~400 MB JVM).
 - Liquibase migrations run from a separate init container at startup
-  (see `docker-compose.native.yml`) — the native binary itself runs with
-  `SPRING_LIQUIBASE_ENABLED=false`. Schema-only changes can be deployed
-  without rebuilding the native image; the init container applies them on next boot.
+  (see `docker-compose.native.yml`); the native binary itself runs with
+  `SPRING_LIQUIBASE_ENABLED=false`. You can deploy schema-only changes
+  without rebuilding the native image, because the init container applies them on the next boot.
 
-Implementation notes — gotchas surfaced and fixed during initial
-verification, all visible in [HugMeshRuntimeHints.java](backend/src/main/java/games/hugmesh/bff/aot/HugMeshRuntimeHints.java) +
+Implementation notes: gotchas found and fixed during the first verification.
+All are visible in [HugMeshRuntimeHints.java](backend/src/main/java/games/hugmesh/bff/aot/HugMeshRuntimeHints.java) and the
 [backend/pom.xml](backend/pom.xml) `native` profile:
 
 - **Liquibase moves to a separate init container** ([docker-compose.native.yml](docker-compose.native.yml)).
-  Spring's auto-Liquibase requires reflection metadata for ~30+ ServiceLocator
-  classes; running migrations from the official `liquibase/liquibase` image
-  (with `SPRING_LIQUIBASE_ENABLED=false` on the api) sidesteps the entire
+  Spring's auto-Liquibase needs reflection metadata for ~30+ ServiceLocator
+  classes. Running migrations from the official `liquibase/liquibase` image
+  (with `SPRING_LIQUIBASE_ENABLED=false` on the api) avoids that whole
   reflection chain.
-- **Netty's jctools-shaded MPSC queues** read field offsets via `Unsafe` at
+- **Netty's jctools-shaded MPSC queues** read field offsets through `Unsafe` at
   class-init. Spring Boot 4's bundled GraalVM reachability metadata pins
-  a netty version that can drift from the resolved runtime — the Producer/Consumer/Limit
-  index-field classes drift out of coverage. Fixed by deferring init of
-  `io.netty.util.internal.shaded.org.jctools` to runtime AND registering
+  a netty version that can drift from the resolved runtime, and the Producer/Consumer/Limit
+  index-field classes fall out of coverage. The fix: defer init of
+  `io.netty.util.internal.shaded.org.jctools` to runtime AND register
   the index-field classes for `DECLARED_FIELDS`.
-- **R2DBC ↔ Postgres `timestamptz`** returns `OffsetDateTime`; entities use
-  `Instant`. Spring auto-registers a converter on the JVM but the
-  reflection-based discovery skips it under native-image. Fixed by
-  registering an explicit `R2dbcCustomConversions` bean in
+- **R2DBC ↔ Postgres `timestamptz`** returns `OffsetDateTime`, but entities use
+  `Instant`. Spring auto-registers a converter on the JVM, but its
+  reflection-based discovery skips it under native-image. The fix: an explicit
+  `R2dbcCustomConversions` bean in
   [R2dbcConvertersConfig.java](backend/src/main/java/games/hugmesh/bff/config/R2dbcConvertersConfig.java).
 - **Per-level WASM bundles** ship as classpath resources under
-  `assets/levels/<slug>/`. native-image strips classpath resources by default;
-  added `-H:IncludeResources=assets/.*` to the `native` profile build args.
+  `assets/levels/<slug>/`. native-image strips classpath resources by default,
+  so the `native` profile build args now include `-H:IncludeResources=assets/.*`.
 
-Cold-start measurement: 0.39 s on the test rig (vs ~3 s JVM). The image
-runtime base is `debian:bookworm-slim` with `wget` + `ca-certificates`
-added so the `make e2e-native` health-check loop and outbound HTTPS to
+Cold-start measurement: 0.39 s on the test rig (vs ~3 s JVM). The runtime
+base image is `debian:bookworm-slim` with `wget` and `ca-certificates`
+added, so the `make e2e-native` health-check loop and outbound HTTPS to
 Casdoor work.
 
 ### Testing
 
-Per-project unit tests are wired into `make`. Each one runs in isolation; `make test`
-chains them sequentially.
+Per-project unit tests are wired into `make`. Each runs in isolation, and `make test`
+chains them in sequence.
 
 ```bash
 make test            # test-rust, test-rust-cores, test-backend, test-godot, test-games-js, test-frontend
@@ -1708,19 +1708,19 @@ make test-frontend   # ng test inside Docker (Chromium baked into the image,
 ```
 
 The frontend runner builds [frontend/Dockerfile.test](frontend/Dockerfile.test) once
-(node:22-bookworm-slim + chromium) and reuses it on every run. Karma is configured
-with the `ChromeHeadlessCI` launcher (no-sandbox flags so it runs inside containers).
+(node:22-bookworm-slim + chromium) and reuses it on every run. Karma uses
+the `ChromeHeadlessCI` launcher (no-sandbox flags, so it runs inside containers).
 
 ### Cross-platform end-to-end test
 
 > **Docker buildx required.** Docker 29+ deprecated the legacy
-> builder; without `docker-buildx` installed every `docker compose
-> build` (and therefore `make e2e`) hangs silently with a
-> "Building" status that never progresses. On Gentoo:
+> builder. Without `docker-buildx` installed, every `docker compose
+> build` (and so `make e2e`) hangs silently on a
+> "Building" status that never moves. On Gentoo:
 > `sudo emerge -av app-containers/docker-buildx`. On distros without
 > a system package, drop the v0.18+ binary into
-> `~/.docker/cli-plugins/docker-buildx` (chmod +x); user-local
-> install needs no root and `docker buildx version` confirms it.
+> `~/.docker/cli-plugins/docker-buildx` (chmod +x). The user-local
+> install needs no root, and `docker buildx version` confirms it.
 
 ```bash
 make e2e             # full Docker stack + Playwright browser test
@@ -1728,11 +1728,11 @@ make e2e-down        # tear down the e2e compose stack manually
 make e2e-logs        # tail logs from the running e2e stack
 ```
 
-`make e2e` boots the entire stack with TLS (self-signed certs auto-generated under
-`e2e/certs/`, or set `CERT_PATH=/abs/path` to use your own), waits for the
+`make e2e` boots the entire stack with TLS (self-signed certs are generated under
+`e2e/certs/`, or set `CERT_PATH=/abs/path` to use your own). It waits for the
 `cassandra-init → api → frontend` chain to become healthy, then runs the Playwright
-suite which: logs in, opens the cave level (asserts WASM/PCK assets serve), closes
-it, opens the Dodecahedron Demo (asserts it loads chrome-less — no HUD, no controls
+suite, which logs in, opens the cave level (asserts that the WASM/PCK assets serve), closes
+it, and opens the Dodecahedron Demo (asserts that it loads chrome-less: no HUD, no controls
 overlay). Pin the player password with `E2E_PLAYER_PASS=...` (otherwise a generated one is used).
 
 ### Clean
