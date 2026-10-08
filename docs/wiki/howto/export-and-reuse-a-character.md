@@ -32,7 +32,7 @@ curl -sS -H "Authorization: Bearer $JWT" \
   "texture": { "assetId": null }, "expression": "neutral" }
 ```
 
-That is the whole character: twelve proportions, the shape and item tokens, seven colours, the texture reference, the expression. `schemaVersion` is the compatibility handle — a reader ignores keys it doesn't know and defaults keys that are absent, so a future v2 document degrades into a v1 reader instead of failing.
+That is the whole character: twelve proportions, the shape and item tokens, seven colours, the texture reference, the expression. `schemaVersion` is the compatibility handle. A reader ignores keys it doesn't know and defaults keys that are absent. A document whose `schemaVersion` is newer than the reader supports is rejected, not degraded (see step 2).
 
 The document is a plain `Map` on the Java side ([`CharacterDocument`](../../../rpg-builder/src/main/java/games/hugmesh/character/CharacterDocument.java)) — no JSON library, no Spring — which is what lets the package be copied verbatim into services with different dependency sets.
 
@@ -81,7 +81,9 @@ curl -sS -X POST -H "Authorization: Bearer $JWT" -H 'Content-Type: application/j
 
 That endpoint exists so the maker's live preview and the final art come from one renderer; it is the reason no client-side avatar drawing routine may be added.
 
-> ⚠ These are **bearer-authenticated** endpoints, so a bare `<img src="/api/rpg/…/avatar.svg">` will not carry the token. Fetch the SVG with the token and inline it (`data:image/svg+xml;charset=utf-8,…` — what the maker does), or serve it from your own surface. The public per-user image URL in decision 028 (`/api/avatars/{id}/image.svg`) is a BFF-side follow-on and does **not** exist yet.
+> ⚠ These are **bearer-authenticated** endpoints, so a bare `<img src="/api/rpg/…/avatar.svg">` will not carry the token. Fetch the SVG with the token and inline it (`data:image/svg+xml;charset=utf-8,…` — what the maker does), or serve it from your own surface.
+
+The BFF also serves saved per-user avatars at `GET /api/avatars/{id}/image.svg` (`expression`, `w`, `h`, `portrait` and a lip-sync `mouth` parameter) and `GET /api/avatars/{id}/model.glb` ([`AvatarController`](../../../backend/src/main/java/games/hugmesh/bff/controller/AvatarController.java)). Any authenticated user may read them, so another surface can embed an avatar by id. They also need the bearer token. A bare `<img>` does not carry it, and an unauthenticated request gets a `401`. The ids are unguessable 43-character tokens.
 
 ## 4. Take the mesh out — `.glb`
 
@@ -103,14 +105,14 @@ A separate endpoint from `avatar.json` **on purpose**: it speaks a different sch
 
 What survives: silhouette (`build` derived from body shape + chest, `height` passed through and clamped to their 0.5–1.5 range), head variant, hair style, hat (as `accessory`), wings (from `backItem`), all seven material colours, and `lowpoly → toon`. What is dropped: held items, back items other than wings, face items, and the per-limb proportions — their model has no counterpart for those.
 
-We speak their format rather than changing it, because `games/shadows-of-the-net/` is a **vendored, read-only** tree here (canonical copy in `hugmesh-character-forge-bff-api`). Do not edit it to accommodate ours.
+We speak their format rather than changing it. `games/shadows-of-the-net/scripts/character_assembler.gd` is an independent implementation that mirrors the `Char3DConfig` v1 contract. The authority for that contract is `Char3DConfigValidator` in `hugmesh-character-forge-bff-api`. Do not edit the assembler to accommodate our model.
 
 ## ⚠ This is a contract, not an integration
 
 The Matrix client (`hugmesh-matrix-ui`) and Akkoma (`hugmesh-mastodon`) live in **other repositories**. Nothing in this repo posts an avatar to them, and no follow-on work here will — what this repo provides is the stable surface they can build against:
 
 - the Character Document (versioned, self-describing, no dependency on our tables),
-- an image URL with an `expression` parameter,
+- an image URL with an `expression` parameter (`/api/avatars/{id}/image.svg`),
 - the `.glb`,
 - the `Char3DConfig` projection.
 
@@ -118,13 +120,11 @@ Wiring those into a client is work **in that client's repo**. If you are looking
 
 ## ⚠ Growing a whitelist is a five-file change
 
-Adding a hat, a hairstyle or a proportion touches `CharacterSpec` → a new Liquibase changeset → `HumanoidRig` → the mirrored Angular `const` → the maker control. `avatar_factory.gd` is deliberately *not* in that list; it walks the rig baked in Java. The full list with file paths is in [`CLAUDE.md`](../../../CLAUDE.md) under the maker section.
+Adding a hat, a hairstyle or a proportion touches `CharacterSpec` → a new Liquibase changeset → `HumanoidRig` → the mirrored Angular `const` → the maker control. The changeset goes in `rpg-builder/src/main/resources/db/changelog/`, not the BFF's changelog. The `const` is in [`rpg-maker-remote.component.ts`](../../../frontend/projects/games-rpg-maker/src/app/rpg-maker-remote.component.ts). `avatar_factory.gd` is deliberately *not* in that list; it walks the rig baked in Java. The canonical package is `rpg-builder/src/main/java/games/hugmesh/character/`. `make sync-character-model` copies it into `backend/` and `vn-builder/`. The full list is in [`CLAUDE.md`](../../../CLAUDE.md) under the maker section.
 
 ## See also
 
 - [028 — Parametric humanoid avatars](../decisions/028-parametric-humanoid-avatars.md)
 - [018 — RPG + VN makers](../decisions/018-rpg-and-vn-makers.md)
 - [Publisher guide](../guides/publisher.md)
-- [Add a database column](add-db-column.md) — the changeset half of a whitelist change
-</content>
-</invoke>
+- [Add a database column](add-db-column.md) — how a changeset works (a whitelist change uses the `rpg-builder` changelog)
