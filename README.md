@@ -1759,9 +1759,9 @@ make dev-frontend
 
 Open [http://localhost:4200](http://localhost:4200).
 
-> **Important:** Do not use the VS Code Spring Boot Dashboard or the IntelliJ Spring Boot run config to start the backend — these tools start from stale compiled classes. Always use `make dev-backend`, which runs `./mvnw clean spring-boot:run`.
+> **Important:** Do not start the backend from the VS Code Spring Boot Dashboard or an IntelliJ Spring Boot run config. They run stale compiled classes. Always use `make dev-backend`, which runs `./mvnw clean spring-boot:run`.
 
-> The Godot game iframe only appears after `make build-godot` has been run at least once. Until then the canvas area will be blank.
+> The Godot game iframe appears only after `make build-godot` has run at least once. Until then the canvas area is blank.
 
 ---
 
@@ -1770,10 +1770,10 @@ Open [http://localhost:4200](http://localhost:4200).
 ### Camera
 
 - **Third-person** by default. The camera orbits a pivot at shoulder height inside the player node.
-- **Mouse wheel** zooms in and out (arm length 0–12 units).
+- The **mouse wheel** zooms in and out (arm length 0–12 units).
 - **Click and drag** on the viewport orbits the camera (yaw and pitch).
-- When the arm length drops below 0.5 units the camera automatically switches to **first-person**.
-- The player body rotates with the camera yaw so "forward" always matches the camera facing direction.
+- When the arm length drops below 0.5 units, the camera switches to **first-person** on its own.
+- The player body turns with the camera yaw, so "forward" always matches the direction the camera faces.
 
 ### Keyboard shortcuts
 
@@ -1791,7 +1791,7 @@ Open [http://localhost:4200](http://localhost:4200).
 | 4 | — | Cast Spell 4 (Earth), from the Angular page only |
 | 5 | — | Cast Spell 5 (Light), from the Angular page only |
 
-Keyboard input works both from the Angular page and from inside the Godot canvas. Both paths POST to `/api/controls/{characterId}`. The Godot canvas binds only keys 1–3 (`KEY_ACTIONS` in `game_bridge.gd`); keys 4 and 5 come from the Angular page's `game-controls` handler. Only the session holding `is_controller = true` has its events applied.
+Keyboard input works from the Angular page and from inside the Godot canvas. Both paths POST to `/api/controls/{characterId}`. The Godot canvas binds only keys 1–3 (`KEY_ACTIONS` in `game_bridge.gd`); keys 4 and 5 come from the Angular page's `game-controls` handler. Only the session holding `is_controller = true` has its events applied.
 
 ---
 
@@ -1948,14 +1948,14 @@ logging:
 
 ## Troubleshooting — recurring gotchas
 
-Symptoms and the underlying causes that have already bitten this project. If you
-hit one of these again, start with the listed file rather than chasing the
-symptom across the stack.
+Symptoms, and the causes that have already bitten this project. If you hit one
+of these again, start with the listed file and do not chase the symptom across the
+stack.
 
 ### Every API request returns 500 with `Missing required "keys" member`
 
 Spring Security's reactive JWT decoder is fetching JWKs from the wrong endpoint.
-Casdoor exposes two paths: `/api/get-jwks` (requires admin authentication, returns
+Casdoor exposes two paths: `/api/get-jwks` (it needs admin authentication and returns
 an error JSON that Spring cannot parse as a JWK Set) and `/.well-known/jwks`
 (anonymous, returns a real JWK Set). Always use the well-known path:
 
@@ -1972,59 +1972,59 @@ spring:
 
 `SecurityConfig` must call `.headers(h -> h.frameOptions(fo -> fo.mode(SAMEORIGIN)))`.
 Spring Security WebFlux defaults to `X-Frame-Options: DENY`, which blocks all iframe
-embedding — including same-origin iframes like the Godot WASM bundle. The `SAMEORIGIN`
-mode allows the Angular host to embed the bundle while still blocking third-party framing.
+embedding, including same-origin iframes like the Godot WASM bundle. `SAMEORIGIN`
+lets the Angular host embed the bundle and still blocks third-party framing.
 
 ### "API offline" stays on for 30 s after every page load
 
 `Flux.interval(period)` does not emit until `t = period`, and Reactor-Netty does
-not flush response headers until the first body chunk arrives. This means the
+not flush response headers until the first body chunk arrives. So the
 browser's `EventSource` never fires `onopen`, and the Angular `connected$`
-BehaviorSubject stays `false` for the full interval. The fix in
-`GameStreamController` is to use `Flux.interval(Duration.ZERO, Duration.ofSeconds(15))`
-so a `:keepalive` comment is emitted immediately at `t=0`, forcing headers to flush
-and `onopen` to fire within milliseconds.
+BehaviorSubject stays `false` for the whole interval. The fix in
+`GameStreamController` is `Flux.interval(Duration.ZERO, Duration.ofSeconds(15))`,
+which emits a `:keepalive` comment at `t=0`, flushes the headers, and fires
+`onopen` within milliseconds.
 
 ### Liquibase fails on `relation "games_pkey" already exists`
 
-PostgreSQL's `<renameTable>` renames only the table itself — the backing primary
-key index, unique constraints, and sequences keep their original names. When
+PostgreSQL's `<renameTable>` renames only the table. The backing primary
+key index, unique constraints, and sequences keep their old names. When
 changeset `012-6` tries to create a new `games` table, Postgres rejects it because
-`games_pkey` already exists from the previous incarnation of that table. Changeset
-`012-5b` handles this by renaming `games_pkey`, `games_slug_key`, and `games_id_seq`
+`games_pkey` already exists from the table's previous incarnation. Changeset
+`012-5b` fixes this by renaming `games_pkey`, `games_slug_key`, and `games_id_seq`
 to their `levels_*` equivalents (guarded with `IF EXISTS`) before `012-6` runs.
 Any future `<renameTable>` migration must include a matching cleanup changeset for
 its constraints and sequences.
 
 ### Cave loads but is empty (no lights, fairies, or geometry)
 
-Two distinct GDScript bugs produce the same empty-world symptom:
+Two separate GDScript bugs produce the same empty-world symptom:
 
 - Calling `add_child` from inside `_ready()` or `_process()` while the scene tree
-  is still propagating `_ready` to siblings causes Godot 4 to log `Parent node is
+  is still propagating `_ready` to siblings makes Godot 4 log `Parent node is
   busy setting up children, add_child() failed` and silently skip the child.
-  Always use `node.add_child.call_deferred(child)` for any tree mutation from
+  Always use `node.add_child.call_deferred(child)` for any tree change from
   these callbacks. In `scene_loader.gd`, both the loading-overlay attachment and
   each per-element `_apply(config)` call are deferred for this reason.
 - Comparing `JavaScriptBridge.eval(...) != true` is an unreliable Variant
   comparison. Use `bool(JavaScriptBridge.eval("!!window.foo"))` instead, which
-  forces the bridge to marshal a real JS boolean. Without this, the polling loop
+  forces the bridge to marshal a real JS boolean. Without it, the polling loop
   stalls at the first check and the loading dots animate forever.
 
 ### Iframe shows a stale Godot bundle after rebuild
 
-Browsers aggressively cache iframe contents even when `Cache-Control: no-store`
-is set, because the URL is identical between mounts and the browser treats it as
+Browsers cache iframe contents aggressively, even with `Cache-Control: no-store`,
+because the URL is identical between mounts and the browser treats it as
 "same page, already cached". The Angular game-canvas component now appends
-`&t=${Date.now()}` to the iframe `src` so each mount gets a distinct URL and
+`&t=${Date.now()}` to the iframe `src`, so each mount gets a distinct URL and
 the browser always refetches.
 
 ### Movement events silently dropped at the API
 
 `POST /api/controls/{characterId}` returns `403` (reason `Not the current controller`) when the caller does not hold
 the controller role for the current session. The frontend must call
-`POST /api/sessions/connect` on login — which auto-grants the controller role
-to the first joiner — before sending any control events. If this handshake is
+`POST /api/sessions/connect` on login, which grants the controller role
+to the first joiner, before it sends any control events. If the handshake is
 skipped, the server rejects every control event, and nothing in the UI shows
-the error to the player. The Angular home-page session bootstrap
-(`HomeComponent.ngOnInit`) is responsible for completing this handshake.
+the player the error. The Angular home-page session bootstrap
+(`HomeComponent.ngOnInit`) completes this handshake.
