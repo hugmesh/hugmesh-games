@@ -17,7 +17,7 @@ Two reasons.
 
 - **Compose:** the `casdoor` service in `docker-compose.yml` has no `ports:` block. Only the network-internal port 8000 is reachable.
 - **BFF:** `POST /api/auth/token` (`CasdoorAuthController`) takes `{username, password}` and forwards an OAuth2 password grant to Casdoor's `/api/login/oauth/access_token`. It injects `client_id` and `client_secret` server-side. It is not a code exchange, and there is no `/api/auth/me`.
-- **JWT verification:** `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` points at `http://casdoor:8000/.well-known/jwks` — the anonymous variant on the compose network.
+- **JWT verification:** `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` is `${CASDOOR_ENDPOINT}/.well-known/jwks`, the anonymous variant. Compose sets `CASDOOR_ENDPOINT=http://casdoor:8000`.
 - **Role catalog (`/api/admin/roles`):** also a server-side proxy (`RoleProxyController`, admin only). It gets a `client_credentials` token with the server-held client secret and calls Casdoor's `/api/get-roles`, so the browser never sees Casdoor's admin credentials.
 
 ## Trade-offs accepted
