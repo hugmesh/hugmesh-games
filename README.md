@@ -1657,6 +1657,7 @@ make e2e-native                  # full Playwright suite against the native imag
   preparing a release branch.
 - The image is ~150 MB at runtime (vs ~600 MB for the JVM build). Cold start
   is **~0.4 s** (vs ~3 s JVM). RSS at idle is ~100 MB (vs ~400 MB JVM).
+- `backend/Dockerfile.native` builds on `ghcr.io/graalvm/native-image-community:21`, while `backend/pom.xml` sets `java.version` to 25. Nothing in this repo shows the native build running since the BFF moved to Java 25.
 - Liquibase migrations run from a separate init container at startup
   (see `docker-compose.native.yml`); the native binary itself runs with
   `SPRING_LIQUIBASE_ENABLED=false`. You can deploy schema-only changes
