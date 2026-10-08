@@ -6,12 +6,14 @@ circular room with a round center table carrying six media plates
 (`stage`), and a 16-seat ring. Participants appear as procedural 3D characters
 built by the room-local `CharacterAssembler` (Char3DConfig v1). A sibling
 assembler of the same name lives in
-`hugmesh-character-forge-bff-api/godot/character-forge/scripts/`; the two
+`games/character-forge/scripts/character_assembler.gd`; the two
 share the **data contract**, not the code — see the provenance header in
 `scripts/character_assembler.gd` before "re-syncing" anything.
 
-Unlike every other Godot game in this repo, this project is **pure GDScript
-with NO hugmesh_bridge GDExtension**: it has no Rust rules core to reuse,
+Unlike the Rust-bridge Godot games (`three-wizards-in-a-trenchcoat`,
+`dodecahedron-demo`, `chess-godot`, `connect-four-godot`), this project is **pure
+GDScript with NO hugmesh_bridge GDExtension** (`character-forge` is too): it has no
+Rust rules core to reuse,
 and the XR-chat design requires it to stay self-contained so the same bundle
 can be embedded outside the games portal (Matrix). The SD_* transport that the
 Rust `HostBridge`/`BridgeGlue` normally provides is implemented in
@@ -52,9 +54,9 @@ postMessages with the Angular `ApiBridgeService`.
   (Matrix mode is different and keeps its seat argument: there the host *page*
   owns the seat map and reads it off `Chat3D.localPose(x,z,yaw,seat)`.)
 * **Membership — polled, not pushed.** Nothing the iframe receives announces a
-  *departure*. The host shell forwards six SSE channels (`ApiBridgeService
-  .SSE_CHANNELS` = movement / world / character / time / scene /
-  session-control); `session-control` carries only `SESSION_PAUSED|RESUMED`,
+  *departure*. The host shell forwards six SSE channels (`SSE_CHANNELS` in
+  `frontend/src/app/services/api-bridge.service.ts` = movement / world /
+  character / time / scene / session-control); `session-control` carries only `SESSION_PAUSED|RESUMED`,
   `PLAYER_PAUSED|RESUMED` (a tab takeover) and `SESSION_CLOSED` (the whole room
   dying), `GameSessionService.leave` and `ModerationService.kickPlayer` stamp
   `session_members.left_at` and emit nothing per member, and the typed
@@ -118,7 +120,8 @@ interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
   the shim's short-`args` backfill — a 2-slot envelope decodes here to
   `[userId, cfg, null, null, null]`, and an absent `mode` means "keep the rig
   you have" — so the host changes nothing it did not speak about. Every *other*
-  row, `sticker` included, is byte-for-byte matrix-ui's.
+  row is byte-for-byte matrix-ui's, except `sticker`: matrix-ui's
+  `HOST_CALL_SIGNATURES` has no `sticker` row yet.
 * **`sticker(userId, b64, mime)` is the billboard BYTE channel.** An `mxc://`
   is unusable from the games origin (no access token, not an HTTP URL), so a
   sticker can only ever reach the room as bytes; the host dereferences the mxc
@@ -142,25 +145,26 @@ interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
   channel reports one, so a sticker that outran its roster row was never seen
   again — one member joining during the 15-30 s wasm cold-compile could reorder
   the host's pre-handshake queue and leave another member with no plate, for
-  anybody, for the whole session. The host now keeps that queue in produced
-  order (§4a), flushes the admitting roster ahead of everything else (§4b),
-  re-sends a plate when its member is newly ADMITTED — keyed on the member
-  set, so a display-name change re-sends nothing (§4c; v3's re-arm on "any
-  roster change" let one member renaming re-drive every sticker in the room)
-  — and rolls its sent-bookkeeping back when its queue evicts under byte or
-  count pressure, so a dropped plate is re-sent instead of lost (§4d). The
-  rule on this side is unchanged: refuse, and let the host re-send.
+  anybody, for the whole session. The contract therefore makes the host keep
+  that queue in produced order (§4a), flush the admitting roster ahead of
+  everything else (§4b), re-send a plate when its member is newly ADMITTED —
+  keyed on the member set, so a display-name change re-sends nothing (§4c;
+  v3's re-arm on "any roster change" let one member renaming re-drive every
+  sticker in the room) — and roll its sent-bookkeeping back when its queue
+  evicts under byte or count pressure, so a dropped plate is re-sent instead of
+  lost (§4d). matrix-ui on `main` does not send `sticker` yet, so those four
+  rules are the contract, not shipped host behaviour. The rule on this side is
+  unchanged: refuse, and let the host re-send.
   `tests/test_chat3d_sticker.gd` drives the exact interleave.
 * **`roster` rows carry `name`, and it is what the nametag says** — the mxid
   localpart is only the fallback for an empty one. Names are sanitised with the
   BFF's display-name rule (control / bidi-override / invisible code points
   stripped) before they are drawn, because a nametag sits next to every other
   participant's.
-* **`expression` and `stage` are received but the host has no producer yet.**
-  The agreed resolution is that the host wires them (`expression` from the VN
-  expression signal that drives the 2D stage, `stage` from the moderator
-  stage-grant surface) rather than the channels being deleted; the receivers
-  here are pinned by `tests/test_chat3d_convergence.gd`.
+* **`expression` and `stage` have host producers.** matrix-ui's
+  `Chat3dHostComponent` sends `expression` from each member's latest room
+  message and `stage` from the moderator-gated stage grant (the "Take the stage"
+  button). The receivers here are pinned by `tests/test_chat3d_convergence.gd`.
 * Out (`Chat3D.onEmit` callback + postMessage): `ready()`,
   `localPose(x,z,yaw,seat)` ~10 Hz, `mediaActivate(surfaceId)`,
   `vrState(active)`.
@@ -200,9 +204,9 @@ interface installed on the iframe window (`scripts/chat3d_bridge.gd`):
   origin as `?origin=`; falls back to `document.referrer`. Without either,
   postMessage I/O is disabled (never `'*'`) — direct same-origin `Chat3D.*`
   calls still work for dev.
-* Media bytes are PNG only and are fetched/authenticated by the EMBEDDING page
-  (Matrix authenticated media) — the wasm never sees credentials, matching the
-  platform's iframe boundary.
+* Media bytes (PNG, JPEG or WebP) are fetched and authenticated by the EMBEDDING
+  page (Matrix authenticated media) — the wasm never sees credentials, matching
+  the platform's iframe boundary.
 
 ## XR
 
@@ -249,8 +253,9 @@ make test-games-js     # the browser-only JS this game injects, under node
 `tests/run_tests.gd` discovers `tests/test_*.gd`, instantiates the **real**
 `scenes/room.tscn`, and drives the transports through the controller's own
 handlers — which is exactly what the SSE / postMessage drains call at runtime.
-A suite that asserts nothing is reported as a failure, and the whole run has a
-180 s deadline so a wedged coroutine is a red build rather than a hung one.
+A suite that asserts nothing, or whose assertion count differs from its
+`plan()`, is reported as a failure, and the whole run has a 180 s deadline so a
+wedged coroutine is a red build rather than a hung one.
 `games/_shared/test/chat3d-envelope.test.mjs` covers the JS half that a
 headless Godot run can never execute (`JavaScriptBridge.eval` needs a browser).
 See [`tests/README.md`](tests/README.md).
