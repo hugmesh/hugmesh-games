@@ -1,12 +1,12 @@
 # How to export and reuse a character
 
-A character authored in the RPG maker is not welded to that project. Four renditions come off the one `CharacterSpec` — the portable **Character Document**, an **SVG** (any expression, optional portrait crop), a **`.glb`**, and a lossy **`Char3DConfig`** projection for the XR track. All four are derived from the same model ([decision 028](../decisions/028-parametric-humanoid-avatars.md)), so none of them can disagree with what the game renders.
+A character made in the RPG maker is not tied to that project. One `CharacterSpec` yields four renditions: the portable **Character Document**, an **SVG** (any expression, optional portrait crop), a **`.glb`**, and a lossy **`Char3DConfig`** projection for the XR track. All four come from the same model ([decision 028](../decisions/028-parametric-humanoid-avatars.md)), so none can disagree with what the game renders.
 
 ## Prerequisites
 
-- Casdoor `admin` or `publisher` role — every endpoint below sits under `@PreAuthorize("hasAnyRole('ADMIN','PUBLISHER')")` on [`AvatarConfigController`](../../../rpg-builder/src/main/java/games/hugmesh/rpgbuilder/controller/AvatarConfigController.java).
-- The project must be **yours**: ownership is re-checked in-service per request, and someone else's project id is a `403 project owned by another user`.
-- Paths are origin-relative through the host nginx (`location /api/rpg/` → the `rpg-builder` service). Examples use `http://localhost:8080`.
+- Casdoor `admin` or `publisher` role. Every endpoint below carries `@PreAuthorize("hasAnyRole('ADMIN','PUBLISHER')")` on [`AvatarConfigController`](../../../rpg-builder/src/main/java/games/hugmesh/rpgbuilder/controller/AvatarConfigController.java).
+- The project must be **yours**. The service checks ownership on every request. Someone else's project id gets `403 project owned by another user`.
+- Paths go through the host nginx (`location /api/rpg/` → the `rpg-builder` service). Examples use `http://localhost:8080`.
 
 ```bash
 JWT=...                 # bearer token for an admin / publisher
@@ -32,9 +32,9 @@ curl -sS -H "Authorization: Bearer $JWT" \
   "texture": { "assetId": null }, "expression": "neutral" }
 ```
 
-That is the whole character: twelve proportions, the shape and item tokens, seven colours, the texture reference, the expression. `schemaVersion` is the compatibility handle. A reader ignores keys it doesn't know and defaults keys that are absent. A document whose `schemaVersion` is newer than the reader supports is rejected, not degraded (see step 2).
+That is the whole character: twelve proportions, the shape and item tokens, seven colours, the texture reference and the expression. `schemaVersion` is the compatibility handle. A reader ignores keys it doesn't know and defaults keys that are absent. A document whose `schemaVersion` is newer than the reader supports is rejected, not degraded (see step 2).
 
-The document is a plain `Map` on the Java side ([`CharacterDocument`](../../../rpg-builder/src/main/java/games/hugmesh/character/CharacterDocument.java)) — no JSON library, no Spring — which is what lets the package be copied verbatim into services with different dependency sets.
+On the Java side the document is a plain `Map` ([`CharacterDocument`](../../../rpg-builder/src/main/java/games/hugmesh/character/CharacterDocument.java)). It uses no JSON library and no Spring, so the package can be copied unchanged into services with different dependencies.
 
 ## 2. Import it somewhere else
 
@@ -45,9 +45,9 @@ curl -sS -X POST -H "Authorization: Bearer $JWT" \
 # → the stored RpgAvatarConfig for $OTHER_PID
 ```
 
-Import **replaces** that project's hero, and it is not a way around the whitelist: a `kind` other than `hugmesh.character` is rejected, a `schemaVersion` newer than the reader supports is rejected, and any present-but-invalid value is a `400` with the offending field named — never a silent clamp. Absent fields take their column defaults.
+Import **replaces** that project's hero. It does not bypass the whitelist. A `kind` other than `hugmesh.character` is rejected. A `schemaVersion` newer than the reader supports is rejected. Any value that is present but invalid is a `400` that names the field. Nothing is clamped silently. Absent fields take their column defaults.
 
-> ⚠ **`texture.assetId` does not travel.** It names an asset of the *source* project. The import re-runs the cross-project ownership check (`skinTextureAssetId does not belong to this project`) — the same IDOR guard the asset endpoints apply. Re-upload the texture into the target project and set the new id, or drop the key.
+> ⚠ **`texture.assetId` does not travel.** It names an asset of the *source* project. The import re-runs the cross-project ownership check (`skinTextureAssetId does not belong to this project`), the same guard the asset endpoints use. Upload the texture to the target project and set the new id, or drop the key.
 
 ## 3. Expression stills and portraits
 
@@ -57,11 +57,11 @@ GET /api/rpg/projects/{pid}/avatar.svg?expression=<name>&w=<px>&h=<px>&portrait=
 
 | param | default | notes |
 |---|---|---|
-| `expression` | `neutral` | `neutral` `happy` `sad` `angry` `surprised` `wink` `sleepy` `determined` `shout`. An unknown name is a `400` from the whitelist, **not** a silently-neutral render. |
+| `expression` | `neutral` | `neutral` `happy` `sad` `angry` `surprised` `wink` `sleepy` `determined` `shout`. An unknown name is a `400`, **not** a neutral render. |
 | `w` / `h` | `256` / `384` | Must be within `[16, 1024]` (`AvatarSvgRenderer.MIN_DIM`/`MAX_DIM`); outside is a `400`. |
-| `portrait` | `false` | `true` crops to head and shoulders — the shape a profile picture or an attached still wants. |
+| `portrait` | `false` | `true` crops to head and shoulders, the shape for a profile picture or an attached still. |
 
-The expression is render-time, not stored geometry, so one saved character produces the whole set:
+The expression is applied at render time, not stored in the geometry, so one saved character yields the whole set:
 
 ```bash
 for e in neutral happy angry surprised; do
@@ -71,7 +71,7 @@ for e in neutral happy angry surprised; do
 done
 ```
 
-To render a character that is **not saved yet**, POST the config instead — same renderer, nothing persisted:
+To render a character that is **not saved yet**, POST the config. It uses the same renderer and stores nothing:
 
 ```bash
 curl -sS -X POST -H "Authorization: Bearer $JWT" -H 'Content-Type: application/json' \
@@ -79,9 +79,9 @@ curl -sS -X POST -H "Authorization: Bearer $JWT" -H 'Content-Type: application/j
   'http://localhost:8080/api/rpg/avatar-preview.svg?expression=determined'
 ```
 
-That endpoint exists so the maker's live preview and the final art come from one renderer; it is the reason no client-side avatar drawing routine may be added.
+This endpoint exists so the maker's live preview and the final art come from one renderer. For that reason, do not add a client-side avatar drawing routine.
 
-> ⚠ These are **bearer-authenticated** endpoints, so a bare `<img src="/api/rpg/…/avatar.svg">` will not carry the token. Fetch the SVG with the token and inline it (`data:image/svg+xml;charset=utf-8,…` — what the maker does), or serve it from your own surface.
+> ⚠ These endpoints need a bearer token, so a bare `<img src="/api/rpg/…/avatar.svg">` fails. Fetch the SVG with the token and inline it (`data:image/svg+xml;charset=utf-8,…`, as the maker does), or serve it from your own surface.
 
 The BFF also serves saved per-user avatars at `GET /api/avatars/{id}/image.svg` (`expression`, `w`, `h`, `portrait` and a lip-sync `mouth` parameter) and `GET /api/avatars/{id}/model.glb` ([`AvatarController`](../../../backend/src/main/java/games/hugmesh/bff/controller/AvatarController.java)). Any authenticated user may read them, so another surface can embed an avatar by id. They also need the bearer token. A bare `<img>` does not carry it, and an unauthenticated request gets a `401`. The ids are unguessable 43-character tokens.
 
@@ -92,7 +92,7 @@ curl -sS -H "Authorization: Bearer $JWT" \
   http://localhost:8080/api/rpg/projects/$PID/avatar.glb -o hero.glb
 ```
 
-Binary glTF 2.0, served as an attachment because it is a file to open, not something to render inline. The joint hierarchy survives the export, so what lands in Blender (or any engine that reads glTF) is an articulated character rather than a frozen picture of one — re-author the art, keep the rig. It is generated from the same `HumanoidRig` the in-game mesh and the SVG use, so the exported model and the played model are the same object.
+Binary glTF 2.0, served as an attachment because it is a file to open, not to render inline. The joint hierarchy survives the export. Blender, or any engine that reads glTF, gets an articulated character, not a frozen picture. Re-author the art and keep the rig. The `.glb` comes from the same `HumanoidRig` as the in-game mesh and the SVG, so the exported and played models match.
 
 ## 5. The `Char3DConfig` bridge (XR / 3D-chat track)
 
@@ -101,22 +101,22 @@ curl -sS -H "Authorization: Bearer $JWT" \
   http://localhost:8080/api/rpg/projects/$PID/avatar-char3d.json
 ```
 
-A separate endpoint from `avatar.json` **on purpose**: it speaks a different schema and it is lossy, so a caller should have to say which one it wants. It maps our humanoid-first model onto the creature-first `Char3DConfig` v1 shape that `character_assembler.gd` consumes — `{body:{archetype,build,height}, head:{…}, parts:{…}, materials:{7 regions}, style}`.
+This is a separate endpoint from `avatar.json` **on purpose**. It uses a different schema and loses data, so the caller must say which one it wants. It maps our humanoid-first model onto the creature-first `Char3DConfig` v1 shape that `character_assembler.gd` reads: `{body:{archetype,build,height}, head:{…}, parts:{…}, materials:{7 regions}, style}`.
 
-What survives: silhouette (`build` derived from body shape + chest, `height` passed through and clamped to their 0.5–1.5 range), head variant, hair style, hat (as `accessory`), wings (from `backItem`), all seven material colours, and `lowpoly → toon`. What is dropped: held items, back items other than wings, face items, and the per-limb proportions — their model has no counterpart for those.
+What survives: silhouette (`build` derived from body shape and chest, `height` passed through and clamped to their 0.5–1.5 range), head variant, hair style, hat (as `accessory`), wings (from `backItem`), all seven material colours, and `lowpoly` as `toon`. What is dropped: held items, back items other than wings, face items and per-limb proportions. Their model has no place for them.
 
 We speak their format rather than changing it. `games/shadows-of-the-net/scripts/character_assembler.gd` is an independent implementation that mirrors the `Char3DConfig` v1 contract. The authority for that contract is `Char3DConfigValidator` in `hugmesh-character-forge-bff-api`. Do not edit the assembler to accommodate our model.
 
 ## ⚠ This is a contract, not an integration
 
-The Matrix client (`hugmesh-matrix-ui`) and Akkoma (`hugmesh-mastodon`) live in **other repositories**. Nothing in this repo posts an avatar to them, and no follow-on work here will — what this repo provides is the stable surface they can build against:
+The Matrix client (`hugmesh-matrix-ui`) and Akkoma (`hugmesh-mastodon`) live in **other repositories**. Nothing in this repo posts an avatar to them. This repo provides the stable surface they can build against:
 
 - the Character Document (versioned, self-describing, no dependency on our tables),
 - an image URL with an `expression` parameter (`/api/avatars/{id}/image.svg`),
 - the `.glb`,
 - the `Char3DConfig` projection.
 
-Wiring those into a client is work **in that client's repo**. If you are looking for the profile-picture / post-attachment flow end to end, it does not exist yet in either direction — see the "Out of scope" section of [decision 028](../decisions/028-parametric-humanoid-avatars.md#consequences).
+Wiring those into a client is work **in that client's repo**. The profile-picture and post-attachment flow does not exist end to end yet. See "Out of scope" in [decision 028](../decisions/028-parametric-humanoid-avatars.md#consequences).
 
 ## ⚠ Growing a whitelist is a five-file change
 
