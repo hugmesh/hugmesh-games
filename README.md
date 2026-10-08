@@ -153,7 +153,7 @@ Unfinished spots verified in the current source, beyond the roadmap items above:
 
 ## Multiplayer sessions
 
-The portal supports multiple concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker, then choose an existing session or start a new one. In Three Wizards, the game client (`HugMeshMultiplayerLobby`) spawns one wizard `CharacterBody3D` per registered slot — the local player drives their own slot via `/api/controls/{characterId}`, while movement events from other players arrive on the per-session SSE stream and drive the remote wizards.
+The portal supports many concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker, then pick an existing session or start a new one. In Three Wizards, the game client (`HugMeshMultiplayerLobby`) spawns one wizard `CharacterBody3D` per registered slot. The local player drives their own slot through `/api/controls/{characterId}`, and movement events from the other players arrive on the per-session SSE stream and drive the remote wizards.
 
 | Surface | What it does |
 |---|---|
@@ -163,9 +163,9 @@ The portal supports multiple concurrent **named sessions** per game, each with i
 | `GET /api/game/stream?sessionId=` | Per-session SSE stream — only this session's movement / world / character / input events. (`view` is not on this stream; see the admin stream below.) |
 | `GET /api/admin/sessions/{id}/stream` | Admin-only per-session merged stream including the `view` channel. |
 
-The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)) — a subscriber to session A never sees session B's events. This guarantee is enforced at three independent layers: [`SessionIsolationTest`](backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java) (BFF unit), [`multiplayer-same-session.spec.ts`](e2e/tests/multiplayer-same-session.spec.ts) (two players, one session — strict positive assertion), and [`cross-session-isolation.spec.ts`](e2e/tests/cross-session-isolation.spec.ts) (two players, two sessions — strict negative assertion). The e2e suite passes 21/21; see [howto/run-multi-user-e2e.md](docs/wiki/howto/run-multi-user-e2e.md) for adding new specs.
+The per-session SSE sinks are **isolated by construction** ([decision 010](docs/wiki/decisions/010-per-session-sse-sinks.md)): a subscriber to session A never sees session B's events. Three independent layers enforce this: [`SessionIsolationTest`](backend/src/test/java/games/hugmesh/bff/service/SessionIsolationTest.java) (BFF unit), [`multiplayer-same-session.spec.ts`](e2e/tests/multiplayer-same-session.spec.ts) (two players, one session; strict positive assertion), and [`cross-session-isolation.spec.ts`](e2e/tests/cross-session-isolation.spec.ts) (two players, two sessions; strict negative assertion). The e2e suite passes 21/21. See [howto/run-multi-user-e2e.md](docs/wiki/howto/run-multi-user-e2e.md) for adding new specs.
 
-When two players legitimately use the same `character_id` in different sessions, the BFF resolves the ambiguity with [`findActiveOwnerInSession(sessionId, characterId)`](backend/src/main/java/games/hugmesh/bff/repository/SessionMemberRepository.java). `POST /api/controls/{id}` threads the `X-Session-Id` header through to a session-scoped overload of `authorizeControl` so neither player receives a spurious 403.
+Two players may legitimately use the same `character_id` in different sessions. The BFF resolves the ambiguity with [`findActiveOwnerInSession(sessionId, characterId)`](backend/src/main/java/games/hugmesh/bff/repository/SessionMemberRepository.java). `POST /api/controls/{id}` passes the `X-Session-Id` header to a session-scoped overload of `authorizeControl`, so neither player gets a spurious 403.
 
 ## Roles
 
@@ -176,7 +176,7 @@ When two players legitimately use the same `character_id` in different sessions,
 | `publisher` | Upload game bundles + grant the `mod` role. | Per-game (`publisher_game_scopes`). |
 | `admin` | Everything, including granting publisher / mod scope. | Global. |
 
-Casdoor owns role membership; per-game scope rows in Postgres control which games each mod or publisher may act on. Admins manage both layers via `/api/admin/role-grants/*`. Per-game seed users (`mod-three-wizards`, `publisher-dodecahedron`, etc.) are pre-loaded on first boot — passwords are printed by `casdoor/entrypoint.sh`. See [decision 011](docs/wiki/decisions/011-mod-publisher-rbac.md) and [howto/grant-mod-or-publisher.md](docs/wiki/howto/grant-mod-or-publisher.md).
+Casdoor owns role membership. Per-game scope rows in Postgres decide which games each mod or publisher may act on. Admins manage both layers through `/api/admin/role-grants/*`. Per-game seed users (`mod-three-wizards`, `publisher-dodecahedron`, and so on) are pre-loaded on first boot, and `casdoor/entrypoint.sh` prints their passwords. See [decision 011](docs/wiki/decisions/011-mod-publisher-rbac.md) and [howto/grant-mod-or-publisher.md](docs/wiki/howto/grant-mod-or-publisher.md).
 
 ```mermaid
 flowchart TB
@@ -196,29 +196,29 @@ flowchart TB
     Player ---|"play unlocked games · create/join sessions"| PlayerActs["player actions"]
 ```
 
-The frontend ships **separate federated remotes** for each role — `/admin`, `/mod`, `/publisher` — and the host shell loads each one only when the matching role is present in the JWT. A fourth federated remote, `/admin/docs`, embeds an OpenAPI explorer (backed by the live `/v3/api-docs` endpoint, with `openapi.fallback.json` as a static backup) and is gated to admins via the federation manifest's `requires: ROLE_ADMIN` metadata. Per-audience guides cover each role end-to-end: [admin](docs/wiki/guides/administration.md), [mod](docs/wiki/guides/moderator.md), [publisher](docs/wiki/guides/publisher.md), plus the [maintainer runbook](docs/wiki/guides/maintainer-runbook.md) for on-call.
+The frontend ships **separate federated remotes** for each role: `/admin`, `/mod`, `/publisher`. The host shell loads each one only when the matching role is in the JWT. A fourth federated remote, `/admin/docs`, embeds an OpenAPI explorer (backed by the live `/v3/api-docs` endpoint, with `openapi.fallback.json` as a static backup) and is gated to admins by the federation manifest's `requires: ROLE_ADMIN` metadata. Per-audience guides cover each role end to end: [admin](docs/wiki/guides/administration.md), [mod](docs/wiki/guides/moderator.md), [publisher](docs/wiki/guides/publisher.md), and the [maintainer runbook](docs/wiki/guides/maintainer-runbook.md) for on-call.
 
-The `/publisher` console exposes **two more federated remotes** for authoring new games end-to-end without touching Godot directly:
-- `/rpg-maker` — Mudlet-shaped editor (areas / rooms / 6+1-direction exits / items / NPCs / scripts) backed by the [`rpg-builder/`](rpg-builder/) Spring service and its dedicated Postgres DB.
-- `/vn-maker` — godot-2d-visual-novel-shaped editor (acts / characters / backgrounds / scenes / dialogue / branching choices) backed by the [`vn-builder/`](vn-builder/) Spring service and its dedicated Postgres DB.
+The `/publisher` console exposes **two more federated remotes** for authoring new games end to end without touching Godot directly:
+- `/rpg-maker` — a Mudlet-shaped editor (areas / rooms / 6+1-direction exits / items / NPCs / scripts), backed by the [`rpg-builder/`](rpg-builder/) Spring service and its dedicated Postgres DB.
+- `/vn-maker` — a godot-2d-visual-novel-shaped editor (acts / characters / backgrounds / scenes / dialogue / branching choices), backed by the [`vn-builder/`](vn-builder/) Spring service and its dedicated Postgres DB.
 
 Each maker compiles the authored project to a HugMesh-bridge-aware Godot 4 WASM bundle (one bundle per Area or Act, which maps to one Chapter in the BFF), zips it, and POSTs it to `/api/admin/games/upload` with the originating user's bearer token. The resulting game federates under the building user exactly like any manually uploaded bundle. See [decision 018](docs/wiki/decisions/018-rpg-and-vn-makers.md).
 
 ## Security primitives
 
-All URL-facing identifiers flow through a single function: [`Crypto.mintUid()`](backend/src/main/java/games/hugmesh/bff/util/Crypto.java). It produces a SHA3-256 digest of 64 random bytes drawn from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as a 43-character URL-safe base64 string. Launch tokens, session IDs, session tokens, and pod IDs all share this shape, so a value leaked through a log line is equally difficult to backtrack regardless of which category it belongs to. Liquibase 036 widens legacy `varchar(36)` columns to accommodate the new length; pre-existing UUID-shaped rows remain valid.
+Every URL-facing identifier comes from one function: [`Crypto.mintUid()`](backend/src/main/java/games/hugmesh/bff/util/Crypto.java). It makes a SHA3-256 digest of 64 random bytes from a BouncyCastle SP800-90A HMAC-SHA256 DRBG, encoded as a 43-character URL-safe base64 string. Launch tokens, session IDs, session tokens, and pod IDs all share this shape, so a value leaked through a log line is equally hard to trace back whatever category it belongs to. Liquibase 036 widens legacy `varchar(36)` columns to fit the new length. Existing UUID-shaped rows stay valid.
 
-JWT role extraction is centralised in one class: [`Roles`](backend/src/main/java/games/hugmesh/bff/security/Roles.java). New role checks use `Roles.has(jwt, "ADMIN")` or `Roles.fromAuthentication(auth)`; `@PreAuthorize("hasRole('ADMIN')")` is the preferred form at controller boundaries. There are no copy-pasted extraction helpers elsewhere in the codebase.
+JWT role extraction lives in one class: [`Roles`](backend/src/main/java/games/hugmesh/bff/security/Roles.java). New role checks use `Roles.has(jwt, "ADMIN")` or `Roles.fromAuthentication(auth)`. `@PreAuthorize("hasRole('ADMIN')")` is the preferred form at controller boundaries. No copy-pasted extraction helpers exist elsewhere in the codebase.
 
 ## Diagnostic capture is admin-only and off by default
 
-`POST /api/diagnostics/wasm-console` requires both `ROLE_ADMIN` and the runtime flag `wasm_console_debug_enabled` (default: off). An admin enables the flag via `PUT /api/admin/debug-mode/wasm-console` while triaging an iframe issue. Non-admin iframe console captures are never forwarded to the BFF — the frontend gate ensures the POST is never even attempted. See [decision 012](docs/wiki/decisions/012-debug-mode-gate.md).
+`POST /api/diagnostics/wasm-console` requires both `ROLE_ADMIN` and the runtime flag `wasm_console_debug_enabled` (default: off). An admin turns the flag on with `PUT /api/admin/debug-mode/wasm-console` while triaging an iframe issue. Console captures from non-admins are never forwarded to the BFF: the frontend gate ensures the POST is never attempted. See [decision 012](docs/wiki/decisions/012-debug-mode-gate.md).
 
 ---
 
 ## Content hierarchy — games → chapters → scenes
 
-The **Godot 4 WASM** family is organised in three tiers (below), with one exception noted inline. Web-native Rust→wasm32 titles map instead to a single self-contained canvas bundle and do **not** use the `scene_elements` tier — see [Two game technologies](#two-game-technologies).
+The **Godot 4 WASM** family has three tiers (below), with one exception noted inline. Web-native Rust→wasm32 titles map to a single self-contained canvas bundle and do **not** use the `scene_elements` tier. See [Two game technologies](#two-game-technologies).
 
 ```mermaid
 flowchart TB
@@ -233,41 +233,41 @@ flowchart TB
     Game -.->|"web-native family"| WebNative
 ```
 
-- A **Game** is one row in the `games` table — it appears as a card on the HugMesh
+- A **Game** is one row in the `games` table, and appears as a card on the HugMesh
   Games portal home page. The catalog ships 20 titles in two families (see
-  [Two game technologies](#two-game-technologies)): the Godot 4 WASM titles
+  [Two game technologies](#two-game-technologies)). The Godot 4 WASM titles are
   *Three Wizards In A Trenchcoat* (a JRPG with quests, HUD, and movement controls),
   the *Dodecahedron Demo* (a chrome-less single-scene tech demo with no HUD, no
   quests, no items), *Chess (Godot)* and *Connect Four (Godot)* (Godot reference
-  games each reusing their matching Rust rules engine via the bridge), and
-  *Shadows of the Net – CHAT* (a pure-GDScript XR chat chamber — its single
+  games, each reusing its matching Rust rules engine through the bridge),
+  *Shadows of the Net – CHAT* (a pure-GDScript XR chat chamber; its single
   chapter, "The Chamber", has no `scene_elements` rows of its own, so in
-  practice it skips the Scene-element tier the same way the web-native family
+  practice it skips the Scene-element tier the way the web-native family
   does), and *Character Forge* (a single-player 3D character maker with one
-  chromeless chapter); plus 14 web-native Rust→wasm32 board / puzzle / duel titles.
-  Web-native games are delivered as a single canvas bundle and do not use the
-  Chapter → Scene-element tier described below.
+  chromeless chapter). The other 14 are web-native Rust→wasm32 board, puzzle and
+  duel titles. Web-native games are delivered as a single canvas bundle and do
+  not use the Chapter → Scene-element tier described below.
 - Each **Chapter** inside a game is its own compiled Godot WASM bundle, served from
-  `/api/assets/levels/{slug}/` (filesystem path kept for back-compat). Chapter transitions
+  `/api/assets/levels/{slug}/` (the filesystem path is kept for back-compat). Chapter transitions
   unload the current WASM and mount the next one in the Angular iframe (see "Chapter transitions" below).
 - A chapter whose `scene_type` is in the `CHROMELESS_SCENE_TYPES` set in
   [home.component.ts](frontend/src/app/home/home.component.ts) (currently just
-  `dodecahedron`) renders without `app-game-hud` or `app-game-controls` — useful for
-  pure-visual demos that don't have a character / quest / spell loadout.
+  `dodecahedron`) renders without `app-game-hud` or `app-game-controls`. This
+  suits pure-visual demos that have no character, quest, or spell loadout.
 - **Scene elements** and user-registered **chapter assets** (textures, plugins,
-  sounds) are fetched by the running Godot bundle from the API at load time.
-- Chapters gate on completed **Quests** via `chapter_prerequisites`: complete all
-  prerequisite quests → the next chapter unlocks. Games with no quests (like the
-  Dodecahedron Demo) just have an unconditionally-unlocked chapter.
+  sounds) are fetched from the API by the running Godot bundle at load time.
+- Chapters gate on completed **Quests** through `chapter_prerequisites`: complete all
+  prerequisite quests and the next chapter unlocks. Games with no quests (like the
+  Dodecahedron Demo) have a chapter that is always unlocked.
 
-Adding levels and assets is a documented workflow — see the
+Adding levels and assets is a documented workflow. See the
 [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
 
 ---
 
 ## Architecture
 
-Up to three players may be connected simultaneously; exactly one holds the **controller** role and can send input. For the Godot family, all game state originates in the Spring Boot API and propagates to every connected client over a single SSE stream with nine typed event channels. The 14 web-native titles reuse the same per-session SSE channels (`control` / `world`) as a **host-authoritative relay**: the host browser's Rust engine is authoritative, re-emits state to the session via `GameStateService.reemitToSession`, and the guest re-applies and re-validates each incoming event (see [`e2e/games-arch/README.md`](e2e/games-arch/README.md)).
+Up to three players may be connected at once, and exactly one holds the **controller** role and can send input. For the Godot family, all game state starts in the Spring Boot API and reaches every connected client over a single SSE stream with nine typed event channels. The 14 web-native titles reuse the same per-session SSE channels (`control` / `world`) as a **host-authoritative relay**: the host browser's Rust engine is authoritative, re-emits state to the session through `GameStateService.reemitToSession`, and the guest re-applies and re-validates each incoming event (see [`e2e/games-arch/README.md`](e2e/games-arch/README.md)).
 
 The Angular shell is a [native-federation](https://www.npmjs.com/package/@angular-architects/native-federation) host: at runtime it loads role-gated sibling bundles (`login`, `admin`, `mod`, `publisher`, `games-three-wizards`, `games-dodecahedron`, `games-rpg-maker`, `games-vn-maker`, `registration`, `producer-registration`, `banned`, `api-docs`) plus a `wasm-fragment` asset-tier nginx, all served by per-remote services on the compose network and proxied through the host's nginx at `/_remotes/<slug>/`. The runtime data flow below describes the **post-federation** rendering path; legacy `<app-game-canvas>` stays as a fallback for sceneTypes outside `SCENE_TYPE_TO_GAME_SLUG`. See *Module Federation: host + remotes + a fragment* under [Key architectural decisions](#key-architectural-decisions) for the bundle-view companion to this runtime view.
 
