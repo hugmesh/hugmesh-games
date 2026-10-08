@@ -111,9 +111,10 @@ the whole palette without re-auditing each component.
 - Migrate component styles to consume `var(--hug-text-muted)` /
   `var(--hug-accent)` instead of the literal. Schedule per-component as
   those files get touched for other reasons; no urgency since the
-  literals already match the tokens. Status today: no `$muted` / `$accent`
-  SCSS variables are left. Two components (`home.component.scss`,
-  `about.component.ts`) use `var(--hug-…, <hex>)`. Ten other files still
+  literals already match the tokens. Status today: three files still declare
+  `$muted` / `$accent` (`game-menu`, `player-dashboard` and `home`
+  component SCSS, with the new hex values). `home.component.scss` and
+  `about.component.ts` also use `var(--hug-…, <hex>)`. Ten files in all
   hold the bare literal `#a8acc4`.
 - Document the tokens in `frontend/README.md` so contributors know to
   reach for the named token instead of pasting hex into a new
