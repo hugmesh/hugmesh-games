@@ -4,17 +4,17 @@
 
 ## Context
 
-Three follow-ups from the post-docs plan converge on the same infrastructure:
+Three follow-ups from the post-docs plan need the same infrastructure:
 
-- **F4 — Cassandra → Kafka → analytics warehouse.** Replace the nightly `CassandraSyncService` batch with a streaming pipeline so per-game analytics aren't 24 h stale.
-- **F2 — Federated game telemetry.** Per-remote KPIs surfaced without BFF round-trips.
-- **Cross-pod state sync.** Pod A's player state recoverable on Pod B without scraping SSE traffic.
+- **F4 — Cassandra → Kafka → analytics warehouse.** Replace the nightly `CassandraSyncService` batch with a stream, so per-game analytics are not 24 h stale.
+- **F2 — Federated game telemetry.** Show per-remote KPIs without BFF round-trips.
+- **Cross-pod state sync.** Make Pod A's player state recoverable on Pod B without scraping SSE traffic.
 
-Doing each in isolation produces three different storage surfaces. Doing them together on one pipeline keeps the platform's observability story coherent.
+Built separately, they would give three storage surfaces. One pipeline keeps observability in one place.
 
 ## Decision
 
-**Kafka** (single broker in dev, managed in prod) carries every state-transition event + per-channel emission + lifecycle event. **ClickHouse** consumes via its built-in `Kafka` engine table → `MaterializedView` → `MergeTree` chain — the BFF doesn't ship a separate consumer service.
+**Kafka** (one broker in dev, managed in prod) carries every state-transition event, per-channel emission and lifecycle event. **ClickHouse** consumes it through its built-in `Kafka` engine table → `MaterializedView` → `MergeTree` chain, so the BFF ships no separate consumer service.
 
 ### Topics
 
@@ -27,42 +27,42 @@ Doing each in isolation produces three different storage surfaces. Doing them to
 
 ### ClickHouse tables
 
-All under the `hugmesh` database (see `docker/clickhouse-init/01-hugmesh-schema.sql`; existing deployments carry the pre-rebrand database name — `RENAME DATABASE` it or override `APP_CLICKHOUSE_DATABASE`):
+All tables live in the `hugmesh` database (see `docker/clickhouse-init/01-hugmesh-schema.sql`). Existing deployments carry the pre-rebrand database name: run `RENAME DATABASE`, or override `APP_CLICKHOUSE_DATABASE`.
 
 - `state_audit` (MergeTree) — 90-day TTL, partitioned by month, ordered by `(game_slug, occurred_at, event_id)`.
 - `game_events` (MergeTree) — 30-day TTL, ordered by `(game_slug, channel, occurred_at, event_id)`.
 - `game_kpi` (MergeTree) — 90-day TTL, ordered by `(game_slug, kpi_name, occurred_at)`.
 - `player_state_current` (**ReplacingMergeTree**) — keyed by `(game_slug, session_id, character_id, channel)`; the `updated_at` column is the dedup signal; 7-day TTL, partitioned by `game_slug`. `PlayerStateRecoveryService` queries this table.
 
-Each `_stream` Kafka-engine table feeds a `_mv` MaterializedView that writes into the durable MergeTree.
+Each `_stream` Kafka-engine table feeds a `_mv` MaterializedView, which writes into the durable MergeTree.
 
 ### Publisher wiring (BFF)
 
-- `KafkaProducerConfig` — gated by `app.kafka.enabled` (default `false`). Builds an idempotent + acks=all + lz4-compressed producer.
-- `GameAuditPublisher` — emit lifecycle events. Hooked into `GameSessionService` (create, leave, close, pause, resume).
-- `GameEventPublisher` — emit SSE-channel events. Hooked into `GameStateService`, which publishes all nine channels.
+- `KafkaProducerConfig` — gated by `app.kafka.enabled` (default `false`). Builds an idempotent, `acks=all`, lz4-compressed producer.
+- `GameAuditPublisher` — emits lifecycle events. Hooked into `GameSessionService` (create, leave, close, pause, resume).
+- `GameEventPublisher` — emits SSE-channel events. Hooked into `GameStateService`, which publishes all nine channels.
 - `SessionTopicManager` — `createForSession(sessionId)` on session-create, `deleteForSession(sessionId)` on session-close. AdminClient bean inside the same file.
 
-Every publisher is injected as `Optional<...>` so the in-process gameplay path keeps working when Kafka is disabled. SSE remains the gameplay-driving path; Kafka is purely additive.
+Every publisher is injected as `Optional<...>`, so gameplay keeps working in-process when Kafka is off. SSE still drives gameplay. Kafka only adds to it.
 
 ## Consequences
 
 ### Positive
 
-- One streaming surface replaces the nightly batch. Analytics queries see fresh data.
+- One stream replaces the nightly batch. Analytics queries see fresh data.
 - Cross-pod state recovery via the ClickHouse `player_state_current` ReplacingMergeTree table is built. It is not wired in yet: see the Phase-8b follow-up.
-- F2 telemetry inherits the existing pipeline; the Phase-7 PR adds one producer + one feature flag.
+- F2 telemetry reuses the pipeline; the Phase-7 PR added one producer and one feature flag.
 - Per-session topics were meant to let a cross-pod consumer read only the events it serves. That did not happen: the subscriber still reads the global `game_events` topic and filters on `pod_id`.
 
 ### Negative
 
 - Three extra containers in dev (`zookeeper`, `kafka`, `clickhouse`), about 2 GB more RAM. `app.kafka.enabled` (default `false`) gates only the BFF side. `docker-compose.yml` gives the three services no profile, so a plain `docker compose up -d` starts them regardless, and it does not pass `APP_KAFKA_ENABLED` to the `api` service. The comment above the `zookeeper` service claims they are opt-in via `--profile analytics`. No such profile exists.
-- Topic-count growth — every session creates a topic. 100 concurrent sessions per game × 1 000 games = 100 000 topics. Cleanup on session-close mitigates orphans; broker capacity planning for prod is a separate item.
-- Two analytics-relevant retentions to track: Cassandra `rate_limit_events` at 90 s, ClickHouse tables at 30 / 90 days.
+- Topic count grows: every session creates a topic. 100 concurrent sessions per game × 1 000 games = 100 000 topics. Cleanup on session-close limits orphans. Broker capacity planning for prod is a separate item.
+- Two sets of retention to track: Cassandra `rate_limit_events` at 90 s, ClickHouse tables at 30 / 90 days.
 
 ### Neutral
 
-- `CassandraSyncService` stays running as a backstop until streaming-pipeline stability is established under production load.
+- `CassandraSyncService` keeps running as a backstop until the stream has proved itself under production load.
 
 ## Implementation
 
@@ -82,8 +82,8 @@ Every publisher is injected as `Optional<...>` so the in-process gameplay path k
 ## Follow-ups
 
 - ~~Tee the remaining `GameStateService.tryEmitNext` sites (world / character / scene / input / audio / view / wasm-console) into the event publisher.~~ — done in the Phase-7 PR. All 8 channels tee to the `game_events` topic.
-- ~~F2 — federated game telemetry producer.~~ — done in the Phase-7 PR. `GameKpiPublisher` + `POST /api/telemetry/game/{slug}` ingest. Iframes call directly; existing `WebConfig` CORS allowlist covers the federated origins.
+- ~~F2 — federated game telemetry producer.~~ — done in the Phase-7 PR. `GameKpiPublisher` plus the `POST /api/telemetry/game/{slug}` ingest. Iframes call it directly, and the existing `WebConfig` CORS allowlist covers the federated origins.
 - ~~Cross-pod subscriber — read events into another pod's `SessionSinks`.~~ — done in the Phase-8a PR. `KafkaSessionSubscriber` consumes `game_events`, filters self-published via `pod_id`, dispatches per-channel to handlers registered in `GameStateService.@PostConstruct`. All 8 channels covered (movement / world / character / view → per-session + global; scene / input / audio / wasm-console → global only). It reads the global topic, not the per-session ones.
-- ~~Cross-pod parity for the web-native `sendWorld()` relay.~~ — done in games PR #117. A 9th channel, `world-native`, carries the raw web-native world payload (distinct from the typed Godot `WorldState` `world` channel) so a peer pod's `KafkaSessionSubscriber` re-emits it onto that pod's `worldNative` sink; `GameStreamController` merges `worldNative` into the same client-facing `world` SSE event name, so the guest bridge needs no change. See [`InputEventController`](../../../backend/src/main/java/games/hugmesh/bff/controller/InputEventController.java) and [`GameStateService.emitInput`](../../../backend/src/main/java/games/hugmesh/bff/service/GameStateService.java).
+- ~~Cross-pod parity for the web-native `sendWorld()` relay.~~ — done in games PR #117. A 9th channel, `world-native`, carries the raw web-native world payload (distinct from the typed Godot `WorldState` `world` channel). A peer pod's `KafkaSessionSubscriber` re-emits it onto that pod's `worldNative` sink. `GameStreamController` merges `worldNative` into the same client-facing `world` SSE event name, so the guest bridge needs no change. See [`InputEventController`](../../../backend/src/main/java/games/hugmesh/bff/controller/InputEventController.java) and [`GameStateService.emitInput`](../../../backend/src/main/java/games/hugmesh/bff/service/GameStateService.java).
 - BFF read-path against `player_state_current` for session-reconnect recovery — built in the Phase-8b PR, but not in use. `PlayerStateRecoveryService` queries `hugmesh.player_state_current FINAL` via the ClickHouse HTTP interface (WebClient); it exists only when `app.clickhouse.enabled=true` (default `false`). The new `hydrate(characterId, chapterId, gameSlug, sessionId)` overload on `GameStateService` consults it before the legacy Cassandra → Postgres → defaults chain. Its only production caller, `SessionController`, uses the two-argument `hydrate(characterId, chapterId)`, which passes null for `gameSlug` and `sessionId` and skips recovery. `Mono.empty()` is the expected miss path; SSE / gameplay never blocks on this.
 - Retire `CassandraSyncService` once the streaming pipeline has demonstrated production stability.
