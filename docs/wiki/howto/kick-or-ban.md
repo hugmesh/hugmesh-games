@@ -1,85 +1,93 @@
 # How to kick or ban a player
 
-Three actions, one ledger. All three write to `admin_actions` and broadcast on the affected user's per-user SSE channel; the host shell catches the event, closes any open game window via `BroadcastChannel`, and (for ban) redirects to `/banned`.
+Three actions, one ledger. Each call to the admin-actions API writes a row to `admin_actions` and pushes it to the target's per-user SSE stream. The host shell removes every game iframe in the tab and sends the player to `/banned`.
 
 ## Prerequisites
 
 - `ROLE_ADMIN` in Casdoor.
-- The user's Casdoor ID (visible on the admin dashboard's *Active sessions* card).
+- The user's Casdoor ID. The admin console shows it in the *Per-user usage* table, column *Casdoor ID*.
 
 ## Kick
 
-Closes the player's current launch and forces their game window to close. Doesn't prevent re-login.
+A kick closes the player's game window. It does not prevent a new login.
 
 ### From the admin UI
 
-`/admin` → *Active sessions* → click *Kick* on the row.
+`/admin` → *Per-user usage* → click *Kick* on an online user's row.
+
+This button is not the API below. It calls `DELETE /api/admin/sessions/{casdoorId}`, which drops the player's presence and stamps `disconnected_at` on their session row. It writes no `admin_actions` row and sends no SSE event. The admin console has no ban or unban control. Use the API.
 
 ### Via API
 
 ```bash
 curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
   -H 'Content-Type: application/json' \
-  -d '{"casdoorUserId":"alice@threewizards","action":"kick","message":"connection issue"}' \
-  http://localhost:8080/api/admin/actions
+  -d '{"message":"connection issue"}' \
+  http://localhost:8080/api/admin/actions/kick/alice@threewizards
 ```
 
-The optional `message` field is appended to the SSE event the player's tab receives, so the UI can render an admin-supplied reason.
+The body is optional. `message` is stored with the row and reaches the player's tab, so the UI can show a reason.
 
-What happens server-side:
+Server side:
 
-1. `AdminActionService` writes a row to `admin_actions` (`action='kick'`, `target_casdoor_id`, `actor_casdoor_id`, `message`, `occurred_at`).
-2. The matching launch row is `DELETE`d (sets `terminated_at = NOW()` on `game_launches`).
-3. The per-user SSE channel emits a `kick` event.
+1. `AdminActionService` appends a row to `admin_actions` (`action='kick'`, `target_casdoor_id`, `actor_casdoor_id`, `message`, `created_at`).
+2. The service emits the row on its in-process sink.
+3. `SessionService.disconnect` drops the player's presence and stamps `disconnected_at` on their session row.
 
-Player-side:
+A kick does not touch `game_launches`. To revoke one launch, use `DELETE /api/admin/launches/{uid}`.
 
-1. `AdminActionsListenerService` (frontend) receives the SSE event.
-2. Posts a `BroadcastChannel('hugmesh')` message. Any open game window in another tab receives it and calls `window.close()`.
-3. The current tab shows a modal with the admin's message.
+Player side:
+
+1. `AdminActionsListenerService` (frontend) receives the `admin-action` event from `/api/me/admin-actions/stream`.
+2. It posts the event on the `hugmesh-admin-actions` `BroadcastChannel`, so every tab on the same origin reacts.
+3. Each tab removes all `iframe` elements, stores the action in `sessionStorage` (`tw_ban_marker`) and goes to `/banned`.
 
 ## Ban
 
-Like kick, but persists in `admin_actions` with `action='ban'` and gates all future `/api/*` requests via `BanGateFilter`.
+A ban is a row with `action='ban'`. It does what a kick does. It also blocks the player's API access until an unban row supersedes it.
 
 ```bash
 curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
   -H 'Content-Type: application/json' \
-  -d '{"casdoorUserId":"alice@threewizards","action":"ban","message":"violated TOS section 3"}' \
-  http://localhost:8080/api/admin/actions
+  -d '{"message":"violated TOS section 3","expiresAt":"2026-12-31T00:00:00Z"}' \
+  http://localhost:8080/api/admin/actions/ban/alice@threewizards
 ```
 
-Server-side, additionally:
+`expiresAt` is optional. Leave it out and the ban lasts until an unban.
 
-- `BanGateFilter` (Spring `WebFilter` at `HIGHEST_PRECEDENCE+50`) refuses every `/api/*` request from a user with an unresolved ban — except a small allowlist (`/api/auth/*`, `/api/me/ban-status`, `/api/admin/actions/*`).
+Server side, additionally:
 
-Player-side, on next login:
+- `BanGateFilter` (a Spring `WebFilter`, order `-100 + 50`, after the security chain has bound the JWT) answers `403` to every `/api/*` request from a banned user. It lets through `/api/auth/`, `/api/me/ban-status` and `/api/me/admin-actions/stream`.
 
-- The host's `authGuard` calls `/api/me/ban-status`. If banned, redirects to `/banned`.
-- The `/banned` page renders the admin's message and the `occurred_at` timestamp.
+Player side, on the next navigation:
+
+- The host's `authGuard` calls `/api/me/ban-status`. If `banned` is true, it redirects to `/banned`.
+- The `/banned` page shows the admin's message and the expiry time.
 
 ## Unban
 
 ```bash
 curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
   -H 'Content-Type: application/json' \
-  -d '{"casdoorUserId":"alice@threewizards","action":"unban","message":"appeal accepted"}' \
-  http://localhost:8080/api/admin/actions
+  -d '{"message":"appeal accepted"}' \
+  http://localhost:8080/api/admin/actions/unban/alice@threewizards
 ```
 
-Adds an `action='unban'` row. `BanGateFilter` resolves a user as banned only if their most recent action is `ban`; an `unban` row supersedes it. The audit trail is preserved.
+This appends an `action='unban'` row. A user counts as banned only while their latest row is a `ban` that has not expired, so the unban supersedes it. The audit trail stays.
 
 ## Verify
 
 ```bash
-# History for one user:
+# History for one user, newest first:
 curl -H "Authorization: Bearer $ADMIN_JWT" \
-  "http://localhost:8080/api/admin/actions?targetCasdoorId=alice@threewizards" | jq
+  "http://localhost:8080/api/admin/actions/alice@threewizards" | jq
 
-# Live stream of admin actions (admins only):
-curl -N -H "Authorization: Bearer $ADMIN_JWT" \
-  http://localhost:8080/api/admin/actions/stream
+# The player's own stream (any signed-in user; it carries only that user's rows):
+curl -N -H "Authorization: Bearer $JWT" \
+  http://localhost:8080/api/me/admin-actions/stream
 ```
+
+There is no admin-wide live stream of actions.
 
 ## See also
 
