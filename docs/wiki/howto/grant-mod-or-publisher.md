@@ -1,6 +1,6 @@
 # How to grant the mod or publisher role for a game
 
-Two layers. Casdoor owns role membership; Postgres owns per-game scope. Both must be set for the BFF to accept the actions.
+Two layers. Casdoor owns role membership. Postgres owns per-game scope. The BFF accepts the actions only when both are set.
 
 ## Prerequisites
 
@@ -32,7 +32,7 @@ The user's next JWT will carry the new role in the `roles` claim. [`CasdoorAutho
 
 ## Step 2 — per-game scope row
 
-The role membership alone does nothing without a scope row. Two ways to grant.
+A role without a scope row does nothing. There are two ways to add the row.
 
 ### Option A — admin role-grants endpoint
 
@@ -62,7 +62,7 @@ curl -sS -H "Authorization: Bearer $ADMIN_JWT" \
 
 ### Option B — publisher grants mod for their own game
 
-A publisher who already owns a game can grant mod for it without admin involvement:
+A publisher who owns a game can grant mod for it without an admin:
 
 ```bash
 PUB_JWT=...   # a publisher who has publisher_game_scopes for three-wizards
@@ -73,7 +73,7 @@ curl -sS -X POST -H "Authorization: Bearer $PUB_JWT" \
   http://localhost:8080/api/publisher/grant-mod
 ```
 
-This is what the publisher's UI at `/publisher` invokes from the *Manage moderators* card.
+The *Manage moderators* card at `/publisher` calls this endpoint.
 
 ## Revoking
 
@@ -88,7 +88,7 @@ curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
 
 ## Seeded users (out of the box)
 
-The Casdoor template ships with per-game seed users so you can test multiplayer + RBAC without manual grants:
+The Casdoor template ships seed users, so you can test multiplayer and RBAC without manual grants:
 
 | User | Casdoor roles | Postgres scope rows |
 |---|---|---|

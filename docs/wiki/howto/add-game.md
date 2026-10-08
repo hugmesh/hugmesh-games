@@ -1,10 +1,10 @@
 # How to add a new game
 
-Two paths. Pick the one that matches whether you're shipping the game in-repo or hot-uploading at runtime.
+Two paths: hot-upload at runtime, or commit the game to the repo.
 
 ## Path A — hot-upload at runtime
 
-For a game that will be uploaded by an admin from the portal UI without a host redeploy.
+For a game an admin uploads from the portal UI, with no host redeploy.
 
 ### 1. In the Godot editor
 
@@ -55,7 +55,7 @@ curl -H "Authorization: Bearer $JWT" http://localhost:8080/api/games/available/<
 
 ## Path B — commit the game in-repo
 
-For a game you want to ship in the repository (visible without an admin upload).
+For a game that ships in the repository and needs no admin upload.
 
 ### 1. Drop the project under `games/`
 

@@ -17,11 +17,11 @@ Two paths: the home page, or the API directly. Either way the player drives one 
 4. The modal shows: *✓ You're in this session as slot N. Pick a chapter below to launch.*
 5. Pick a chapter from the list below. The launch threads `?session_id=…&slot_index=N&character_id=…` onto the iframe URL; HostBridge flips into multiplayer mode automatically.
 
-To launch solo without a session, just click a chapter without using the picker — single-player path is unchanged.
+To launch solo, click a chapter without using the picker.
 
 ## Path B — From the API directly
 
-Useful for scripts, e2e tests, or other UIs:
+Use this for scripts, e2e tests or other UIs:
 
 ```bash
 JWT=...   # bearer token
@@ -52,7 +52,7 @@ curl -sS -X POST -H "Authorization: Bearer $JWT" \
 
 ## Verify the SSE per-session isolation
 
-Subscribe to one session's stream and emit a control on a different session — you should see *nothing* on the wrong session's stream.
+Subscribe to one session's stream, then send a control for a different session. The first stream must stay silent.
 
 ```bash
 # Terminal A — subscribe to session A
@@ -67,7 +67,7 @@ curl -X POST \
   -d '{"action":"MOVE_FORWARD","pressed":true,"timestamp":0}' \
   http://localhost:8080/api/controls/<characterId-in-B>
 
-# Terminal A's stream stays silent — that's the contract.
+# Terminal A's stream stays silent. That is the contract.
 ```
 
 ## What the BFF does on join / leave

@@ -1,6 +1,6 @@
 # How to add a database column
 
-Postgres only — Cassandra schemas live in [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql) and are bootstrapped by an init container, not migrated.
+This covers Postgres only. Cassandra schemas live in [`docker/cassandra-init.cql`](../../../docker/cassandra-init.cql). An init container (`cassandra-init`) applies that file; nothing migrates it.
 
 ## 1. Write the changeset
 
@@ -23,7 +23,7 @@ Next sequential number (today `064`) under [`backend/src/main/resources/db/chang
 </databaseChangeLog>
 ```
 
-Gate every changeset with `<preConditions onFail="MARK_RAN">` so re-runs on a partial-state DB are no-ops.
+Gate every changeset with `<preConditions onFail="MARK_RAN">`, so a re-run against a half-migrated database does nothing.
 
 ## 2. Register it
 
@@ -50,7 +50,7 @@ public class PlayerCharacter {
 
 ## 4. If it changes a derived query
 
-Adding a column doesn't usually break Spring Data derived queries; *renaming* one does. If a column rename is in the same PR, also rename any `findByOldName` / `existsByOldName` repository method names — they're parsed against the entity property tree at startup and produce `PropertyReferenceException` if mismatched.
+Adding a column rarely breaks a Spring Data derived query. *Renaming* one does. If the PR renames a column, rename every `findByOldName` / `existsByOldName` repository method too. Spring parses those names against the entity's properties at startup and throws `PropertyReferenceException` on a mismatch.
 
 ## 5. Native-image hints
 
@@ -69,11 +69,11 @@ Under the native overlay (`docker-compose.native.yml`) the api runs with `SPRING
 
 ## ⚠ Never edit a previously-merged changeset
 
-If a previous changeset is wrong on a deployed database, **append a new one** with idempotent preconditions. Editing in place silently diverges between fresh and migrated DBs and leaves no audit trail. PR #24 is the canonical example: five follow-up changesets (028-9 through 028-13, appended to `028-rename-chapter-instant.xml`) cleaned up misses from PR #20's bulk rename.
+If a merged changeset is wrong on a deployed database, **append a new one** with idempotent preconditions. Editing in place makes fresh and migrated databases differ, and leaves no audit trail. PR #24 is the canonical example: five follow-up changesets (028-9 through 028-13, appended to `028-rename-chapter-instant.xml`) cleaned up misses from PR #20's bulk rename.
 
 ## ⚠ JSONB `?` operator gotcha
 
-Liquibase routes `<sql>` blocks through the JDBC PreparedStatement layer, which treats `?` as a parameter placeholder. The Postgres jsonb key-exists operator (`features ? 'spell_loadout'`) reports "syntax error at or near $1" because the binder ate the `?`. Use `jsonb_exists(features, 'spell_loadout')` instead — same semantics, no placeholder confusion. Changeset `028-7` in [`028-rename-chapter-instant.xml`](../../../backend/src/main/resources/db/changelog/028-rename-chapter-instant.xml) is the worked example.
+Liquibase sends `<sql>` blocks through the JDBC PreparedStatement layer, which reads `?` as a parameter placeholder. The Postgres jsonb key-exists operator (`features ? 'spell_loadout'`) then fails with "syntax error at or near $1". Use `jsonb_exists(features, 'spell_loadout')`. It means the same and has no `?`. Changeset `028-7` in [`028-rename-chapter-instant.xml`](../../../backend/src/main/resources/db/changelog/028-rename-chapter-instant.xml) is the worked example.
 
 ## See also
 
