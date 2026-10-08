@@ -110,7 +110,7 @@ flowchart TB
 |---|---|---|
 | [`docs/publishing/architecture/`](../publishing/architecture/) | LaTeX chapters → typeset PDF with full tables, marble diagrams, hyperref links. | `make docs-pdf` |
 | [`docs/publishing/userguides/`](../publishing/userguides/) | Per-audience PDFs, one per guide above. | `make docs-userguides` |
-| [`docs/publishing/slides/`](../publishing/slides/) | Six PowerPoint decks via `python-pptx`. | `make docs-slides` |
+| [`docs/publishing/slides/`](../publishing/slides/) | Eight PowerPoint decks via `python-pptx`. | `make docs-slides` |
 | `docs/publishing/javadoc-output/` (generated, not committed) | Themed Javadoc for every `@Operation` / `@Tag` in the BFF. | `make docs-javadocs` |
 | [`docs/publishing/openapi/`](../publishing/openapi/) | Static fallback OpenAPI spec; the live one is `/v3/api-docs`. | `make docs-openapi-spec` |
 | [`docs/publishing/diagrams-rendered/`](../publishing/diagrams-rendered/) | Every marble + topology diagram rendered to PNG (git-ignored output). | `make docs-diagrams` |
