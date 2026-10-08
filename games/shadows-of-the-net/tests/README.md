@@ -3,11 +3,15 @@
 ```bash
 make test-godot                       # from the repo root (part of `make test`)
 # or directly:
-godot4 --headless --path games/shadows-of-the-net --script res://tests/run_tests.gd
+godot --headless --path games/shadows-of-the-net --script res://tests/run_tests.gd
 ```
 
+`make test-godot` imports each project first and also runs the `character-forge`
+suite. The direct command runs this game only.
+
 Exit code 0 = every suite green. 1 = a failing assertion, a suite that
-asserted nothing, a suite that failed to parse, or the 180 s deadline lapsing.
+asserted nothing, a suite that failed to parse, a suite whose assertion count
+differs from its `plan()` (or that has none), or the 180 s deadline lapsing.
 
 ## Why these exist rather than only `make e2e`
 
@@ -24,9 +28,12 @@ be injected without a browser, a session, or a BFF.
   `run()`; `run()` may `await tree.process_frame` — `queue_free()` is deferred
   in Godot, so several of the structural regressions only become observable one
   frame later.
-* Every assertion increments `checks`. A suite that silently stops asserting
-  shows up as a dropped check count instead of a pass, and a suite with **zero**
-  checks fails the run outright (`run_tests.gd` treats vacuity as a failure).
+* Every assertion increments `checks`. A suite with **zero** checks fails the
+  run outright (`run_tests.gd` treats vacuity as a failure).
+* Every suite pins its exact assertion count in `plan()`. A GDScript runtime
+  error aborts the current function without failing the suite, so a suite that
+  dies half way would otherwise report green. A count that differs from the plan
+  fails the run. Update `plan()` when you add or remove an assertion.
 * `make_room()` instantiates the real `scenes/room.tscn` with all its scripts.
   Headless runs are non-web, so both bridges stay dormant and the room boots in
   NATIVE mode; a suite that wants session or matrix wiring calls
@@ -35,7 +42,8 @@ be injected without a browser, a session, or a BFF.
   `_session` slot **after** `_setup_session()` (see `RecordingBridge` in
   `test_seat_authority.gd`), so the real bridge still drives the signal wiring
   and the host election.
-* A new suite is picked up automatically: name the file `tests/test_*.gd`.
+* A new suite is picked up automatically: name the file `tests/test_*.gd`, and
+  give it a `plan()`.
 
 ## What each suite pins
 
