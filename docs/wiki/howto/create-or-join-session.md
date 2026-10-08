@@ -1,20 +1,20 @@
 # How to create or join a multiplayer session
 
-Two paths from the home page; either way ends with the player driving one slot in a multi-player game with the BFF's per-session SSE sinks scoped to that session.
+Two paths: the home page, or the API directly. Either way the player drives one slot, and the BFF scopes its SSE sinks to that session.
 
 ## Prerequisites
 
-- Casdoor `player` role (or `admin`).
-- For the slot you want to drive: an active character (the BFF auto-binds `characterId` to your default character).
+- A signed-in user. `/api/sessions/**` needs authentication only; no `player` or `admin` role is required.
+- A character to drive your slot. The home page defaults `characterId` to your first character. A player with several characters gets a *Play as* picker.
 
 ## Path A — From the home page UI
 
 1. Click any unlocked game card on `/`. The chapter modal opens.
-2. The modal shows a **Multiplayer sessions** section above the chapter list.
+2. The modal shows a **Play together** section above the chapter list.
 3. Either:
-   - **Join** an existing session — click *Join* on a row. The lowest free slot is auto-claimed.
-   - **Start new** — type a name in the input, optionally bump max players, click *Start new session*. You become the creator at slot 0.
-4. The modal shows a green confirmation banner: *✓ Joined session — slot N*.
+   - **Join** an existing session — click *Join* on a row. The page claims the lowest free slot from 1 up. Slot 0 belongs to the creator.
+   - **Start new** — type a session name (1 to 120 characters), set *Max players* (1 to 16), pick who can see it (public, friends only or private), and click *Start session*. You become the creator at slot 0.
+4. The modal shows: *✓ You're in this session as slot N. Pick a chapter below to launch.*
 5. Pick a chapter from the list below. The launch threads `?session_id=…&slot_index=N&character_id=…` onto the iframe URL; HostBridge flips into multiplayer mode automatically.
 
 To launch solo without a session, just click a chapter without using the picker — single-player path is unchanged.
@@ -26,16 +26,18 @@ Useful for scripts, e2e tests, or other UIs:
 ```bash
 JWT=...   # bearer token
 
-# 1) Create
+# 1) Create. maxPlayers defaults to 3 and is clamped to 1..16; visibility is
+#    "public" (default), "friends" or "private". The creator always gets slot 0.
 curl -sS -X POST http://localhost:8080/api/sessions \
   -H "Authorization: Bearer $JWT" \
   -H 'Content-Type: application/json' \
-  -d '{"gameSlug":"three-wizards","name":"Tower run","maxPlayers":3,"characterId":1,"slotIndex":0}'
-# → { "id":"...uuid...", "members":[{"casdoorId":"alice","slotIndex":0,"creator":true}], ... }
+  -d '{"gameSlug":"three-wizards","name":"Tower run","maxPlayers":3,"characterId":1}'
+# → { "id":"<43-char token>", "members":[{"casdoorId":"alice","slotIndex":0,"creator":true}], ... }
 
 # 2) Or list and join an existing one
 curl -sS -H "Authorization: Bearer $JWT" \
   'http://localhost:8080/api/sessions?gameSlug=three-wizards'
+# A guest asking for slotIndex 0 gets 409: slot 0 is the creator's.
 curl -sS -X POST -H "Authorization: Bearer $JWT" -H 'Content-Type: application/json' \
   -d '{"characterId":2,"slotIndex":1}' \
   http://localhost:8080/api/sessions/<sessionId>/join
@@ -70,9 +72,10 @@ curl -X POST \
 
 ## What the BFF does on join / leave
 
-- **Join** — `INSERT INTO session_members` (or update if rejoining); idempotent on `(session_id, casdoor_id)` via the partial unique index.
-- **Leave** — stamps `left_at = NOW()`. If the leaver was the last active member, the session itself auto-closes (`closed_at = NOW()`).
-- **Slot collisions** — the partial unique index `uq_session_members_active_slot` returns a 409 if two players try to claim the same slot at the same time.
+- **Join** — inserts a `session_members` row, or updates the caller's active row if they rejoin (idempotent per caller, partial unique index `uq_session_members_active_casdoor`). A closed session returns 410. A full session returns 409.
+- **Leave** — `DELETE /api/sessions/{id}/me` stamps `left_at`. If the leaver was the creator, the session closes at once with reason `host-disconnected`. If the leaver was the last active member, it closes with `last-member-left`.
+- **Slot collisions** — the partial unique index `uq_session_members_active_slot` returns a 409 if two players claim the same slot at the same time.
+- **Presence** — `GET /api/sessions/{id}` doubles as a heartbeat. `SessionMemberReaper` frees the seats of members whose heartbeat goes stale.
 
 ## See also
 
