@@ -14,7 +14,9 @@ Per-game visibility is enforced by additive `game_access` rows. Three scopes:
 
 Multiple rows are *unioned*. A game with `(all, NULL)` plus `(user, alice)` is visible to everyone (the `all` row wins); a game with only `(role, ROLE_PLAY_TWIAT)` plus `(user, alice)` is visible to role-holders OR alice.
 
-The constraint `uq_game_access_triple (game_slug, scope, scope_value)` makes inserts idempotent — flipping a row on twice is a no-op.
+The constraint `uq_game_access_triple (game_id, scope, scope_value)` makes `role` and `user` grants idempotent: `GameAccessController` catches the violation and returns the existing row. An `all` row has `scope_value = NULL`, and Postgres treats NULLs as distinct in a unique constraint, so the constraint does not stop a second `all` row. Duplicates are harmless to readers because the visibility query uses `SELECT DISTINCT game_id`. This follows from the DDL and Postgres NULL semantics; it has not been run against a live database.
+
+A game with no rows at all matches nobody, so it is hidden from every principal.
 
 ## Why
 
@@ -28,9 +30,9 @@ A single-column `visibility` enum would force one mode per game; a JSON blob wou
 
 ## How to apply
 
-- **Public-by-default for newly uploaded games.** The HugMesh Export plugin's `register.sql` includes `INSERT INTO game_access (scope='all') ON CONFLICT DO NOTHING`. Admins narrow this from the admin UI afterwards.
-- **Admin UI** — *Per-game access* card. POST to `/api/admin/games/{slug}/access` with `{scope, value}`. The roles dropdown reads live from Casdoor via `/api/admin/roles`.
-- **Read path** — `ProgressionService` joins `game_access` × `characters` × `character_quests`. Drives `/api/games/available/{characterId}`.
+- **Public-by-default for newly uploaded games.** The HugMesh Export plugin's `register.sql` inserts an `all` row with `ON CONFLICT (game_id, scope, scope_value) DO NOTHING` (`manifest_builder.gd`). Because `scope_value` is NULL, that clause never fires, so re-running `register.sql` adds another `all` row. Admins narrow access from the admin UI afterwards by revoking the `all` row.
+- **Admin UI** — *Per-game access* card (`upload-remote.component.ts`). It POSTs `{scope, value}` to `/api/admin/games/{slug}/access`; `DELETE` on the same path with `scope` and `value` query parameters revokes a row. The roles dropdown reads live from Casdoor via `/api/admin/roles`. An admin may only change games in their own brand (`requireGameDomain`).
+- **Read path** — `ProgressionService` takes the game ids from `GameAccessRepository.findVisibleGameIdsForPrincipal`, filters them by the caller's brand domain, and reads `character_quests` for unlock state. It drives `/api/games/available/{characterId}`. `POST /api/games/{slug}/launch` repeats the visibility check and returns 403 if it fails.
 
 ## Trade-offs accepted
 
