@@ -1,14 +1,14 @@
 # HugMesh Games — Wiki
 
-A Markdown-rendered companion to the LaTeX-typeset reference under [`../publishing/`](../publishing/). The PDFs and PowerPoints are the canonical artefacts; this tree presents their content in a form that renders inline on GitHub and requires no TeX installation.
+A Markdown companion to the LaTeX-typeset reference under [`../publishing/`](../publishing/). The PDFs and PowerPoints are the canonical artefacts. This tree shows their content in a form that renders inline on GitHub and needs no TeX installation.
 
-When this wiki disagrees with the source tree, the source tree wins. Each page links back to the file you would edit to fix something.
+When this wiki disagrees with the source tree, the source tree wins. Each page links to the file you would edit to fix it.
 
 ---
 
 ## Architecture reference
 
-Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, key diagrams inlined as Mermaid. The catalog ships **20 games in two delivery models** — Godot 4 WASM (6 titles, incl. *Chess (Godot)* federated via changelog 053, *Connect Four (Godot)* via changelog 055, *Shadows of the Net – CHAT* — an XR chat chamber — via changelog 056, and *Character Forge* — a single-player 3D character maker — via changelog 062) and web-native Rust→wasm32 (14 titles, host-authoritative over the SSE relay); the chapters below cover both.
+Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, with key diagrams inlined as Mermaid. The catalog ships **20 games in two delivery models**. Godot 4 WASM has 6 titles: the two stock titles, *Chess (Godot)* (federated via changelog 053), *Connect Four (Godot)* (055), *Shadows of the Net – CHAT*, an XR chat chamber (056), and *Character Forge*, a single-player 3D character maker (062). Web-native Rust→wasm32 has 14 titles, host-authoritative over the SSE relay. The chapters below cover both.
 
 | # | Page | Contents |
 |---|---|---|
@@ -37,7 +37,7 @@ Eight audience-targeted condensations of the full reference. Mirror of [`docs/pu
 
 ## How-tos
 
-Recipe cards. Each one is a task you've done before and want to do again without re-reading three chapters.
+Recipe cards. Each is a task you have done before and want to do again without re-reading three chapters.
 
 - [Add a new game](howto/add-game.md) (commit-path or hot-upload)
 - [Add a federated route](howto/add-federated-route.md)
@@ -91,7 +91,7 @@ Why the system has the shape it has. Each entry records one decision, the constr
 
 ## Where the canonical sources live
 
-The wiki is one of several views over the same source tree. For depth that this view does not carry, consult the sources below:
+The wiki is one of several views over the same source tree. For depth this view lacks, go to these sources:
 
 ```mermaid
 flowchart TB
@@ -114,7 +114,7 @@ flowchart TB
 | `docs/publishing/javadoc-output/` (generated, not committed) | Themed Javadoc for every `@Operation` / `@Tag` in the BFF. | `make docs-javadocs` |
 | [`docs/publishing/openapi/`](../publishing/openapi/) | Static fallback OpenAPI spec; the live one is `/v3/api-docs`. | `make docs-openapi-spec` |
 | [`docs/publishing/diagrams-rendered/`](../publishing/diagrams-rendered/) | Every marble + topology diagram rendered to PNG (git-ignored output). | `make docs-diagrams` |
-| [`docs/PLAN-module-federation-and-native.md`](../PLAN-module-federation-and-native.md) | The 898-line plan that produced the federated topology. Pre-rename language. |
-| [`docs/GODOT_DEVELOPER_GUIDE.md`](../GODOT_DEVELOPER_GUIDE.md) | Slug contract, presets, asset registration. |
-| [`CLAUDE.md`](../../CLAUDE.md) | Contributor onboarding for AI + human pair-programmers. |
-| [`README.md`](../../README.md) | Setup, build, deploy, troubleshooting. |
+| [`docs/PLAN-module-federation-and-native.md`](../PLAN-module-federation-and-native.md) | The 898-line plan that produced the federated topology. Pre-rename language. | — |
+| [`docs/GODOT_DEVELOPER_GUIDE.md`](../GODOT_DEVELOPER_GUIDE.md) | Slug contract, presets, asset registration. | — |
+| [`CLAUDE.md`](../../CLAUDE.md) | Contributor onboarding for AI + human pair-programmers. | — |
+| [`README.md`](../../README.md) | Setup, build, deploy, troubleshooting. | — |
