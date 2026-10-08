@@ -157,9 +157,11 @@ GitHub release asset. Do not commit the binary.
 
 ### `slides/` — six PowerPoint walkthroughs
 
-There are eight decks. (The heading says six because it predates the moderator and publisher decks; it is left as is so its link anchor keeps working.) Slide counts are one cover, one slide per `SECTIONS` entry, and one closing
-slide, counted from the source. They were not checked against a rendered deck
-(`python-pptx` is not installed here).
+There are eight decks. (The heading says six because it predates the moderator
+and publisher decks; it stays as is so that its link anchor keeps working.)
+
+Slide counts are one cover, one slide per `SECTIONS` entry, and one closing
+slide. They come from the sources, not from a rendered deck.
 
 | Deck | Audience | Slides | What it covers |
 |---|---|---|---|
