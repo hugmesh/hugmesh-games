@@ -68,7 +68,7 @@ Until then, production sets `APP_R2DBC_REPLICA_URL` to point at a managed-RDS re
 |---|---|
 | [`backend/src/main/java/games/hugmesh/bff/config/R2dbcReadReplicaConfig.java`](../../../backend/src/main/java/games/hugmesh/bff/config/R2dbcReadReplicaConfig.java) | The three qualified beans + fallback-to-primary logic. |
 | `application.yml` | `app.r2dbc.replica.{url,username,password}` config block. |
-| [`backend/src/test/java/games/hugmesh/bff/config/R2dbcReadReplicaConfigTest.java`](../../../backend/src/test/java/games/hugmesh/bff/config/R2dbcReadReplicaConfigTest.java) | 4 tests that call the bean methods directly: empty and blank URL return the primary CF, and the template and client use the replica CF. They do not boot the conditional. |
+| [`backend/src/test/java/games/hugmesh/bff/config/R2dbcReadReplicaConfigTest.java`](../../../backend/src/test/java/games/hugmesh/bff/config/R2dbcReadReplicaConfigTest.java) | 4 tests that call the bean methods directly: an empty or blank URL returns the primary CF, and the replica template and client build without error. They do not exercise the `@Conditional`. |
 
 ## Migration plan (per repo / service)
 

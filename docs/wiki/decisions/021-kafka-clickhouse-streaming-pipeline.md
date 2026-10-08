@@ -76,7 +76,7 @@ Every publisher is injected as `Optional<...>`, so gameplay keeps working in-pro
 | `backend/src/main/java/games/hugmesh/bff/audit/GameEventPublisher.java` | Channel event publisher |
 | `backend/src/main/java/games/hugmesh/bff/audit/SessionTopicManager.java` | Per-session topic manager + AdminClient |
 | `backend/src/main/java/games/hugmesh/bff/service/GameSessionService.java` | Calls topic manager + audit publisher on lifecycle |
-| `backend/src/main/java/games/hugmesh/bff/service/GameStateService.java` | Calls event publisher on `applyControl` movement emit |
+| `backend/src/main/java/games/hugmesh/bff/service/GameStateService.java` | Calls the event publisher at every channel emit (all nine channels) |
 | `backend/src/main/resources/application.yml` | `app.kafka.*` config block |
 
 ## Follow-ups
