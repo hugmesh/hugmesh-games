@@ -1189,7 +1189,7 @@ erDiagram
 
 ### Spell catalog (migration 014)
 
-Five starter spells auto-slotted for character 1 at slots 1–5; five advanced spells granted by completing the five quests.
+Five starter spells are auto-slotted for character 1 at slots 1–5. Completing the five quests grants five advanced spells.
 
 | Slot | Starter spell | Element | MP | Damage | Quest reward → Advanced |
 |---|---|---|---|---|---|
@@ -1206,8 +1206,8 @@ Projectile size scales with tier through `projectileScale` in `effect_json`: 0.8
 ## Godot asset pipeline
 
 Each game lives in its **own** Godot project under `games/<game-slug>/`, and
-each chapter inside that project compiles to its **own** WASM bundle. Per-game
-`export_presets.cfg` holds one preset per chapter; the Makefile walks
+each chapter in that project compiles to its **own** WASM bundle. Per-game
+`export_presets.cfg` holds one preset per chapter. The Makefile walks
 `GAME_PROJECTS` and the preset list in each game's `case` arm, runs
 `godot --headless --export-release "<preset>"` from each game's directory, and
 writes the output under `backend/src/main/resources/assets/levels/<slug>/`.
@@ -1240,20 +1240,20 @@ flowchart TB
 The federated path serves the same exports through `wasm-fragment/` (an
 nginx that bakes `assets/levels/` and emits the COOP/COEP/CORP headers WASM
 games need) at `/_remotes/wasm-fragment/<slug>/index.html`. The Angular host's
-`HomeComponent` selects between the legacy classpath URL and the federated
-one via `SCENE_TYPE_TO_GAME_SLUG`.
+`HomeComponent` chooses between the legacy classpath URL and the federated
+one through `SCENE_TYPE_TO_GAME_SLUG`.
 
-Adding a new chapter touches four places — the game's `export_presets.cfg`,
+Adding a chapter touches four places: the game's `export_presets.cfg`,
 the Makefile's `case` arms in `build-godot` and `patch-godot`, the `chapters` DB row, and (optionally)
-`chapter_prerequisites`. Adding a brand-new game touches a fifth (a row in
-`federation_modules`) — or you can let the editor's *HugMesh Export*
-plugin produce an upload zip and let `GameUploadController` register
-everything atomically. Full walk-through with naming rules and common
-mistakes: see the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
+`chapter_prerequisites`. Adding a brand-new game touches a fifth, a row in
+`federation_modules`. Or let the editor's *HugMesh Export*
+plugin produce an upload zip, and let `GameUploadController` register
+everything atomically. For the full walk-through with naming rules and common
+mistakes, see the [Godot developer guide](docs/GODOT_DEVELOPER_GUIDE.md).
 
 ### User-added assets (textures, plugins, sounds)
 
-Drop a file into `backend/src/main/resources/assets/levels/<slug>/` then register
+Drop a file into `backend/src/main/resources/assets/levels/<slug>/`, then register
 it so GDScript can resolve it by label:
 
 ```
@@ -1264,9 +1264,9 @@ curl -X POST http://localhost:8080/api/chapters/<id>/assets \
        "contentType":"image/png"}'
 ```
 
-(The on-disk path keeps `/levels/` per the rename holdout — only the API path flipped to `/chapters/`.)
+(The on-disk path keeps `/levels/` as a rename holdout. Only the API path changed to `/chapters/`.)
 
-From GDScript (editor or web, via the `ApiClient` helper):
+From GDScript (editor or web, through the `ApiClient` helper):
 
 ```gdscript
 var api := ApiClient.new(); add_child(api)
@@ -1275,7 +1275,7 @@ api.resolve_asset(chapter_id, "oak-bark", func(url):
 )
 ```
 
-Chapter transitions from inside the game are one call:
+A chapter transition from inside the game is one call:
 
 ```gdscript
 $GameBridge.request_chapter_transition("field", 2)
