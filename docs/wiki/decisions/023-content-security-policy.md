@@ -1,20 +1,20 @@
 # Decision 023 — Content-Security-Policy for the federated host shell
 
-**Status**: Accepted 2026-05-12. First-cut policy lands as defence-in-depth alongside the existing OWASP header set; strict (nonce/hash-based) follow-up tracked below.
+**Status**: Accepted 2026-05-12. The first-cut policy is defence-in-depth next to the existing OWASP header set. The strict (nonce/hash-based) policy is tracked below.
 
 ## Context
 
-The `CLAUDE.md` "Known gaps" entry called out CSP as needing "an inventory of the federation runtime's eval / inline-script needs first." This decision documents that inventory and the policy that ships from it.
+The `CLAUDE.md` "Known gaps" entry said CSP needed "an inventory of the federation runtime's eval / inline-script needs first." This decision records that inventory and the policy built from it.
 
 ### What the federation runtime requires
 
 | Surface | Need | Why |
 |---|---|---|
-| `es-module-shims` in shimMode | `script-src 'unsafe-eval'` | Forced by the options block in [`src/index.html`](../../../frontend/src/index.html) (first an inline `<script type="esms-options">{ "shimMode": true }</script>`, now `assets/esms-init.js`; see Step 1). The shim rewrites bare ESM specifiers (`@angular/core`, `rxjs`, …) against the federation import map using `new Function(...)`. Dropping `'unsafe-eval'` breaks the host boot entirely. |
+| `es-module-shims` in shimMode | `script-src 'unsafe-eval'` | Forced by the options block in [`src/index.html`](../../../frontend/src/index.html) (first an inline `<script type="esms-options">{ "shimMode": true }</script>`, now `assets/esms-init.js`; see Step 1). The shim rewrites bare ESM specifiers (`@angular/core`, `rxjs`, …) against the federation import map with `new Function(...)`. Without `'unsafe-eval'` the host does not boot. |
 | The `esms-options` inline block | `script-src 'unsafe-inline'` | The federation runtime read its options from that inline script tag. Step 1 below moved them into `assets/esms-init.js`. The token stays for three other reasons. |
 | `es-module-shims` rewritten modules | `script-src blob:` | The shim materialises each rewritten ESM module as a `blob:` script. Without `blob:` the SPA blank-screens at bootstrap (observed in an e2e run on the integration branch, per the `nginx.conf` comment). |
-| Angular runtime style injection | `style-src 'unsafe-inline'` | Angular's component-encapsulation strategy injects per-component `<style>` elements at runtime. Strict CSP requires `ngCspNonce` wired on every dynamically-bootstrapped module — federated remotes complicate that. Defer to a follow-up. |
-| WASM workers + blob URLs | `worker-src 'self' blob:` | Godot's web build occasionally spawns blob-URL workers for threading. |
+| Angular runtime style injection | `style-src 'unsafe-inline'` | Angular's component encapsulation injects a `<style>` element per component at runtime. A strict CSP needs `ngCspNonce` on every dynamically bootstrapped module, and federated remotes make that hard. Deferred. |
+| WASM workers + blob URLs | `worker-src 'self' blob:` | Godot's web build sometimes spawns blob-URL workers for threading. |
 | Data + blob images | `img-src 'self' data: blob:` | Inline SVGs in some Angular components. |
 | Federated iframe | `frame-src 'self'` | The `/_remotes/wasm-fragment/<slug>/` proxy serves the Godot iframe; same-origin via the host nginx proxy. |
 
@@ -23,12 +23,12 @@ The `CLAUDE.md` "Known gaps" entry called out CSP as needing "an inventory of th
 | Surface | Note |
 |---|---|
 | `/api/*` (BFF) | Same-origin behind the host nginx — no external `connect-src` entries needed. |
-| `/api/auth/*` (Casdoor reverse-proxy) | Same-origin via the BFF; the browser never speaks to Casdoor directly. |
+| `/api/auth/*` (Casdoor reverse-proxy) | Same-origin via the BFF; the browser never talks to Casdoor directly. |
 | SSE `EventSource('/api/game/stream')` | Same-origin. |
 
 ## Decision
 
-Ship the following CSP from both `frontend/nginx.conf` and `frontend/nginx-tls.conf` (lockstep edit — both must carry the same headers per the `CLAUDE.md` drift rule):
+Ship this CSP from both `frontend/nginx.conf` and `frontend/nginx-tls.conf`. Edit them together; the `CLAUDE.md` drift rule says both must carry the same headers.
 
 ```
 default-src   'self';
@@ -47,28 +47,28 @@ report-uri    /api/security/csp-report;
 report-to     csp
 ```
 
-The first cut had no `blob:` and no reporting directives. Both were added later; the block above is the policy in both nginx files today.
+The first cut had no `blob:` and no reporting directives. Both came later. The block above is the policy in both nginx files today.
 
 The two `'unsafe-*'` tokens are deliberately retained as load-bearing constraints. Everything else clamps to same-origin, except `blob:` for scripts, images and workers.
 
-The TLS conf had drifted from the plain conf — it was missing `Cross-Origin-Resource-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy`. All seven (including the new CSP) are now present in both files in lockstep.
+The TLS conf had drifted from the plain conf. It lacked `Cross-Origin-Resource-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`. All seven (the new CSP included) are now in both files.
 
 ## Consequences
 
 ### Positive
 
-- An injected `<img src=evil.example/track>` or `<iframe src=evil>` is blocked at the browser level even if the BFF's input sanitisation lets HTML through.
-- `object-src 'none'` blocks `<embed>` / `<object>` entirely.
-- `base-uri 'self'` prevents an injected `<base href>` from re-pointing every relative URL on the page.
-- `frame-ancestors 'self'` reinforces the existing `X-Frame-Options: DENY` for browsers that prefer the CSP directive.
-- The TLS conf drift gap closed — TLS deployments now carry the same posture as the plain-HTTP listener.
+- The browser blocks an injected `<img src=evil.example/track>` or `<iframe src=evil>`, even when the BFF's input sanitisation lets HTML through.
+- `object-src 'none'` blocks `<embed>` and `<object>` entirely.
+- `base-uri 'self'` stops an injected `<base href>` from re-pointing every relative URL on the page.
+- `frame-ancestors 'self'` backs up `X-Frame-Options: DENY` for browsers that prefer the CSP directive.
+- The TLS drift is closed. TLS deployments carry the same headers as the plain-HTTP listener.
 
 ### Negative
 
-- `'unsafe-eval'` is still allowed on `script-src`. A future XSS that can plant attacker-controlled JS gets to call `eval`. Acceptable because:
-  - It's locked to `'self'` — the planting itself still has to clear sanitisation.
-  - The federated host genuinely needs the token; the alternative (drop es-module-shims, switch to a different federation runtime) is a multi-week migration.
-- `'unsafe-inline'` on script + style same trade-off. The path to strict CSP is documented as a follow-up below.
+- `script-src` still allows `'unsafe-eval'`. A future XSS that plants attacker-controlled JS can call `eval`. We accept this because:
+  - The policy is locked to `'self'`, so the planting still has to clear sanitisation.
+  - The federated host needs the token. The alternative (drop es-module-shims, move to another federation runtime) is a multi-week migration.
+- `'unsafe-inline'` on script and style is the same trade-off. The path to a strict CSP is below.
 
 ### Neutral
 
@@ -76,45 +76,45 @@ The TLS conf had drifted from the plain conf — it was missing `Cross-Origin-Re
 
 ## Path to strict CSP (follow-up)
 
-Three steps to drop both `'unsafe-eval'` and `'unsafe-inline'`:
+Three steps remove both `'unsafe-eval'` and `'unsafe-inline'`:
 
 ### Step 1 — externalise `esms-options`  🟡 PARTIAL (#54 follow-up)
 
-The inline `<script type="esms-options">{ "shimMode": true }</script>` block in `frontend/src/index.html` is now `<script src="assets/esms-init.js"></script>`, where the new file sets `window.esmsInitOptions = { shimMode: true }` BEFORE es-module-shims.js loads. es-module-shims accepts both option-delivery paths (inline `type="esms-options"` AND the global). The native-federation builder ALSO auto-injects an inline `esms-options` block in the body during post-processing; a `sed -e 's|<script type="esms-options">[^<]*</script>||g'` step in `frontend/Dockerfile` strips it after the build.
+The inline `<script type="esms-options">{ "shimMode": true }</script>` block in `frontend/src/index.html` is now `<script src="assets/esms-init.js"></script>`. The new file sets `window.esmsInitOptions = { shimMode: true }` BEFORE es-module-shims.js loads. es-module-shims accepts both ways of passing options (the inline `type="esms-options"` tag and the global). The native-federation builder also injects an inline `esms-options` block into the body during post-processing. A `sed -e 's|<script type="esms-options">[^<]*</script>||g'` step in `frontend/Dockerfile` strips it after the build.
 
-**However:** the live e2e on the resulting build showed three OTHER inline-script paths still active, so `'unsafe-inline'` could NOT come out of `script-src` yet. The token is documented as still load-bearing for:
+**However:** the live e2e on that build showed three OTHER inline-script paths still active, so `'unsafe-inline'` could not yet come out of `script-src`. The token is still load-bearing for:
 
-1. **`es-module-shims.js` itself dynamically injects inline `<script>` blocks** for each rewritten ESM module. Blocking inline → federation runtime can't load any remote → SPA blank-screens.
-2. **Angular beasties build optimisation** emits `<link rel="stylesheet" href="…" media="print" onload="this.media='all'">` — an inline event handler that CSP counts under `script-src 'unsafe-inline'`.
-3. **Godot bundle injects an inline boot script inside an `about:srcdoc` iframe** — the iframe inherits the document CSP.
+1. **`es-module-shims.js` itself injects inline `<script>` blocks** for each rewritten ESM module. Block inline scripts and the federation runtime can load no remote, so the SPA blank-screens.
+2. **Angular's beasties build optimisation** emits `<link rel="stylesheet" href="…" media="print" onload="this.media='all'">`. CSP counts that inline event handler under `script-src 'unsafe-inline'`.
+3. **The Godot bundle injects an inline boot script inside an `about:srcdoc` iframe.** The iframe inherits the document CSP.
 
-Each is its own follow-up before the token can come out (move beasties to runtime stylesheet load; nonce-flow the dynamic script tags es-module-shims emits — or wait for step 2 to drop shimMode entirely; iframe-side CSP override on the wasm-fragment proxy). The `esms-options` externalisation is the cheapest of the four and stays as the cleanest example of the strict-CSP migration shape.
+Each is its own follow-up before the token can go. Move beasties to a runtime stylesheet load. Nonce the dynamic script tags es-module-shims emits, or wait for step 2 to drop shimMode. Override the CSP iframe-side on the wasm-fragment proxy. The `esms-options` move was the cheapest of the four. It remains the cleanest example of the strict-CSP migration.
 
 ### Step 2 — disable `shimMode`  🚧 BLOCKED on federation builder
 
-`shimMode: true` is what makes es-module-shims call `new Function(...)` (hence `'unsafe-eval'`). Dropping it requires the `@angular-architects/native-federation` build to emit plain `<script type="module">` tags instead of `<script type="module-shim">`. The builder currently hardcodes the `module-shim` type; without it, native browsers ignore the federation entry scripts and the SPA fails to bootstrap.
+`shimMode: true` is why es-module-shims calls `new Function(...)` (hence `'unsafe-eval'`). To drop it, the `@angular-architects/native-federation` build must emit plain `<script type="module">` tags instead of `<script type="module-shim">`. The builder hardcodes `module-shim`. Native browsers ignore those scripts, and the SPA fails to bootstrap.
 
-Paths forward (each its own follow-up PR):
-- Upstream patch / configuration option on `@angular-architects/native-federation` to opt out of shimMode.
-- Migrate off native-federation onto `@module-federation/runtime` (the Webpack-derived federation library that emits plain `type="module"`).
-- Post-build script that rewrites `type="module-shim"` → `type="module"` after the federation build completes (brittle).
+Ways forward (each its own PR):
+- An upstream patch or option on `@angular-architects/native-federation` to opt out of shimMode.
+- Move off native-federation to `@module-federation/runtime` (the Webpack-derived library that emits plain `type="module"`).
+- A post-build script that rewrites `type="module-shim"` → `type="module"` after the federation build. This is brittle.
 
-Until one of those lands, `script-src 'unsafe-eval'` stays. The scope is narrowed by `script-src 'self'` so the worst case still requires planted code to clear sanitisation.
+Until one lands, `script-src 'unsafe-eval'` stays. `script-src 'self'` narrows it, so the worst case still needs planted code to clear sanitisation.
 
 ### Step 3 — `ngCspNonce`  🚧 BLOCKED on per-request nonce flow
 
-Angular's component encapsulation injects per-component `<style>` elements at runtime, which need either:
-- `style-src 'unsafe-inline'` (current state), OR
-- `style-src 'nonce-<value>'` with a fresh nonce per request that the server writes into both the CSP header AND every dynamically-injected style tag (via `CSP_NONCE` provider).
+Angular's component encapsulation injects a `<style>` element per component at runtime. That needs either:
+- `style-src 'unsafe-inline'` (today), OR
+- `style-src 'nonce-<value>'`, with a fresh nonce per request that the server writes into the CSP header AND every injected style tag (through the `CSP_NONCE` provider).
 
-The blocker is the nonce-per-request flow. nginx alone can't easily generate a unique nonce and inject it into the response body (which `<app-root>`'s `ngCspNonce` attribute lives on). Options:
-- Have the BFF (Java) serve `index.html` and template the nonce in. Requires moving SPA shell serving off nginx.
-- Use an nginx Lua module (`ngx_http_lua_module`) to generate the nonce + sub_filter the body. Adds Lua to the image.
-- Have a dedicated SSR / edge service template the nonce in.
+The blocker is the per-request nonce. nginx alone cannot easily generate a unique nonce and inject it into the response body, where `<app-root>`'s `ngCspNonce` attribute lives. Options:
+- The BFF (Java) serves `index.html` and templates the nonce in. This moves SPA shell serving off nginx.
+- An nginx Lua module (`ngx_http_lua_module`) generates the nonce and `sub_filter`s the body. This adds Lua to the image.
+- A dedicated SSR or edge service templates the nonce in.
 
-Each is a substantial architecture change. Deferred until the rest of the platform pulls in one of these capabilities for other reasons.
+Each is a large architecture change. Deferred until the platform needs one of them for other reasons.
 
-Each step is independent and lands as its own PR; all three together produce a "strict" CSP with no `'unsafe-*'` tokens.
+The steps are independent and each lands as its own PR. Together they give a "strict" CSP with no `'unsafe-*'` tokens.
 
 ## Verification
 
@@ -125,6 +125,6 @@ Each step is independent and lands as its own PR; all three together produce a "
 
 ## Follow-ups
 
-- Strict CSP (drop both `'unsafe-*'` tokens) via the three-step plan above.
-- ~~`report-to` / `report-uri` directive + a BFF endpoint that collects + aggregates violations.~~ — done. Both nginx configs ship `report-uri /api/security/csp-report` + a `Report-To: {"group":"csp",...}` header pointing at the same endpoint. `CspReportController` accepts both delivery formats (`application/csp-report` legacy + `application/reports+json` modern) at `/api/security/csp-report`, log-only at WARN. Allow-listed in `SecurityConfig.PUBLIC_PATHS` because browsers POST these unauthenticated. ClickHouse persistence deferred to a later follow-up if the WARN-stream proves useful in aggregate.
-- Per-route policy tightening — `/login` doesn't need `worker-src blob:`, `/admin` doesn't need `frame-src 'self'`. Cost / benefit is marginal until the strict version lands.
+- Strict CSP (drop both `'unsafe-*'` tokens) through the three-step plan above.
+- ~~`report-to` / `report-uri` directive + a BFF endpoint that collects + aggregates violations.~~ — done. Both nginx configs ship `report-uri /api/security/csp-report` and a `Report-To: {"group":"csp",...}` header pointing at the same endpoint. `CspReportController` accepts both formats (legacy `application/csp-report`, modern `application/reports+json`) at `/api/security/csp-report` and only logs at WARN. It is allow-listed in `SecurityConfig.PUBLIC_PATHS` (as `/api/security/**`) because browsers POST reports unauthenticated. ClickHouse storage waits until the WARN stream proves useful in aggregate.
+- Per-route tightening: `/login` does not need `worker-src blob:`, and `/admin` does not need `frame-src 'self'`. The gain is small until the strict policy lands.
