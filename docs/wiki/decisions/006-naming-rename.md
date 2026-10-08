@@ -1,6 +1,6 @@
 # 006 — `level → chapter`, `spell → instant` rename
 
-**Status:** Adopted in PR #20; follow-ups in PR #24.
+**Status:** Adopted in PR #20; follow-ups in PR #24. Both numbers belong to the former `Snapdragon-Systems` repository (merge commits `06705d4` and `d00a02f`). PRs #20 and #24 in `hugmesh/hugmesh-games` today are different changes.
 
 ## Decision
 
@@ -19,7 +19,7 @@ The user-facing terms changed:
 
 ## How to apply
 
-- Database: `chapters`, `chapter_id`, `chapter_assets`, `chapter_prerequisites`, `current_chapter_id`. `skill_type='instant'` on the `skills` table.
+- Database: `chapters`, `chapter_id`, `chapter_assets`, `chapter_prerequisites`, `current_chapter_id`. `skill_type='instant'` on the `skills` table, and the `games.features` key `spell_loadout` is now `instant_loadout` (changeset 028-7).
 - BFF: `Chapter*.java` classes, `/api/chapters/...` paths, `InstantService` (formerly `SpellService`).
 - Frontend: `chapterId`, `chapterSlug` in DTOs and Angular component inputs.
 - **Backwards-compatibility alias:** `@RequestMapping({"/api/chapters", "/api/levels"})` on `ChapterController` and `ChapterAssetController` so already-exported WASM bundles that hard-coded `/api/levels/...` keep working. New code uses `/api/chapters/`.
@@ -38,7 +38,7 @@ PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tabl
 3. If the entity already uses the new name (e.g. `chapterId`), the migration is the only fix needed. If the entity also has the old name, sed-rename it.
 4. Spring Data derived queries are parsed against the entity property tree at startup — `findByLevelId` against an entity whose property is `chapterId` produces `PropertyReferenceException: No property 'levelId' found`. Rename the method.
 
-PR #24 is the canonical example: five follow-up Liquibase changesets (028-9 through 028-13) plus four Spring Data method renames cleared the rename's tail.
+The tail took two follow-ups. PR #24 added changesets 028-9 to 028-11 (`level_prerequisites` table, column and index) and renamed four Spring Data methods (`findByLevelId` and its variants). Commit `7f5fcd8`, made the same day, added 028-12 (`scene_elements.level_id`) and 028-13 (`quests.level_id`) and the `/api/levels` alias. That makes five follow-up changesets, 028-9 through 028-13.
 
 ## Trade-offs accepted
 
