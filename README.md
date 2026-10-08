@@ -1858,7 +1858,7 @@ hugmesh.games/                         # HugMesh Game Studio repo
 ├── frontend/                            # Angular 22 host shell
 │   ├── nginx.conf / nginx-tls.conf     # Reverse-proxy /api/* and /_remotes/<slug>/
 │   ├── Dockerfile                       # ng build under @angular-architects/native-federation
-│   ├── federation.config.js             # Host-side federation config
+│   ├── federation.config.mjs            # Host-side federation config
 │   ├── projects/                        # Federated remote bundles (per-remote Angular projects):
 │   │                                      login, admin, mod, publisher, api-docs,
 │   │                                      games-three-wizards, games-dodecahedron,
