@@ -51,7 +51,7 @@ The latest row with `supersededAt = null` is the active version. Its `versionDir
 
 Two options.
 
-### Option A — upload the old zip again
+### Option A — admin UI
 
 If you still have the old zip, upload it again at `/admin/games`. An identical bundle hashes to the same version directory, so the BFF reuses it if it is still on disk and otherwise recreates it. The upload adds a new `game_uploads` row, re-points `games.current_version_dir` and supersedes the rest.
 
