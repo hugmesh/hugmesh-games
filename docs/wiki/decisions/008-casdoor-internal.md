@@ -4,21 +4,21 @@
 
 ## Decision
 
-Casdoor is reachable **only from inside the compose network**. The host BFF exposes a thin reverse-proxy at `/api/auth/*` that handles the entire login flow on the player's behalf. Casdoor itself never gets a published port.
+Casdoor is reachable **only from inside the compose network**. The host BFF exposes a thin proxy at `/api/auth/*` that handles the login on the player's behalf. Casdoor itself never gets a published port.
 
 ## Why
 
 Two reasons.
 
-1. **Admin surface area.** Casdoor's admin UI is part of the same package as the user-facing auth endpoint. Exposing the auth endpoint exposes the admin UI; gating the admin UI per-route in Casdoor is doable but error-prone. Putting Casdoor entirely behind the BFF makes the public surface explicit (`/api/auth/token`, `/api/auth/me`) and rejects everything else.
+1. **Admin surface area.** Casdoor's admin UI is part of the same package as the user-facing auth endpoint. Exposing the auth endpoint exposes the admin UI; gating the admin UI per-route in Casdoor is doable but error-prone. Putting Casdoor entirely behind the BFF makes the public surface explicit: `POST /api/auth/token` is the only `/api/auth/*` route the BFF serves, and nothing else of Casdoor's is reachable.
 2. **JWKS endpoint disambiguation.** Casdoor has two JWKS endpoints: `/.well-known/jwks` (anonymous) and `/api/get-jwks` (admin-auth-required). The Spring resource-server uses the public one. With Casdoor private, there's no risk of a misconfigured proxy accidentally fronting the admin variant.
 
 ## How to apply
 
-- **Compose:** Casdoor service has no `ports:` block. Only the network-internal port is reachable.
-- **BFF:** `/api/auth/token` proxies the OAuth2 code-exchange to Casdoor's token endpoint. `/api/auth/me` resolves the bearer token to a Casdoor user.
+- **Compose:** the `casdoor` service in `docker-compose.yml` has no `ports:` block. Only the network-internal port 8000 is reachable.
+- **BFF:** `POST /api/auth/token` (`CasdoorAuthController`) takes `{username, password}` and forwards an OAuth2 password grant to Casdoor's `/api/login/oauth/access_token`. It injects `client_id` and `client_secret` server-side. It is not a code exchange, and there is no `/api/auth/me`.
 - **JWT verification:** `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` points at `http://casdoor:8000/.well-known/jwks` — the anonymous variant on the compose network.
-- **Role catalog (`/api/admin/roles`):** also a server-side proxy; hits Casdoor's admin API with a server-held client secret so the browser never sees Casdoor's admin credentials.
+- **Role catalog (`/api/admin/roles`):** also a server-side proxy (`RoleProxyController`, admin only). It gets a `client_credentials` token with the server-held client secret and calls Casdoor's `/api/get-roles`, so the browser never sees Casdoor's admin credentials.
 
 ## Trade-offs accepted
 
