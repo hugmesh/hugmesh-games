@@ -18,9 +18,10 @@ differs from its `plan()` (or that has none), or the 180 s deadline lapsing.
 `make e2e` loads the exported WASM bundle in a real browser, which is the right
 place for boot / asset / iframe coverage but a hopeless place to assert that a
 *forged peer message* is rejected. Every suite here drives the room's transport
-handlers directly — `_on_movement`, `_on_world`, `_dispatch` — which is exactly
-what the SSE and postMessage drains call at runtime, so a hostile payload can
-be injected without a browser, a session, or a BFF.
+handlers directly: `_on_movement` and `_on_world` in `room_controller.gd`, and
+`_dispatch` in `chat3d_bridge.gd`. The SSE and postMessage drains call the same
+functions at runtime, so a hostile payload can be injected without a browser, a
+session, or a BFF.
 
 ## Conventions
 
@@ -67,7 +68,7 @@ ArrayBuffer→base64 normaliser. A headless Godot run can never execute it, so i
 is covered separately by a plain-node functional test:
 
 ```bash
-node games/_shared/test/chat3d-envelope.test.mjs    # or: make test-games-js
+node games/_shared/test/chat3d-envelope.test.mjs    # `make test-games-js` runs every games/_shared/test/*.test.mjs
 ```
 
 That test extracts the JS **from the `.gd` source** rather than re-typing it,
