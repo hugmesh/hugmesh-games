@@ -24,14 +24,22 @@ import static org.assertj.core.api.Assertions.fail;
  * {@code games.features} object that lacks {@code instant_loadout}, {@code world}
  * or {@code control}, and must not REPLACE the object.
  *
- * <p><b>What this is and is not.</b> {@code manifest_builder.gd} is GDScript and
- * there is no Godot in the backend build, so nothing here executes the plugin. It
- * reads the plugin source (and the committed character-forge {@code register.sql}
- * and {@code manifest.json}) as text and pins the two things that broke:
- * {@code _DEFAULT_FEATURES} is exactly changeset 063-1's eleven keys, and the
- * emitted features statement is a jsonb merge ({@code features || '...'}), not
- * {@code features = '...'}. A change to the plugin that keeps the text shape but
- * breaks the behaviour is not caught; an export run in the editor is the real proof.
+ * <p><b>What this is and is not.</b> {@code manifest_builder.gd} is GDScript and the
+ * backend build does not run it, so this class reads the plugin source (and the
+ * committed character-forge {@code register.sql} and {@code manifest.json}) as text. It
+ * pins: {@code _DEFAULT_FEATURES} is exactly changeset 063-1's eleven keys; the emitted
+ * features statement is a jsonb merge ({@code features || '...'}), not
+ * {@code features = '...'}; and no {@code --} banner line the generator writes holds a
+ * quote or a semicolon, which the policy splitter would misread (see
+ * {@link #generatorBannerKeepsTheSplitterInSyncSoTheFeaturesUpdateIsVettedOnItsOwn}).
+ * A change that keeps the text shape but breaks behaviour (for example
+ * {@code _merged_features} no longer copying the defaults) is NOT caught here. That
+ * behaviour is checked by running the plugin under Godot, which this machine has:
+ * preload {@code manifest_builder.gd} from a scratch project's {@code addons/hugmesh_export},
+ * call {@code build()} then {@code to_register_sql()} in a {@code SceneTree} script, and
+ * run {@code godot --headless --path <project> -s gen.gd}. The committed character-forge
+ * {@code register.sql} is hand-maintained (richer comments, a {@code chapters} row), not
+ * the generator's output; only its features object is pinned against {@code manifest.json}.
  *
  * <p>The merge itself is simulated in Java ({@code a || b}: the right operand wins
  * on a key collision) to show a fresh install ends with the three flags true. Gate 2
@@ -162,6 +170,30 @@ class ManifestBuilderFeaturesGuardTest {
         String sql = read(REGISTER_SQL);
         assertThat(RegisterSqlPolicy.vet(sql))
                 .anyMatch(s -> s.startsWith("UPDATE games SET features = features ||"));
+    }
+
+    @Test
+    void generatorBannerKeepsTheSplitterInSyncSoTheFeaturesUpdateIsVettedOnItsOwn() throws IOException {
+        // RegisterSqlPolicy.split() does not model `--` comments, so a lone quote in a
+        // banner line opens a "string" that swallows the file, and a semicolon ends a
+        // statement early. Take the banner lines the generator really writes.
+        Matcher banner = Pattern.compile("\"(--[^\"]*)\\\\n\"").matcher(read(BUILDER));
+        List<String> lines = new java.util.ArrayList<>();
+        while (banner.find()) {
+            lines.add(banner.group(1));
+        }
+        assertThat(lines).as("`--` banner literals found in %s", BUILDER).hasSizeGreaterThanOrEqualTo(3);
+        for (String line : lines) {
+            assertThat(line).as("generator banner line").doesNotContain("'").doesNotContain(";");
+        }
+        String blob = String.join("\n", lines) + "\n\n"
+                + "INSERT INTO games (name, description, slug, sort_order, created_at)\n"
+                + "VALUES ('n', 'd', 'demo-game', 0, NOW())\n"
+                + "ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name;\n\n"
+                + "UPDATE games SET features = features || '{\"world\":true}'::jsonb WHERE slug = 'demo-game';\n\n";
+        List<String> vetted = RegisterSqlPolicy.vet(blob);
+        assertThat(vetted).as("the banner is dropped and the INSERT and the features UPDATE are separate statements").hasSize(2);
+        assertThat(vetted.get(1)).startsWith("UPDATE games SET features = features ||");
     }
 
     @Test
