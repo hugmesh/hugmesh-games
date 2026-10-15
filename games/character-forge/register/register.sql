@@ -57,4 +57,4 @@ SELECT g.id, 'all', NULL, 'system:upload', NOW()
  WHERE g.slug = 'character-forge'
 ON CONFLICT (game_id, scope, scope_value) DO NOTHING;
 
-UPDATE games SET features = '{"spell_loadout":false,"quests":false,"items":false,"char_progression":false,"audio":true,"gamepad":false,"mouse":true,"keyboard":true,"touch":true}'::jsonb WHERE slug = 'character-forge';
+UPDATE games SET features = features || '{"instant_loadout":false,"quests":false,"items":false,"char_progression":false,"audio":true,"gamepad":false,"mouse":true,"keyboard":true,"touch":true,"world":true,"control":true}'::jsonb WHERE slug = 'character-forge';
