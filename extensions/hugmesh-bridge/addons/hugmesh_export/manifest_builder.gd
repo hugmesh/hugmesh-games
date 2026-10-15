@@ -15,9 +15,14 @@ const SCHEMA_VERSION := 2
 # Default per-feature flag set declared by a vanilla game upload.
 # JRPG-shaped titles flip everything on; chrome-less demos override
 # specific flags via inputs["features"]. Keys MUST match the BFF's
-# games.features jsonb vocabulary (see Liquibase 026 + GameFeatures.java).
+# games.features jsonb vocabulary: the eleven keys of the column DEFAULT
+# set by Liquibase changeset 063-1 (instant_loadout was spell_loadout
+# before 028-7; world and control are the two relay kinds). Input gate 2
+# refuses an event whose kind flag is ABSENT, so a key missing here is a
+# 405 for that game after an install (hugmesh-games#17). Pinned against
+# this file's text by ManifestBuilderFeaturesGuardTest in the backend.
 const _DEFAULT_FEATURES := {
-	"spell_loadout": true,
+	"instant_loadout": true,
 	"quests": true,
 	"items": true,
 	"char_progression": true,
@@ -26,6 +31,8 @@ const _DEFAULT_FEATURES := {
 	"mouse": true,
 	"keyboard": true,
 	"touch": true,
+	"world": true,
+	"control": true,
 }
 
 
@@ -209,12 +216,16 @@ static func to_register_sql(manifest: Dictionary) -> String:
 	sql += "SELECT g.id, 'all', NULL, 'system:upload', NOW() FROM games g WHERE g.slug = '%s'\n" % slug
 	sql += "ON CONFLICT (game_id, scope, scope_value) DO NOTHING;\n\n"
 
-	# Per-game feature flags — UPDATE the row register.sql just
-	# upserted above. Liquibase 026 added the column with a JRPG-default
-	# fallback, so games that don't declare features keep the default.
+	# Per-game feature flags — MERGE into the row register.sql just
+	# upserted above. `features || '<flags>'` keeps every key the flags
+	# do not name (right operand wins on a collision), so a key the
+	# server added later survives an upload instead of being dropped by
+	# a whole-object replace. Liquibase 063-1 gave the column the same
+	# eleven-key default as _DEFAULT_FEATURES. RegisterSqlPolicy accepts
+	# this shape (it only reads the columns left of `=`).
 	var features: Dictionary = manifest.get("features", {})
 	if not features.is_empty():
-		sql += "UPDATE games SET features = '%s'::jsonb WHERE slug = '%s';\n\n" % [
+		sql += "UPDATE games SET features = features || '%s'::jsonb WHERE slug = '%s';\n\n" % [
 			_esc(JSON.stringify(features)),
 			slug,
 		]

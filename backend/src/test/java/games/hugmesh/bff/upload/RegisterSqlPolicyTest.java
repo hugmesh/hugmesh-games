@@ -62,6 +62,10 @@ class RegisterSqlPolicyTest {
     private static final String FEATURES_UPDATE =
             "UPDATE games SET features = '{\"pvp\":true}'::jsonb WHERE slug = 'my-game'";
 
+    /** The shape manifest_builder.gd emits since hugmesh-games#17: a jsonb merge, not a replace. */
+    private static final String FEATURES_MERGE =
+            "UPDATE games SET features = features || '{\"world\":true,\"control\":true}'::jsonb WHERE slug = 'my-game'";
+
     private static final String EVENT_SUPPORT_INSERT = """
             INSERT INTO game_event_support (game_slug, event_kind, event_type, direction)
             VALUES ('my-game', 'move', 'tick', 'both')
@@ -135,6 +139,29 @@ class RegisterSqlPolicyTest {
             "INSERT INTO games (slug, name) VALUES ('my-game', 'X') ON CONFLICT (slug) DO UPDATE SET domain = 'brand-y'",
     })
     void rejectsAnyDomainColumnWrite(String stmt) {
+        assertReject(stmt);
+    }
+
+    // ── hugmesh-games#17: the features write is a jsonb merge ────────────────
+
+    @Test
+    void acceptsTheFeaturesJsonbMergeForm() {
+        assertThatCode(() -> RegisterSqlPolicy.validate(FEATURES_MERGE)).doesNotThrowAnyException();
+        // and it survives the whole-blob path
+        String blob = GAMES_INSERT + ";\n\n" + FEATURES_MERGE + ";\n";
+        assertThat(RegisterSqlPolicy.vet(blob)).hasSize(2);
+        assertThat(RegisterSqlPolicy.vet(blob).get(1)).startsWith("UPDATE games SET features = features ||");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            // the merge form must not widen what an UPDATE may touch
+            "UPDATE games SET features = features || '{}'::jsonb, current_version_dir = 'file:/etc' WHERE slug = 'my-game'",
+            "UPDATE games SET name = name || 'x' WHERE slug = 'my-game'",
+            "UPDATE games SET features = features || '{}'::jsonb, domain = 'brand-y' WHERE slug = 'my-game'",
+            "UPDATE games SET domain = domain || 'x', features = features || '{}'::jsonb WHERE slug = 'my-game'",
+    })
+    void theMergeFormStillRejectsEveryNonFeaturesColumn(String stmt) {
         assertReject(stmt);
     }
 
