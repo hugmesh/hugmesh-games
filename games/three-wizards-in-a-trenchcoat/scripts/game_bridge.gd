@@ -221,7 +221,9 @@ func send_control(action: String, pressed: bool) -> void:
 	# and attach it as `Authorization: Bearer <token>` so the BFF can
 	# verify the caller via JWT instead of the legacy X-Casdoor-Id
 	# header (which any client could spoof). Same-origin iframe →
-	# window.parent.sessionStorage is reachable; cross-origin would
+	# window.parent.localStorage is reachable (AuthService keeps the
+	# session there so open-in-new-tab stays signed in; sessionStorage
+	# is only a per-tab fallback); cross-origin would
 	# raise SecurityError and we fall through to an unauthenticated
 	# request — the BFF's controller-role check then has no identity
 	# and skips, matching the previous Godot bridge behaviour.
@@ -229,7 +231,8 @@ func send_control(action: String, pressed: bool) -> void:
 (function(){
 	var token = '';
 	try {
-		var raw = window.parent.sessionStorage.getItem('tw_auth');
+		var raw = window.parent.localStorage.getItem('tw_auth')
+				|| window.parent.sessionStorage.getItem('tw_auth');
 		if (raw) {
 			var stored = JSON.parse(raw);
 			token = stored.accessToken || '';
