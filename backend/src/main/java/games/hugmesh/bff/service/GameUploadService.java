@@ -611,8 +611,9 @@ public class GameUploadService {
      * <ol>
      *   <li>{@link RegisterSqlPolicy#vet} default-deny allowlist — only INSERTs
      *       into the six catalog tables / a games feature-flag UPDATE; backed by
-     *       a standard-conforming-strings lexer that rejects backslash/E''/$tag$/
-     *       block-comment desyncs.</li>
+     *       a standard-conforming-strings lexer that strips {@code --} comments
+     *       and rejects backslash/E''/$tag$/block-comment/double-quoted-identifier
+     *       desyncs, so the executed text is exactly the vetted, comment-free text.</li>
      *   <li>Per-statement execution — each vetted statement runs via its own
      *       {@code db.sql(...)} call; a belt-and-suspenders guard rejects any
      *       statement that still contains a top-level {@code ;}, preventing a
@@ -681,36 +682,22 @@ public class GameUploadService {
     }
 
     /**
-     * Returns {@code true} if {@code s} contains a {@code ;} character that is
-     * outside a standard-conforming single-quoted string literal.
+     * Belt-and-suspenders guard after {@link RegisterSqlPolicy#vet}: returns
+     * {@code true} unless {@code s} is provably ONE statement, so a multi-statement
+     * blob never reaches the Postgres simple-query protocol, which would run every
+     * {@code ;}-separated statement in sequence.
      *
-     * <p>Used as a belt-and-suspenders guard after {@link RegisterSqlPolicy#vet}
-     * to prevent a multi-statement blob from reaching the Postgres simple-query
-     * protocol, which would run every {@code ;}-separated statement in sequence.
+     * <p>Delegates to {@link RegisterSqlPolicy#containsTopLevelSeparator}, which
+     * lexes the way Postgres does: {@code ;} inside a single-quoted literal, a
+     * double-quoted identifier or a {@code --} / block comment is not a separator,
+     * and a quote inside a comment does not open a literal. An unterminated
+     * literal or a construct it cannot model counts as a separator (fail closed).
      *
      * @param s a single vetted statement string
-     * @return {@code true} if a top-level separator was found
+     * @return {@code true} if a top-level separator was found or the text cannot be proven single
      */
-    private static boolean containsTopLevelSeparator(String s) {
-        boolean inString = false;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (inString) {
-                if (c == '\'') {
-                    // Escaped quote inside a string literal — skip the next char.
-                    if (i + 1 < s.length() && s.charAt(i + 1) == '\'') {
-                        i++;
-                    } else {
-                        inString = false;
-                    }
-                }
-            } else if (c == '\'') {
-                inString = true;
-            } else if (c == ';') {
-                return true;
-            }
-        }
-        return false;
+    static boolean containsTopLevelSeparator(String s) {
+        return RegisterSqlPolicy.containsTopLevelSeparator(s);
     }
 
     // -------------------------------------------------------------------------
