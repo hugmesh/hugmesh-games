@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.fail;
  * pins: {@code _DEFAULT_FEATURES} is exactly changeset 063-1's eleven keys; the emitted
  * features statement is a jsonb merge ({@code features || '...'}), not
  * {@code features = '...'}; and no {@code --} banner line the generator writes holds a
- * quote or a semicolon, which the policy splitter would misread (see
+ * quote or a semicolon, which an older policy splitter would misread (see
  * {@link #generatorBannerKeepsTheSplitterInSyncSoTheFeaturesUpdateIsVettedOnItsOwn}).
  * A change that keeps the text shape but breaks behaviour (for example
  * {@code _merged_features} no longer copying the defaults) is NOT caught here. That
@@ -174,9 +174,10 @@ class ManifestBuilderFeaturesGuardTest {
 
     @Test
     void generatorBannerKeepsTheSplitterInSyncSoTheFeaturesUpdateIsVettedOnItsOwn() throws IOException {
-        // RegisterSqlPolicy.split() does not model `--` comments, so a lone quote in a
-        // banner line opens a "string" that swallows the file, and a semicolon ends a
-        // statement early. Take the banner lines the generator really writes.
+        // RegisterSqlPolicy strips `--` comments before splitting, so a quote in a banner
+        // no longer desyncs it; the generator still keeps its banners free of a quote and
+        // a semicolon (an older splitter read them as a string opener / statement end).
+        // Take the banner lines the generator really writes.
         Matcher banner = Pattern.compile("\"(--[^\"]*)\\\\n\"").matcher(read(BUILDER));
         List<String> lines = new java.util.ArrayList<>();
         while (banner.find()) {

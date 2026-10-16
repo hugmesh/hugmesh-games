@@ -67,21 +67,21 @@ public final class RegisterSqlPolicy {
 
     /**
      * Validates a whole {@code register.sql} blob: splits it into statements
-     * (the same {@code ;}-outside-strings split the executor uses, dropping
-     * comment-only fragments) and checks each against the allowlist. Throws
+     * (comments removed first, then a {@code ;}-outside-strings split, dropping
+     * empty fragments) and checks each against the allowlist. Throws
      * {@link ResponseStatusException} 400 on the first violation. Returns the
      * vetted statements in execution order so the caller runs exactly what was
      * validated.
      */
     public static List<String> vet(String sql) {
-        // Reject the lexer constructs this policy does not (and need not) model
-        // BEFORE splitting. The legitimate export plugin only ever emits plain
-        // single-quoted literals + '--' line comments; anything fancier is both
-        // out-of-policy and a desync risk for the lightweight lexer below, so we
-        // fail closed instead of trying to lex it precisely. (OWASP A03 — the
-        // original lexer mis-handled all of these.)
-        rejectUnsupportedLexerConstructs(sql);
-        List<String> stmts = split(sql);
+        // One pass over the raw bytes: reject the lexer constructs this policy
+        // does not (and need not) model, drop every {@code --} line comment, and
+        // fail on an unterminated literal. Everything after this point sees
+        // comment-free text, and the caller executes exactly that text, so a
+        // quote or a ';' hiding in a comment can neither desync the splitter nor
+        // reach Postgres. (OWASP A03: the original lexer was quote-only, so
+        // {@code -- '} flipped its string parity and hid a second statement.)
+        List<String> stmts = split(stripComments(sql));
         for (String s : stmts) {
             validate(s);
         }
@@ -89,30 +89,41 @@ public final class RegisterSqlPolicy {
     }
 
     /**
-     * Fail-closed pre-scan for SQL string/comment forms the lightweight lexer
-     * does not model and the generator never emits:
+     * Single lexer pass shared by {@link #vet} and {@link #validate}. Returns
+     * {@code sql} with every {@code --} line comment removed (the terminating
+     * line break is kept, so two tokens never fuse), and throws
+     * {@link ResponseStatusException} 400 on anything it cannot model exactly:
      * <ul>
      *   <li>C-style escape strings {@code E'…'} / {@code e'…'} (backslash IS an
      *       escape there, the inverse of standard-conforming strings);</li>
      *   <li>dollar-quoting {@code $tag$ … $tag$} (a {@code ;} or {@code '} in the
      *       body is data, not a separator/quote);</li>
      *   <li>C-style block comments {@code /* … *}{@code /} (can hide a quote or a
-     *       {@code ;}).</li>
+     *       {@code ;});</li>
+     *   <li>double-quoted identifiers {@code "…"} (a {@code '} or {@code ;}
+     *       inside is data to Postgres but a quote/separator to a quote-only
+     *       lexer; the generator never emits one);</li>
+     *   <li>an unterminated single-quoted literal.</li>
      * </ul>
-     * Scans OUTSIDE plain single-quoted literals (which the same
-     * standard-conforming, doubled-quote-aware rules the splitter uses define)
-     * so the literal value {@code 'E''s game'} or {@code 'a $ b'} stays legal.
+     * A {@code --} comment runs to the next {@code \n} <em>or</em> {@code \r}, as
+     * in Postgres' own scanner ({@code non_newline [^\n\r]}); ending it only at
+     * {@code \n} would let a lone {@code \r} hide live SQL from this lexer.
+     * Single-quoted literals use the standard-conforming, doubled-quote-aware
+     * rules, so {@code 'E''s game'}, {@code 'a $ b'} and {@code 'a -- b'} stay
+     * legal data.
      */
-    private static void rejectUnsupportedLexerConstructs(String sql) {
+    static String stripComments(String sql) {
+        StringBuilder out = new StringBuilder(sql.length());
         boolean inString = false;
         for (int i = 0; i < sql.length(); i++) {
             char c = sql.charAt(i);
             if (inString) {
+                out.append(c);
                 if (c == '\'') {
                     // Doubled '' is an escaped quote (stay in string); a lone '
                     // closes. Backslash is NOT special (standard_conforming_strings).
                     if (i + 1 < sql.length() && sql.charAt(i + 1) == '\'') {
-                        i++;
+                        out.append(sql.charAt(++i));
                     } else {
                         inString = false;
                     }
@@ -122,22 +133,113 @@ public final class RegisterSqlPolicy {
             // Outside a string literal:
             if (c == '\'') {
                 // An E/e immediately preceding the opening quote => escape string.
-                if (i > 0) {
-                    char p = sql.charAt(i - 1);
-                    if ((p == 'E' || p == 'e')
-                            && (i == 1 || !isIdentChar(sql.charAt(i - 2)))) {
+                int n = out.length();
+                if (n > 0) {
+                    char p = out.charAt(n - 1);
+                    if ((p == 'E' || p == 'e') && (n == 1 || !isIdentChar(out.charAt(n - 2)))) {
                         throw reject(sql, "C-style escape string E'...' is not allowed");
                     }
                 }
                 inString = true;
+                out.append(c);
+            } else if (c == '"') {
+                throw reject(sql, "double-quoted identifier is not allowed");
             } else if (c == '$') {
                 if (isDollarQuoteStart(sql, i)) {
                     throw reject(sql, "dollar-quoting $tag$...$tag$ is not allowed");
                 }
+                out.append(c);
             } else if (c == '/' && i + 1 < sql.length() && sql.charAt(i + 1) == '*') {
                 throw reject(sql, "C-style block comment /* */ is not allowed");
+            } else if (c == '-' && i + 1 < sql.length() && sql.charAt(i + 1) == '-') {
+                // Line comment: skip to (not past) the line break.
+                while (i + 1 < sql.length() && sql.charAt(i + 1) != '\n' && sql.charAt(i + 1) != '\r') {
+                    i++;
+                }
+            } else {
+                out.append(c);
             }
         }
+        if (inString) {
+            throw reject(sql, "unterminated string literal");
+        }
+        return out.toString();
+    }
+
+    /**
+     * Independent, Postgres-faithful backstop for the executor: {@code true}
+     * unless {@code s} is provably ONE statement. It returns {@code true} for a
+     * {@code ;} outside every string/identifier/comment, and (fail closed) for
+     * anything it cannot model: an unterminated literal, identifier or block
+     * comment, an {@code E'…'} string, or a dollar-quote. It understands
+     * {@code --} (ends at {@code \n} or {@code \r}), nested {@code /* *}{@code /},
+     * single-quoted strings and double-quoted identifiers, so a quote inside a
+     * comment cannot flip its string parity.
+     */
+    public static boolean containsTopLevelSeparator(String s) {
+        int n = s.length();
+        for (int i = 0; i < n; i++) {
+            char c = s.charAt(i);
+            if (c == '\'') {
+                if (i > 0 && (s.charAt(i - 1) == 'E' || s.charAt(i - 1) == 'e')
+                        && (i == 1 || !isIdentChar(s.charAt(i - 2)))) {
+                    return true; // backslash-escape string: cannot model
+                }
+                i = skipQuoted(s, i, '\'');
+                if (i < 0) {
+                    return true;
+                }
+            } else if (c == '"') {
+                i = skipQuoted(s, i, '"');
+                if (i < 0) {
+                    return true;
+                }
+            } else if (c == '-' && i + 1 < n && s.charAt(i + 1) == '-') {
+                while (i + 1 < n && s.charAt(i + 1) != '\n' && s.charAt(i + 1) != '\r') {
+                    i++;
+                }
+            } else if (c == '/' && i + 1 < n && s.charAt(i + 1) == '*') {
+                int depth = 1;
+                i += 2;
+                while (i < n && depth > 0) {
+                    if (s.charAt(i) == '/' && i + 1 < n && s.charAt(i + 1) == '*') {
+                        depth++;
+                        i += 2;
+                    } else if (s.charAt(i) == '*' && i + 1 < n && s.charAt(i + 1) == '/') {
+                        depth--;
+                        i += 2;
+                    } else {
+                        i++;
+                    }
+                }
+                if (depth > 0) {
+                    return true; // unterminated block comment
+                }
+                i--; // the loop's i++ steps past the closing slash
+            } else if (c == '$' && isDollarQuoteStart(s, i)) {
+                return true; // dollar-quoting: cannot model
+            } else if (c == ';') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Index of the closing {@code q} of the quoted run opening at {@code open}
+     * (a doubled {@code qq} is an escaped quote), or -1 if it never closes.
+     */
+    private static int skipQuoted(String s, int open, char q) {
+        for (int i = open + 1; i < s.length(); i++) {
+            if (s.charAt(i) == q) {
+                if (i + 1 < s.length() && s.charAt(i + 1) == q) {
+                    i++;
+                } else {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
 
     private static boolean isIdentChar(char c) {
@@ -162,9 +264,13 @@ public final class RegisterSqlPolicy {
         return j < sql.length() && sql.charAt(j) == '$';
     }
 
-    /** Validates a single already-split, comment-stripped statement. */
+    /**
+     * Validates a single already-split statement. Comments are stripped again
+     * here (idempotent) so a caller that hands in raw text is judged on the
+     * same comment-free form {@link #vet} returns.
+     */
     static void validate(String statement) {
-        String s = statement.strip();
+        String s = stripComments(statement).strip();
         if (s.isEmpty()) {
             return;
         }
@@ -205,7 +311,7 @@ public final class RegisterSqlPolicy {
                 "register.sql rejected (" + why + "): " + preview);
     }
 
-    // ── statement splitting (mirrors GameUploadService#runRegisterSql) ──────
+    // ── statement splitting (runs on comment-free text from stripComments) ──
 
     private static List<String> split(String sql) {
         List<String> stmts = new ArrayList<>();
@@ -243,39 +349,10 @@ public final class RegisterSqlPolicy {
     }
 
     private static void addIfStatement(List<String> stmts, String raw) {
-        String s = stripLeadingComments(raw);
+        String s = raw.strip();
         if (!s.isEmpty()) {
             stmts.add(s);
         }
-    }
-
-    /**
-     * Drops leading blank lines and {@code --} comment lines from a fragment,
-     * then trims. The generator prefaces its first statement with a comment
-     * banner; without this the whole "comment + first INSERT" fragment trims
-     * to a string starting with {@code --} and the first statement would be
-     * silently skipped. A fragment that is only comments collapses to empty
-     * (skipped); a real statement after the banner is kept and still vetted.
-     */
-    private static String stripLeadingComments(String raw) {
-        String[] lines = raw.split("\n", -1);
-        int start = 0;
-        while (start < lines.length) {
-            String t = lines[start].trim();
-            if (t.isEmpty() || t.startsWith("--")) {
-                start++;
-            } else {
-                break;
-            }
-        }
-        StringBuilder sb = new StringBuilder();
-        for (int i = start; i < lines.length; i++) {
-            if (i > start) {
-                sb.append('\n');
-            }
-            sb.append(lines[i]);
-        }
-        return sb.toString().trim();
     }
 
     // ── lightweight lexing helpers (string-literal aware) ───────────────────

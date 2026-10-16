@@ -194,6 +194,30 @@ class GameUploadServiceTest {
         assertThat(Files.exists(tempDir.resolve("authtest"))).isFalse();
     }
 
+    // ── register.sql per-statement separator guard ──────────────────────────
+
+    @Test
+    void separatorGuardSeesASecondStatementHiddenBehindAnApostropheInAComment() {
+        // The quote-only guard read the `'` in the comment as a string opener,
+        // never saw the `;`, and let the second statement reach db.sql().
+        assertThat(GameUploadService.containsTopLevelSeparator(
+                "INSERT INTO games (name,slug) VALUES ('x','y') -- '\n; DROP TABLE levels; -- '")).isTrue();
+        assertThat(GameUploadService.containsTopLevelSeparator(
+                "INSERT INTO games (name,slug) VALUES ('x','y') -- c\r; UPDATE games SET x = 1")).isTrue();
+    }
+
+    @Test
+    void separatorGuardLeavesASingleStatementAlone() {
+        assertThat(GameUploadService.containsTopLevelSeparator(
+                "INSERT INTO games (name,slug) VALUES ('it''s; ok','y') -- trailing ; note")).isFalse();
+    }
+
+    @Test
+    void separatorGuardTreatsAnUnterminatedLiteralAsUnsafe() {
+        assertThat(GameUploadService.containsTopLevelSeparator(
+                "INSERT INTO games (name,slug) VALUES ('x")).isTrue();
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     @FunctionalInterface

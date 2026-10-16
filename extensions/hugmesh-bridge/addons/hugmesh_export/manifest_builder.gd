@@ -223,10 +223,12 @@ static func to_register_sql(manifest: Dictionary) -> String:
 	# a whole-object replace. Liquibase 063-1 gave the column the same
 	# eleven-key default as _DEFAULT_FEATURES. RegisterSqlPolicy allows
 	# `UPDATE games SET features = ...` (it only reads the columns left of
-	# `=`). Keep EVERY `--` banner line above free of a single quote and a
-	# semicolon: the policy splitter does not model `--` comments, so either
-	# one flips its string parity for the rest of the file
-	# (ManifestBuilderFeaturesGuardTest pins this).
+	# `=`). The policy strips `--` comments before it splits, so a quote in a
+	# banner no longer desyncs it; the banner lines above are still kept free of a
+	# single quote and a semicolon so the file reads the same under any older
+	# BFF (ManifestBuilderFeaturesGuardTest pins this). Never emit a
+	# double-quoted identifier, E'' string, dollar-quote or block comment: the
+	# policy rejects the whole upload.
 	var features: Dictionary = manifest.get("features", {})
 	if not features.is_empty():
 		sql += "UPDATE games SET features = features || '%s'::jsonb WHERE slug = '%s';\n\n" % [
