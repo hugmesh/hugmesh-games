@@ -911,7 +911,7 @@
                     "Input events"
                 ],
                 "summary": "Submit an input event.",
-                "description": "One endpoint, discriminated payload. The (kind, type) pair\npicks a schema; the BFF validates against the reference\ntables, rejects with 400/405 if the (kind, type) is\nunknown or the active game declares it doesn't support\nthis combination, otherwise persists into input_events\nand fans out on the SSE input + audio channels.\n\nThe endpoint is authenticated. The Casdoor user id is\nread from the JWT subject; the body's casdoorUserId field\nis ignored if present.\n",
+                "description": "One endpoint, discriminated payload. The (kind, type) pair\npicks a schema. The BFF rejects with 400 if the (kind, type)\nis unknown, and with 405 if the game's games.features flag\nfor the event kind is false or absent, or (for events such\nas control:cast) the subsystem flag the event belongs to is.\nOtherwise it persists into input_events and fans out on the\nSSE input + audio channels.\n\nThe endpoint is authenticated. The Casdoor user id is\nread from the JWT subject; the body's casdoorUserId field\nis ignored if present.\n",
                 "operationId": "submit_1",
                 "parameters": [
                     {

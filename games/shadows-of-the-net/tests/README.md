@@ -3,30 +3,38 @@
 ```bash
 make test-godot                       # from the repo root (part of `make test`)
 # or directly:
-godot4 --headless --path games/shadows-of-the-net --script res://tests/run_tests.gd
+godot --headless --path games/shadows-of-the-net --script res://tests/run_tests.gd
 ```
 
-Exit code 0 = every suite green. 1 = a failing assertion, a suite that
-asserted nothing, a suite that failed to parse, or the 180 s deadline lapsing.
+`make test-godot` imports each project first and also runs the `character-forge`
+suite. The direct command runs this game only.
+
+Exit code 0 means every suite is green. Exit code 1 means one of these: a failing
+assertion, a suite that asserted nothing, a suite that failed to parse, a suite
+whose assertion count differs from its `plan()` (or that has none), or the 180 s
+deadline.
 
 ## Why these exist rather than only `make e2e`
 
-`make e2e` loads the exported WASM bundle in a real browser, which is the right
-place for boot / asset / iframe coverage but a hopeless place to assert that a
-*forged peer message* is rejected. Every suite here drives the room's transport
-handlers directly — `_on_movement`, `_on_world`, `_dispatch` — which is exactly
-what the SSE and postMessage drains call at runtime, so a hostile payload can
-be injected without a browser, a session, or a BFF.
+`make e2e` loads the exported WASM bundle in a real browser. That suits boot,
+asset and iframe coverage. It cannot assert that a *forged peer message* is
+rejected. Every suite here drives the room's transport
+handlers directly: `_on_movement` and `_on_world` in `room_controller.gd`, and
+`_dispatch` in `chat3d_bridge.gd`. The SSE and postMessage drains call the same
+functions at runtime, so a hostile payload can be injected without a browser, a
+session, or a BFF.
 
 ## Conventions
 
 * `test_case.gd` is the assertion base. Subclasses override `suite_name()` and
-  `run()`; `run()` may `await tree.process_frame` — `queue_free()` is deferred
-  in Godot, so several of the structural regressions only become observable one
-  frame later.
-* Every assertion increments `checks`. A suite that silently stops asserting
-  shows up as a dropped check count instead of a pass, and a suite with **zero**
-  checks fails the run outright (`run_tests.gd` treats vacuity as a failure).
+  `run()`. `run()` may `await tree.process_frame`: `queue_free()` is deferred in
+  Godot, so several structural regressions show up one frame later.
+* Every assertion increments `checks`. A suite with **zero** checks fails the
+  run outright (`run_tests.gd` treats vacuity as a failure).
+* Every suite pins its exact assertion count in `plan()`. A GDScript runtime
+  error aborts the current function without failing the suite, so a suite that
+  dies half way would otherwise report green. A count that differs from the plan
+  fails the run. Update `plan()` when you add or remove an assertion.
 * `make_room()` instantiates the real `scenes/room.tscn` with all its scripts.
   Headless runs are non-web, so both bridges stay dormant and the room boots in
   NATIVE mode; a suite that wants session or matrix wiring calls
@@ -35,7 +43,8 @@ be injected without a browser, a session, or a BFF.
   `_session` slot **after** `_setup_session()` (see `RecordingBridge` in
   `test_seat_authority.gd`), so the real bridge still drives the signal wiring
   and the host election.
-* A new suite is picked up automatically: name the file `tests/test_*.gd`.
+* A new suite is picked up automatically: name the file `tests/test_*.gd`, and
+  give it a `plan()`.
 
 ## What each suite pins
 
@@ -53,14 +62,14 @@ be injected without a browser, a session, or a BFF.
 
 ## The JS half
 
-`chat3d_bridge.gd` injects a block of JavaScript with
-`JavaScriptBridge.eval` — the envelope router, the origin allow-list and the
-ArrayBuffer→base64 normaliser. A headless Godot run can never execute it, so it
-is covered separately by a plain-node functional test:
+`chat3d_bridge.gd` injects a block of JavaScript with `JavaScriptBridge.eval`:
+the envelope router, the origin allow-list and the ArrayBuffer→base64
+normaliser. A headless Godot run cannot execute it, so a plain-node functional
+test covers it:
 
 ```bash
-node games/_shared/test/chat3d-envelope.test.mjs    # or: make test-games-js
+node games/_shared/test/chat3d-envelope.test.mjs    # `make test-games-js` runs every games/_shared/test/*.test.mjs
 ```
 
-That test extracts the JS **from the `.gd` source** rather than re-typing it,
-so the two cannot drift.
+The test extracts the JS **from the `.gd` source** instead of re-typing it, so
+the two cannot drift.

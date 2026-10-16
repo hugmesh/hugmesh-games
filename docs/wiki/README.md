@@ -1,22 +1,22 @@
 # HugMesh Games — Wiki
 
-A Markdown-rendered companion to the LaTeX-typeset reference under [`../publishing/`](../publishing/). The PDFs and PowerPoints are the canonical artefacts; this tree presents their content in a form that renders inline on GitHub and requires no TeX installation.
+A Markdown companion to the LaTeX-typeset reference under [`../publishing/`](../publishing/). The PDFs and PowerPoints are the canonical artefacts. This tree shows their content in a form that renders inline on GitHub and needs no TeX installation.
 
-When this wiki disagrees with the source tree, the source tree wins. Each page links back to the file you would edit to fix something.
+When this wiki disagrees with the source tree, the source tree wins. Each page links to the file you would edit to fix it.
 
 ---
 
 ## Architecture reference
 
-Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, key diagrams inlined as Mermaid. The catalog ships **19 games in two delivery models** — Godot 4 WASM (5 titles, incl. *Chess (Godot)* federated via changelog 053, *Connect Four (Godot)* via changelog 055, and *Shadows of the Net – CHAT* — an XR chat chamber — via changelog 056) and web-native Rust→wasm32 (14 titles, host-authoritative over the SSE relay); the chapters below cover both.
+Mirror of [`docs/publishing/architecture/architecture.pdf`](../publishing/architecture/architecture.tex). Seven chapters, with key diagrams inlined as Mermaid. The catalog ships **20 games in two delivery models**. Godot 4 WASM has 6 titles: the two stock titles, *Chess (Godot)* (federated via changelog 053), *Connect Four (Godot)* (055), *Shadows of the Net – CHAT*, an XR chat chamber (056), and *Character Forge*, a single-player 3D character maker (062). Web-native Rust→wasm32 has 14 titles, host-authoritative over the SSE relay. The chapters below cover both.
 
 | # | Page | Contents |
 |---|---|---|
 | 01 | [Overview](architecture/01-overview.md) | What HugMesh Games is in three sentences, the container list, and the two game families (Godot WASM vs web-native Rust→wasm32). |
 | 02 | [Runtime architecture](architecture/02-runtime.md) | Browser → host nginx → BFF; the Godot and web-native (`wasm-game`) launch flows; the SSE merge; the `autoCancel=false` rule. |
 | 03 | [Module Federation](architecture/03-federation.md) | The two ordering rules, the manifest endpoint, per-game routing, the `wasm-game` kind for web-native games. |
-| 04 | [Data model](architecture/04-data-model.md) | Postgres schema clusters (55 changelogs), Cassandra cache, Liquibase order incl. the web-native catalog + realtime-match tables. |
-| 05 | [API + service reference](architecture/05-api-reference.md) | All 38 controllers + services with marbles, examples, error paths (incl. the 🚧 realtime PvP surface). |
+| 04 | [Data model](architecture/04-data-model.md) | Postgres schema clusters (63 changelogs), Cassandra cache, Liquibase order incl. the web-native catalog + realtime-match tables. |
+| 05 | [API + service reference](architecture/05-api-reference.md) | 38 of the 39 controllers (`AvatarController` is not covered yet) + services, with marbles, examples, error paths (incl. the 🚧 realtime PvP surface). |
 | 06 | [Build and deploy](architecture/06-build-and-deploy.md) | The `make` chain, GraalVM native-image, doc publishing. |
 | 07 | [Extending the portal](architecture/07-extending.md) | Add a game (Godot or web-native) / route / role / SSE channel / DB column. |
 
@@ -37,7 +37,7 @@ Eight audience-targeted condensations of the full reference. Mirror of [`docs/pu
 
 ## How-tos
 
-Recipe cards. Each one is a task you've done before and want to do again without re-reading three chapters.
+Recipe cards. Each is a task you have done before and want to do again without re-reading three chapters.
 
 - [Add a new game](howto/add-game.md) (commit-path or hot-upload)
 - [Add a federated route](howto/add-federated-route.md)
@@ -51,6 +51,7 @@ Recipe cards. Each one is a task you've done before and want to do again without
 - [Grant the mod or publisher role for a game](howto/grant-mod-or-publisher.md)
 - [Toggle WASM-console debug mode](howto/toggle-wasm-debug-mode.md)
 - [Run + extend multi-user e2e specs](howto/run-multi-user-e2e.md)
+- [Export and reuse a character](howto/export-and-reuse-a-character.md)
 
 ## Decisions and notes
 
@@ -82,12 +83,15 @@ Why the system has the shape it has. Each entry records one decision, the constr
 - [024 — WCAG palette audit](decisions/024-wcag-palette-audit.md)
 - [025 — BFF-side `DOMAIN_` guard (multi-brand; full single-BFF operation 🚧 deferred)](decisions/025-bff-domain-guard.md)
 - [026 — Games-catalog domain partitioning (public-read brand filtering 🚧 deferred)](decisions/026-games-catalog-domain-partitioning.md)
+- [027 — Biome themes, real 3D maker worlds, and per-biome Godot e2e](decisions/027-biome-themes-and-real-godot-e2e.md)
+- [028 — Parametric humanoid avatars](decisions/028-parametric-humanoid-avatars.md)
+- [Per-role schema split](../decisions/020-per-role-schema-split.md) (numbered 020 in `docs/decisions/`; it is a different record from wiki decision 020 above)
 
 > **Engine-level and roadmap design records** (not yet catalog-launchable): [`docs/realtime-server-authoritative-design.md`](../realtime-server-authoritative-design.md) and [`docs/realtime-sim-wiring-p4.md`](../realtime-sim-wiring-p4.md) (🚧 server-authoritative FPS/RTS engines); [`docs/game-ports-backlog.md`](../game-ports-backlog.md) (🔭 future game ports).
 
 ## Where the canonical sources live
 
-The wiki is one of several views over the same source tree. For depth that this view does not carry, consult the sources below:
+The wiki is one of several views over the same source tree. For depth this view lacks, go to these sources:
 
 ```mermaid
 flowchart TB
@@ -106,11 +110,11 @@ flowchart TB
 |---|---|---|
 | [`docs/publishing/architecture/`](../publishing/architecture/) | LaTeX chapters → typeset PDF with full tables, marble diagrams, hyperref links. | `make docs-pdf` |
 | [`docs/publishing/userguides/`](../publishing/userguides/) | Per-audience PDFs, one per guide above. | `make docs-userguides` |
-| [`docs/publishing/slides/`](../publishing/slides/) | Six PowerPoint decks via `python-pptx`. | `make docs-slides` |
-| [`docs/publishing/javadoc-output/`](../publishing/javadoc-output/) | Themed Javadoc for every `@Operation` / `@Tag` in the BFF. | `make docs-javadocs` |
+| [`docs/publishing/slides/`](../publishing/slides/) | Eight PowerPoint decks via `python-pptx`. | `make docs-slides` |
+| `docs/publishing/javadoc-output/` (generated, not committed) | Themed Javadoc for every `@Operation` / `@Tag` in the BFF. | `make docs-javadocs` |
 | [`docs/publishing/openapi/`](../publishing/openapi/) | Static fallback OpenAPI spec; the live one is `/v3/api-docs`. | `make docs-openapi-spec` |
 | [`docs/publishing/diagrams-rendered/`](../publishing/diagrams-rendered/) | Every marble + topology diagram rendered to PNG (git-ignored output). | `make docs-diagrams` |
-| [`docs/PLAN-module-federation-and-native.md`](../PLAN-module-federation-and-native.md) | The 921-line plan that produced the federated topology. Pre-rename language. |
-| [`docs/GODOT_DEVELOPER_GUIDE.md`](../GODOT_DEVELOPER_GUIDE.md) | Slug contract, presets, asset registration. |
-| [`CLAUDE.md`](../../CLAUDE.md) | Contributor onboarding for AI + human pair-programmers. |
-| [`README.md`](../../README.md) | Setup, build, deploy, troubleshooting. |
+| [`docs/PLAN-module-federation-and-native.md`](../PLAN-module-federation-and-native.md) | The 898-line plan that produced the federated topology. Pre-rename language. | — |
+| [`docs/GODOT_DEVELOPER_GUIDE.md`](../GODOT_DEVELOPER_GUIDE.md) | Slug contract, presets, asset registration. | — |
+| [`CLAUDE.md`](../../CLAUDE.md) | Contributor onboarding for AI + human pair-programmers. | — |
+| [`README.md`](../../README.md) | Setup, build, deploy, troubleshooting. | — |

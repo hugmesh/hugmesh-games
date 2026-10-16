@@ -292,13 +292,13 @@ Quest catalog (full) and per-character started-quest list.
 
 ### `InputEventController` — `/api/input`
 
-Generalised input ingestion — gamepad / mouse / keyboard / touch / audio / world / control. Documented three-gate validation, only gate 1 of which is wired in today (see [04 — Data model](04-data-model.md#generalised-input-event-surface) and [README § Known gaps / TODO](../../../README.md#known-gaps--todo)).
+Generalised input ingestion — gamepad / mouse / keyboard / touch / audio / world / control. Gates 0 (authorization), 1 (vocabulary) and 2 (feature flags) are enforced on every event; gate 3 (per-game `game_event_support` opt-in) is implemented but off by default (`app.input.gate3-enabled=false`). See [04 — Data model](04-data-model.md#generalised-input-event-surface) and [README § Known gaps / TODO](../../../README.md#known-gaps--todo).
 
 | Status | When |
 |---|---|
 | *403* | Session-scoped submit where the caller isn't the active `session_member` owning `characterId`; OR a non-creator submitting `kind:'world'` (authority-spoof defence — only the session creator may post the authoritative world relay). |
 | *400* | `(kind, type)` not in `input_event_types`. The upload-time validator should have caught this. |
-| *405* | *Not yet implemented* — the documented `games.features.<kind>=false` / `(slug, kind, type)` not in `game_event_support` gates don't run yet; any registered `(kind, type)` currently passes regardless of the game's feature flags. |
+| *405* | Gate 2: `games.features.<kind>` is `false` or absent for the game (an unknown `gameSlug` has no flags and is refused too), or the event has a subsystem flag that is off (`control:cast` needs `instant_loadout`). Gate 3, only when `app.input.gate3-enabled=true` (default `false`): `(slug, kind, type)` is not an enabled `game_event_support` row. |
 
 ### `GameLaunchController` — `/api/games/{slug}/launch` + `/api/admin/launches`
 
