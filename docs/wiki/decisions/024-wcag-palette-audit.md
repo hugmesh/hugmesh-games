@@ -111,9 +111,11 @@ without re-auditing each component.
   the file is touched for another reason. There is no hurry: the
   literals already match the tokens. Status today: three files still declare
   `$muted` / `$accent` (`game-menu`, `player-dashboard` and `home`
-  component SCSS, with the new hex values). `home.component.scss` and
-  `about.component.ts` also use `var(--hug-…, <hex>)`. Ten files in all
-  hold the bare literal `#a8acc4`.
+  component SCSS; `$muted` is `#a8acc4` and `$accent` is `#7c4dff`, the
+  `--hug-accent` value). `home.component.scss` and `about.component.ts`
+  also use `var(--hug-…, <hex>)`. Outside the token definition in
+  `styles.scss`, eleven files under `frontend/` still hold `#a8acc4` as
+  a literal, not only as a `var()` fallback.
 - Document the tokens in `frontend/README.md`, so contributors use the
   named token instead of pasting hex into a new component. Still open:
   `frontend/README.md` does not exist.
