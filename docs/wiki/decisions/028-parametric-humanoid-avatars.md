@@ -122,7 +122,7 @@ larger than the torso. They are mirrored in five places that must move together 
 | `outfitType` | `robe`, `tunic`, `armor`, `dress`, `jumpsuit`, `bare` | `robe` |
 
 `renderStyle=lowpoly` is the **N64 mode**. Radial segment counts drop from 16 to 6
-and rings from 8 to 3 (`avatar_factory.gd`). Materials switch to per-vertex
+and sphere rings from 8 to 3 (`avatar_factory.gd`). Materials switch to per-vertex
 shading with specular off and `TEXTURE_FILTER_NEAREST`. This is not a filter
 bolted on top. It is how the rig is *built*, and it matches how N64 characters
 were built: rigid segmented limbs pivoting at plain joints, which is the rig
