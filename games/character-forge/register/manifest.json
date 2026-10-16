@@ -34,7 +34,7 @@
     "default_scope": "all"
   },
   "features": {
-    "spell_loadout": false,
+    "instant_loadout": false,
     "quests": false,
     "items": false,
     "char_progression": false,
@@ -42,7 +42,9 @@
     "gamepad": false,
     "mouse": true,
     "keyboard": true,
-    "touch": true
+    "touch": true,
+    "world": true,
+    "control": true
   },
   "godot_version": "4.6",
   "exported_at": "2026-07-19T00:00:00Z"

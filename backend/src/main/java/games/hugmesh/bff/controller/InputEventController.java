@@ -54,13 +54,11 @@ import java.util.stream.Collectors;
  *             allow. Changeset 063 seeded {@code world} and {@code control}
  *             (the two relay kinds 026-1 had no flag for) true on every game
  *             and into the column default, so this refuses nothing a shipped
- *             title sends today. ONE GAP: the export plugin's {@code
- *             register.sql} still REPLACES the whole object with a set that
- *             has no {@code world}/{@code control} (and the stale {@code
- *             spell_loadout}), so a game installed or re-installed through an
- *             upload loses its relay flags and gets 405 here until
- *             hugmesh-games#17 lands. No shipped title that goes through that
- *             path posts to this endpoint yet.</li>
+ *             title sends today. The export plugin's {@code register.sql}
+ *             merges its flags into the row ({@code features || '...'}) and
+ *             its defaults are 063's eleven keys, so an upload keeps {@code
+ *             world}/{@code control}; a game whose own manifest sets one of
+ *             them false still gets 405 for that kind (hugmesh-games#17).</li>
  *         <li>Then a short, explicit {@code (kind, type) → flag} table,
  *             {@link #SUBSYSTEM_FLAGS}, gates individual events on a JRPG
  *             subsystem flag as well. Today it has one row: {@code
@@ -334,8 +332,9 @@ public class InputEventController {
      * read as an empty map — every flag absent — which gate 2 refuses. That is
      * deliberate: decision 103b seeded {@code world} and {@code control} precisely
      * so "absent" could mean "refused" without breaking any shipped title. An
-     * upload's {@code register.sql} can still replace the object with one that
-     * lacks them; that gap is hugmesh-games#17.
+     * upload's {@code register.sql} used to replace the object with one that
+     * lacked them (hugmesh-games#17); it now merges, so a game that does not
+     * name them keeps them.
      *
      * <p>Nested here rather than in {@code repository/} because its only
      * consumer is this controller's gate chain; it is a separate bean (static,
