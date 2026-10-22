@@ -26,24 +26,34 @@
     introduced or committed; the role is a pure privilege boundary.
 
     Idempotent: role creation + grants are guarded so a Liquibase rerun is safe.
+
+    EDITED IN PLACE (2026-10). These changesets first created the role under
+    its pre-rebrand name, and 060 renamed it to hugmesh_register_sql. They now
+    create hugmesh_register_sql directly, so the old brand name is no longer
+    spelled here. Editing a changeset changes its checksum, so each one lists
+    the checksum it had before the edit as a <validCheckSum>: a database that
+    already ran the old text passes validation and does NOT run it again, and
+    060 still renames the old role on any database that ran 054 but not 060.
   -->
 
   <changeSet id="054-1-create-register-sql-role" author="claude" runInTransaction="false">
+    <!-- checksum of the text before the 2026-10 role-name edit -->
+    <validCheckSum>9:8c431ac260e8d81a7219783b1fb8b42e</validCheckSum>
     <preConditions onFail="MARK_RAN">
       <not>
         <sqlCheck expectedResult="1">
-          SELECT COUNT(*) FROM pg_roles WHERE rolname = 'snapdragon_register_sql'
+          SELECT COUNT(*) FROM pg_roles WHERE rolname = 'hugmesh_register_sql'
         </sqlCheck>
       </not>
     </preConditions>
     <sql splitStatements="false"><![CDATA[
       DO $$
       BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'snapdragon_register_sql') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'hugmesh_register_sql') THEN
           -- NOLOGIN: never a connection identity, only a SET ROLE target.
           -- NOSUPERUSER / NOCREATEDB / NOCREATEROLE / NOINHERIT: no escalation,
           -- and crucially no COPY ... TO PROGRAM (superuser-only) host RCE.
-          CREATE ROLE snapdragon_register_sql
+          CREATE ROLE hugmesh_register_sql
             NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
         END IF;
       END $$;
@@ -51,6 +61,8 @@
   </changeSet>
 
   <changeSet id="054-2-grant-catalog-tables" author="claude" runInTransaction="false">
+    <!-- checksum of the text before the 2026-10 role-name edit -->
+    <validCheckSum>9:9d94b9474de2905a08961838f4ef61d0</validCheckSum>
     <sql splitStatements="false"><![CDATA[
       DO $$
       DECLARE
@@ -72,7 +84,7 @@
             SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'public' AND c.relname = t AND c.relkind = 'r'
           ) THEN
-            EXECUTE format('GRANT SELECT, INSERT, UPDATE ON public.%I TO snapdragon_register_sql', t);
+            EXECUTE format('GRANT SELECT, INSERT, UPDATE ON public.%I TO hugmesh_register_sql', t);
             -- Owned (serial/identity) sequences need USAGE+SELECT for nextval.
             FOR seq IN
               SELECT s.relname
@@ -82,7 +94,7 @@
               JOIN pg_namespace n ON n.oid = r.relnamespace
               WHERE n.nspname = 'public' AND r.relname = t
             LOOP
-              EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO snapdragon_register_sql', seq);
+              EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO hugmesh_register_sql', seq);
             END LOOP;
           END IF;
         END LOOP;
@@ -91,9 +103,11 @@
   </changeSet>
 
   <changeSet id="054-3-enroll-app-login-role" author="claude" runInTransaction="false">
+    <!-- checksum of the text before the 2026-10 role-name edit -->
+    <validCheckSum>9:0068010313970dd7357cb05a24a48758</validCheckSum>
     <!--
-      Enrol the application's login role as a MEMBER of snapdragon_register_sql
-      so the BFF connection can `SET LOCAL ROLE snapdragon_register_sql` for the
+      Enrol the application's login role as a MEMBER of hugmesh_register_sql
+      so the BFF connection can `SET LOCAL ROLE hugmesh_register_sql` for the
       register.sql step. NOINHERIT on the target means membership grants the
       ABILITY to SET ROLE, not the privileges by default — the login role keeps
       its own (broader) rights until it explicitly switches.
@@ -113,7 +127,7 @@
         login_role    text := coalesce(override_role, current_user);
       BEGIN
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = login_role) THEN
-          EXECUTE format('GRANT snapdragon_register_sql TO %I', login_role);
+          EXECUTE format('GRANT hugmesh_register_sql TO %I', login_role);
         END IF;
       END $$;
     ]]></sql>
