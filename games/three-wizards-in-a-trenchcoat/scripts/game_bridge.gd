@@ -40,6 +40,19 @@ func _ready() -> void:
 		# HostBridge.dispatch_event into the typed signals scene
 		# scripts already consume.
 		_request_sse_subscription()
+	else:
+		# Local-play mode (Godot editor F5, headless export). No JS bridge,
+		# no parent module, no API. Fake a scene event so scene_loader
+		# runs its bootstrap, and let _unhandled_input below echo movement
+		# events through HostBridge so the player still drives from the
+		# keyboard. Mirrors HostBridge's Standalone mode.
+		print("[GameBridge] local-play mode (no API; keyboard echoes through HostBridge)")
+		var stub_scene := {
+			"sceneType": "cave",
+			"name": "local-play",
+			"elements": [],
+		}
+		_dispatch("scene", stub_scene)
 
 
 # Pause / resume / close handler routed in from the BFF's
@@ -61,19 +74,6 @@ func _on_session_control(action: String, _payload: String) -> void:
 			# iframe anyway; freeing here drops any lingering audio /
 			# physics so the closing animation isn't haunted.
 			tree.quit()
-	else:
-		# Local-play mode (Godot editor F5, headless export). No JS bridge,
-		# no parent module, no API. Fake a scene event so scene_loader
-		# runs its bootstrap, and let _unhandled_input below echo movement
-		# events through HostBridge so the player still drives from the
-		# keyboard. Mirrors HostBridge's Standalone mode.
-		print("[GameBridge] local-play mode (no API; keyboard echoes through HostBridge)")
-		var stub_scene := {
-			"sceneType": "cave",
-			"name": "local-play",
-			"elements": [],
-		}
-		_dispatch("scene", stub_scene)
 
 
 # Dispatch a typed event into the sibling HostBridge node. Drops the
