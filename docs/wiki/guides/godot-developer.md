@@ -68,7 +68,7 @@ Save the `.cfg`, do not export from the editor. The Makefile drives headless exp
 
 1. Add `games/<dir>/` to `GAME_PROJECTS` in the root [`Makefile`](../../../Makefile).
 2. Define `PRESETS_<dir>` with the preset names.
-3. Write a Liquibase changeset for `games`, `chapters`, `federation_modules`, `game_access` (use [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) as the template).
+3. Write a Liquibase changeset for `games`, `chapters`, `federation_modules`, `game_access` (use [`053-chess-godot-federation.xml`](../../../backend/src/main/resources/db/changelog/053-chess-godot-federation.xml) as the template).
 4. Commit. CI runs `make build` and your game lands.
 
 ## Step 5b — Upload through admin

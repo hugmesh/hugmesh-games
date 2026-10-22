@@ -53,7 +53,7 @@ For a game you want to ship in the repository:
         \texttt{PRESETS\_<dir>} in the root \snapfile{Makefile}.
   \item Add a Liquibase changeset that inserts the \texttt{games} +
         \texttt{federation\_modules} + \texttt{game\_access} rows. See
-        \reposrc{backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml}
+        \reposrc{backend/src/main/resources/db/changelog/053-chess-godot-federation.xml}
         for the canonical pattern.
   \item Optionally add a \texttt{games-<slug>} service to
         \snapfile{docker-compose.yml} if the game ships its own
