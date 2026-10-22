@@ -14,9 +14,27 @@
           • adds the matching level row (slug 'dodecahedron') with scene_type
             'dodecahedron' so the home view knows to suppress HUD/controls,
           • registers the bundle entry-point in level_assets.
+
+        RENAMED FILE. This file had a pre-rebrand name until 2026-10. Liquibase
+        keys a changeset on (id, author, file name), so after the rename every
+        changeset below looks new to a database that already ran the old file.
+        Each one therefore carries a MARK_RAN precondition: if DATABASECHANGELOG
+        already holds the same id and author under the OLD file name, it is only
+        recorded, not run again. (Running 017-3/017-4 again would fail outright:
+        028 renamed levels/level_assets to chapters/chapter_assets.) The old
+        file name is matched by the md5 of its last path segment, so the old
+        brand name is not spelled here. Fresh databases run the changesets as
+        before.
     -->
 
     <changeSet id="017-1-dodecahedron-game" author="nin">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+SELECT COUNT(*) FROM databasechangelog
+ WHERE id = '017-1-dodecahedron-game' AND author = 'nin'
+   AND md5(regexp_replace(filename, '^.*/', '')) = 'b8c9d8879b26009690930e84bc1f44df'
+            </sqlCheck>
+        </preConditions>
         <sql>
 INSERT INTO games (id, name, description, slug, sort_order, created_at)
 SELECT 2,
@@ -30,6 +48,13 @@ WHERE NOT EXISTS (SELECT 1 FROM games WHERE slug = 'dodecahedron');
     </changeSet>
 
     <changeSet id="017-2-rename-twiat" author="nin">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+SELECT COUNT(*) FROM databasechangelog
+ WHERE id = '017-2-rename-twiat' AND author = 'nin'
+   AND md5(regexp_replace(filename, '^.*/', '')) = 'b8c9d8879b26009690930e84bc1f44df'
+            </sqlCheck>
+        </preConditions>
         <sql>
 -- Migration 012 named the umbrella game "Three Wizards Saga". Now that the
 -- portal is HugMesh Games and TWiaT is one of its titles, rename to
@@ -42,6 +67,13 @@ UPDATE games
     </changeSet>
 
     <changeSet id="017-3-dodecahedron-level" author="nin">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+SELECT COUNT(*) FROM databasechangelog
+ WHERE id = '017-3-dodecahedron-level' AND author = 'nin'
+   AND md5(regexp_replace(filename, '^.*/', '')) = 'b8c9d8879b26009690930e84bc1f44df'
+            </sqlCheck>
+        </preConditions>
         <sql>
 INSERT INTO levels
     (name, description, slug, scene_type, sort_order, asset_url, scene_config, game_id, created_at)
@@ -60,6 +92,13 @@ WHERE NOT EXISTS (SELECT 1 FROM levels WHERE slug = 'dodecahedron');
     </changeSet>
 
     <changeSet id="017-4-dodecahedron-bundle-asset" author="nin">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+SELECT COUNT(*) FROM databasechangelog
+ WHERE id = '017-4-dodecahedron-bundle-asset' AND author = 'nin'
+   AND md5(regexp_replace(filename, '^.*/', '')) = 'b8c9d8879b26009690930e84bc1f44df'
+            </sqlCheck>
+        </preConditions>
         <sql>
 INSERT INTO level_assets (level_id, label, asset_type, file_path, content_type, uploaded_at)
 SELECT (SELECT id FROM levels WHERE slug = 'dodecahedron'),

@@ -16,20 +16,24 @@
     (`app.uploads.register-sql.role`) flips to `hugmesh_register_sql` in the
     same commit; APP_UPLOADS_REGISTER_SQL_ROLE stays the override knob.
 
-    The legacy spelling below is the rename SOURCE — it must be named to be
-    renamed (same pattern as hugmesh-federation-api's
-    039-rebrand-character-forge-remote-entry.xml).
+    The legacy name is matched by its md5 (020b32edaf685d43f599083e4e1ac5aa),
+    so the old brand name is not spelled in this file. Until 2026-10 the file
+    named the role literally; the checksum of that text is listed as a
+    <validCheckSum> so databases that already ran it still validate. Since the
+    same edit, 054 creates hugmesh_register_sql directly, so on a fresh
+    database the old role never exists and this changeset is MARK_RAN.
 
-    Idempotent: preconditions MARK_RAN when the old role is absent (fresh DB
-    where 054 + this ran already, or the rename was done by hand) or the new
-    role already exists.
+    Idempotent: preconditions MARK_RAN when the old role is absent (fresh DB,
+    or the rename was done by hand) or the new role already exists.
   -->
 
   <changeSet id="060-1-rename-register-sql-role" author="claude" runInTransaction="false">
+    <!-- checksum of the text before the 2026-10 md5 edit -->
+    <validCheckSum>9:17d3703f653bcf8eeb3eebab718a874d</validCheckSum>
     <preConditions onFail="MARK_RAN">
       <and>
         <sqlCheck expectedResult="1">
-          SELECT COUNT(*) FROM pg_roles WHERE rolname = 'snapdragon_register_sql'
+          SELECT COUNT(*) FROM pg_roles WHERE md5(rolname) = '020b32edaf685d43f599083e4e1ac5aa'
         </sqlCheck>
         <sqlCheck expectedResult="0">
           SELECT COUNT(*) FROM pg_roles WHERE rolname = 'hugmesh_register_sql'
@@ -37,7 +41,16 @@
       </and>
     </preConditions>
     <sql splitStatements="false"><![CDATA[
-      ALTER ROLE snapdragon_register_sql RENAME TO hugmesh_register_sql;
+      DO $$
+      DECLARE
+        legacy text;
+      BEGIN
+        SELECT rolname INTO legacy FROM pg_roles
+         WHERE md5(rolname) = '020b32edaf685d43f599083e4e1ac5aa';
+        IF legacy IS NOT NULL THEN
+          EXECUTE format('ALTER ROLE %I RENAME TO hugmesh_register_sql', legacy);
+        END IF;
+      END $$;
     ]]></sql>
   </changeSet>
 
