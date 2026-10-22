@@ -34,7 +34,7 @@ For a game you want to ship in the repository:
 
 1. Drop the Godot project under `games/<game-dir>/project.godot`, with its own `export_presets.cfg` and `addons/hugmesh_export/`.
 2. Add the directory to `GAME_PROJECTS` and define `PRESETS_<dir>` in the root [`Makefile`](../../../Makefile).
-3. Add a Liquibase changeset that inserts the `games` + `federation_modules` + `game_access` rows. See [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) for the canonical pattern.
+3. Add a Liquibase changeset that inserts the `games` + `federation_modules` + `game_access` rows. See [`053-chess-godot-federation.xml`](../../../backend/src/main/resources/db/changelog/053-chess-godot-federation.xml) for the canonical pattern.
 4. Optionally add a `games-<slug>` service to [`docker-compose.yml`](../../../docker-compose.yml) if the game ships its own Module Federation remote (separate Angular project under `frontend/projects/games-<slug>/`).
 5. Run `make build` and `docker compose up -d`.
 

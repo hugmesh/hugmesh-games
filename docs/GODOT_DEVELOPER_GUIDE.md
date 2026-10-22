@@ -262,7 +262,7 @@ When the request returns, the game is live: the host shell's federation manifest
 If you are committing a game to the repo (not uploading at runtime), do all four:
 
 1. Add the project dir to `GAME_PROJECTS`, define `PRESETS_<dir>`, and add the project to the `case` arms of `build-godot` and `patch-godot` (these decide what gets exported). Add the slug to `GAME_SLUGS` too if per-game roles should be seeded.
-2. Add a Liquibase changeset that inserts the `games` row, the `federation_modules` row, and `chapter_prerequisites`/`game_access` if needed. See `db/changelog/017-snapdragon-catalog.xml` and `018-federation-modules.xml` for the patterns. For a `kind='wasm-game'` title (an iframe straight off the wasm-fragment, no per-game Angular remote), mirror `053-chess-godot-federation.xml` / `056-shadows-of-the-net-federation.xml` instead.
+2. Add a Liquibase changeset that inserts the `games` row, the `federation_modules` row, and `chapter_prerequisites`/`game_access` if needed. See `db/changelog/044-chess-game.xml` (the `games` and `chapters` rows) and `018-federation-modules.xml` (the `federation_modules` row) for the patterns. For a `kind='wasm-game'` title (an iframe straight off the wasm-fragment, no per-game Angular remote), mirror `053-chess-godot-federation.xml` / `056-shadows-of-the-net-federation.xml` instead.
 3. (Optional) Add a `games-<slug>` service to `docker-compose.yml` if the game ships its own remote (a separate Angular project under `frontend/projects/games-<slug>/`). The stock games do this; one-off uploads can ride the shared `wasm-fragment` remote instead.
 4. Run the section-6 build chain.
 

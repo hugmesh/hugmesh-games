@@ -82,7 +82,7 @@ The names must match the `[preset.N]` blocks in `export_presets.cfg`. `make buil
 
 ### 3. Add a Liquibase changeset
 
-Use [`017-snapdragon-catalog.xml`](../../../backend/src/main/resources/db/changelog/017-snapdragon-catalog.xml) as the template. For a `kind='wasm-game'` title launched straight off the wasm-fragment (no per-game Angular remote), copy one of the four-row seeds instead: [`053-chess-godot-federation.xml`](../../../backend/src/main/resources/db/changelog/053-chess-godot-federation.xml) (Godot + Rust core) or [`056-shadows-of-the-net-federation.xml`](../../../backend/src/main/resources/db/changelog/056-shadows-of-the-net-federation.xml) (pure GDScript, plus a `game_event_support` opt-in for a host-authoritative `world/state` relay). Insert into:
+For a game with its own Angular remote, use [`044-chess-game.xml`](../../../backend/src/main/resources/db/changelog/044-chess-game.xml) (the `games` and `chapters` rows) and [`018-federation-modules.xml`](../../../backend/src/main/resources/db/changelog/018-federation-modules.xml) (the `federation_modules` row) as the templates. For a `kind='wasm-game'` title launched straight off the wasm-fragment (no per-game Angular remote), copy one of the four-row seeds instead: [`053-chess-godot-federation.xml`](../../../backend/src/main/resources/db/changelog/053-chess-godot-federation.xml) (Godot + Rust core) or [`056-shadows-of-the-net-federation.xml`](../../../backend/src/main/resources/db/changelog/056-shadows-of-the-net-federation.xml) (pure GDScript, plus a `game_event_support` opt-in for a host-authoritative `world/state` relay). Insert into:
 
 - `games` — slug, display name, description, sort order.
 - `chapters` — one row per export preset.

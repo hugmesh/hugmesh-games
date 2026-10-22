@@ -127,5 +127,3 @@ Zero text and zero diagram overflow across all 7 PDFs. Full clean rebuild succee
 - [ ] Open the six `.pptx` files in PowerPoint / Keynote / LibreOffice; verify cover, section, and closing slides + embedded diagrams.
 - [ ] `make docs-install-hooks` is idempotent (run twice; second run reports "already installed").
 - [ ] `docker compose up -d` brings up the new `api-docs` service; `/admin/docs` (logged in as a `ROLE_ADMIN` user) loads the navigator with the OpenAPI catalogue, supports try-it-out + binary upload + SSE terminal.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)

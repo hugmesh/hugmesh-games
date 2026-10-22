@@ -84,7 +84,7 @@ SECTIONS = [
         "body": [
             "Add games/<dir>/ to the root Makefile's GAME_PROJECTS list.",
             "Define PRESETS_<dir> with the space-separated preset names.",
-            "Add a Liquibase changeset for games + levels + federation_modules + game_access. Use 017-snapdragon-catalog.xml as the template.",
+            "Add a Liquibase changeset for games + chapters + federation_modules + game_access. Use 053-chess-godot-federation.xml as the template.",
             "Commit. CI will run make build, which exports your game alongside the existing ones.",
             "Run `make seed-db` to land the new rows; the home page picks the new game up after compose restart.",
         ],

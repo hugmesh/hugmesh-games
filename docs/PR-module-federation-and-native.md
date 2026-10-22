@@ -116,5 +116,3 @@ cargo build --release --target wasm32-unknown-emscripten
 - [ ] `make e2e-native` — same, against the GraalVM native image.
 - [ ] `make build-rust` — produces the native `.so` + (when emscripten is on PATH) the `wasm32-unknown-emscripten` `.wasm`.
 - [ ] Admin force-revoke from the dashboard kills an active session within one sweep cycle; the sweeper closes idle launches after 15 min.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
