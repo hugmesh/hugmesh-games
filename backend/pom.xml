@@ -13,7 +13,7 @@
 
   <groupId>games.hugmesh</groupId>
   <artifactId>hugmesh-gaming-bff</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.2.0-beta.1</version>
   <name>hugmesh-gaming-bff</name>
   <description>HugMesh Gaming BFF — backend-for-frontend that delivers the HugMesh Games portal (game catalog, sessions, SSE state stream, asset bundles).</description>
   <packaging>jar</packaging>
