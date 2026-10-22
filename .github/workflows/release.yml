@@ -1,0 +1,302 @@
+# Release: build and push the five hugmesh-games images to GHCR.
+#
+# This is the GitHub counterpart of build:image in .gitlab-ci.yml, and it keeps
+# that job's gate: no image is built until the same four unit-test legs are green
+# (backend, frontend, games-js, rust-cores; the commands are copied from the
+# GitLab test stage, so a green run here and a green `make test` mean the same).
+#
+# Images (one version for all five, from the VERSION file):
+#   ghcr.io/hugmesh/hugmesh-games/{backend,frontend,rpg-builder,vn-builder,wasm-fragment}
+#
+# What each trigger publishes:
+#   push to main                   :main and :sha-<12>        (no release)
+#   push of tag v<VERSION>         :<VERSION>, :beta (or :latest for a final
+#                                  version without "-") and :sha-<12>, then a
+#                                  GitHub prerelease that is never marked latest
+#   workflow_dispatch on main      same as a push to main
+#   workflow_dispatch on v<VERSION> same as the tag push (the re-run path)
+#   anything else                  refused by the version guard
+# A published <VERSION> tag is never overwritten: the run fails if it exists.
+# Bump VERSION (beta.N+1) with `make check-version` green, merge, then tag.
+#
+# Runner: every job uses the line below. It picks the self-hosted runner only
+# when the repo variable RUNS_ON_PUBLISH is set (a JSON array such as
+# ["self-hosted","Linux","X64"]) AND the run is a push/dispatch on main or a v*
+# tag. Everything else, including an unset variable, runs on hosted
+# ubuntu-latest. Deleting RUNS_ON_PUBLISH is the off switch. This workflow has
+# no pull_request trigger, and must never get one.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/hugmesh/hugmesh-games
+
+jobs:
+  version:
+    name: Version guard
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    outputs:
+      version: ${{ steps.guard.outputs.version }}
+      kind: ${{ steps.guard.outputs.kind }}
+      prerelease: ${{ steps.guard.outputs.prerelease }}
+      sha: ${{ steps.sha.outputs.sha }}
+      sha12: ${{ steps.sha.outputs.sha12 }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Guard self-test
+        run: python3 -m unittest scripts/test_check_version.py
+
+      - name: Check VERSION against every version file and the ref
+        id: guard
+        run: python3 scripts/check_version.py --ref "$GITHUB_REF"
+
+      - name: Record the commit
+        id: sha
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "sha12=${sha:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: A release tag must point at a commit on main
+        if: steps.guard.outputs.kind == 'release'
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
+            echo "::error::$GITHUB_REF_NAME points at $(git rev-parse HEAD), which is not on main. Tag a commit on main."
+            exit 1
+          fi
+
+  # ── The GitLab test stage, unchanged in substance ───────────────────────────
+  # Each leg runs in a disposable container as the runner's own uid, exactly as
+  # in .gitlab-ci.yml (see the long comments there for why each flag exists).
+  test-backend:
+    name: Test backend
+    needs: version
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Cache the Maven repository and wrapper
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ci-home/.m2/repository
+            .ci-home/.m2/wrapper
+          key: games-maven-${{ hashFiles('backend/pom.xml', 'backend/.mvn/wrapper/maven-wrapper.properties') }}
+          restore-keys: games-maven-
+
+      - name: Backend unit tests (Testcontainers needs the docker socket)
+        run: |
+          mkdir -p .ci-home
+          docker run --rm --network=host \
+            --user "$(id -u):$(id -g)" \
+            --group-add "$(stat -c %g /var/run/docker.sock)" \
+            -e HOME=/workspace/.ci-home \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace/backend \
+            eclipse-temurin:25-jdk \
+            ./mvnw -B test
+
+  test-frontend:
+    name: Test frontend
+    needs: version
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Angular unit tests (Karma, Chromium baked into the test image)
+        run: |
+          docker build -q -f frontend/Dockerfile.test -t hugmesh-games-frontend-test frontend
+          docker run --rm --init --shm-size=1gb \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e npm_config_cache=/tmp/.npm \
+            -v "${GITHUB_WORKSPACE}/frontend:/work" \
+            -w /work \
+            hugmesh-games-frontend-test \
+            sh -c 'npm ci --no-audit --no-fund && npm test'
+
+  test-games-js:
+    name: Test games JS
+    needs: version
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Plain-node game suites
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "${GITHUB_WORKSPACE}:/workspace:ro" \
+            -w /workspace \
+            node:22-alpine \
+            sh -c 'set -e; for t in games/_shared/test/*.test.mjs; do echo "→ node $t"; node "$t"; done'
+
+  test-rust-cores:
+    name: Test Rust game cores
+    needs: version
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Pure-Rust cores, offline (the mount must be writable for Cargo.lock)
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e CARGO_HOME=/tmp/cargo \
+            -e CARGO_TARGET_DIR=/tmp/cargo-target \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            rust:1-slim \
+            sh -c 'set -e; for d in extensions/hugmesh-*/; do case "$d" in */hugmesh-bridge/) continue;; esac; echo "→ cargo test in $d"; ( cd "$d" && cargo test --offline --quiet ); done'
+
+  # ── Images ──────────────────────────────────────────────────────────────────
+  image:
+    name: Image ${{ matrix.component }}
+    needs: [version, test-backend, test-frontend, test-games-js, test-rust-cores]
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same matrix as build:image in .gitlab-ci.yml. wasm-fragment's
+        # Dockerfile copies from backend/ and wasm-fragment/, so it needs the
+        # repo root as its context. rpg-builder and vn-builder fetch the Godot
+        # toolchain at build time; the optional repo variable
+        # GODOT_MIRROR_BASE_URL redirects that fetch (unset = GitHub releases).
+        include:
+          - { component: backend,       context: backend,       dockerfile: backend/Dockerfile,       godot: false }
+          - { component: frontend,      context: frontend,      dockerfile: frontend/Dockerfile,      godot: false }
+          - { component: rpg-builder,   context: rpg-builder,   dockerfile: rpg-builder/Dockerfile,   godot: true }
+          - { component: vn-builder,    context: vn-builder,    dockerfile: vn-builder/Dockerfile,    godot: true }
+          - { component: wasm-fragment, context: .,             dockerfile: wasm-fragment/Dockerfile, godot: false }
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags (refuse to overwrite a published version)
+        id: tags
+        env:
+          IMAGE: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}
+          KIND: ${{ needs.version.outputs.kind }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+          SHA12: ${{ needs.version.outputs.sha12 }}
+          GODOT: ${{ matrix.godot }}
+          GODOT_MIRROR: ${{ vars.GODOT_MIRROR_BASE_URL }}
+        run: |
+          set -euo pipefail
+          case "$KIND" in
+            release)
+              # Exit 0 means the tag exists. GHCR answers "not found" or
+              # "denied" for a package or tag that does not exist yet; any
+              # other failure is unexplained, so stop rather than guess.
+              if out="$(docker buildx imagetools inspect "$IMAGE:$VERSION" 2>&1)"; then
+                echo "::error::$IMAGE:$VERSION already exists. A published version is never overwritten: bump VERSION and tag again."
+                exit 1
+              fi
+              case "$out" in
+                *"not found"*|*NOT_FOUND*|*MANIFEST_UNKNOWN*|*NAME_UNKNOWN*|*denied*|*unauthorized*) ;;
+                *) echo "::error::cannot tell whether $IMAGE:$VERSION exists: $out"; exit 1 ;;
+              esac
+              tags="$IMAGE:$VERSION,$IMAGE:sha-$SHA12"
+              if [ "$PRERELEASE" = true ]; then tags="$tags,$IMAGE:beta"; else tags="$tags,$IMAGE:latest"; fi
+              label_version="$VERSION"
+              ;;
+            main)
+              tags="$IMAGE:main,$IMAGE:sha-$SHA12"
+              label_version="main"
+              ;;
+            *)
+              echo "::error::unknown run kind '$KIND'"; exit 1 ;;
+          esac
+          build_args=""
+          if [ "$GODOT" = true ] && [ -n "${GODOT_MIRROR:-}" ]; then
+            build_args="GODOT_RELEASE_BASE_URL=$GODOT_MIRROR"
+          fi
+          {
+            echo "tags=$tags"
+            echo "label_version=$label_version"
+            echo "build_args=$build_args"
+          } >> "$GITHUB_OUTPUT"
+          echo "tags: $tags"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          pull: true
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: ${{ steps.tags.outputs.build_args }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.label_version }}
+            org.opencontainers.image.revision=${{ needs.version.outputs.sha }}
+            org.opencontainers.image.title=hugmesh-games/${{ matrix.component }}
+
+  github-release:
+    name: GitHub prerelease
+    needs: [version, image]
+    if: needs.version.outputs.kind == 'release'
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+    steps:
+      - name: Create the release (skipped if it already exists)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists; nothing to do"
+            exit 0
+          fi
+          notes="Images:"
+          for c in backend frontend rpg-builder vn-builder wasm-fragment; do
+            notes="$notes
+          - ${IMAGE_PREFIX}/$c:$VERSION"
+          done
+          args=(--repo "$GITHUB_REPOSITORY" --verify-tag --title "hugmesh-games $VERSION" --notes "$notes" --generate-notes)
+          if [ "$PRERELEASE" = true ]; then
+            args+=(--prerelease --latest=false)
+          fi
+          gh release create "$TAG" "${args[@]}"

@@ -12,7 +12,7 @@ SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-games-wasm clean-games-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
         gen-certs e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
-        test test-rust test-rust-cores test-backend test-frontend test-godot test-games-js \
+        test test-rust test-rust-cores test-backend test-frontend test-godot test-games-js check-version \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
         docs-userguides docs-openapi-spec docs-openapi-latex \
@@ -83,7 +83,7 @@ PRESETS_shadows-of-the-net            = Shadows-Of-The-Net
 # Flat slug list used by `make seed-roles` and other per-game iteration.
 GAME_SLUGS          = three-wizards dodecahedron chess-godot connect-four-godot shadows-of-the-net
 
-BACKEND_JAR         = $(BACKEND_DIR)/target/hugmesh-gaming-bff-0.1.0-SNAPSHOT.jar
+BACKEND_JAR         = $(BACKEND_DIR)/target/hugmesh-gaming-bff-0.2.0-beta.1.jar
 FRONTEND_DIST       = $(FRONTEND_DIR)/dist/hugmesh-games-frontend
 
 # ── Full production build ─────────────────────────────────────────────────────
@@ -870,6 +870,13 @@ test-godot:
 	done; \
 	if [ $$status -ne 0 ]; then echo "✗ GDScript suites FAILED"; exit $$status; fi
 	@echo "✓ GDScript suites passed"
+
+# One version for all five images: VERSION must match the three poms, the three
+# Java Dockerfiles' jar names, frontend/package.json + its lock, and BACKEND_JAR
+# above. The release workflow runs the same guard (and its self-test) first.
+check-version:
+	python3 -m unittest scripts/test_check_version.py
+	python3 scripts/check_version.py
 
 test-games-js:
 	@command -v node >/dev/null 2>&1 || { echo "ERROR: node not found"; exit 1; }

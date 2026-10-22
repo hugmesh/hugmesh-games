@@ -13,7 +13,7 @@
 
   <groupId>games.hugmesh</groupId>
   <artifactId>hugmesh-rpg-builder</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.2.0-beta.1</version>
   <name>hugmesh-rpg-builder</name>
   <description>Side service. Stores Mudlet-shaped RPG project trees (areas / rooms / 6+1-direction exits / items / NPCs / scripts), renders them to a Godot 4 project that uses hugmesh-bridge, runs Godot's web export in a sibling docker container, and POSTs the resulting bundle to the BFF /api/admin/games/upload endpoint so the produced game federates under the building user. Reactive Spring stack throughout (WebFlux + R2DBC). Schema managed exclusively by Liquibase.</description>
   <packaging>jar</packaging>
