@@ -161,6 +161,17 @@ export interface ApiFailure {
   message: string;
 }
 
+/**
+ * Who refused a `forbidden` call, for the inline error copy. The fe-gateway
+ * stamps X-Route-Denied / X-Resource-Denied on every refusal it makes; a 401/403
+ * WITHOUT that header came from the games BFF itself (e.g. the session
+ * pause/resume creator-or-admin gate), and the copy must not blame the gateway
+ * for it.
+ */
+export function refusedBy(f: ApiFailure): string {
+  return f.denied ? 'The gateway refused' : 'The games service refused';
+}
+
 /** Classify an HttpClient error into the state the screens render. */
 export function classifyFailure(err: unknown): ApiFailure {
   if (err instanceof HttpErrorResponse) {

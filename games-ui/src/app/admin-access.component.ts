@@ -1,13 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import {
-  ApiFailure,
-  Game,
-  GameAccessRule,
-  GamesApiService,
-  RoleSummary,
-  classifyFailure,
-} from './games-api.service';
+import { ApiFailure, Game, GameAccessRule, GamesApiService, RoleSummary, classifyFailure, refusedBy } from './games-api.service';
 import { GamesAdminForbiddenComponent, GamesUnreachableComponent } from './status-panels.component';
 
 export const ACCESS_EXPLANATION =
@@ -140,7 +133,7 @@ export class GamesAdminAccessComponent implements OnInit {
         const f = classifyFailure(err);
         this.actionError.set(
           f.kind === 'forbidden'
-            ? `The gateway refused adding the rule (${f.status}).`
+            ? `${refusedBy(f)} adding the rule (${f.status}).`
             : `Could not add the rule (${f.status || 'network'}).`,
         );
         this.adding.set(false);
@@ -165,7 +158,7 @@ export class GamesAdminAccessComponent implements OnInit {
         const f = classifyFailure(err);
         this.actionError.set(
           f.kind === 'forbidden'
-            ? `The gateway refused removing the rule (${f.status}).`
+            ? `${refusedBy(f)} removing the rule (${f.status}).`
             : `Could not remove the rule (${f.status || 'network'}).`,
         );
         this.confirming.set(null);

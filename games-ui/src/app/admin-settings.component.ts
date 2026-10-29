@@ -1,5 +1,5 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { ApiFailure, GamesApiService, classifyFailure } from './games-api.service';
+import { ApiFailure, GamesApiService, classifyFailure, refusedBy } from './games-api.service';
 import { GamesAdminForbiddenComponent, GamesUnreachableComponent } from './status-panels.component';
 
 /** What this mount does NOT offer, stated so an admin is told, not left guessing. */
@@ -70,6 +70,7 @@ export const NOT_ON_THIS_MOUNT: readonly string[] = [
       </div>
     </section>
   `,
+  styleUrl: './hg-primitives.scss',
   styles: [
     `
       .settings {
@@ -148,7 +149,7 @@ export class GamesAdminSettingsComponent implements OnInit {
         const f = classifyFailure(err);
         this.saveError.set(
           f.kind === 'forbidden'
-            ? `The gateway refused the change (${f.status}).`
+            ? `${refusedBy(f)} the change (${f.status}).`
             : `Could not save the setting (${f.status || 'network'}).`,
         );
         this.saving.set(false);

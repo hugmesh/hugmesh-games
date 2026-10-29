@@ -129,6 +129,36 @@ describe('GamesAdminLiveComponent (A2)', () => {
     expect(el().querySelector(`[data-testid="games-admin-pause-${S1.id}"]`)?.textContent?.trim()).toBe('Resume');
   });
 
+  it('names the BFF, not the gateway, when pause is refused without X-Route-Denied', async () => {
+    // The pause/resume creator-or-admin gate lives in the games BFF; the
+    // gateway stamps X-Route-Denied on every refusal IT makes, so a bare 403
+    // is the BFF's and the copy must say so.
+    await setup(null);
+    flushList();
+    el().querySelector<HTMLButtonElement>(`[data-testid="games-admin-pause-${S1.id}"]`)!.click();
+    http
+      .expectOne(`/games/api/sessions/${S1.id}/pause`)
+      .flush({ error: 'only the creator or an admin may pause this session' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+    const text = el().querySelector('[data-testid="games-admin-live-error"]')?.textContent ?? '';
+    expect(text).toContain(`The games service refused pausing ${S1.id} (403)`);
+    expect(text).toContain('only the session creator or a games admin');
+    expect(text).not.toContain('gateway');
+  });
+
+  it('names the gateway when pause is refused with X-Route-Denied', async () => {
+    await setup(null);
+    flushList();
+    el().querySelector<HTMLButtonElement>(`[data-testid="games-admin-pause-${S1.id}"]`)!.click();
+    http
+      .expectOne(`/games/api/sessions/${S1.id}/pause`)
+      .flush('', { status: 403, statusText: 'Forbidden', headers: { 'X-Route-Denied': '/games/api/**' } });
+    fixture.detectChanges();
+    expect(el().querySelector('[data-testid="games-admin-live-error"]')?.textContent).toContain(
+      `The gateway refused pausing ${S1.id} (403).`,
+    );
+  });
+
   it('resumes via POST .../resume', async () => {
     await setup(null);
     flushList();

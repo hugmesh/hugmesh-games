@@ -10,6 +10,7 @@ import { ApiFailure } from './games-api.service';
 @Component({
   selector: 'hug-games-unreachable',
   standalone: true,
+  styleUrl: './hg-primitives.scss',
   template: `
     <div class="hg-notice hg-notice--error" role="alert" data-testid="games-unreachable">
       <p>The games service is not reachable on this deployment.</p>
@@ -31,11 +32,14 @@ export class GamesUnreachableComponent {
 @Component({
   selector: 'hug-games-forbidden',
   standalone: true,
+  styleUrl: './hg-primitives.scss',
   template: `
     <div class="hg-notice hg-notice--warning" role="alert" data-testid="games-forbidden">
-      <p>Your account does not hold games access at the gateway.</p>
       @if (failure?.denied; as d) {
+        <p>Your account does not hold games access at the gateway.</p>
         <p class="hg-muted">Denied: {{ d }}</p>
+      } @else {
+        <p>The games service refused your account ({{ failure?.status || 403 }}).</p>
       }
       <!-- A plain anchor, not a routerLink: /home is the HOST shell's route, which
            this remote must never address through its own (mount-relative) router. -->
@@ -50,18 +54,29 @@ export class GamesForbiddenComponent {
 /**
  * The admin-side forbidden panel (A0): every 401/403 from /games/api/admin/**
  * or /games/api/sessions/** lands here, with the role rule spelled out so an
- * admin knows exactly which derived role the gateway wanted.
+ * admin knows exactly which derived role was wanted — and WHO refused: the
+ * gateway stamps X-Route-Denied on its refusals, so a 403 without it is the
+ * BFF's own gate and the copy says so instead of blaming the gateway.
  */
 @Component({
   selector: 'hug-games-admin-forbidden',
   standalone: true,
+  styleUrl: './hg-primitives.scss',
   template: `
     <div class="hg-notice hg-notice--warning" role="alert" data-testid="games-admin-forbidden">
-      <p>
-        The gateway did not accept your session for the games admin API
-        (ROLE_GAMES_ADMIN = games AND (admin OR mod)); X-Route-Denied:
-        {{ failure?.denied || 'not sent' }}.
-      </p>
+      @if (failure?.denied; as d) {
+        <p>
+          The gateway did not accept your session for the games admin API
+          (ROLE_GAMES_ADMIN = games AND (admin OR mod)); X-Route-Denied: {{ d }}.
+        </p>
+      } @else {
+        <p>
+          The games service refused this admin call ({{ failure?.status || 403 }}) — its
+          /api/admin/** gate wants ROLE_ADMIN, which a games admin (ROLE_GAMES_ADMIN =
+          games AND (admin OR mod)) is granted on this mount. No X-Route-Denied header
+          was sent, so the refusal was not the gateway's.
+        </p>
+      }
     </div>
   `,
 })

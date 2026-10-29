@@ -11,13 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
-import {
-  ApiFailure,
-  Game,
-  GameSession,
-  GamesApiService,
-  classifyFailure,
-} from './games-api.service';
+import { ApiFailure, Game, GameSession, GamesApiService, classifyFailure, refusedBy } from './games-api.service';
 import { mountRoute } from './games.constants';
 import { GamesAdminForbiddenComponent, GamesUnreachableComponent } from './status-panels.component';
 
@@ -158,7 +152,7 @@ export class GamesAdminLiveComponent implements OnInit, OnDestroy {
         const f = classifyFailure(err);
         this.actionError.set(
           f.kind === 'forbidden'
-            ? `The gateway refused ${s.pausedAt ? 'resuming' : 'pausing'} ${s.id} (${f.status}).`
+            ? `${refusedBy(f)} ${s.pausedAt ? 'resuming' : 'pausing'} ${s.id} (${f.status})${f.denied ? '' : ' — only the session creator or a games admin may do that'}.`
             : `Could not ${s.pausedAt ? 'resume' : 'pause'} ${s.id} (${f.status || 'network'}).`,
         );
         this.busy.set(null);
@@ -261,7 +255,7 @@ export class GamesAdminLiveComponent implements OnInit, OnDestroy {
         const f = classifyFailure(err);
         this.recoverResult.set(
           f.kind === 'forbidden'
-            ? `The gateway refused the recovery call (${f.status}).`
+            ? `${refusedBy(f)} the recovery call (${f.status}).`
             : `Recovery call failed (${f.status || 'network'}).`,
         );
         this.recoverArmed.set(false);

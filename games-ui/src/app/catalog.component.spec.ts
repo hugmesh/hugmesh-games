@@ -154,6 +154,15 @@ describe('GamesCatalogComponent (M1)', () => {
     expect(el().querySelector('[data-testid="games-unreachable"]')).not.toBeNull();
   });
 
+  it('names the games service on a 403 without a gateway denial header', () => {
+    http.expectOne('/games/api/federation/manifest').flush(MANIFEST);
+    http.expectOne('/games/api/games').flush('', { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+    const panel = el().querySelector('[data-testid="games-forbidden"]')!;
+    expect(panel.textContent).toContain('The games service refused your account (403).');
+    expect(panel.textContent).not.toContain('at the gateway');
+  });
+
   it('shows the forbidden panel with the X-Route-Denied value on 403', () => {
     http.expectOne('/games/api/federation/manifest').flush(MANIFEST);
     http.expectOne('/games/api/games').flush('', {

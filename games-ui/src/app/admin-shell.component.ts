@@ -44,6 +44,7 @@ export const ADMIN_TABS: readonly { path: string; label: string; testid: string 
       <router-outlet></router-outlet>
     </section>
   `,
+  styleUrl: './hg-primitives.scss',
   styles: [
     `
       .tabs {

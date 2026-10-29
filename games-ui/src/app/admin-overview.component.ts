@@ -1,12 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { forkJoin } from 'rxjs';
-import {
-  AdminStats,
-  ApiFailure,
-  GamesApiService,
-  PlayerSession,
-  classifyFailure,
-} from './games-api.service';
+import { AdminStats, ApiFailure, GamesApiService, PlayerSession, classifyFailure, refusedBy } from './games-api.service';
 import { GamesAdminForbiddenComponent, GamesUnreachableComponent } from './status-panels.component';
 
 /** One stat tile: the DTO's scalar keys rendered generically, label/value. */
@@ -104,7 +98,7 @@ export class GamesAdminOverviewComponent implements OnInit {
         const f = classifyFailure(err);
         this.endError.set(
           f.kind === 'forbidden'
-            ? `The gateway refused ending ${s.casdoorId}'s session (${f.status}).`
+            ? `${refusedBy(f)} ending ${s.casdoorId}'s session (${f.status}).`
             : `Could not end ${s.casdoorId}'s session (${f.status || 'network'}).`,
         );
         this.confirming.set(null);
