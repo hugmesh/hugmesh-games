@@ -158,8 +158,13 @@ public class GameAccessController {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "scope must be one of " + VALID_SCOPES));
         }
+        // Same canonical form as grant(): a 'role' rule was stored canonicalised, so
+        // revoking it as ?scope=role&value=ROLE_GAMES must address the stored "games".
+        String scopeValue = "all".equals(scope) ? null
+                : "role".equals(scope) ? Roles.canonical(value)
+                : value;
         return requireGameDomain(slug, jwt).then(gameRepo.findBySlug(slug)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown game slug: " + slug)))
-                .flatMap(g -> accessRepo.deletePolicy(g.getId(), scope, "all".equals(scope) ? null : value)));
+                .flatMap(g -> accessRepo.deletePolicy(g.getId(), scope, scopeValue)));
     }
 }
