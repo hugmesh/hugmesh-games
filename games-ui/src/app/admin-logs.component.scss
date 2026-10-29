@@ -28,6 +28,14 @@
   padding: 0;
   display: grid;
   gap: 0.5rem;
+  min-width: 0;
+}
+
+// A grid item's automatic minimum is its content's min-content width; the
+// expanded events table (min-width 30rem) would widen the whole page on a
+// phone (measured 697px) instead of scrolling inside its .hg-table-wrap.
+.node {
+  min-width: 0;
 }
 
 .children {

@@ -80,6 +80,14 @@ a {
   margin: 0 auto;
   display: grid;
   gap: 1rem;
+  min-width: 0;
+
+  // Grid items default to min-width:auto (= their content's min-content
+  // width); a wide table inside would widen the page instead of scrolling
+  // inside its wrapper.
+  > * {
+    min-width: 0;
+  }
 }
 
 .hg-head {
@@ -143,7 +151,13 @@ a {
   background: var(--hug-bg-1);
   color: var(--hug-text);
   min-height: 2.5rem;
+  // Fill the label they sit in and never keep their intrinsic (size=20)
+  // width: on a 390px phone an unconstrained <input> pushed its flex label
+  // past the viewport (measured 429px).
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  box-sizing: border-box;
 }
 
 .hg-panel {
