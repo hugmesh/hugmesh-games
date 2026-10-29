@@ -31,7 +31,9 @@ import java.util.Set;
  * <ul>
  *   <li>{@link #fromJwt(Jwt)} — used by controllers that inject
  *       {@code @AuthenticationPrincipal Jwt}. Reads the {@code roles} claim
- *       verbatim (returned lowercase for the {@code game_access} scope
+ *       and canonicalises each name — one leading {@code ROLE_} stripped,
+ *       lowercased — the same shape {@code CasdoorAuthorities} re-prefixes
+ *       (returned lowercase for the {@code game_access} scope
  *       intersection).</li>
  *   <li>{@link #fromAuthentication(Authentication)} — for code paths that
  *       hold an {@code Authentication} but not the raw JWT. Reads from
@@ -67,9 +69,10 @@ public final class Roles {
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the lowercase role names carried by the JWT's {@code roles} claim.
-     * Returns an empty list for an anonymous (null) principal, which lets callers
-     * fall through to the {@code scope='all'} catalog filter without branching.
+     * Returns the canonical lowercase role names carried by the JWT's
+     * {@code roles} claim. Returns an empty list for an anonymous (null)
+     * principal, which lets callers fall through to the {@code scope='all'}
+     * catalog filter without branching.
      *
      * <p>Casdoor's default token format mints {@code roles} as a list of objects
      * ({@code [{name: "admin", owner: ...}, ...]}); a custom JWT template can also
@@ -80,8 +83,21 @@ public final class Roles {
      * boolean fallback only fires inside
      * {@code SecurityConfig.casdoorAuthoritiesConverter}, not here).
      *
+     * <p><b>Canonical form.</b> Each name has ONE leading {@code ROLE_} stripped
+     * (any case) before lowercasing — the same canonicalisation
+     * {@code CasdoorAuthorities.canonicalRoleName} applies before it re-prefixes
+     * the Spring authority. The games realm ({@code threewizards}) seeds bare
+     * names ({@code admin}); the systems Casdoor a mesh-mounted BFF validates
+     * against seeds {@code ROLE_}-prefixed ones ({@code ROLE_ADMIN},
+     * {@code ROLE_GAMES_ADMIN}). Both read back as {@code admin} /
+     * {@code games_admin} here, so {@link #isAdmin(Jwt)}, {@link #isSuperadmin(Jwt)}
+     * and {@link #has(Jwt, String)} answer the same for either realm. Without the
+     * strip a mesh admin read as {@code role_admin} and every raw-JWT admin gate
+     * (session pause/resume, character/item admin override, stream/realtime
+     * bypass) refused them while the {@code hasRole('ADMIN')} gates admitted them.
+     *
      * @param jwt the validated Casdoor JWT; {@code null} yields an empty list
-     * @return immutable lowercase role-name list, never {@code null}
+     * @return immutable canonical lowercase role-name list, never {@code null}
      */
     public static List<String> fromJwt(Jwt jwt) {
         if (jwt == null) return List.of();
@@ -90,11 +106,31 @@ public final class Roles {
         return list.stream()
                 .filter(r -> r != null)
                 .map(Roles::roleNameOf)
-                .map(String::trim)
+                .map(Roles::canonical)
                 .filter(s -> !s.isEmpty())
-                .map(String::toLowerCase)
                 .distinct()
                 .toList();
+    }
+
+    /**
+     * Canonical lowercase form of a raw role name: trimmed, ONE leading
+     * {@code ROLE_} (any case) stripped, then lowercased. {@code "ROLE_ADMIN"},
+     * {@code " Admin "} and {@code "admin"} all canonicalise to {@code "admin"};
+     * {@code "ROLE_ROLE_ADMIN"} canonicalises to {@code "role_admin"} (exactly
+     * one prefix is stripped, mirroring {@code CasdoorAuthorities}). A null or
+     * blank input yields {@code ""} so callers can filter it.
+     *
+     * @param raw a role name as found in the JWT claim, a {@code game_access}
+     *            row, or a caller-supplied predicate argument
+     * @return the canonical lowercase name, or {@code ""} when blank
+     */
+    public static String canonical(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        if (s.length() >= 5 && s.regionMatches(true, 0, "ROLE_", 0, 5)) {
+            s = s.substring(5).trim();
+        }
+        return s.toLowerCase();
     }
 
     /**
@@ -139,28 +175,49 @@ public final class Roles {
     }
 
     /**
-     * Returns {@code true} when the caller holds the {@code admin} role
-     * (case-insensitive), derived from the raw JWT claim. Mirrors the predicate
-     * Spring's {@code hasRole('ADMIN')} runs on the converted authority.
+     * Canonical name of the platform's DERIVED games-admin role
+     * ({@code games AND (admin OR mod)}, materialised by the generator seed /
+     * the games-admin-sync Job as {@code ROLE_GAMES_ADMIN} on the systems
+     * Casdoor). Kept in step with {@code CasdoorAuthorities.GAMES_ADMIN_ROLE}.
+     */
+    static final String GAMES_ADMIN = "games_admin";
+
+    /**
+     * Returns {@code true} when the caller is an admin of the games service,
+     * derived from the raw JWT claim: the {@code admin} role in either realm
+     * spelling ({@code admin} / {@code ROLE_ADMIN}), OR the platform's derived
+     * {@code games_admin} role ({@code ROLE_GAMES_ADMIN} = games AND (admin OR
+     * mod)). Mirrors EXACTLY the set of principals {@code CasdoorAuthorities}
+     * grants the {@code ROLE_ADMIN} authority, so this predicate and Spring's
+     * {@code hasRole('ADMIN')} admit the same callers — a games+mod holder who
+     * passes the {@code /api/admin/**} matcher is also an admin at every raw-JWT
+     * gate (session pause/resume, character/item admin override, stream and
+     * realtime bypass). Deliberately NOT widened to {@code superadmin}: the
+     * call sites that admit superadmins test {@link #isSuperadmin(Jwt)} alongside.
      *
      * @param jwt the validated Casdoor JWT; {@code null} returns {@code false}
-     * @return {@code true} iff the JWT's {@code roles} claim contains {@code "admin"}
+     * @return {@code true} iff the JWT's {@code roles} claim canonicalises to
+     *         {@code admin} or {@code games_admin}
      */
     public static boolean isAdmin(Jwt jwt) {
-        return fromJwt(jwt).contains("admin");
+        List<String> roles = fromJwt(jwt);
+        return roles.contains("admin") || roles.contains(GAMES_ADMIN);
     }
 
     /**
-     * Returns {@code true} when the caller holds the given role name
-     * (matched case-insensitively against the JWT's lowercase role list).
+     * Returns {@code true} when the caller holds the given role name. The
+     * argument is canonicalised the same way the claim is ({@link #canonical}),
+     * so {@code has(jwt, "ROLE_GAMES")}, {@code has(jwt, "GAMES")} and
+     * {@code has(jwt, "games")} are one question.
      *
      * @param jwt  the validated Casdoor JWT; {@code null} returns {@code false}
-     * @param role the role name to test, any case (e.g. {@code "ADMIN"} or
-     *             {@code "mod"})
+     * @param role the role name to test, any case, with or without a
+     *             {@code ROLE_} prefix (e.g. {@code "ADMIN"} or {@code "mod"})
      * @return {@code true} iff the JWT carries the given role
      */
     public static boolean has(Jwt jwt, String role) {
-        return fromJwt(jwt).contains(role.toLowerCase());
+        String want = canonical(role);
+        return !want.isEmpty() && fromJwt(jwt).contains(want);
     }
 
     /**
@@ -337,8 +394,9 @@ public final class Roles {
     }
 
     /**
-     * Returns every role name carried by the JWT, upper-cased and trimmed — the
-     * gateway's {@code Roles.fromJwt} shape. Distinct from {@link #fromJwt(Jwt)}
+     * Returns every role name carried by the JWT, canonicalised (one leading
+     * {@code ROLE_} stripped) and upper-cased — the gateway's {@code Roles.fromJwt}
+     * shape. Distinct from {@link #fromJwt(Jwt)}
      * which returns lowercase names for the {@code game_access} scope intersection;
      * this helper exists for code that wants the upper-cased,
      * {@code ROLE_}-prefix-stripped form the gateway uses.
@@ -352,8 +410,8 @@ public final class Roles {
         Object claim = jwt.getClaim("roles");
         if (claim instanceof Collection<?> list) {
             for (Object item : list) {
-                String name = roleNameOf(item);
-                if (!name.isBlank()) out.add(name.trim().toUpperCase());
+                String name = canonical(roleNameOf(item));
+                if (!name.isEmpty()) out.add(name.toUpperCase());
             }
         }
         return out;

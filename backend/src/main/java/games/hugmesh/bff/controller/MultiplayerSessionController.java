@@ -220,9 +220,13 @@ public class MultiplayerSessionController {
         return service.get(id)
                 .flatMap(s -> {
                     boolean isCreator = jwt.getSubject().equals(s.creatorCasdoorId());
-                    // Canonical roles-array admin check (ROLE_ADMIN / roles
-                    // claim), the SAME predicate the rest of the BFF uses
-                    // (hasRole('ADMIN') + CharacterController's Roles.isAdmin).
+                    // Canonical roles-array admin check, the SAME set of
+                    // principals CasdoorAuthorities grants ROLE_ADMIN: `admin`
+                    // in either realm spelling (admin / ROLE_ADMIN — the systems
+                    // Casdoor a mesh-mounted BFF validates against seeds the
+                    // prefixed form) plus the platform's derived games_admin
+                    // (ROLE_GAMES_ADMIN = games AND (admin OR mod)). Same
+                    // predicate as CharacterController's Roles.isAdmin.
                     // The legacy `isAdmin` boolean claim is NOT a bypass here —
                     // it is only honoured by the SecurityConfig authorities
                     // converter's back-compat fallback, never by Roles.isAdmin.

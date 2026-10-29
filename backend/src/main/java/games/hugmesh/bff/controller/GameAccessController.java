@@ -104,7 +104,15 @@ public class GameAccessController {
 
         String adminId = jwt != null ? jwt.getSubject() : "system:unknown";
 
-        String scopeValue = "all".equals(req.scope()) ? null : req.value();
+        // scope='role' rows are matched at request time against Roles.fromJwt's
+        // CANONICAL names (one leading ROLE_ stripped, lowercase), so the stored
+        // value is canonicalised the same way: an admin typing "ROLE_GAMES" (the
+        // systems Casdoor spelling the mesh's A4 free-text fallback invites) or
+        // "Games" persists "games" and matches the ROLE_GAMES holder's claim.
+        // 'user' values are Casdoor subject ids and stay verbatim.
+        String scopeValue = "all".equals(req.scope()) ? null
+                : "role".equals(req.scope()) ? Roles.canonical(req.value())
+                : req.value();
 
         // Brand-scope gate (branch tenancy control) AND main's #70 scopeValue normalization
         // are both preserved: an admin may only grant on a game in their own domain, and the
