@@ -48,10 +48,13 @@ final class GamesAdminPersonaMatrix {
             new Call(HttpMethod.GET, "/api/games/launches"),
             new Call(HttpMethod.DELETE, "/api/games/admin/launches/some-launch-uid"));
 
+    /** RoleProxyController answers an ADMITTED call by calling Casdoor over the
+     *  network, so admitted personas skip it ({@link #statusesWithoutNetwork});
+     *  a refused call never reaches the controller, so refused personas run it. */
+    static final Call NETWORKED = new Call(HttpMethod.GET, "/api/admin/roles");
+
     /** Stub every downstream the allowed calls touch so an admitted call answers
-     *  2xx/404 instead of a mock NPE. RoleProxyController calls Casdoor over the
-     *  network; the slices point casdoor.endpoint at a closed port, so an
-     *  admitted /api/admin/roles answers 5xx — still "not refused". */
+     *  2xx/404 instead of a mock NPE. */
     static void stubDownstreams(SessionService sessions, GameSessionService multiplayer,
                                 DebugModeService debug, GameLaunchRepository launches,
                                 GameRepository games) {
@@ -64,10 +67,20 @@ final class GamesAdminPersonaMatrix {
         lenient().when(games.findBySlug(anyString())).thenReturn(Mono.empty());
     }
 
-    /** Status per call for one persona, in {@link #ADMIN_CALLS} order. */
+    /** Status per call for one persona, in {@link #ADMIN_CALLS} order. Only for
+     *  personas expected to be REFUSED (see {@link #NETWORKED}). */
     static Map<String, Integer> statuses(WebTestClient web, JwtMutator persona) {
+        return run(web, persona, ADMIN_CALLS);
+    }
+
+    /** Every call but {@link #NETWORKED}: for personas expected to be admitted. */
+    static Map<String, Integer> statusesWithoutNetwork(WebTestClient web, JwtMutator persona) {
+        return run(web, persona, ADMIN_CALLS.stream().filter(c -> !c.equals(NETWORKED)).toList());
+    }
+
+    private static Map<String, Integer> run(WebTestClient web, JwtMutator persona, List<Call> calls) {
         Map<String, Integer> out = new LinkedHashMap<>();
-        for (Call c : ADMIN_CALLS) {
+        for (Call c : calls) {
             int status = web.mutateWith(persona).mutateWith(csrf())
                     .method(c.method()).uri(c.path())
                     .exchange()

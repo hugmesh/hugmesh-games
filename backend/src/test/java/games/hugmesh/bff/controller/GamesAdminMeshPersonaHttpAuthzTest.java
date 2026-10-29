@@ -38,6 +38,7 @@ import java.util.Map;
 import static games.hugmesh.bff.controller.GamesAdminPersonaMatrix.allForbidden;
 import static games.hugmesh.bff.controller.GamesAdminPersonaMatrix.noneRefused;
 import static games.hugmesh.bff.controller.GamesAdminPersonaMatrix.statuses;
+import static games.hugmesh.bff.controller.GamesAdminPersonaMatrix.statusesWithoutNetwork;
 import static games.hugmesh.bff.controller.support.SecuritySliceSupport.meshPersona;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -139,7 +140,7 @@ class GamesAdminMeshPersonaHttpAuthzTest {
 
     @Test
     void gamesAdmin_reachesEveryGamesAdminCall() {
-        Map<String, Integer> got = statuses(web,
+        Map<String, Integer> got = statusesWithoutNetwork(web,
                 meshPersona("e2e-gamesadmin", "ROLE_GAMES", "ROLE_ADMIN", "ROLE_GAMES_ADMIN", "ROLE_USER"));
         assertThat(noneRefused(got)).as(got.toString()).isTrue();
         assertThat(got).containsEntry("GET /api/admin/stats", 200)
@@ -156,7 +157,7 @@ class GamesAdminMeshPersonaHttpAuthzTest {
     @Test
     void gamesPlusMod_reachesEveryGamesAdminCall() {
         // games AND mod earns the derived role without ROLE_ADMIN.
-        Map<String, Integer> got = statuses(web,
+        Map<String, Integer> got = statusesWithoutNetwork(web,
                 meshPersona("e2e-gamesmod", "ROLE_GAMES", "ROLE_MOD", "ROLE_GAMES_ADMIN", "ROLE_USER"));
         assertThat(noneRefused(got)).as(got.toString()).isTrue();
     }
@@ -164,7 +165,7 @@ class GamesAdminMeshPersonaHttpAuthzTest {
     @Test
     void gamesAdminLiveSessionSpelling_reachesEveryGamesAdminCall() {
         // The live /bff/session for e2e-gamesadmin read admin, games, games_admin, user.
-        Map<String, Integer> got = statuses(web,
+        Map<String, Integer> got = statusesWithoutNetwork(web,
                 meshPersona("e2e-gamesadmin", "admin", "games", "games_admin", "user"));
         assertThat(noneRefused(got)).as(got.toString()).isTrue();
     }

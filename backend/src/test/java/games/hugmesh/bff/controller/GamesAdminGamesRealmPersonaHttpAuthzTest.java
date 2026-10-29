@@ -34,6 +34,7 @@ import java.util.Map;
 import static games.hugmesh.bff.controller.GamesAdminPersonaMatrix.allForbidden;
 import static games.hugmesh.bff.controller.GamesAdminPersonaMatrix.noneRefused;
 import static games.hugmesh.bff.controller.GamesAdminPersonaMatrix.statuses;
+import static games.hugmesh.bff.controller.GamesAdminPersonaMatrix.statusesWithoutNetwork;
 import static games.hugmesh.bff.controller.support.SecuritySliceSupport.gamesRealmPersona;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -86,7 +87,7 @@ class GamesAdminGamesRealmPersonaHttpAuthzTest {
 
     @Test
     void realmAdmin_reachesEveryGamesAdminCall() {
-        Map<String, Integer> got = statuses(web, gamesRealmPersona("admin", "admin", "player"));
+        Map<String, Integer> got = statusesWithoutNetwork(web, gamesRealmPersona("admin", "admin", "player"));
         assertThat(noneRefused(got)).as(got.toString()).isTrue();
         assertThat(got).containsEntry("GET /api/admin/stats", 200)
                 .containsEntry("GET /api/games/launches", 200);
