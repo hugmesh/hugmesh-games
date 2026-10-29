@@ -74,7 +74,8 @@ export class GamePlayComponent implements OnInit, OnDestroy {
    *  keeps the CSS height (see play.component.scss). */
   readonly frameHeight = signal<number | null>(null);
   private frameObserver: ResizeObserver | null = null;
-  private frameGrowths = 0;
+  /** Overflow (content minus frame, px) seen at the last growth; null = none yet. */
+  private lastOverflow: number | null = null;
   /** The iframe src. Angular treats <iframe src> as a RESOURCE_URL context;
    *  the value is same-origin and built only from an encoded slug + uid
    *  (bundleUrl), never from a server-supplied string, so trusting it is safe. */
@@ -174,14 +175,15 @@ export class GamePlayComponent implements OnInit, OnDestroy {
    * than the frame, and keep doing so while the content resizes (fonts, a
    * wrapping header). The bundle is same-origin (/_remotes/wasm-fragment/**),
    * so its document is readable; if it ever is not, the CSS height stands.
-   * At most a few growths per load, so a bundle sized off its own viewport
-   * (100vh plus padding) cannot chase the frame.
+   * A growth that leaves the overflow as large as before means the content
+   * tracks the frame's own height (a board sized to the viewport); growing
+   * again would only chase it, so it stops there.
    */
   fitFrame(): void {
     const iframe = this.frame()?.nativeElement;
     this.frameObserver?.disconnect();
     this.frameObserver = null;
-    this.frameGrowths = 0;
+    this.lastOverflow = null;
     let doc: Document | null = null;
     try {
       doc = iframe?.contentDocument ?? null;
@@ -190,11 +192,16 @@ export class GamePlayComponent implements OnInit, OnDestroy {
     }
     if (!iframe || !doc?.documentElement) return;
     const measure = () => {
-      const next = fittedFrameHeight(iframe.clientHeight, doc!.documentElement.scrollHeight);
-      if (next !== null && this.frameGrowths < 4) {
-        this.frameGrowths++;
-        this.frameHeight.set(next);
+      const contentHeight = doc!.documentElement.scrollHeight;
+      const next = fittedFrameHeight(iframe.clientHeight, contentHeight);
+      if (next === null) {
+        this.lastOverflow = null; // fits: a later overflow is new, not a chase
+        return;
       }
+      const overflow = contentHeight - iframe.clientHeight;
+      if (this.lastOverflow !== null && overflow >= this.lastOverflow) return;
+      this.lastOverflow = overflow;
+      this.frameHeight.set(next);
     };
     measure();
     // The bundle's own window observes its own document (its rendering loop

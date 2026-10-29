@@ -175,7 +175,38 @@ describe('GamePlayComponent (M2)', () => {
     fixture.destroy();
     http.expectOne('/games/api/games/launches/TALL').flush(null);
   });
+  it('stops growing when the content tracks the frame height (a board sized to the viewport)', async () => {
+    await setup('chess', { uid: 'CHASE' });
+    flushName('chess', 'Chess');
+    http.expectOne((r) => r.url.startsWith('/_remotes/wasm-fragment/chess/index.html')).flush('ok');
+    fixture.detectChanges();
+    const host = el();
+    document.body.appendChild(host);
+    try {
+      const frame = host.querySelector<HTMLIFrameElement>('[data-testid="games-play-frame"]')!;
+      const loaded = new Promise<void>((resolve) => frame.addEventListener('load', () => resolve(), { once: true }));
+      // always 60px taller than its own viewport, whatever the frame height
+      frame.srcdoc = '<!doctype html><body style="margin:0"><div style="height:calc(100vh + 60px)"></div></body>';
+      await loaded;
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 30));
+        fixture.detectChanges();
+      }
+      const grown = frame.clientHeight;
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 30));
+        fixture.detectChanges();
+      }
+      expect(frame.clientHeight).toBe(grown); // settled, not chasing
+      expect(grown).toBeLessThan(MAX_FRAME_PX);
+    } finally {
+      host.remove();
+    }
+    fixture.destroy();
+    http.expectOne('/games/api/games/launches/CHASE').flush(null);
+  });
 });
+
 
 describe('fittedFrameHeight', () => {
   it('keeps the CSS height when the content fits, grows to the content otherwise, and caps', () => {
