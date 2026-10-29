@@ -107,6 +107,10 @@ a {
   color: var(--hug-text);
   cursor: pointer;
   min-height: 2.5rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 
   &:hover:not(:disabled) {
     border-color: var(--hug-accent);
@@ -200,12 +204,28 @@ a {
   }
 }
 
-// Every table scrolls inside its OWN wrapper — never the page.
+// Every table scrolls inside its OWN wrapper — never the page. position:
+// relative so an absolutely-positioned child (the .sr visually-hidden header
+// text) is contained by the scroller instead of extending the DOCUMENT's
+// scrollWidth past the viewport (measured: a 1px .sr span at x=491 on a 390px
+// phone made the whole page scroll sideways).
 .hg-table-wrap {
+  position: relative;
   overflow-x: auto;
   max-width: 100%;
   border: 1px solid var(--hug-border);
   border-radius: t.$radius-md;
+}
+
+// Visually-hidden text for screen readers (table action-column headers).
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .hg-table {
@@ -219,6 +239,9 @@ a {
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--hug-border);
     vertical-align: top;
+    // Cells never word-break ("alic e"); the wrapper scrolls instead.
+    overflow-wrap: normal;
+    white-space: nowrap;
   }
 
   th {
