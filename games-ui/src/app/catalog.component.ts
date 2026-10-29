@@ -132,7 +132,9 @@ export class GamesCatalogComponent implements OnInit {
 
   /** Best-effort: `GET /api/games/launches` is admin-gated on the BFF today, so
    *  a plain member gets 403 — the strip simply stays hidden (it must never
-   *  flip the catalog into the forbidden state). */
+   *  flip the catalog into the forbidden state). When it does render (an admin
+   *  holder) it lists EVERY player's active launches, not the caller's, and
+   *  the strip says so. */
   private loadLaunches(): void {
     this.api.listLaunches().subscribe({
       next: (rows) => {

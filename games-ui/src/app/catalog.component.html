@@ -24,7 +24,10 @@
     @case ('loaded') {
       @if (launches().length) {
         <section class="hg-panel recent" data-testid="games-recent" aria-labelledby="games-recent-title">
-          <h2 id="games-recent-title">Recent launches</h2>
+          <h2 id="games-recent-title">Active launches on this mesh (admin view)</h2>
+          <p class="hg-muted">
+            The games service lists launches to admins only, and lists every player's; a member never sees this strip.
+          </p>
           <ul class="recent-list">
             @for (l of launches(); track l.uid) {
               <li>
