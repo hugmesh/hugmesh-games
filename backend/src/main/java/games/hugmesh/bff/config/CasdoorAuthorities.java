@@ -81,6 +81,14 @@ final class CasdoorAuthorities {
     private static final String[] RESERVED_PREFIXES = {"ROLE_", "DOMAIN_"};
 
     /**
+     * Canonical (bare, upper-cased) name of the platform's derived games-admin
+     * role. A {@code roles} entry spelled {@code games_admin}, {@code GAMES_ADMIN}
+     * or {@code ROLE_GAMES_ADMIN} (any case) canonicalises to this and is
+     * promoted to {@code ROLE_ADMIN} as well — see {@link #authorities}.
+     */
+    private static final String GAMES_ADMIN_ROLE = "GAMES_ADMIN";
+
+    /**
      * Returns {@code true} iff the given authority string starts with a reserved
      * prefix (case-insensitive). Used to drop injection attempts from the
      * {@code permissions} claim.
@@ -186,6 +194,20 @@ final class CasdoorAuthorities {
                 String name = canonicalRoleName(roleNameOf(r));
                 if (!name.isBlank()) {
                     authorities.add(new SimpleGrantedAuthority("ROLE_" + name));
+                    // Mesh-mounted mode (games-ui behind the fe-gateway, systems
+                    // Casdoor JWKS): the platform's DERIVED role GAMES_ADMIN
+                    // (= games AND (admin OR mod), materialised by the generator's
+                    // seed / the games-admin-sync Job) IS the games-realm admin.
+                    // Emit ROLE_ADMIN alongside ROLE_GAMES_ADMIN so every
+                    // hasRole('ADMIN') gate on /api/admin/** admits that holder —
+                    // the in-process equivalent of the hugmesh-actions role
+                    // mirror. Keyed on the ROLES claim ONLY: a verbatim
+                    // permissions:["GAMES_ADMIN"] entry never reaches this branch
+                    // (see the reserved-prefix guard below — permissions can
+                    // never mint a ROLE_* authority).
+                    if (GAMES_ADMIN_ROLE.equals(name)) {
+                        authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+                    }
                 }
             }
         }

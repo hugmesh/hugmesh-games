@@ -1,0 +1,5 @@
+// Stylesheet for the components that keep their own styles inline (the admin
+// shell, settings and the three status panels): it carries the shared .hg-*
+// primitives so they render identically under the host shell, where the
+// remote's global styles.scss is never loaded. See styles/_primitives.scss.
+@use '../styles/primitives';

@@ -1,0 +1,147 @@
+<section class="live" data-testid="games-admin-live" aria-labelledby="games-admin-live-title">
+  <h2 id="games-admin-live-title">Live sessions</h2>
+
+  <div class="columns" [class.columns--detail]="selectedId()">
+    <div class="list">
+      <div class="controls">
+        <label>
+          <span class="hg-muted">Game</span>
+          <select class="hg-select" [ngModel]="gameFilter()" (ngModelChange)="onGameFilter($event)" data-testid="games-admin-live-game">
+            <option value="">All games</option>
+            @for (g of games(); track g.slug) {
+              <option [value]="g.slug">{{ g.name }}</option>
+            }
+          </select>
+        </label>
+        <label>
+          <span class="hg-muted">Search</span>
+          <input class="hg-input" type="search" [ngModel]="search()" (ngModelChange)="search.set($event)" placeholder="session, name, creator" data-testid="games-admin-live-search" />
+        </label>
+        <button type="button" class="hg-btn" (click)="load()">Refresh</button>
+      </div>
+
+      @if (actionError()) {
+        <p class="hg-notice hg-notice--error" role="alert" data-testid="games-admin-live-error">{{ actionError() }}</p>
+      }
+
+      @switch (state()) {
+        @case ('loading') {
+          <p class="hg-panel" role="status" aria-busy="true"><span class="hg-spinner" aria-hidden="true"></span>Loading sessions…</p>
+        }
+        @case ('forbidden') {
+          <hug-games-admin-forbidden [failure]="failure()"></hug-games-admin-forbidden>
+        }
+        @case ('unreachable') {
+          <hug-games-unreachable (retry)="load()"></hug-games-unreachable>
+        }
+        @case ('loaded') {
+          @if (filtered().length === 0) {
+            <p class="hg-panel hg-muted" data-testid="games-admin-live-empty">No multiplayer sessions right now.</p>
+          } @else {
+            <div class="hg-table-wrap">
+              <table class="hg-table" data-testid="games-admin-live-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Game</th>
+                    <th scope="col">Session</th>
+                    <th scope="col">Visibility</th>
+                    <th scope="col">Players</th>
+                    <th scope="col">State</th>
+                    <th scope="col"><span class="hg-sr">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (s of filtered(); track s.id) {
+                    <tr [attr.data-testid]="'games-admin-live-row-' + s.id" [class.row--selected]="s.id === selectedId()">
+                      <td>{{ s.gameSlug }}</td>
+                      <td>
+                        <a [routerLink]="['sessions', s.id]" [relativeTo]="mount" [attr.data-testid]="'games-admin-live-open-' + s.id">{{ s.name || s.id }}</a>
+                        @if (s.name) {
+                          <div class="hg-muted mono">{{ s.id }}</div>
+                        }
+                      </td>
+                      <td><span class="hg-badge">{{ s.visibility }}</span></td>
+                      <td>{{ s.activePlayers }} / {{ s.maxPlayers }}</td>
+                      <td>
+                        @if (s.pausedAt) {
+                          <span class="hg-badge hg-badge--off" [attr.title]="s.pauseReason || ''">paused</span>
+                        } @else {
+                          <span class="hg-badge hg-badge--ok">running</span>
+                        }
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          class="hg-btn"
+                          [disabled]="busy() === s.id"
+                          (click)="togglePause(s)"
+                          [attr.data-testid]="'games-admin-pause-' + s.id"
+                        >
+                          {{ s.pausedAt ? 'Resume' : 'Pause' }}
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        }
+      }
+    </div>
+
+    @if (selectedId()) {
+      <div class="detail hg-panel" data-testid="games-admin-live-detail">
+        <div class="hg-head">
+          <h3>Session {{ selected()?.name || selectedId() }}</h3>
+          <a [routerLink]="['sessions']" [relativeTo]="mount" class="hg-btn" data-testid="games-admin-live-close">Close</a>
+        </div>
+        <p class="hg-muted mono">{{ selectedId() }}</p>
+
+        @switch (streamState()) {
+          @case ('forbidden') {
+            <hug-games-admin-forbidden [failure]="streamFailure()"></hug-games-admin-forbidden>
+          }
+          @case ('reconnecting') {
+            <p class="hg-notice hg-notice--warning" role="status" data-testid="games-admin-live-stream-banner">Stream disconnected — reconnecting</p>
+          }
+        }
+
+        @if (streamState() !== 'forbidden') {
+          <div class="toggles" role="group" aria-label="Event channels">
+            @for (c of channels; track c.name) {
+              <label class="toggle">
+                <input type="checkbox" [ngModel]="enabled()[c.name]" (ngModelChange)="toggleChannel(c.name, $event)" [name]="c.name" />
+                <span class="swatch" [style.background]="c.colour" aria-hidden="true"></span>
+                {{ c.name }}
+              </label>
+            }
+            <label class="toggle">
+              <input type="checkbox" [ngModel]="autoscroll()" (ngModelChange)="autoscroll.set($event)" name="autoscroll" />
+              autoscroll
+            </label>
+            <button type="button" class="hg-btn" (click)="clear()" data-testid="games-admin-live-clear">Clear</button>
+          </div>
+
+          <pre #terminal class="terminal" data-testid="games-admin-live-terminal" aria-live="off" tabindex="0">@for (l of visibleLines(); track l.id) {<span class="line" [style.color]="l.colour"><span class="at">{{ l.at }}</span> <span class="ch">{{ l.channel }}</span> {{ l.text }}</span>
+}@if (visibleLines().length === 0) {<span class="hg-muted">Waiting for events…</span>}</pre>
+
+          <div class="recover">
+            @if (recoverArmed()) {
+              <span class="hg-inline-confirm" role="group" aria-label="Confirm recovery">
+                <span>Recover the realtime state of this session?</span>
+                <button type="button" class="hg-btn hg-btn--danger" (click)="recover()" data-testid="games-admin-recover">Confirm</button>
+                <button type="button" class="hg-btn" (click)="cancelRecover()">Cancel</button>
+              </span>
+            } @else {
+              <button type="button" class="hg-btn" (click)="recover()" data-testid="games-admin-recover">Recover</button>
+            }
+            @if (recoverResult()) {
+              <span class="hg-muted" data-testid="games-admin-recover-result">{{ recoverResult() }}</span>
+            }
+          </div>
+        }
+      </div>
+    }
+  </div>
+</section>

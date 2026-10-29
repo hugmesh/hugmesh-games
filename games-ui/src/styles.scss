@@ -1,0 +1,82 @@
+@use 'styles/tokens' as t;
+
+// Games micro-frontend (native-federation remote "games"). Like the other
+// HugMesh remotes this ships only the shared a11y baseline + the --hug-*
+// palette CONTRACT: every component style reads var(--hug-*) so the host
+// shell's theme (the runtime hug-theme.css :root:root block, or the host's own
+// tokens) wins whenever present, and the user-ui defaults below render when the
+// remote is served standalone.
+
+:root {
+  --hug-bg-0:        #0a0a12;
+  --hug-bg-1:        #12121e;
+  --hug-bg-2:        #1a1a2e;
+  --hug-border:      #1e1e32;
+  --hug-text:        #e8e8f0;
+  --hug-text-muted:  #a8acc4;
+  --hug-accent:      #7c4dff;
+  --hug-accent-soft: #b388ff;
+  --hug-success:     #4caf50;
+  --hug-warning:     #ffb74d;
+  --hug-error:       #ff6b6b;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
+body {
+  background: var(--hug-bg-0);
+  color: var(--hug-text);
+  font-family: t.$font-sans;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: clamp(1.4rem, 4vw + 0.5rem, 2.2rem);
+}
+
+h2 {
+  font-size: clamp(1.1rem, 1.5vw + 0.75rem, 1.5rem);
+}
+
+.skip {
+  position: absolute;
+  left: -999px;
+
+  &:focus,
+  &:focus-visible {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    z-index: t.$z-top;
+    background: var(--hug-bg-1);
+    color: var(--hug-text);
+    padding: 0.5rem 1rem;
+    border-radius: t.$radius-sm;
+  }
+}
+
+a {
+  color: var(--hug-accent-soft);
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--hug-accent-soft);
+  outline-offset: 2px;
+}
+
+.hug-games-main {
+  padding: 1rem;
+}
+
+// The shared .hg-* primitives live in styles/_primitives.scss and are `@use`d
+// by EVERY component stylesheet — never from here. This global sheet only
+// reaches the standalone document (native federation loads the exposed JS, not
+// the remote's styles.css), so anything a screen needs under the host shell
+// must travel with the component. Everything above is standalone-only: the
+// token defaults, the a11y baseline and the dev shell's skip link / landmark.

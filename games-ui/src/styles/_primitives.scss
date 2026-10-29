@@ -1,0 +1,256 @@
+@use 'tokens' as t;
+
+// ── Shared games-remote primitives (.hg-*) ──────────────────────────────────
+//
+// This partial is `@use`d from EVERY component stylesheet (each *.component.scss
+// and src/app/hg-primitives.scss for the inline-template components), NOT from
+// src/styles.scss. Native federation loads only the exposed JavaScript: under
+// the host shell (loadRemoteModule) the remote's global stylesheet is never
+// fetched, so a global `.hg-btn {}` rule reaches the standalone document only.
+// Measured on the shipped first cut: under the host document.styleSheets
+// carried none of these rules, buttons rendered as UA defaults, .hg-table-wrap
+// was overflow:visible and the M2/A2 screens were 538px / 416px wide at a
+// 390px viewport. Component styles travel with the component's JS chunk and
+// are scoped by Angular's emulated encapsulation, so each screen carries its
+// own copy of exactly these rules wherever it is mounted.
+//
+// Only --hug-* tokens are read for colour; the host exposes them globally (the
+// one half of the contract that did hold under the shell).
+
+.hg-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+
+  // Grid items default to min-width:auto (= their content's min-content
+  // width); a wide table inside would widen the page instead of scrolling
+  // inside its wrapper.
+  > * {
+    min-width: 0;
+  }
+}
+
+.hg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+
+  h1,
+  h2 {
+    margin: 0;
+  }
+}
+
+.hg-muted {
+  color: var(--hug-text-muted);
+}
+
+.hg-btn {
+  font: inherit;
+  padding: 0.45rem 0.9rem;
+  border-radius: t.$radius-sm;
+  border: 1px solid var(--hug-border);
+  background: var(--hug-bg-2);
+  color: var(--hug-text);
+  cursor: pointer;
+  min-height: 2.5rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover:not(:disabled) {
+    border-color: var(--hug-accent);
+  }
+
+  &:disabled,
+  &[aria-disabled='true'] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  &.hg-btn--primary {
+    background: var(--hug-accent);
+    border-color: var(--hug-accent);
+    color: #fff;
+  }
+
+  &.hg-btn--danger {
+    border-color: var(--hug-error);
+    color: var(--hug-error);
+  }
+}
+
+.hg-input,
+.hg-select {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border-radius: t.$radius-sm;
+  border: 1px solid var(--hug-border);
+  background: var(--hug-bg-1);
+  color: var(--hug-text);
+  min-height: 2.5rem;
+  // Fill the label they sit in and never keep their intrinsic (size=20)
+  // width: on a 390px phone an unconstrained <input> pushed its flex label
+  // past the viewport (measured 429px).
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.hg-panel {
+  background: var(--hug-bg-1);
+  border: 1px solid var(--hug-border);
+  border-radius: t.$radius-md;
+  padding: 1rem;
+}
+
+.hg-notice {
+  @extend .hg-panel;
+  border-left: 4px solid var(--hug-accent);
+
+  &.hg-notice--error {
+    border-left-color: var(--hug-error);
+  }
+
+  &.hg-notice--warning {
+    border-left-color: var(--hug-warning);
+  }
+
+  &.hg-notice--success {
+    border-left-color: var(--hug-success);
+  }
+
+  p {
+    margin: 0 0 0.5rem;
+  }
+
+  p:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.hg-badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid var(--hug-border);
+  background: var(--hug-bg-2);
+  color: var(--hug-text-muted);
+  white-space: nowrap;
+
+  &.hg-badge--ok {
+    color: var(--hug-success);
+    border-color: var(--hug-success);
+  }
+
+  &.hg-badge--tab {
+    color: var(--hug-accent-soft);
+    border-color: var(--hug-accent);
+  }
+
+  &.hg-badge--off {
+    color: var(--hug-warning);
+    border-color: var(--hug-warning);
+  }
+}
+
+// Every table scrolls inside its OWN wrapper — never the page. position:
+// relative so an absolutely-positioned child (the .hg-sr visually-hidden header
+// text) is contained by the scroller instead of extending the DOCUMENT's
+// scrollWidth past the viewport (measured: a 1px .hg-sr span at x=491 on a 390px
+// phone made the whole page scroll sideways).
+.hg-table-wrap {
+  position: relative;
+  overflow-x: auto;
+  max-width: 100%;
+  border: 1px solid var(--hug-border);
+  border-radius: t.$radius-md;
+}
+
+// Visually-hidden text for screen readers (table action-column headers).
+.hg-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.hg-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 36rem;
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--hug-border);
+    vertical-align: top;
+    // Cells never word-break ("alic e"); the wrapper scrolls instead.
+    overflow-wrap: normal;
+    white-space: nowrap;
+  }
+
+  th {
+    color: var(--hug-text-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+    background: var(--hug-bg-1);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+}
+
+.hg-skeleton {
+  background: linear-gradient(90deg, var(--hug-bg-1), var(--hug-bg-2), var(--hug-bg-1));
+  background-size: 200% 100%;
+  animation: hg-shimmer 1.2s linear infinite;
+  border-radius: t.$radius-md;
+  min-height: 9rem;
+}
+
+@keyframes hg-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.hg-spinner {
+  display: inline-block;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 2px solid var(--hug-border);
+  border-top-color: var(--hug-accent-soft);
+  border-radius: 50%;
+  animation: hg-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+
+@keyframes hg-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hg-skeleton,
+  .hg-spinner {
+    animation: none;
+  }
+}
+
+.hg-inline-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
