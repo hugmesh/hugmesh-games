@@ -181,4 +181,52 @@ class GameAccessControllerDomainScopeTest {
             StepVerifier.create(c.revoke("g", "all", null, anyAdmin)).verifyComplete();
         }
     }
+
+    // ===================================================================
+    // scope='role' values are stored and revoked in Roles.canonical form
+    // ===================================================================
+    @Nested
+    class RoleScopeCanonicalisation {
+
+        @Test
+        void grantStoresRoleValueCanonicalised() {
+            // The mesh's A4 free-text fallback invites "ROLE_GAMES" (the systems Casdoor
+            // spelling); the visibility query compares scope_value to Roles.fromJwt's
+            // canonical names, so the row must persist as "games".
+            GameAccessController c = controllerFor(new DomainRegistry("", ""));
+            stubGame("g", "default");
+            StepVerifier.create(c.grant("g",
+                            new GameAccessController.AccessGrantRequest("role", " ROLE_Games "),
+                            admin(ISS_X, "admin")))
+                    .assertNext(row -> {
+                        assertThat(row.getScope()).isEqualTo("role");
+                        assertThat(row.getScopeValue()).isEqualTo("games");
+                    })
+                    .verifyComplete();
+        }
+
+        @Test
+        void grantKeepsUserValueVerbatim() {
+            // 'user' values are Casdoor subject ids, never role names: untouched.
+            GameAccessController c = controllerFor(new DomainRegistry("", ""));
+            stubGame("g", "default");
+            StepVerifier.create(c.grant("g",
+                            new GameAccessController.AccessGrantRequest("user", "ROLE_Alice-01"),
+                            admin(ISS_X, "admin")))
+                    .assertNext(row -> assertThat(row.getScopeValue()).isEqualTo("ROLE_Alice-01"))
+                    .verifyComplete();
+        }
+
+        @Test
+        void revokeAddressesTheCanonicalRoleValue() {
+            // Write and delete must agree: ?scope=role&value=ROLE_GAMES deletes the
+            // stored "games" row, not a never-existing "ROLE_GAMES" one.
+            GameAccessController c = controllerFor(new DomainRegistry("", ""));
+            stubGame("g", "default");
+            StepVerifier.create(c.revoke("g", "role", "ROLE_GAMES", admin(ISS_X, "admin"))).verifyComplete();
+            verify(accessRepo).deletePolicy(any(), eq("role"), eq("games"));
+            StepVerifier.create(c.revoke("g", "user", "ROLE_Alice-01", admin(ISS_X, "admin"))).verifyComplete();
+            verify(accessRepo).deletePolicy(any(), eq("user"), eq("ROLE_Alice-01"));
+        }
+    }
 }

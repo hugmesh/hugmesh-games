@@ -151,6 +151,22 @@ Unfinished spots verified in the current source, beyond the roadmap items above:
 
 ---
 
+## Mesh-mounted mode (`games-ui/`)
+
+The HugMesh **host shell** mounts the games screens as ONE native-federation remote, name `games`, built from [`games-ui/`](games-ui/) — a self-contained Angular 22 workspace cloned from the hugmesh-user-ui skeleton. It exposes `./routes` (`GAMES_ROUTES`: the member catalog and the in-shell play screen) and `./admin-routes` (`GAMES_ADMIN_ROUTES`: overview, live sessions, session logs, access rules, settings), which the shell mounts at `/games` (gamesGuard) and `/games/admin` (gamesAdminGuard). Built with `--base-href=/games/`, served by `nginxinc/nginx-unprivileged` on `:8080` with its own nonce'd CSP; every router link is relative to the mount and every call goes to the absolute same-origin prefix `/games/api/**` (fe-gateway route `games-bff`, StripPrefix=1) — the remote never calls a bare `/api/*`.
+
+In this mode the **backend is an ordinary mesh BFF**: `jwk-set-uri` is the systems Casdoor's JWKS (`CASDOOR_ENDPOINT=http://casdoor:8000`), `CASDOOR_ORGANIZATION=hugmesh`, and the fe-gateway turns the httpOnly `bff_session` cookie into the systems bearer on every request. There is no games-realm (threewizards) login, no password grant and no browser-held token. `CasdoorAuthorities` maps the roles claim as before, and additionally emits `ROLE_ADMIN` when the claim carries the platform's derived `GAMES_ADMIN` role (= games AND (admin OR mod)), so every `hasRole('ADMIN')` gate on `/api/admin/**` admits a games admin. The systems Casdoor seeds `ROLE_`-prefixed role names (`ROLE_ADMIN`, `ROLE_GAMES`, `ROLE_GAMES_ADMIN`) where the games realm seeds bare ones (`admin`), so `Roles.fromJwt` canonicalises every claim entry (one leading `ROLE_` stripped, lowercase) and `Roles.isAdmin` admits `admin` **or** `games_admin` — the raw-JWT gates (session pause/resume, character/item admin override, stream/realtime bypass, upload scope) and the `hasRole('ADMIN')` matcher therefore admit exactly the same principals in either realm. `game_access` rules with `scope='role'` are stored in that canonical form (`ROLE_GAMES` typed in the Access screen persists as `games`).
+
+The bundle tier ([`wasm-fragment/`](wasm-fragment/)) sends its own `Content-Security-Policy` (`frame-ancestors 'self'`) and `X-Frame-Options: SAMEORIGIN`, so the shell's same-origin `<iframe>` of `/_remotes/wasm-fragment/<slug>/index.html` is admitted instead of being blanked by the gateway's `DENY` fallback. The 14 web-native games play inside the shell; the five Godot/SharedArrayBuffer bundles (cave, chess-godot, dodecahedron, field, shadows-of-the-net) open as a top-level document in a new tab, where the tier's COOP/COEP headers make them cross-origin isolated; their documents alone get `'unsafe-eval'` (Godot's `JavaScriptBridge.eval`).
+
+[`frontend/`](frontend/) is unchanged: it remains the **standalone two-realm portal** (games Casdoor, Godot federated remotes, upload/publisher/mod tooling). Anything the mesh mount does not offer — bundle upload, publisher and mod grants, kick/ban, games-realm role sync — is managed there, and the mounted Settings screen says so.
+
+```bash
+cd games-ui && npm ci && npm run build -- --base-href=/games/   # dist/games/browser/remoteEntry.json, name "games"
+CHROME_BIN=/path/to/chrome npx ng test --watch=false --browsers=ChromeHeadless
+docker build -f games-ui/Dockerfile games-ui -t hugmesh-games/games-ui:dev
+```
+
 ## Multiplayer sessions
 
 The portal supports many concurrent **named sessions** per game, each with its own slot-bound players. Click a game card on the home page to open the session picker, then pick an existing session or start a new one. In Three Wizards, the game client (`HugMeshMultiplayerLobby`) spawns one wizard `CharacterBody3D` per registered slot. The local player drives their own slot through `/api/controls/{characterId}`, and movement events from the other players arrive on the per-session SSE stream and drive the remote wizards.

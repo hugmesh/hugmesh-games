@@ -104,7 +104,15 @@ public class GameAccessController {
 
         String adminId = jwt != null ? jwt.getSubject() : "system:unknown";
 
-        String scopeValue = "all".equals(req.scope()) ? null : req.value();
+        // scope='role' rows are matched at request time against Roles.fromJwt's
+        // CANONICAL names (one leading ROLE_ stripped, lowercase), so the stored
+        // value is canonicalised the same way: an admin typing "ROLE_GAMES" (the
+        // systems Casdoor spelling the mesh's A4 free-text fallback invites) or
+        // "Games" persists "games" and matches the ROLE_GAMES holder's claim.
+        // 'user' values are Casdoor subject ids and stay verbatim.
+        String scopeValue = "all".equals(req.scope()) ? null
+                : "role".equals(req.scope()) ? Roles.canonical(req.value())
+                : req.value();
 
         // Brand-scope gate (branch tenancy control) AND main's #70 scopeValue normalization
         // are both preserved: an admin may only grant on a game in their own domain, and the
@@ -150,8 +158,13 @@ public class GameAccessController {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "scope must be one of " + VALID_SCOPES));
         }
+        // Same canonical form as grant(): a 'role' rule was stored canonicalised, so
+        // revoking it as ?scope=role&value=ROLE_GAMES must address the stored "games".
+        String scopeValue = "all".equals(scope) ? null
+                : "role".equals(scope) ? Roles.canonical(value)
+                : value;
         return requireGameDomain(slug, jwt).then(gameRepo.findBySlug(slug)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "unknown game slug: " + slug)))
-                .flatMap(g -> accessRepo.deletePolicy(g.getId(), scope, "all".equals(scope) ? null : value)));
+                .flatMap(g -> accessRepo.deletePolicy(g.getId(), scope, scopeValue)));
     }
 }

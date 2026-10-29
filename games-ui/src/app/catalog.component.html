@@ -1,0 +1,113 @@
+<section class="hg-page" data-testid="games-catalog" aria-labelledby="games-catalog-title">
+  <header class="hg-head">
+    <h1 id="games-catalog-title">Games</h1>
+    <span class="hg-muted">Games published on this mesh that your account can play.</span>
+  </header>
+
+  @switch (state()) {
+    @case ('loading') {
+      <ul class="cards" aria-busy="true" aria-label="Loading games" data-testid="games-loading">
+        @for (i of skeleton; track i) {
+          <li class="hg-skeleton"></li>
+        }
+      </ul>
+    }
+    @case ('error') {
+      <hug-games-unreachable (retry)="load()"></hug-games-unreachable>
+    }
+    @case ('forbidden') {
+      <hug-games-forbidden [failure]="failure()"></hug-games-forbidden>
+    }
+    @case ('empty') {
+      <p class="hg-panel hg-muted" data-testid="games-empty">No games are published on this mesh yet.</p>
+    }
+    @case ('loaded') {
+      @if (launches().length) {
+        <section class="hg-panel recent" data-testid="games-recent" aria-labelledby="games-recent-title">
+          <h2 id="games-recent-title">Active launches on this mesh (admin view)</h2>
+          <p class="hg-muted">
+            The games service lists launches to admins only, and lists every player's; a member never sees this strip.
+          </p>
+          <ul class="recent-list">
+            @for (l of launches(); track l.uid) {
+              <li>
+                <span>{{ nameFor(l.gameSlug) }}</span>
+                <span class="hg-muted">valid until {{ l.expiresAt }}</span>
+                <a
+                  class="hg-btn"
+                  [routerLink]="['play', l.gameSlug]"
+                  [relativeTo]="mount"
+                  [queryParams]="{ uid: l.uid }"
+                  [attr.data-testid]="'games-resume-' + l.uid"
+                  >Resume</a
+                >
+              </li>
+            }
+          </ul>
+        </section>
+      }
+
+      <ul class="cards">
+        @for (card of cards(); track card.game.slug) {
+          <li
+            class="card"
+            [class.card--disabled]="card.availability === 'unavailable'"
+            [attr.aria-disabled]="card.availability === 'unavailable' ? 'true' : null"
+            [attr.data-testid]="'games-card-' + card.game.slug"
+          >
+            <div class="thumb" aria-hidden="true">
+              @if (thumbFor(card); as src) {
+                <img [src]="src" alt="" loading="lazy" (error)="onThumbError(card)" />
+              } @else {
+                <span class="letter">{{ card.letter }}</span>
+              }
+            </div>
+            <div class="body">
+              <h2 class="title">{{ card.game.name }}</h2>
+              <span class="hg-badge" [class]="'hg-badge ' + badgeClass(card)" [attr.data-testid]="'games-badge-' + card.game.slug">{{ card.badge }}</span>
+              @if (card.game.description) {
+                <p class="desc hg-muted">{{ card.game.description }}</p>
+              }
+              @switch (card.availability) {
+                @case ('here') {
+                  <a
+                    class="hg-btn hg-btn--primary"
+                    [routerLink]="['play', card.game.slug]"
+                    [relativeTo]="mount"
+                    [attr.data-testid]="'games-play-' + card.game.slug"
+                    >Play</a
+                  >
+                }
+                @case ('new-tab') {
+                  <a
+                    class="hg-btn hg-btn--primary"
+                    [routerLink]="['play', card.game.slug]"
+                    [relativeTo]="mount"
+                    [attr.data-testid]="'games-play-' + card.game.slug"
+                    >Open</a
+                  >
+                  <p class="help hg-muted">{{ newTabReason }}</p>
+                }
+                @case ('unavailable') {
+                  <button
+                    type="button"
+                    class="hg-btn"
+                    disabled
+                    aria-disabled="true"
+                    [attr.aria-describedby]="'games-help-' + card.game.slug"
+                    [attr.data-testid]="'games-play-' + card.game.slug"
+                  >
+                    Play
+                  </button>
+                  <p class="help hg-muted" [id]="'games-help-' + card.game.slug">
+                    No playable bundle for this game is served on this deployment.
+                  </p>
+                }
+              }
+            </div>
+          </li>
+        }
+      </ul>
+    }
+  }
+</section>

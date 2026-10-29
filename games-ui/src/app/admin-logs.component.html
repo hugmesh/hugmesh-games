@@ -1,0 +1,100 @@
+<section class="logs" data-testid="games-admin-logs" aria-labelledby="games-admin-logs-title">
+  <h2 id="games-admin-logs-title">Session logs</h2>
+
+  <form class="query" (submit)="$event.preventDefault(); load()">
+    <label>
+      <span class="hg-muted">Player casdoor id</span>
+      <input class="hg-input" type="text" [ngModel]="query()" (ngModelChange)="query.set($event)" name="query" autocomplete="off" data-testid="games-admin-logs-query" />
+    </label>
+    <button type="submit" class="hg-btn hg-btn--primary" data-testid="games-admin-logs-load">Load</button>
+    <label>
+      <span class="hg-muted">Filter</span>
+      <input class="hg-input" type="search" [ngModel]="search()" (ngModelChange)="search.set($event)" name="search" placeholder="game, session, member" data-testid="games-admin-logs-search" />
+    </label>
+  </form>
+
+  @switch (state()) {
+    @case ('prompt') {
+      <p class="hg-panel hg-muted" data-testid="games-admin-logs-prompt">Enter a player id to load their session log.</p>
+    }
+    @case ('loading') {
+      <p class="hg-panel" role="status" aria-busy="true"><span class="hg-spinner" aria-hidden="true"></span>Loading sessions for {{ loadedFor() }}…</p>
+    }
+    @case ('none') {
+      <p class="hg-panel hg-muted" data-testid="games-admin-logs-none">No sessions recorded for {{ loadedFor() }}.</p>
+    }
+    @case ('forbidden') {
+      <hug-games-admin-forbidden [failure]="failure()"></hug-games-admin-forbidden>
+    }
+    @case ('unreachable') {
+      <hug-games-unreachable (retry)="load()"></hug-games-unreachable>
+    }
+    @case ('loaded') {
+      <ul class="tree" data-testid="games-admin-logs-tree" aria-label="Session log tree">
+        @for (g of visible(); track g.slug) {
+          <li class="node">
+            <button type="button" class="node-head" (click)="toggleGame(g)" [attr.aria-expanded]="g.open">
+              <span class="caret" aria-hidden="true">{{ g.open ? '▾' : '▸' }}</span>
+              <strong>{{ g.slug }}</strong>
+              <span class="hg-badge">{{ g.sessions.length }} session{{ g.sessions.length === 1 ? '' : 's' }}</span>
+              <span class="hg-badge">{{ countEntries(g) }} event{{ countEntries(g) === 1 ? '' : 's' }}</span>
+            </button>
+            @if (g.open) {
+              <ul class="children">
+                @for (s of g.sessions; track s.id) {
+                  <li class="node">
+                    <button type="button" class="node-head" (click)="toggleSession(s)" [attr.aria-expanded]="s.open">
+                      <span class="caret" aria-hidden="true">{{ s.open ? '▾' : '▸' }}</span>
+                      <span>{{ s.name || s.id }}</span>
+                      @if (s.visibility) {
+                        <span class="hg-badge">{{ s.visibility }}</span>
+                      }
+                      @if (s.paused) {
+                        <span class="hg-badge hg-badge--off" [attr.title]="s.pauseReason || ''">paused</span>
+                      }
+                      @if (s.closed) {
+                        <span class="hg-badge">closed</span>
+                      }
+                      <span class="hg-badge">{{ s.entries.length }} event{{ s.entries.length === 1 ? '' : 's' }}</span>
+                    </button>
+                    @if (s.open) {
+                      <div class="hg-table-wrap">
+                        <table class="hg-table events">
+                          <thead>
+                            <tr>
+                              <th scope="col">Member</th>
+                              <th scope="col">Character</th>
+                              <th scope="col">Slot</th>
+                              <th scope="col">Creator</th>
+                              <th scope="col">Joined</th>
+                              <th scope="col">Left</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            @for (e of s.entries; track $index) {
+                              <tr>
+                                <td>{{ e.memberCasdoorId }}</td>
+                                <td>{{ e.characterId ?? '—' }}</td>
+                                <td>{{ e.slotIndex ?? '—' }}</td>
+                                <td>{{ e.wasCreator ? 'yes' : 'no' }}</td>
+                                <td>{{ e.joinedAt ?? '—' }}</td>
+                                <td>{{ e.leftAt ?? 'still in' }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+          </li>
+        }
+      </ul>
+      @if (visible().length === 0) {
+        <p class="hg-panel hg-muted">Nothing matches "{{ search() }}".</p>
+      }
+    }
+  }
+</section>
