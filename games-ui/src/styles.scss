@@ -1,0 +1,277 @@
+@use 'styles/tokens' as t;
+
+// Games micro-frontend (native-federation remote "games"). Like the other
+// HugMesh remotes this ships only the shared a11y baseline + the --hug-*
+// palette CONTRACT: every component style reads var(--hug-*) so the host
+// shell's theme (the runtime hug-theme.css :root:root block, or the host's own
+// tokens) wins whenever present, and the user-ui defaults below render when the
+// remote is served standalone.
+
+:root {
+  --hug-bg-0:        #0a0a12;
+  --hug-bg-1:        #12121e;
+  --hug-bg-2:        #1a1a2e;
+  --hug-border:      #1e1e32;
+  --hug-text:        #e8e8f0;
+  --hug-text-muted:  #a8acc4;
+  --hug-accent:      #7c4dff;
+  --hug-accent-soft: #b388ff;
+  --hug-success:     #4caf50;
+  --hug-warning:     #ffb74d;
+  --hug-error:       #ff6b6b;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
+body {
+  background: var(--hug-bg-0);
+  color: var(--hug-text);
+  font-family: t.$font-sans;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: clamp(1.4rem, 4vw + 0.5rem, 2.2rem);
+}
+
+h2 {
+  font-size: clamp(1.1rem, 1.5vw + 0.75rem, 1.5rem);
+}
+
+.skip {
+  position: absolute;
+  left: -999px;
+
+  &:focus,
+  &:focus-visible {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    z-index: t.$z-top;
+    background: var(--hug-bg-1);
+    color: var(--hug-text);
+    padding: 0.5rem 1rem;
+    border-radius: t.$radius-sm;
+  }
+}
+
+a {
+  color: var(--hug-accent-soft);
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--hug-accent-soft);
+  outline-offset: 2px;
+}
+
+.hug-games-main {
+  padding: 1rem;
+}
+
+// ── Shared games-remote primitives (used by every screen) ───────────────────
+.hg-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+}
+
+.hg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+
+  h1,
+  h2 {
+    margin: 0;
+  }
+}
+
+.hg-muted {
+  color: var(--hug-text-muted);
+}
+
+.hg-btn {
+  font: inherit;
+  padding: 0.45rem 0.9rem;
+  border-radius: t.$radius-sm;
+  border: 1px solid var(--hug-border);
+  background: var(--hug-bg-2);
+  color: var(--hug-text);
+  cursor: pointer;
+  min-height: 2.5rem;
+
+  &:hover:not(:disabled) {
+    border-color: var(--hug-accent);
+  }
+
+  &:disabled,
+  &[aria-disabled='true'] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  &.hg-btn--primary {
+    background: var(--hug-accent);
+    border-color: var(--hug-accent);
+    color: #fff;
+  }
+
+  &.hg-btn--danger {
+    border-color: var(--hug-error);
+    color: var(--hug-error);
+  }
+}
+
+.hg-input,
+.hg-select {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border-radius: t.$radius-sm;
+  border: 1px solid var(--hug-border);
+  background: var(--hug-bg-1);
+  color: var(--hug-text);
+  min-height: 2.5rem;
+  max-width: 100%;
+}
+
+.hg-panel {
+  background: var(--hug-bg-1);
+  border: 1px solid var(--hug-border);
+  border-radius: t.$radius-md;
+  padding: 1rem;
+}
+
+.hg-notice {
+  @extend .hg-panel;
+  border-left: 4px solid var(--hug-accent);
+
+  &.hg-notice--error {
+    border-left-color: var(--hug-error);
+  }
+
+  &.hg-notice--warning {
+    border-left-color: var(--hug-warning);
+  }
+
+  &.hg-notice--success {
+    border-left-color: var(--hug-success);
+  }
+
+  p {
+    margin: 0 0 0.5rem;
+  }
+
+  p:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.hg-badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid var(--hug-border);
+  background: var(--hug-bg-2);
+  color: var(--hug-text-muted);
+  white-space: nowrap;
+
+  &.hg-badge--ok {
+    color: var(--hug-success);
+    border-color: var(--hug-success);
+  }
+
+  &.hg-badge--tab {
+    color: var(--hug-accent-soft);
+    border-color: var(--hug-accent);
+  }
+
+  &.hg-badge--off {
+    color: var(--hug-warning);
+    border-color: var(--hug-warning);
+  }
+}
+
+// Every table scrolls inside its OWN wrapper — never the page.
+.hg-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  border: 1px solid var(--hug-border);
+  border-radius: t.$radius-md;
+}
+
+.hg-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 36rem;
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--hug-border);
+    vertical-align: top;
+  }
+
+  th {
+    color: var(--hug-text-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+    background: var(--hug-bg-1);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+}
+
+.hg-skeleton {
+  background: linear-gradient(90deg, var(--hug-bg-1), var(--hug-bg-2), var(--hug-bg-1));
+  background-size: 200% 100%;
+  animation: hg-shimmer 1.2s linear infinite;
+  border-radius: t.$radius-md;
+  min-height: 9rem;
+}
+
+@keyframes hg-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.hg-spinner {
+  display: inline-block;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 2px solid var(--hug-border);
+  border-top-color: var(--hug-accent-soft);
+  border-radius: 50%;
+  animation: hg-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+
+@keyframes hg-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hg-skeleton,
+  .hg-spinner {
+    animation: none;
+  }
+}
+
+.hg-inline-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}

@@ -1,0 +1,14 @@
+/node_modules
+/dist
+/out-tsc
+/.angular
+/coverage
+*.log
+.DS_Store
+.env
+
+# run-state e2e credentials file (hugmesh-generator's `make stack-seed`
+# writes it; e2e/tests/helpers/roles.ts's passwordFor() reads it) — never
+# committed. This repo only reads it, but the e2e helper walks up from cwd
+# looking for it, so it could land at the repo root too.
+.e2e-credentials

@@ -1,0 +1,44 @@
+{
+  "name": "@hugmesh/games",
+  "version": "0.1.0",
+  "description": "Games member + games admin screens — Angular micro-frontend (native-federation remote 'games') mounted by the hugmesh-host-shell at /games and /games/admin, talking only to the games BFF at /games/api/**.",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve games",
+    "build": "ng build games",
+    "build:games": "ng build games",
+    "test": "ng test games --watch=false --browsers=ChromeHeadlessCI",
+    "test:watch": "ng test games"
+  },
+  "dependencies": {
+    "@angular-architects/native-federation": "^22.0.0",
+    "@angular/animations": "^22.0.2",
+    "@angular/common": "^22.0.2",
+    "@angular/compiler": "^22.0.2",
+    "@angular/core": "^22.0.2",
+    "@angular/forms": "^22.0.2",
+    "@angular/platform-browser": "^22.0.2",
+    "@angular/platform-browser-dynamic": "^22.0.2",
+    "@angular/router": "^22.0.2",
+    "es-module-shims": "^2.8.1",
+    "rxjs": "^7.8.2",
+    "tslib": "^2.6.0",
+    "zone.js": "^0.16.1"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^22.0.4",
+    "@angular/cli": "^22.0.4",
+    "@angular/compiler-cli": "^22.0.2",
+    "@types/jasmine": "^6.0.0",
+    "jasmine-core": "^6.3.0",
+    "karma": "^6.4.4",
+    "karma-chrome-launcher": "^3.2.0",
+    "karma-coverage": "^2.2.1",
+    "karma-jasmine": "^5.1.0",
+    "karma-jasmine-html-reporter": "^2.2.0",
+    "karma-junit-reporter": "^2.0.1",
+    "typescript": "~6.0.3"
+  }
+}

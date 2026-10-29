@@ -1,0 +1,116 @@
+<section class="overview" data-testid="games-admin-overview" aria-labelledby="games-admin-overview-title">
+  <h2 id="games-admin-overview-title">Overview</h2>
+
+  @switch (state()) {
+    @case ('loading') {
+      <p class="hg-panel" role="status" aria-busy="true" data-testid="games-admin-loading">
+        <span class="hg-spinner" aria-hidden="true"></span>Loading stats and sessions…
+      </p>
+    }
+    @case ('forbidden') {
+      <hug-games-admin-forbidden [failure]="failure()"></hug-games-admin-forbidden>
+    }
+    @case ('unreachable') {
+      <hug-games-unreachable (retry)="load()"></hug-games-unreachable>
+    }
+    @case ('loaded') {
+      <ul class="tiles" data-testid="games-admin-stats" aria-label="Usage statistics">
+        @for (t of tiles(); track t.key) {
+          <li class="tile hg-panel">
+            <span class="tile-label hg-muted">{{ t.label }}</span>
+            <span class="tile-value" [attr.data-stat]="t.key">{{ t.value }}</span>
+          </li>
+        }
+      </ul>
+
+      <h3>Active player sessions</h3>
+      @if (endError()) {
+        <p class="hg-notice hg-notice--error" role="alert" data-testid="games-admin-end-error">{{ endError() }}</p>
+      }
+      @if (sessions().length === 0) {
+        <p class="hg-panel hg-muted" data-testid="games-admin-sessions-empty">No active player sessions.</p>
+      } @else {
+        <div class="hg-table-wrap">
+          <table class="hg-table" data-testid="games-admin-sessions-table">
+            <thead>
+              <tr>
+                <th scope="col">Player</th>
+                <th scope="col">Character</th>
+                <th scope="col">Controller</th>
+                <th scope="col">Connected</th>
+                <th scope="col">Last seen</th>
+                <th scope="col"><span class="sr">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (s of sessions(); track s.id) {
+                <tr [attr.data-session-id]="s.id">
+                  <td>{{ s.casdoorId }}</td>
+                  <td>{{ s.characterId ?? '—' }}</td>
+                  <td>{{ s.isController ? 'yes' : 'no' }}</td>
+                  <td>{{ s.connectedAt ?? '—' }}</td>
+                  <td>{{ s.lastPing ?? '—' }}</td>
+                  <td>
+                    @if (confirming() === s.casdoorId) {
+                      <span class="hg-inline-confirm" role="group" aria-label="Confirm end session">
+                        <span>End {{ s.casdoorId }}'s session?</span>
+                        <button
+                          type="button"
+                          class="hg-btn hg-btn--danger"
+                          [disabled]="ending() === s.casdoorId"
+                          (click)="endSession(s)"
+                          [attr.data-testid]="'games-admin-end-' + s.casdoorId"
+                        >
+                          Confirm
+                        </button>
+                        <button type="button" class="hg-btn" (click)="cancelEnd()">Cancel</button>
+                      </span>
+                    } @else {
+                      <button
+                        type="button"
+                        class="hg-btn"
+                        (click)="endSession(s)"
+                        [attr.data-testid]="'games-admin-end-' + s.casdoorId"
+                        [attr.aria-label]="'End session of ' + s.casdoorId"
+                      >
+                        End session
+                      </button>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      @if (perUser().length) {
+        <h3>Per player</h3>
+        <div class="hg-table-wrap">
+          <table class="hg-table" data-testid="games-admin-per-user">
+            <thead>
+              <tr>
+                <th scope="col">Player</th>
+                <th scope="col">Character</th>
+                <th scope="col">Sessions</th>
+                <th scope="col">Minutes</th>
+                <th scope="col">Online</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (u of perUser(); track u.casdoorId) {
+                <tr>
+                  <td>{{ u.casdoorId }}</td>
+                  <td>{{ u.characterName ?? '—' }}</td>
+                  <td>{{ u.sessionCount }}</td>
+                  <td>{{ u.totalMinutes }}</td>
+                  <td>{{ u.online ? 'yes' : 'no' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    }
+  }
+</section>

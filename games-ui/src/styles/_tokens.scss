@@ -1,0 +1,48 @@
+$black:    #0a0a0a;
+$charcoal: #111111;
+$surface:  #1c1c1c;
+$mid:      #3a3a3a;
+$muted:    #777777;
+$light:    #bbbbbb;
+$offwhite: #e8e8e8;
+
+$neon:        #ffd700;
+$neon-bright: #ffe566;
+$neon-dim:    #cc9900;
+
+$pastel-rose:     #ffc8dd;
+$pastel-lavender: #d0b4f5;
+$pastel-sky:      #bde0fe;
+$pastel-mint:     #caffbf;
+$pastel-lemon:    #fdffb6;
+$pastel-peach:    #ffd6a5;
+
+$font-sans:  Arial, Helvetica, sans-serif;
+// Real monospace stack (baseline requirement) — the card editor's <code> palette
+// entries and CSS hints must render in a fixed-width face, not proportional Arial.
+$font-mono:  ui-monospace, 'Cascadia Mono', 'Courier New', monospace;
+$font-fancy: $font-sans;
+
+$radius-sm:   0.5rem;
+$radius-md:   0.75rem;
+$radius-lg:   1.5rem;
+$radius-card: $radius-md;
+$radius-page: $radius-lg;
+
+$opacity-ghost:  0.05;
+$opacity-border: 0.18;
+$opacity-muted:  0.35;
+
+$z-background:  0;
+$z-content:     1;
+$z-nav:         5;
+$z-overlay:   200;
+$z-top:      9999;
+
+$transition-base: 0.2s ease;
+
+$bp-sm:  576px;
+$bp-md:  768px;
+$bp-lg:  992px;
+$bp-xl:  1200px;
+$bp-xxl: 1400px;

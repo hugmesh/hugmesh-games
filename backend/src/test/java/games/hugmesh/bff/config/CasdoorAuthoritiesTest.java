@@ -127,6 +127,42 @@ class CasdoorAuthoritiesTest {
         }
 
         @Test
+        void gamesAdminRoleAlsoGrantsRoleAdminInEverySpelling() {
+            // Mesh-mounted mode: the platform's derived GAMES_ADMIN role is the
+            // games-realm admin. Bare, ROLE_-prefixed, mixed case and the Casdoor
+            // {name} object shape must all promote to ROLE_ADMIN while keeping
+            // the literal ROLE_GAMES_ADMIN authority.
+            for (Object spelling : List.of("games_admin", "GAMES_ADMIN", "ROLE_GAMES_ADMIN",
+                    "role_Games_Admin", Map.of("name", "Games_Admin"))) {
+                Jwt jwt = baseJwt().claim("roles", List.of(spelling)).build();
+                Set<String> auths = authStrings(jwt, singleIssuerRegistry());
+                assertThat(auths).as("roles=" + spelling)
+                        .contains("ROLE_GAMES_ADMIN", "ROLE_ADMIN");
+                assertThat(auths).noneMatch(a -> a.startsWith("ROLE_ROLE_"));
+            }
+        }
+
+        @Test
+        void plainGamesRoleDoesNotGrantRoleAdmin() {
+            // ROLE_GAMES alone is a member, never an admin.
+            Jwt jwt = baseJwt().claim("roles", List.of("games", "ROLE_GAMES")).build();
+            Set<String> auths = authStrings(jwt, singleIssuerRegistry());
+            assertThat(auths).contains("ROLE_GAMES");
+            assertThat(auths).doesNotContain("ROLE_ADMIN", "ROLE_GAMES_ADMIN");
+        }
+
+        @Test
+        void gamesAdminInPermissionsClaimNeverPromotesToRoleAdmin() {
+            // The promotion is keyed on the ROLES claim only. "GAMES_ADMIN" has no
+            // reserved prefix, so it passes the permissions guard as a verbatim
+            // authority — it must NOT mint ROLE_ADMIN (or ROLE_GAMES_ADMIN).
+            Jwt jwt = baseJwt().claim("permissions", List.of("GAMES_ADMIN", "games_admin")).build();
+            Set<String> auths = authStrings(jwt, singleIssuerRegistry());
+            assertThat(auths).contains("GAMES_ADMIN", "games_admin");
+            assertThat(auths).doesNotContain("ROLE_ADMIN", "ROLE_GAMES_ADMIN");
+        }
+
+        @Test
         void blankAndNullRoleEntriesAreSkipped() {
             List<Object> roles = new ArrayList<>();
             roles.add("player");

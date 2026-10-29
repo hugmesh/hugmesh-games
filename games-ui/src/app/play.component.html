@@ -1,0 +1,72 @@
+<section class="hg-page play" data-testid="games-play" aria-labelledby="games-play-title">
+  <header class="hg-head">
+    <a class="hg-btn" [routerLink]="['./']" [relativeTo]="mount" data-testid="games-play-back">Back to games</a>
+    <h1 id="games-play-title">{{ name() }}</h1>
+    @if (expiresAt()) {
+      <span class="hg-muted" data-testid="games-play-expires">Launch valid until {{ expiresAt() }}</span>
+    }
+    @if (state() === 'ready' && mode() === 'here') {
+      <button type="button" class="hg-btn" (click)="fullscreen()" data-testid="games-play-fullscreen">
+        Fullscreen
+      </button>
+    }
+  </header>
+
+  @switch (state()) {
+    @case ('launching') {
+      <p class="hg-panel" role="status" aria-busy="true" data-testid="games-play-launching">
+        <span class="hg-spinner" aria-hidden="true"></span>Launching {{ name() }}…
+      </p>
+    }
+    @case ('not-available') {
+      <div class="hg-notice hg-notice--warning" role="alert" data-testid="games-play-not-available">
+        <p>This game is not available to your account.</p>
+        <a [routerLink]="['./']" [relativeTo]="mount">Back to games</a>
+      </div>
+    }
+    @case ('unknown') {
+      <div class="hg-notice hg-notice--error" role="alert" data-testid="games-play-unknown">
+        <p>Unknown game.</p>
+        <a [routerLink]="['./']" [relativeTo]="mount">Back to games</a>
+      </div>
+    }
+    @case ('bundle-refused') {
+      <div class="hg-notice hg-notice--error" role="alert" data-testid="games-play-bundle-refused">
+        <p>The gateway refused the game bundle (X-Resource-Denied: {{ bundleDenied() }}).</p>
+        <p class="hg-muted">
+          Your session reached the games service but the bundle path is grant-gated at the gateway
+          for your roles. A games admin can check the gateway's resource access rules.
+        </p>
+        <a [routerLink]="['./']" [relativeTo]="mount">Back to games</a>
+      </div>
+    }
+    @case ('forbidden') {
+      <hug-games-forbidden [failure]="failure()"></hug-games-forbidden>
+    }
+    @case ('unreachable') {
+      <hug-games-unreachable (retry)="launch()"></hug-games-unreachable>
+    }
+    @case ('ready') {
+      @if (mode() === 'here') {
+        <div class="frame-wrap">
+          <iframe
+            #frame
+            [src]="frameSrc()"
+            [title]="name()"
+            allow="fullscreen; gamepad"
+            (error)="onFrameError()"
+            data-testid="games-play-frame"
+          ></iframe>
+        </div>
+      } @else {
+        <div class="hg-panel open-tab" data-testid="games-play-open-tab-panel">
+          <p>{{ newTabReason }}</p>
+          <button type="button" class="hg-btn hg-btn--primary" (click)="openInNewTab()" data-testid="games-play-open-tab">
+            Open {{ name() }} in a new tab
+          </button>
+        </div>
+      }
+      <p class="hg-muted note" data-testid="games-play-note">{{ inShellNote }}</p>
+    }
+  }
+</section>

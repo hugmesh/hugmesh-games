@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>HugMesh Games (remote)</title>
+  <base href="/" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Standalone dev-shell document (`ng serve games`); in production the
+       hugmesh-host-shell supplies the brand chrome and this page is never
+       rendered by a person. Relative favicon/theme hrefs resolve under the
+       --base-href=/games/ mount behind the gateway. -->
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <meta name="theme-color" content="#0a0a12" />
+  <meta name="description" content="HugMesh games: browse and play the games published on this mesh; games admin oversight." />
+  <!-- Runtime theme (fleet 50-hug-theme.sh mechanism): empty when unthemed
+       (zero-byte 200, no 404); its :root:root block out-specifies the compiled
+       :root fallbacks regardless of stylesheet order. -->
+  <link rel="stylesheet" href="hug-theme.css">
+</head>
+<body>
+  <hug-games-root></hug-games-root>
+</body>
+</html>
