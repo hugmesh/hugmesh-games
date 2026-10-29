@@ -1,5 +1,7 @@
 package games.hugmesh.bff.controller;
 
+import games.hugmesh.bff.security.GamesAdminPolicy;
+
 import games.hugmesh.bff.model.GameUpload;
 import games.hugmesh.bff.repository.GameUploadRepository;
 import games.hugmesh.bff.security.DomainRegistry;
@@ -25,7 +27,7 @@ import reactor.core.publisher.Mono;
  * the Godot editor plugin. Validation + atomic install happens in
  * {@link GameUploadService}; this controller is a thin REST surface.
  *
- * <p>Auth: gated on {@code ROLE_ADMIN} via the JWT roles claim. Players
+ * <p>Auth: gated on {@code ROLE_GAMES_ADMIN} via the JWT roles claim. Players
  * with {@code uploader} role can also reach it through the
  * {@code upload-games} permission once we wire that into the
  * {@code @PreAuthorize} expression.
@@ -40,12 +42,16 @@ public class GameUploadController {
     private final PublisherService publisherService;
     private final DomainScopeService domainScope;
     private final DomainRegistry domainRegistry;
+    /** Who is a games admin (realm-aware; see GamesAdminPolicy). */
+    private final GamesAdminPolicy gamesAdmin;
 
     public GameUploadController(GameUploadService uploadService,
                                 GameUploadRepository uploads,
                                 PublisherService publisherService,
                                 DomainScopeService domainScope,
-                                DomainRegistry domainRegistry) {
+                                DomainRegistry domainRegistry,
+                                GamesAdminPolicy gamesAdmin) {
+        this.gamesAdmin = gamesAdmin;
         this.uploadService    = uploadService;
         this.uploads          = uploads;
         this.publisherService = publisherService;
@@ -64,7 +70,7 @@ public class GameUploadController {
             back the DB transaction and removes the staged dir.
             """)
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
-    @PreAuthorize("hasAnyRole('ADMIN','PUBLISHER')")
+    @PreAuthorize("hasAnyRole('GAMES_ADMIN','PUBLISHER')")
     public Mono<InstalledUpload> upload(@RequestPart("bundle") FilePart bundle,
                                         @AuthenticationPrincipal Jwt jwt) {
         // Admins can upload bundles for any game; publishers must hold a
@@ -74,7 +80,7 @@ public class GameUploadController {
         // so the per-game scope check is threaded into install() as a
         // post-stage hook. Admins bypass with `slug -> Mono.empty()`.
         String uploadedBy = jwt != null ? jwt.getSubject() : "system:anonymous-admin";
-        boolean isAdmin = jwt != null && Roles.isAdmin(jwt);
+        boolean isAdmin = jwt != null && gamesAdmin.isGamesAdmin(jwt);
         boolean isSuperadmin = jwt != null && Roles.isSuperadmin(jwt);
 
         // The uploader's TRUSTED brand — issuer-derived, never a user-settable claim.
@@ -125,7 +131,7 @@ public class GameUploadController {
 
     @Operation(summary = "Upload history for one slug (newest first).")
     @GetMapping("/{slug}/uploads")
-    @PreAuthorize("hasAnyRole('ADMIN','PUBLISHER')")
+    @PreAuthorize("hasAnyRole('GAMES_ADMIN','PUBLISHER')")
     public Flux<GameUpload> history(@PathVariable String slug) {
         return uploads.findBySlugOrderByUploadedAtDesc(slug);
     }

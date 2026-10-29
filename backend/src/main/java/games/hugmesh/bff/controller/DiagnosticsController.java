@@ -24,7 +24,7 @@ import java.time.Instant;
  *
  * <p><strong>Authorization:</strong> two gates — both must pass.
  * <ol>
- *   <li>The JWT must carry {@code SCOPE_ROLE_ADMIN}. Non-admin players
+ *   <li>The JWT must carry {@code ROLE_GAMES_ADMIN}. Non-admin players
  *       receive *403* and never get their iframe console captured.</li>
  *   <li>{@link DebugModeService#isWasmConsoleEnabled()} must be true.
  *       The default is OFF; an admin flips it on via
@@ -41,7 +41,7 @@ import java.time.Instant;
      description = "Forwarded WASM console lines. Admin-only and gated on the wasm-console debug-mode toggle.")
 @RestController
 @RequestMapping("/api/diagnostics")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('GAMES_ADMIN')")
 public class DiagnosticsController {
 
     private final GameStateService state;
@@ -55,7 +55,7 @@ public class DiagnosticsController {
     @Operation(
         summary = "Forward one WASM console line to the SSE wasm-console channel.",
         description = """
-            Requires `SCOPE_ROLE_ADMIN`. Additionally requires
+            Requires `ROLE_GAMES_ADMIN`. Additionally requires
             `wasm_console_debug_enabled = true` (admin flips at
             `PUT /api/admin/debug-mode/wasm-console`). Both gates must
             pass; otherwise *403*.

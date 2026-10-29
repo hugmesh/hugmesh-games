@@ -32,7 +32,7 @@ import reactor.core.publisher.Mono;
      description = "Admin-only management of per-game mod and publisher scopes. Casdoor owns role membership; these tables own the per-game scope.")
 @RestController
 @RequestMapping("/api/admin/role-grants")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('GAMES_ADMIN')")
 public class RoleAdminController {
 
     private final PublisherService publisher;

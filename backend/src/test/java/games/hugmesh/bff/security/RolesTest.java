@@ -33,10 +33,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       and the games realm's bare {@code admin} / {@code games} read the
  *       same; exactly ONE prefix goes ({@code ROLE_ROLE_ADMIN} ->
  *       {@code role_admin}).</li>
- *   <li>{@link Roles#isAdmin(Jwt)} is true exactly when the canonical
- *       {@code roles} claim contains {@code admin} or the platform's derived
- *       {@code games_admin} — the same set {@code CasdoorAuthorities}
- *       grants {@code ROLE_ADMIN}.</li>
+ *   <li>Who is a games admin is {@link GamesAdminPolicy}'s question (see
+ *       GamesAdminPolicyTest); {@code Roles} only canonicalises names.</li>
  *   <li>{@link Roles#isSuperadmin(Jwt)} accepts {@code ROLE_SUPERADMIN}.</li>
  * </ul>
  */
@@ -114,14 +112,6 @@ class RolesTest {
         assertThat(Roles.fromAuthentication(null)).isEmpty();
     }
 
-    @Test
-    void isAdminTrueWhenRolesContainsAdmin() {
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles", List.of("admin"))))).isTrue();
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles", List.of("ADMIN"))))).isTrue();
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles", List.of("player"))))).isFalse();
-        assertThat(Roles.isAdmin(null)).isFalse();
-    }
-
     // ── canonical form: the systems Casdoor seeds ROLE_-prefixed names ────────
 
     @Test
@@ -138,7 +128,7 @@ class RolesTest {
     void fromJwtStripsExactlyOnePrefix() {
         Jwt jwt = jwtWith(Map.of("roles", List.of("ROLE_ROLE_ADMIN")));
         assertThat(Roles.fromJwt(jwt)).containsExactly("role_admin");
-        assertThat(Roles.isAdmin(jwt)).isFalse();
+        assertThat(GamesAdminPolicy.gamesRealm().isGamesAdmin(jwt)).isFalse();
     }
 
     @Test
@@ -162,34 +152,6 @@ class RolesTest {
         assertThat(Roles.canonical("ROLE_ Games ")).isEqualTo("games");
         assertThat(Roles.canonical("ROLES")).isEqualTo("roles"); // not a prefix
         assertThat(Roles.canonical("role")).isEqualTo("role");
-    }
-
-    @Test
-    void isAdminTrueForPrefixedAdminSpelling() {
-        // The measured defect: roles=[ROLE_USER,ROLE_GAMES,ROLE_ADMIN] read as
-        // role_admin and every raw-JWT admin gate (pause/resume) refused a
-        // platform admin while hasRole('ADMIN') admitted them.
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles",
-                List.of("ROLE_USER", "ROLE_GAMES", "ROLE_ADMIN"))))).isTrue();
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles", List.of("Role_Admin"))))).isTrue();
-    }
-
-    @Test
-    void isAdminTrueForDerivedGamesAdmin() {
-        // games+mod on a mesh: ROLE_GAMES_ADMIN without a literal admin role. The
-        // same holder CasdoorAuthorities promotes to ROLE_ADMIN, so the raw-JWT
-        // predicate agrees with hasRole('ADMIN').
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles",
-                List.of("ROLE_USER", "ROLE_GAMES", "ROLE_MOD", "ROLE_GAMES_ADMIN"))))).isTrue();
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles", List.of("games_admin"))))).isTrue();
-    }
-
-    @Test
-    void isAdminFalseForGamesMemberModAndSuperadminAlone() {
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles", List.of("ROLE_USER", "ROLE_GAMES"))))).isFalse();
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles", List.of("ROLE_MOD", "ROLE_GAMES"))))).isFalse();
-        // isAdmin is not widened to superadmin; call sites test isSuperadmin alongside.
-        assertThat(Roles.isAdmin(jwtWith(Map.of("roles", List.of("ROLE_SUPERADMIN"))))).isFalse();
     }
 
     @Test

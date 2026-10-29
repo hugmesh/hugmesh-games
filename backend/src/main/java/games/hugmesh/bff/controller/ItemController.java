@@ -1,5 +1,7 @@
 package games.hugmesh.bff.controller;
 
+import games.hugmesh.bff.security.GamesAdminPolicy;
+
 import games.hugmesh.bff.model.ItemDto;
 import games.hugmesh.bff.model.PlayerCharacter;
 import games.hugmesh.bff.repository.CharacterEquipmentRepository;
@@ -30,11 +32,15 @@ public class ItemController {
     private final CharacterItemRepository charItemRepo;
     private final CharacterEquipmentRepository equipRepo;
     private final PlayerCharacterRepository playerCharRepo;
+    /** Who is a games admin (realm-aware; see GamesAdminPolicy). */
+    private final GamesAdminPolicy gamesAdmin;
 
     public ItemController(ItemRepository itemRepo,
                           CharacterItemRepository charItemRepo,
                           CharacterEquipmentRepository equipRepo,
-                          PlayerCharacterRepository playerCharRepo) {
+                          PlayerCharacterRepository playerCharRepo,
+                          GamesAdminPolicy gamesAdmin) {
+        this.gamesAdmin = gamesAdmin;
         this.itemRepo        = itemRepo;
         this.charItemRepo    = charItemRepo;
         this.equipRepo       = equipRepo;
@@ -55,7 +61,7 @@ public class ItemController {
                 .flatMap(c -> {
                     String caller = jwt == null ? null : jwt.getSubject();
                     boolean owns = caller != null && Objects.equals(caller, c.getCasdoorId());
-                    if (!owns && !Roles.isAdmin(jwt)) {
+                    if (!owns && !gamesAdmin.isGamesAdmin(jwt)) {
                         return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
                                 "character does not belong to the caller"));
                     }

@@ -1,5 +1,7 @@
 package games.hugmesh.bff.controller;
 
+import games.hugmesh.bff.security.GamesAdminPolicy;
+
 import games.hugmesh.bff.model.SessionMember;
 import games.hugmesh.bff.repository.GameSessionRepository;
 import games.hugmesh.bff.repository.SessionMemberRepository;
@@ -58,13 +60,17 @@ public class RealtimeController {
     private final DomainScopeService domainScope;
     private final DomainRegistry domainRegistry;
     private final ObjectProvider<RealtimeTruthStore> truthStore;
+    /** Who is a games admin (realm-aware; see GamesAdminPolicy). */
+    private final GamesAdminPolicy gamesAdmin;
 
     public RealtimeController(AuthoritativeTickService ticks,
                               GameSessionRepository sessions,
                               SessionMemberRepository members,
                               DomainScopeService domainScope,
                               DomainRegistry domainRegistry,
-                              ObjectProvider<RealtimeTruthStore> truthStore) {
+                              ObjectProvider<RealtimeTruthStore> truthStore,
+                              GamesAdminPolicy gamesAdmin) {
+        this.gamesAdmin = gamesAdmin;
         this.ticks          = ticks;
         this.sessions       = sessions;
         this.members        = members;
@@ -88,7 +94,7 @@ public class RealtimeController {
      *  {@code SessionIsolationTest} contract. Fail-closed on a missing
      *  subject. */
     private Mono<Void> requireMatchVisibility(String sessionId, Jwt jwt) {
-        if (Roles.isAdmin(jwt) || Roles.isSuperadmin(jwt)) {
+        if (gamesAdmin.isGamesAdmin(jwt) || Roles.isSuperadmin(jwt)) {
             return Mono.empty();
         }
         String caller = Roles.casdoorIdOf(jwt);

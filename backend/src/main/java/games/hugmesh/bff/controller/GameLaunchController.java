@@ -158,7 +158,7 @@ public class GameLaunchController {
         summary = "List all active launches (admin only).",
         description = "Active = terminated_at IS NULL. The dashboard's 'kick' button calls revoke below.")
     @GetMapping("/launches")
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('GAMES_ADMIN')")
     reactor.core.publisher.Flux<games.hugmesh.bff.model.GameLaunch> activeLaunches(
             @AuthenticationPrincipal Jwt jwt) {
         // Brand-scope the dashboard: a brand-X admin sees only their brand's (+ global)
@@ -185,7 +185,7 @@ public class GameLaunchController {
             """)
     @DeleteMapping("/admin/launches/{uid}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('GAMES_ADMIN')")
     Mono<Void> adminRevoke(@PathVariable String uid,
                            @AuthenticationPrincipal Jwt jwt) {
         return launches.findByUid(uid)

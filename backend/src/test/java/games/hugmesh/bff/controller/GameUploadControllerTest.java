@@ -54,7 +54,8 @@ class GameUploadControllerTest {
         DomainScopeService scope = new DomainScopeService(gameRepo, mock(GameSessionRepository.class));
         // uploadService / uploads are unused by requireScope() and by the null-domain
         // early return, so null is safe here (and dodges mocking the concrete service).
-        return new GameUploadController(null, null, publisher, scope, registry);
+        return new GameUploadController(null, null, publisher, scope, registry,
+                games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
     }
 
     private static DomainRegistry multiBrand() {

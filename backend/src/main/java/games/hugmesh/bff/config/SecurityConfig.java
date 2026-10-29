@@ -1,8 +1,10 @@
 package games.hugmesh.bff.config;
 
 import games.hugmesh.bff.security.DomainRegistry;
+import games.hugmesh.bff.security.GamesAdminPolicy;
 import games.hugmesh.bff.service.UserDirectoryService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -38,9 +40,9 @@ import reactor.core.publisher.Flux;
  *  /actuator/health/**     │ permitAll   │ permitAll
  *  /actuator/info          │ permitAll   │ permitAll
  *  /actuator/**            │ GAME-MASTER │ GAME-MASTER
- *  /api/admin/games/upload │ ADMIN|PUBLISHER │ ADMIN|PUBLISHER
- *  /api/admin/games/{slug}/uploads (glob) │ ADMIN|PUBLISHER │ ADMIN|PUBLISHER
- *  /api/admin/**           │ ADMIN       │ ADMIN
+ *  /api/admin/games/upload │ GAMES_ADMIN|PUBLISHER │ GAMES_ADMIN|PUBLISHER
+ *  /api/admin/games/{slug}/uploads (glob) │ GAMES_ADMIN|PUBLISHER │ GAMES_ADMIN|PUBLISHER
+ *  /api/admin/**           │ GAMES_ADMIN │ GAMES_ADMIN
  *  /api/realtime/**        │ authenticated│ authenticated
  *  /api/characters/**      │ authenticated│ authenticated
  *  /api/skills/**          │ authenticated│ authenticated
@@ -48,10 +50,17 @@ import reactor.core.publisher.Flux;
  *  /api/items/**           │ authenticated│ authenticated
  *  /api/sessions/**        │ authenticated│ authenticated
  *  /api/relationships/**   │ authenticated│ authenticated
- *  /v3/api-docs/**         │ permitAll   │ ADMIN
- *  /swagger-ui/**          │ permitAll   │ ADMIN
+ *  /v3/api-docs/**         │ permitAll   │ GAMES_ADMIN
+ *  /swagger-ui/**          │ permitAll   │ GAMES_ADMIN
  *  anyExchange             │ authenticated│ authenticated
  * </pre>
+ *
+ * <p>GAMES_ADMIN is the {@code ROLE_GAMES_ADMIN} authority the converter emits
+ * from {@link GamesAdminPolicy} (bean {@link #gamesAdminPolicy}): the derived
+ * games-admin role on a mesh, the realm {@code admin} on the games realm. It is
+ * NOT {@code ROLE_ADMIN}: on a mesh that is the platform admin, which the
+ * gateway forwards past its route-access table, so a bare platform admin must
+ * be refused here (hugmesh-generator rbac-roles.ts e2e-adminonly).
  *
  * <h2>JWT resource-server wiring</h2>
  *
@@ -139,7 +148,7 @@ public class SecurityConfig {
 
     /**
      * OpenAPI / Swagger UI paths. Public in dev (so {@code ng-openapi-gen} can
-     * fetch without a token); gated to {@code ROLE_ADMIN} in prod.
+     * fetch without a token); gated to {@code ROLE_GAMES_ADMIN} in prod.
      */
     private static final String[] SPEC_PATHS = {
             "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"
@@ -233,13 +242,40 @@ public class SecurityConfig {
     private final ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
             tenantAuthManagerResolver;
 
+    /** {@code casdoor.organization}: which Casdoor org this BFF trusts. */
+    private final String casdoorOrganization;
+
+    /** Org name of the games realm, where the realm {@code admin} is the games admin. */
+    private final String gamesRealmOrganization;
+
     public SecurityConfig(ObjectProvider<UserDirectoryService> directoryProvider,
                           DomainRegistry domainRegistry,
                           ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
-                                  tenantAuthManagerResolver) {
+                                  tenantAuthManagerResolver,
+                          @Value("${casdoor.organization:" + GamesAdminPolicy.GAMES_REALM_ORGANIZATION + "}")
+                                  String casdoorOrganization,
+                          @Value("${app.security.games-realm-organization:"
+                                  + GamesAdminPolicy.GAMES_REALM_ORGANIZATION + "}")
+                                  String gamesRealmOrganization) {
         this.directoryProvider = directoryProvider;
         this.domainRegistry = domainRegistry;
         this.tenantAuthManagerResolver = tenantAuthManagerResolver;
+        this.casdoorOrganization = casdoorOrganization;
+        this.gamesRealmOrganization = gamesRealmOrganization;
+    }
+
+    /**
+     * Who is a games admin on this deployment: the derived games-admin role in
+     * any realm, plus the realm's own {@code admin} when {@code casdoor.organization}
+     * is the games realm ({@code threewizards}: the standalone stack and the
+     * cluster's casdoor-games). A mesh-mounted BFF ({@code CASDOOR_ORGANIZATION=hugmesh},
+     * hugmesh-generator tests/stack/compose.games.yaml) gets the systems policy,
+     * where {@code ROLE_ADMIN} alone is not a games admin. Defined here because
+     * every security slice test imports this class. See {@link GamesAdminPolicy}.
+     */
+    @Bean
+    GamesAdminPolicy gamesAdminPolicy() {
+        return GamesAdminPolicy.forOrganization(casdoorOrganization, gamesRealmOrganization);
     }
 
     // -------------------------------------------------------------------------
@@ -273,9 +309,9 @@ public class SecurityConfig {
                     // widens the ROUTE so a publisher token reaches the controller
                     // instead of dying at the filter chain with an empty-body 403
                     // (which made publisher maker-build uploads impossible).
-                    ex.pathMatchers("/api/admin/games/upload").hasAnyRole("ADMIN", "PUBLISHER");
-                    ex.pathMatchers("/api/admin/games/*/uploads").hasAnyRole("ADMIN", "PUBLISHER");
-                    ex.pathMatchers("/api/admin/**").hasRole("ADMIN");
+                    ex.pathMatchers("/api/admin/games/upload").hasAnyRole(GamesAdminPolicy.ROLE, "PUBLISHER");
+                    ex.pathMatchers("/api/admin/games/*/uploads").hasAnyRole(GamesAdminPolicy.ROLE, "PUBLISHER");
+                    ex.pathMatchers("/api/admin/**").hasRole(GamesAdminPolicy.ROLE);
                     ex.pathMatchers(PLAYER_PATHS).authenticated();
                     ex.pathMatchers(SPEC_PATHS).permitAll();
                     ex.pathMatchers(PUBLIC_PATHS).permitAll();
@@ -294,7 +330,7 @@ public class SecurityConfig {
 
     /**
      * Production filter chain (default when {@code dev} profile is not active):
-     * OpenAPI spec requires {@code ROLE_ADMIN} so it is never publicly reachable.
+     * OpenAPI spec requires {@code ROLE_GAMES_ADMIN} so it is never publicly reachable.
      *
      * <p>{@code X-Frame-Options} is relaxed to {@code SAMEORIGIN} for the same
      * reason as the dev chain — the Godot WASM iframe is same-origin.
@@ -312,10 +348,10 @@ public class SecurityConfig {
                     ex.pathMatchers(INFRA_GATED).hasRole("GAME-MASTER");
                     // Same publisher carve-outs as the dev chain — see the comment
                     // there; per-game scope is enforced by the endpoint itself.
-                    ex.pathMatchers("/api/admin/games/upload").hasAnyRole("ADMIN", "PUBLISHER");
-                    ex.pathMatchers("/api/admin/games/*/uploads").hasAnyRole("ADMIN", "PUBLISHER");
-                    ex.pathMatchers("/api/admin/**").hasRole("ADMIN");
-                    ex.pathMatchers(SPEC_PATHS).hasRole("ADMIN");
+                    ex.pathMatchers("/api/admin/games/upload").hasAnyRole(GamesAdminPolicy.ROLE, "PUBLISHER");
+                    ex.pathMatchers("/api/admin/games/*/uploads").hasAnyRole(GamesAdminPolicy.ROLE, "PUBLISHER");
+                    ex.pathMatchers("/api/admin/**").hasRole(GamesAdminPolicy.ROLE);
+                    ex.pathMatchers(SPEC_PATHS).hasRole(GamesAdminPolicy.ROLE);
                     ex.pathMatchers(PLAYER_PATHS).authenticated();
                     ex.pathMatchers(PUBLIC_PATHS).permitAll();
                     ex.anyExchange().authenticated();
@@ -420,7 +456,7 @@ public class SecurityConfig {
      */
     private Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
         Converter<Jwt, Flux<GrantedAuthority>> delegate =
-                CasdoorAuthorities.converter(domainRegistry);
+                CasdoorAuthorities.converter(domainRegistry, gamesAdminPolicy());
         return jwt -> {
             // Side-effect: populate the username→casdoorId cache on every
             // authenticated request. Without this, the first

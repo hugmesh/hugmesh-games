@@ -49,7 +49,8 @@ class ItemControllerInventoryOwnerCheckTest {
                 mock(ItemRepository.class),
                 charItemRepo,
                 equipRepo,
-                playerCharRepo);
+                playerCharRepo,
+                games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
         // The controller assembles the downstream Flux eagerly (thenMany), so
         // the repos must return a publisher even in deny cases.
         when(charItemRepo.findByCharacterId(eq(1L))).thenReturn(Flux.empty());

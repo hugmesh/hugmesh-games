@@ -1,5 +1,7 @@
 package games.hugmesh.bff.controller;
 
+import games.hugmesh.bff.security.GamesAdminPolicy;
+
 import games.hugmesh.bff.model.SessionLogEntry;
 import games.hugmesh.bff.repository.ModGameScopeRepository;
 import games.hugmesh.bff.repository.PublisherGameScopeRepository;
@@ -38,10 +40,14 @@ public class SessionLogController {
     private final SessionLogRepository           logs;
     private final ModGameScopeRepository         modScopes;
     private final PublisherGameScopeRepository   publisherScopes;
+    /** Who is a games admin (realm-aware; see GamesAdminPolicy). */
+    private final GamesAdminPolicy gamesAdmin;
 
     public SessionLogController(SessionLogRepository logs,
                                 ModGameScopeRepository modScopes,
-                                PublisherGameScopeRepository publisherScopes) {
+                                PublisherGameScopeRepository publisherScopes,
+                                GamesAdminPolicy gamesAdmin) {
+        this.gamesAdmin = gamesAdmin;
         this.logs            = logs;
         this.modScopes       = modScopes;
         this.publisherScopes = publisherScopes;
@@ -58,7 +64,7 @@ public class SessionLogController {
     }
 
     @Operation(summary = "Anyone's session participation history (admin only)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     @GetMapping("/admin/{casdoorId}")
     public Flux<SessionLogEntry> adminFor(@PathVariable String casdoorId,
                                           @RequestParam(defaultValue = "100") int limit) {
@@ -66,7 +72,7 @@ public class SessionLogController {
     }
 
     @Operation(summary = "Session history scoped to the caller's mod/publisher games")
-    @PreAuthorize("hasAnyRole('MOD','PUBLISHER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MOD','PUBLISHER','GAMES_ADMIN')")
     @GetMapping("/scoped/{casdoorId}")
     public Flux<SessionLogEntry> scopedFor(@AuthenticationPrincipal Jwt jwt,
                                            @PathVariable String casdoorId,
@@ -75,10 +81,9 @@ public class SessionLogController {
             return Flux.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         }
         String me = jwt.getSubject();
-        // Admin sees everything regardless of scope.
-        boolean admin = jwt.getClaimAsStringList("roles") != null
-                && jwt.getClaimAsStringList("roles").stream().anyMatch(r -> r.equalsIgnoreCase("admin"));
-        if (admin) {
+        // A games admin sees everything regardless of scope (GamesAdminPolicy:
+        // the same callers the converter grants ROLE_GAMES_ADMIN).
+        if (gamesAdmin.isGamesAdmin(jwt)) {
             return logs.findByCasdoor(casdoorId, limit > 0 ? limit : DEFAULT_LIMIT);
         }
         // Otherwise: union of the caller's mod + publisher game-slug scopes.

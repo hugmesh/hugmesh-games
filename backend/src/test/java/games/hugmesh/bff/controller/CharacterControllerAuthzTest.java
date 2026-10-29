@@ -95,7 +95,7 @@ class CharacterControllerAuthzTest {
         // authorization behaviour these tests assert.
         controller = new CharacterController(characters, gameStateService, gameTimeService,
                 progression, charQuests, questRepo, sessionRepo, charSkills, charItems, itemRepo,
-                new DomainRegistry("", ""));
+                new DomainRegistry("", ""), games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
     }
 
     // ── get ──────────────────────────────────────────────────────────────────

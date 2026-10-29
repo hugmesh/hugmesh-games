@@ -79,9 +79,7 @@ public final class Roles {
      * produce a flat list of strings. Both shapes are accepted — {@code Map} items
      * contribute their {@code name} field, plain strings contribute themselves.
      * Without the {@code Map} handler an admin user's JWT comes through with no
-     * roles and {@link #isAdmin(Jwt)} returns false (the legacy {@code isAdmin}
-     * boolean fallback only fires inside
-     * {@code SecurityConfig.casdoorAuthoritiesConverter}, not here).
+     * roles and {@link GamesAdminPolicy#isGamesAdmin(Jwt)} returns false.
      *
      * <p><b>Canonical form.</b> Each name has ONE leading {@code ROLE_} stripped
      * (any case) before lowercasing — the same canonicalisation
@@ -90,7 +88,7 @@ public final class Roles {
      * names ({@code admin}); the systems Casdoor a mesh-mounted BFF validates
      * against seeds {@code ROLE_}-prefixed ones ({@code ROLE_ADMIN},
      * {@code ROLE_GAMES_ADMIN}). Both read back as {@code admin} /
-     * {@code games_admin} here, so {@link #isAdmin(Jwt)}, {@link #isSuperadmin(Jwt)}
+     * {@code games_admin} here, so {@link GamesAdminPolicy#isGamesAdmin(Jwt)}, {@link #isSuperadmin(Jwt)}
      * and {@link #has(Jwt, String)} answer the same for either realm. Without the
      * strip a mesh admin read as {@code role_admin} and every raw-JWT admin gate
      * (session pause/resume, character/item admin override, stream/realtime
@@ -172,36 +170,6 @@ public final class Roles {
                 .map(String::toLowerCase)
                 .distinct()
                 .toList();
-    }
-
-    /**
-     * Canonical name of the platform's DERIVED games-admin role
-     * ({@code games AND (admin OR mod)}, materialised by the generator seed /
-     * the games-admin-sync Job as {@code ROLE_GAMES_ADMIN} on the systems
-     * Casdoor). Kept in step with {@code CasdoorAuthorities.GAMES_ADMIN_ROLE}.
-     */
-    static final String GAMES_ADMIN = "games_admin";
-
-    /**
-     * Returns {@code true} when the caller is an admin of the games service,
-     * derived from the raw JWT claim: the {@code admin} role in either realm
-     * spelling ({@code admin} / {@code ROLE_ADMIN}), OR the platform's derived
-     * {@code games_admin} role ({@code ROLE_GAMES_ADMIN} = games AND (admin OR
-     * mod)). Mirrors EXACTLY the set of principals {@code CasdoorAuthorities}
-     * grants the {@code ROLE_ADMIN} authority, so this predicate and Spring's
-     * {@code hasRole('ADMIN')} admit the same callers — a games+mod holder who
-     * passes the {@code /api/admin/**} matcher is also an admin at every raw-JWT
-     * gate (session pause/resume, character/item admin override, stream and
-     * realtime bypass). Deliberately NOT widened to {@code superadmin}: the
-     * call sites that admit superadmins test {@link #isSuperadmin(Jwt)} alongside.
-     *
-     * @param jwt the validated Casdoor JWT; {@code null} returns {@code false}
-     * @return {@code true} iff the JWT's {@code roles} claim canonicalises to
-     *         {@code admin} or {@code games_admin}
-     */
-    public static boolean isAdmin(Jwt jwt) {
-        List<String> roles = fromJwt(jwt);
-        return roles.contains("admin") || roles.contains(GAMES_ADMIN);
     }
 
     /**

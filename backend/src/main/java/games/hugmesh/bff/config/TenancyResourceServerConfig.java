@@ -1,6 +1,7 @@
 package games.hugmesh.bff.config;
 
 import games.hugmesh.bff.security.DomainRegistry;
+import games.hugmesh.bff.security.GamesAdminPolicy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
@@ -74,11 +75,16 @@ public class TenancyResourceServerConfig {
      *  brand decoder discovers from its own iss). */
     private final String backCompatJwkSetUri;
 
+    /** Same games-admin policy bean the single-issuer path uses (SecurityConfig). */
+    private final GamesAdminPolicy gamesAdminPolicy;
+
     public TenancyResourceServerConfig(
             DomainRegistry domainRegistry,
             @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri:}") String backCompatIssuer,
-            @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:}") String backCompatJwkSetUri) {
+            @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:}") String backCompatJwkSetUri,
+            GamesAdminPolicy gamesAdminPolicy) {
         this.domainRegistry = domainRegistry;
+        this.gamesAdminPolicy = gamesAdminPolicy;
         this.backCompatIssuer = trimSlash(backCompatIssuer);
         this.backCompatJwkSetUri = backCompatJwkSetUri == null ? "" : backCompatJwkSetUri.trim();
     }
@@ -197,6 +203,6 @@ public class TenancyResourceServerConfig {
      *  {@code SecurityConfig.casdoorAuthoritiesConverter()} (the shared
      *  {@link CasdoorAuthorities}), with the issuer-derived {@code DOMAIN_<x>} added. */
     private Converter<Jwt, Flux<GrantedAuthority>> authoritiesConverter() {
-        return CasdoorAuthorities.converter(domainRegistry);
+        return CasdoorAuthorities.converter(domainRegistry, gamesAdminPolicy);
     }
 }

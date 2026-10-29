@@ -123,14 +123,14 @@ public class ProducerContactController {
 
     @Operation(summary = "Admin queue: every PENDING submission, oldest first.")
     @GetMapping("/admin/producer-contacts")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     public Flux<ProducerContact> pendingQueue() {
         return repo.findByStatusOrderBySubmittedAtAsc(ProducerContact.STATUS_PENDING);
     }
 
     @Operation(summary = "Record an admin decision on an application.")
     @PostMapping("/admin/producer-contacts/{id}/decision")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     public Mono<ProducerContact> decide(@AuthenticationPrincipal Jwt jwt,
                                          @PathVariable Long id,
                                          @Valid @RequestBody DecisionRequest req) {

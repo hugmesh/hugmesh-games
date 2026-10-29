@@ -75,7 +75,8 @@ class RealtimeControllerTest {
                 List.of(new ReferenceArenaSimFactory()), matchRepo, memberRepo, truthStore,
                 Optional.empty(), /* tickHz: manual */ 0, 2, 30);
         DomainScopeService scope = new DomainScopeService(gameRepo, sessionRepo);
-        return new RealtimeController(ticks, sessionRepo, memberRepo, scope, registry, truthStore);
+        return new RealtimeController(ticks, sessionRepo, memberRepo, scope, registry, truthStore,
+                games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
     }
 
     private void stubSession(String sessionId, String gameSlug, String domain, String creator) {

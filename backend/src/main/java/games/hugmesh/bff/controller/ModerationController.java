@@ -28,10 +28,10 @@ import reactor.core.publisher.Mono;
  * close action (creator-only).
  */
 @Tag(name = "Moderation",
-     description = "Per-game moderator actions: stop a session, kick a player. ROLE_MOD or ROLE_ADMIN required, plus a mod_game_scopes row for the targeted session's game.")
+     description = "Per-game moderator actions: stop a session, kick a player. ROLE_MOD or ROLE_GAMES_ADMIN required, plus a mod_game_scopes row for the targeted session's game.")
 @RestController
 @RequestMapping("/api/mod")
-@PreAuthorize("hasAnyRole('MOD','ADMIN')")
+@PreAuthorize("hasAnyRole('MOD','GAMES_ADMIN')")
 public class ModerationController {
 
     private final ModerationService moderation;
