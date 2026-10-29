@@ -326,6 +326,7 @@ build-godot: build-rust
 	      exit $$status; \
 	    fi; \
 	    python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	    cp $(GAMES_DIR)/$$game/icon.svg $$out_dir/icon.svg; \
 	    if [ -f $(GAMES_DIR)/$$game/export_required.txt ]; then \
 	      echo "→ [$$game] verifying $$out_dir/index.pck ships every raw-byte runtime file"; \
 	      command -v node >/dev/null 2>&1 || { echo "ERROR: node not found (needed for scripts/verify-godot-pck.mjs)"; exit 1; }; \

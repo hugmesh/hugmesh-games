@@ -48,12 +48,13 @@
     }
     @case ('ready') {
       @if (mode() === 'here') {
-        <div class="frame-wrap">
+        <div class="frame-wrap" [style.height.px]="frameHeight()" data-testid="games-play-frame-wrap">
           <iframe
             #frame
             [src]="frameSrc()"
             [title]="name()"
             allow="fullscreen; gamepad"
+            (load)="fitFrame()"
             (error)="onFrameError()"
             data-testid="games-play-frame"
           ></iframe>

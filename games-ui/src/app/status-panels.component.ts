@@ -71,10 +71,10 @@ export class GamesForbiddenComponent {
         </p>
       } @else {
         <p>
-          The games service refused this admin call ({{ failure?.status || 403 }}) — its
-          /api/admin/** gate wants ROLE_ADMIN, which a games admin (ROLE_GAMES_ADMIN =
-          games AND (admin OR mod)) is granted on this mount. No X-Route-Denied header
-          was sent, so the refusal was not the gateway's.
+          The games service refused this admin call ({{ failure?.status || 403 }}). Its
+          admin API wants the games admin role (ROLE_GAMES_ADMIN = games AND (admin OR
+          mod)); a platform admin without games is not a games admin. No X-Route-Denied
+          header was sent, so the refusal was not the gateway's.
         </p>
       }
     </div>

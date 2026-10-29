@@ -229,8 +229,8 @@ export class GamesApiService {
     );
   }
 
-  /** NOTE: `GET /api/games/launches` is `hasRole('ADMIN')` on the BFF today, so a
-   *  games-only member receives 403; the catalog hides the strip on that. */
+  /** `GET /api/games/launches` is `hasRole('GAMES_ADMIN')` on the BFF; the
+   *  catalog only calls it for a `games_admin` session (session-roles.ts). */
   listLaunches(): Observable<GameLaunch[]> {
     return this.http.get<GameLaunch[]>(this.url('/games/launches'), { withCredentials: true });
   }

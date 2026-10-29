@@ -13,10 +13,11 @@ import {
   NEW_TAB_REASON,
   NEW_TAB_SLUGS,
   WEB_NATIVE_SLUGS,
-  bundleIconUrl,
+  bundleIconUrls,
   mountRoute,
 } from './games.constants';
 import { GamesForbiddenComponent, GamesUnreachableComponent } from './status-panels.component';
+import { isGamesAdminSession, sessionRoles } from './session-roles';
 
 /** How a catalog row can be played on THIS deployment. */
 export type Availability = 'here' | 'new-tab' | 'unavailable';
@@ -25,9 +26,10 @@ export interface CatalogCard {
   game: Game;
   availability: Availability;
   badge: string;
-  /** Thumbnail candidates in order: catalog thumbnailUrl, bundle icon, none. */
+  /** First thumbnail to try: catalog thumbnailUrl, else the bundle icon. */
   thumbnail: string | null;
-  fallbackThumbnail: string | null;
+  /** What to try next, in order, when an image fails; then the letter tile. */
+  fallbacks: string[];
   letter: string;
 }
 
@@ -53,17 +55,22 @@ export function availabilityOf(game: Game, wasmGames: ReadonlySet<string>): Avai
   return 'here';
 }
 
-export function toCard(game: Game, wasmGames: ReadonlySet<string>): CatalogCard {
+export function toCard(
+  game: Game,
+  wasmGames: ReadonlySet<string>,
+  remote: FederationRemote | null = null,
+): CatalogCard {
   const availability = availabilityOf(game, wasmGames);
   const badge =
     availability === 'here' ? BADGE_HERE : availability === 'new-tab' ? BADGE_NEW_TAB : BADGE_UNAVAILABLE;
-  const bundleIcon = availability === 'unavailable' ? null : bundleIconUrl(game.slug);
+  const icons = availability === 'unavailable' ? [] : bundleIconUrls(game.slug, remote);
+  const candidates = [...(game.thumbnailUrl ? [game.thumbnailUrl] : []), ...icons];
   return {
     game,
     availability,
     badge,
-    thumbnail: game.thumbnailUrl || bundleIcon,
-    fallbackThumbnail: game.thumbnailUrl ? bundleIcon : null,
+    thumbnail: candidates[0] ?? null,
+    fallbacks: candidates.slice(1),
     letter: (game.name || game.slug || '?').trim().charAt(0).toUpperCase(),
   };
 }
@@ -109,18 +116,18 @@ export class GamesCatalogComponent implements OnInit {
     this.failure.set(null);
     forkJoin({ games: this.api.listGames(), manifest: this.api.federationManifest() }).subscribe({
       next: ({ games, manifest }) => {
-        const wasmGames = new Set(
-          (manifest?.remotes ?? [])
-            .filter((r: FederationRemote) => r.kind === 'wasm-game' && r.gameSlug)
-            .map((r) => r.gameSlug as string),
+        const wasmRows = (manifest?.remotes ?? []).filter(
+          (r: FederationRemote) => r.kind === 'wasm-game' && !!r.gameSlug,
         );
+        const wasmGames = new Set(wasmRows.map((r) => r.gameSlug as string));
+        const rowFor = new Map(wasmRows.map((r) => [r.gameSlug as string, r]));
         const sorted = [...(games ?? [])].sort(
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name),
         );
-        const cards = sorted.map((g) => toCard(g, wasmGames));
+        const cards = sorted.map((g) => toCard(g, wasmGames, rowFor.get(g.slug) ?? null));
         this.cards.set(cards);
         this.state.set(cards.length ? 'loaded' : 'empty');
-        this.loadLaunches();
+        if (isGamesAdminSession(sessionRoles())) this.loadLaunches();
       },
       error: (err) => {
         const f = classifyFailure(err);
@@ -130,11 +137,13 @@ export class GamesCatalogComponent implements OnInit {
     });
   }
 
-  /** Best-effort: `GET /api/games/launches` is admin-gated on the BFF today, so
-   *  a plain member gets 403 — the strip simply stays hidden (it must never
-   *  flip the catalog into the forbidden state). When it does render (an admin
-   *  holder) it lists EVERY player's active launches, not the caller's, and
-   *  the strip says so. */
+  /** `GET /api/games/launches` is games-admin only on the BFF
+   *  (ROLE_GAMES_ADMIN), so it is only called when `hug.session` carries the
+   *  derived `games_admin` role: a member's catalog makes no doomed request
+   *  (the live proof saw a 403 on every member render). Still best-effort: a
+   *  refusal leaves the strip hidden and never flips the catalog into the
+   *  forbidden state. It lists EVERY player's active launches, not the
+   *  caller's, and the strip says so. */
   private loadLaunches(): void {
     this.api.listLaunches().subscribe({
       next: (rows) => {
@@ -153,8 +162,9 @@ export class GamesCatalogComponent implements OnInit {
   }
 
   onThumbError(card: CatalogCard): void {
-    if (card.fallbackThumbnail && card.thumbnail !== card.fallbackThumbnail) {
-      const next = { ...card, thumbnail: card.fallbackThumbnail, fallbackThumbnail: null };
+    const [nextSrc, ...rest] = card.fallbacks;
+    if (nextSrc) {
+      const next = { ...card, thumbnail: nextSrc, fallbacks: rest };
       this.cards.update((cards) => cards.map((c) => (c.game.slug === card.game.slug ? next : c)));
       return;
     }

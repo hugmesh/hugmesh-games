@@ -2,7 +2,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideHttpClient } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { IN_SHELL_NOTE, GamePlayComponent } from './play.component';
+import { IN_SHELL_NOTE, GamePlayComponent, MAX_FRAME_PX, fittedFrameHeight } from './play.component';
 import { NEW_TAB_SLUGS } from './games.constants';
 
 function routeFor(slug: string, query: Record<string, string> = {}) {
@@ -146,5 +146,43 @@ describe('GamePlayComponent (M2)', () => {
     expect(el().querySelector('[data-testid="games-play-expires"]')?.textContent).toContain('2026-10-28T13:00:00Z');
     fixture.destroy();
     http.expectOne('/games/api/games/launches/OLD').flush(null);
+  });
+
+  it('grows the frame to a bundle taller than the frame, so nothing is clipped', async () => {
+    await setup('chess', { uid: 'TALL' });
+    flushName('chess', 'Chess');
+    http.expectOne((r) => r.url.startsWith('/_remotes/wasm-fragment/chess/index.html')).flush('ok');
+    fixture.detectChanges();
+    const host = el();
+    document.body.appendChild(host); // real layout, so clientHeight is measured
+    try {
+      const wrap = host.querySelector<HTMLElement>('[data-testid="games-play-frame-wrap"]')!;
+      const frame = host.querySelector<HTMLIFrameElement>('[data-testid="games-play-frame"]')!;
+      const cssHeight = frame.clientHeight;
+      expect(cssHeight).toBeGreaterThan(0);
+      expect(wrap.style.height).toBe(''); // the CSS height until the bundle says otherwise
+      const loaded = new Promise<void>((resolve) => frame.addEventListener('load', () => resolve(), { once: true }));
+      // same-origin content taller than the frame (srcdoc inherits the origin)
+      frame.srcdoc = `<!doctype html><body style="margin:0"><div style="height:${cssHeight + 300}px"></div></body>`;
+      await loaded;
+      await new Promise((r) => setTimeout(r, 50));
+      fixture.detectChanges();
+      expect(wrap.style.height).toBe(`${cssHeight + 300}px`);
+      expect(frame.clientHeight).toBeGreaterThanOrEqual(frame.contentDocument!.documentElement.scrollHeight);
+    } finally {
+      host.remove();
+    }
+    fixture.destroy();
+    http.expectOne('/games/api/games/launches/TALL').flush(null);
+  });
+});
+
+describe('fittedFrameHeight', () => {
+  it('keeps the CSS height when the content fits, grows to the content otherwise, and caps', () => {
+    expect(fittedFrameHeight(600, 560)).toBeNull();
+    expect(fittedFrameHeight(600, 601)).toBeNull(); // sub-pixel rounding is not a reason to grow
+    expect(fittedFrameHeight(448, 488.4)).toBe(489); // the live chess case: 448px frame, 488px content
+    expect(fittedFrameHeight(300, 99999)).toBe(MAX_FRAME_PX);
+    expect(fittedFrameHeight(300, Number.NaN)).toBeNull();
   });
 });

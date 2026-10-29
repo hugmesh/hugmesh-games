@@ -1,9 +1,15 @@
 @use '../styles/primitives';
 
+// The frame is as tall as the screen allows, not a 16:9 box: a fixed 16:9
+// frame at the shell's ~800px content width is 448px tall, which clipped the
+// bottom rank of chess (header + square board ~ 500px) with no scrollbar, and
+// at phone width a 16:9 frame is ~200px tall. Board games are square or taller
+// than wide, so the frame takes the viewport height left under the shell and
+// page headers; the component then grows it to the bundle's own content height
+// when that is taller still (fitFrame), so nothing is ever clipped.
 .frame-wrap {
   width: 100%;
-  aspect-ratio: 16 / 9;
-  min-height: 18rem;
+  height: clamp(20rem, calc(100dvh - 18rem), 72rem);
   background: #000;
   border: 1px solid var(--hug-border);
   border-radius: 0.75rem;
