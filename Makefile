@@ -83,7 +83,7 @@ PRESETS_shadows-of-the-net            = Shadows-Of-The-Net
 # Flat slug list used by `make seed-roles` and other per-game iteration.
 GAME_SLUGS          = three-wizards dodecahedron chess-godot connect-four-godot shadows-of-the-net
 
-BACKEND_JAR         = $(BACKEND_DIR)/target/hugmesh-gaming-bff-0.2.0-beta.1.jar
+BACKEND_JAR         = $(BACKEND_DIR)/target/hugmesh-gaming-bff-0.2.0-beta.2.jar
 FRONTEND_DIST       = $(FRONTEND_DIR)/dist/hugmesh-games-frontend
 
 # ── Full production build ─────────────────────────────────────────────────────
