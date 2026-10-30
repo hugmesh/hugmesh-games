@@ -17,21 +17,29 @@
     same commit; APP_UPLOADS_REGISTER_SQL_ROLE stays the override knob.
 
     The legacy name is matched by its md5 (020b32edaf685d43f599083e4e1ac5aa),
-    so the old brand name is not spelled in this file. Until 2026-10 the file
-    named the role literally; the checksum of that text is listed as a
-    <validCheckSum> so databases that already ran it still validate. Since the
-    same edit, 054 creates hugmesh_register_sql directly, so on a fresh
-    database the old role never exists and this changeset is MARK_RAN.
+    so the old brand name is not spelled in this file. Since 2026-10, 054
+    creates hugmesh_register_sql directly, so on a fresh database the old
+    role never exists and this changeset is MARK_RAN.
+
+    RE-KEYED (2026-10), as in 054: the author used to be the name of a code
+    assistant tool and is now "hugmesh". A database that already ran this
+    changeset under the old author (found by md5 in DATABASECHANGELOG, same
+    id, same file) records it as MARK_RAN instead of running it again.
 
     Idempotent: preconditions MARK_RAN when the old role is absent (fresh DB,
     or the rename was done by hand) or the new role already exists.
   -->
 
-  <changeSet id="060-1-rename-register-sql-role" author="claude" runInTransaction="false">
-    <!-- checksum of the text before the 2026-10 md5 edit -->
-    <validCheckSum>9:17d3703f653bcf8eeb3eebab718a874d</validCheckSum>
+  <changeSet id="060-1-rename-register-sql-role" author="hugmesh" runInTransaction="false">
     <preConditions onFail="MARK_RAN">
       <and>
+        <!-- not already run under the old author (see header) -->
+        <sqlCheck expectedResult="0">
+          SELECT COUNT(*) FROM databasechangelog
+           WHERE id = '060-1-rename-register-sql-role'
+             AND md5(author) = '8bb75b3015682d910daf88b6d728be2c'
+             AND regexp_replace(filename, '^.*/', '') = '060-rebrand-register-sql-role.xml'
+        </sqlCheck>
         <sqlCheck expectedResult="1">
           SELECT COUNT(*) FROM pg_roles WHERE md5(rolname) = '020b32edaf685d43f599083e4e1ac5aa'
         </sqlCheck>

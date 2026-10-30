@@ -30,21 +30,36 @@
     EDITED IN PLACE (2026-10). These changesets first created the role under
     its pre-rebrand name, and 060 renamed it to hugmesh_register_sql. They now
     create hugmesh_register_sql directly, so the old brand name is no longer
-    spelled here. Editing a changeset changes its checksum, so each one lists
-    the checksum it had before the edit as a <validCheckSum>: a database that
-    already ran the old text passes validation and does NOT run it again, and
-    060 still renames the old role on any database that ran 054 but not 060.
+    spelled here.
+
+    RE-KEYED (2026-10). Liquibase identifies a changeset by (id, author, file).
+    The author of these three changesets used to be the name of a code
+    assistant tool; it is now "hugmesh". To Liquibase that makes them new
+    changesets, so each one first looks in DATABASECHANGELOG for its own id
+    under the OLD author in this same file. If that row exists the database
+    already ran it, and the changeset is only recorded (MARK_RAN), never run
+    again. The old author is matched by its md5, so it is not spelled here.
+    The old DATABASECHANGELOG rows stay as they are; Liquibase ignores rows
+    that no changeset in the changelog claims. Because the new identity has
+    no stored checksum, the pre-edit validCheckSum lines are gone.
   -->
 
-  <changeSet id="054-1-create-register-sql-role" author="claude" runInTransaction="false">
-    <!-- checksum of the text before the 2026-10 role-name edit -->
-    <validCheckSum>9:8c431ac260e8d81a7219783b1fb8b42e</validCheckSum>
+  <changeSet id="054-1-create-register-sql-role" author="hugmesh" runInTransaction="false">
     <preConditions onFail="MARK_RAN">
-      <not>
-        <sqlCheck expectedResult="1">
-          SELECT COUNT(*) FROM pg_roles WHERE rolname = 'hugmesh_register_sql'
+      <and>
+        <!-- not already run under the old author (see header) -->
+        <sqlCheck expectedResult="0">
+          SELECT COUNT(*) FROM databasechangelog
+           WHERE id = '054-1-create-register-sql-role'
+             AND md5(author) = '8bb75b3015682d910daf88b6d728be2c'
+             AND regexp_replace(filename, '^.*/', '') = '054-register-sql-least-priv-role.xml'
         </sqlCheck>
-      </not>
+        <not>
+          <sqlCheck expectedResult="1">
+            SELECT COUNT(*) FROM pg_roles WHERE rolname = 'hugmesh_register_sql'
+          </sqlCheck>
+        </not>
+      </and>
     </preConditions>
     <sql splitStatements="false"><![CDATA[
       DO $$
@@ -60,9 +75,16 @@
     ]]></sql>
   </changeSet>
 
-  <changeSet id="054-2-grant-catalog-tables" author="claude" runInTransaction="false">
-    <!-- checksum of the text before the 2026-10 role-name edit -->
-    <validCheckSum>9:9d94b9474de2905a08961838f4ef61d0</validCheckSum>
+  <changeSet id="054-2-grant-catalog-tables" author="hugmesh" runInTransaction="false">
+    <!-- not already run under the old author (see header) -->
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM databasechangelog
+         WHERE id = '054-2-grant-catalog-tables'
+           AND md5(author) = '8bb75b3015682d910daf88b6d728be2c'
+           AND regexp_replace(filename, '^.*/', '') = '054-register-sql-least-priv-role.xml'
+      </sqlCheck>
+    </preConditions>
     <sql splitStatements="false"><![CDATA[
       DO $$
       DECLARE
@@ -102,9 +124,16 @@
     ]]></sql>
   </changeSet>
 
-  <changeSet id="054-3-enroll-app-login-role" author="claude" runInTransaction="false">
-    <!-- checksum of the text before the 2026-10 role-name edit -->
-    <validCheckSum>9:0068010313970dd7357cb05a24a48758</validCheckSum>
+  <changeSet id="054-3-enroll-app-login-role" author="hugmesh" runInTransaction="false">
+    <!-- not already run under the old author (see header) -->
+    <preConditions onFail="MARK_RAN">
+      <sqlCheck expectedResult="0">
+        SELECT COUNT(*) FROM databasechangelog
+         WHERE id = '054-3-enroll-app-login-role'
+           AND md5(author) = '8bb75b3015682d910daf88b6d728be2c'
+           AND regexp_replace(filename, '^.*/', '') = '054-register-sql-least-priv-role.xml'
+      </sqlCheck>
+    </preConditions>
     <!--
       Enrol the application's login role as a MEMBER of hugmesh_register_sql
       so the BFF connection can `SET LOCAL ROLE hugmesh_register_sql` for the
