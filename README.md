@@ -1761,7 +1761,7 @@ make clean
 ### Versions and releases
 
 All five images (`backend`, `frontend`, `rpg-builder`, `vn-builder`, `wasm-fragment`) carry one
-version, kept in the top-level [`VERSION`](VERSION) file. The current version is `0.2.0-beta.1`:
+version, kept in the top-level [`VERSION`](VERSION) file. The current version is `0.2.0-beta.2`:
 built and tested, not yet in the default mesh. The same string is written into the three poms,
 the three Java Dockerfiles' jar names, `frontend/package.json` and its lock, and the Makefile's
 `BACKEND_JAR`. `make check-version` fails if any of them disagree.

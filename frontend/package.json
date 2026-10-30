@@ -1,6 +1,6 @@
 {
   "name": "@hugmesh/games-portal-frontend",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "description": "HugMesh Games portal — Angular host shell + federated remotes for hugmesh.games.",
   "homepage": "https://hugmesh.games",
   "repository": {
