@@ -45,7 +45,7 @@ services:
     environment:
       POSTGRES_DB: threewizards
       POSTGRES_USER: threewizards
-      POSTGRES_PASSWORD: threewizards
+      POSTGRES_PASSWORD: ${GAMES_DB_PASS:?GAMES_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
       # Force the server to load our mounted pg_hba.conf — the
       # default install reads from $PGDATA/pg_hba.conf, which the
       # image overwrites on initdb.
@@ -77,7 +77,7 @@ services:
         condition: service_healthy
     environment:
       POSTGRES_USER: threewizards
-      POSTGRES_PASSWORD: threewizards
+      POSTGRES_PASSWORD: ${GAMES_DB_PASS:?GAMES_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
       POSTGRES_DB: threewizards
       PRIMARY_HOST: postgres
       REPLICATOR_USER: replicator
@@ -106,7 +106,7 @@ services:
     environment:
       APP_R2DBC_REPLICA_URL: "r2dbc:postgresql://postgres-replica:5432/threewizards"
       APP_R2DBC_REPLICA_USER: "threewizards"
-      APP_R2DBC_REPLICA_PASS: "threewizards"
+      APP_R2DBC_REPLICA_PASS: ${GAMES_DB_PASS:?GAMES_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
     depends_on:
       postgres-replica:
         condition: service_healthy

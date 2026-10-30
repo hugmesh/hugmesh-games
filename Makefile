@@ -11,7 +11,7 @@
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-games-wasm clean-games-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
-        gen-certs e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
+        db-env test-db-passwords gen-certs e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
         test test-rust test-rust-cores test-backend test-frontend test-godot test-games-js check-version \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
@@ -664,6 +664,49 @@ export E2E_PASSWORD
 $(info → e2e password for this run: $(E2E_PASSWORD)  (saved to $(E2E_CREDENTIALS_FILE)))
 endif
 E2E_PLAYER_PASS ?= $(E2E_PASSWORD)
+
+# ── Postgres role passwords (GAMES_DB_PASS / RPG_BUILDER_DB_PASS / VN_BUILDER_DB_PASS)
+# docker-compose.yml REQUIRES all three (`${VAR:?}`) — there is no literal
+# default anywhere, so compose.prod.yml / compose.staging.yml cannot inherit a
+# public value. scripts/db-passwords.sh resolves each one: an exported value
+# wins; else the gitignored .env (which a plain `docker compose` auto-loads);
+# else it generates a random one and persists it there.
+#
+# Same gate rule as E2E_PASSWORD above: compose interpolates EVERY service on
+# EVERY subcommand (`ps`, `logs`, `exec`, `down` included), so every goal that
+# runs compose against docker-compose.yml is listed, not just the ones that
+# start Postgres. `export`ed (not just written to .env) because lan-* pass
+# `--env-file lan.properties`, which stops compose auto-loading .env — only a
+# process env var survives that. Values are never echoed.
+#
+# An EXISTING Postgres volume keeps the password it was initialised with;
+# pin that value in .env (or `docker compose down -v`) — see CLAUDE.md.
+DB_PASSWORD_GOALS = db-env e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs \
+                    build-backend-native deploy seed-db gen-api build-with-godot \
+                    games-arch-e2e games-arch-e2e-up lan-up lan-up-tls lan-down \
+                    pentest pentest-dast
+ifneq (,$(filter $(DB_PASSWORD_GOALS),$(MAKECMDGOALS)))
+db_password_resolve = $(shell . $(CURDIR)/scripts/db-passwords.sh && db_passwords_ensure && printf '%s' "$$$(1)")
+GAMES_DB_PASS       := $(call db_password_resolve,GAMES_DB_PASS)
+RPG_BUILDER_DB_PASS := $(call db_password_resolve,RPG_BUILDER_DB_PASS)
+VN_BUILDER_DB_PASS  := $(call db_password_resolve,VN_BUILDER_DB_PASS)
+ifeq (,$(and $(GAMES_DB_PASS),$(RPG_BUILDER_DB_PASS),$(VN_BUILDER_DB_PASS)))
+$(error db_passwords_ensure failed to resolve the DB passwords — see scripts/db-passwords.sh)
+endif
+export GAMES_DB_PASS RPG_BUILDER_DB_PASS VN_BUILDER_DB_PASS
+endif
+
+# Generate (once) / reuse the dev DB passwords in .env so a plain
+# `docker compose up -d` works. Never run this on a prod/staging host.
+db-env:
+	@test -n "$$GAMES_DB_PASS" && test -n "$$RPG_BUILDER_DB_PASS" && test -n "$$VN_BUILDER_DB_PASS" \
+	  || { echo "✗ DB passwords resolved but NOT exported to recipes — compose would not see them"; exit 1; }
+	@echo "✓ GAMES_DB_PASS, RPG_BUILDER_DB_PASS, VN_BUILDER_DB_PASS resolved (persisted in $${DB_PASSWORDS_FILE:-.env}; values not shown)"
+
+# Resolver self-test + the guard that no compose/Spring file carries a DB
+# password literal again (offline, ~1s; writes only to a temp dir).
+test-db-passwords:
+	python3 -m unittest scripts/test_db_passwords.py
 
 gen-certs:
 	@echo "→ Generating self-signed certs (or reusing CERT_PATH if set)…"

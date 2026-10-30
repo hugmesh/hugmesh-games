@@ -33,7 +33,8 @@
 #   PGPORT          default: 5432
 #   PGDATABASE      default: threewizards
 #   PGUSER          default: threewizards
-#   PGPASSWORD      default: threewizards
+#   PGPASSWORD      default: $GAMES_DB_PASS (from .env / `make db-env`);
+#                   required — there is no literal fallback
 #   APP_UPLOADS_GAMES_DIR   default: /var/hugmesh/games
 #   APP_UPLOADS_S3_BUCKET   default: hugmesh-uploads
 #   APP_UPLOADS_S3_ENDPOINT default: http://localhost:9000
@@ -62,10 +63,18 @@ fi
 : "${PGPORT:=5432}"
 : "${PGDATABASE:=threewizards}"
 : "${PGUSER:=threewizards}"
-: "${PGPASSWORD:=threewizards}"
+: "${PGPASSWORD:=${GAMES_DB_PASS:-}}"
 : "${APP_UPLOADS_GAMES_DIR:=/var/hugmesh/games}"
 : "${APP_UPLOADS_S3_BUCKET:=hugmesh-uploads}"
 : "${APP_UPLOADS_S3_ENDPOINT:=http://localhost:9000}"
+
+if [ -z "${PGPASSWORD}" ]; then
+    echo "ERROR: PGPASSWORD (or GAMES_DB_PASS) must be set — no default DB password" >&2
+    exit 1
+fi
+# psql reads PGPASSWORD from its ENVIRONMENT; a value resolved from
+# GAMES_DB_PASS above is only a shell variable until exported.
+export PGPASSWORD
 
 if [ -z "${APP_UPLOADS_S3_ACCESS_KEY:-}" ] || [ -z "${APP_UPLOADS_S3_SECRET_KEY:-}" ]; then
     echo "ERROR: APP_UPLOADS_S3_ACCESS_KEY + APP_UPLOADS_S3_SECRET_KEY must be set" >&2

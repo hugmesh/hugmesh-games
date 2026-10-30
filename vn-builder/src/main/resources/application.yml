@@ -1,20 +1,25 @@
 spring:
   application:
     name: hugmesh-vn-builder
+  # DB_PASS has NO default (same rule as the backend BFF): a literal fallback
+  # here was baked into the jar + image and was what every deployment that
+  # did not set DB_PASS ran on, production included. docker-compose.yml
+  # supplies it from VN_BUILDER_DB_PASS; an unset value now fails at connect
+  # time instead of silently using a public password.
   r2dbc:
     url: r2dbc:postgresql://${DB_HOST:postgres-vn-builder}:${DB_PORT:5432}/${DB_NAME:vn_builder}
     username: ${DB_USER:vn_builder}
-    password: ${DB_PASS:vn_builder}
+    password: ${DB_PASS:}
   datasource:
     url: jdbc:postgresql://${DB_HOST:postgres-vn-builder}:${DB_PORT:5432}/${DB_NAME:vn_builder}
     username: ${DB_USER:vn_builder}
-    password: ${DB_PASS:vn_builder}
+    password: ${DB_PASS:}
     driver-class-name: org.postgresql.Driver
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.xml
     url: jdbc:postgresql://${DB_HOST:postgres-vn-builder}:${DB_PORT:5432}/${DB_NAME:vn_builder}
     user: ${DB_USER:vn_builder}
-    password: ${DB_PASS:vn_builder}
+    password: ${DB_PASS:}
   security:
     oauth2:
       resourceserver:

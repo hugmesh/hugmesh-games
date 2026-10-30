@@ -43,7 +43,7 @@ services:
       # liquibase.properties file mount.
       LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/threewizards
       LIQUIBASE_COMMAND_USERNAME: threewizards
-      LIQUIBASE_COMMAND_PASSWORD: threewizards
+      LIQUIBASE_COMMAND_PASSWORD: ${GAMES_DB_PASS:?GAMES_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
       LIQUIBASE_COMMAND_CHANGELOG_FILE: db/changelog/db.changelog-master.xml
       LIQUIBASE_SEARCH_PATH: /workspace
     volumes:

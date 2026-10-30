@@ -5,7 +5,11 @@ services:
     environment:
       POSTGRES_DB: threewizards
       POSTGRES_USER: threewizards
-      POSTGRES_PASSWORD: threewizards
+      # No literal: the password comes from the environment / the gitignored
+      # .env (`make db-env` generates one). compose.prod.yml and
+      # compose.staging.yml inherit this, so a prod bring-up without a
+      # managed value fails here instead of running on a public default.
+      POSTGRES_PASSWORD: ${GAMES_DB_PASS:?GAMES_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
     # Default: loopback-only — Postgres holds Casdoor seeds + BFF
     # game state, neither of which should be reachable from a LAN
     # peer. Override POSTGRES_BIND=0.0.0.0: via lan.properties when
@@ -31,7 +35,7 @@ services:
     environment:
       POSTGRES_DB: rpg_builder
       POSTGRES_USER: rpg_builder
-      POSTGRES_PASSWORD: rpg_builder
+      POSTGRES_PASSWORD: ${RPG_BUILDER_DB_PASS:?RPG_BUILDER_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
     volumes:
       - pgdata_rpg_builder:/var/lib/postgresql/data
     healthcheck:
@@ -48,7 +52,7 @@ services:
     environment:
       POSTGRES_DB: vn_builder
       POSTGRES_USER: vn_builder
-      POSTGRES_PASSWORD: vn_builder
+      POSTGRES_PASSWORD: ${VN_BUILDER_DB_PASS:?VN_BUILDER_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
     volumes:
       - pgdata_vn_builder:/var/lib/postgresql/data
     healthcheck:
@@ -68,6 +72,11 @@ services:
         condition: service_healthy
     environment:
       RUNNING_IN_DOCKER: "true"
+      # Casdoor shares the main Postgres role. Its conf loader checks the
+      # environment before casdoor/conf/app.conf (conf.GetConfigString ->
+      # os.LookupEnv), so the DSN — and the password in it — lives here,
+      # not in the committed app.conf.
+      dataSourceName: "user=threewizards password=${GAMES_DB_PASS:?GAMES_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it} host=postgres port=5432 dbname=casdoor sslmode=disable"
       # Set these explicitly to override generated random values; leave
       # unset to get a secure random secret printed to container logs on
       # first run. The full seed-user set (player1/2/3, mod variants,
@@ -329,7 +338,7 @@ services:
       DB_PORT: 5432
       DB_NAME: threewizards
       DB_USER: threewizards
-      DB_PASS: threewizards
+      DB_PASS: ${GAMES_DB_PASS:?GAMES_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
       CASDOOR_ENDPOINT: http://casdoor:8000
       CASDOOR_CLIENT_ID: ${CASDOOR_CLIENT_ID:-twclient001}
       CASDOOR_CLIENT_SECRET: ${CASDOOR_CLIENT_SECRET:-}
@@ -422,7 +431,7 @@ services:
       DB_PORT: 5432
       DB_NAME: rpg_builder
       DB_USER: rpg_builder
-      DB_PASS: rpg_builder
+      DB_PASS: ${RPG_BUILDER_DB_PASS:?RPG_BUILDER_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
       CASDOOR_ENDPOINT: http://casdoor:8000
       APP_BFF_BASE_URL: http://api:8080
       APP_BUILD_GODOT_ENABLED: "false"
@@ -448,7 +457,7 @@ services:
       DB_PORT: 5432
       DB_NAME: vn_builder
       DB_USER: vn_builder
-      DB_PASS: vn_builder
+      DB_PASS: ${VN_BUILDER_DB_PASS:?VN_BUILDER_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
       CASDOOR_ENDPOINT: http://casdoor:8000
       APP_BFF_BASE_URL: http://api:8080
       APP_BUILD_GODOT_ENABLED: "false"

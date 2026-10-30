@@ -33,12 +33,19 @@ If you see `findByLevelId` or `level_id` in the source, treat it as a missed-ren
 ## Local dev quickstart
 
 ```bash
+# 0. Postgres role passwords — docker-compose.yml REQUIRES GAMES_DB_PASS,
+#    RPG_BUILDER_DB_PASS and VN_BUILDER_DB_PASS (no literal default). This
+#    generates random ones into the gitignored .env, once; re-runs reuse them.
+#    An OLD pgdata volume keeps the password it was created with: pin that
+#    value in .env, or `docker compose down -v` to start fresh.
+make db-env
 # 1. First-time setup — Casdoor randomises seed credentials per fresh DB.
 #    Bring the stack up once, copy the printed seed into .env:
 docker compose up -d
 docker compose logs casdoor 2>&1 | grep -A4 "Casdoor seed credentials"
-# Copy Client Secret + admin pass + player pass into a new .env at repo root:
-cat > .env <<EOF
+# Append Client Secret + admin pass + player pass to .env at repo root
+# (APPEND — `>` would wipe the DB passwords step 0 put there):
+cat >> .env <<EOF
 CASDOOR_CLIENT_ID=twclient001
 CASDOOR_CLIENT_SECRET=<paste from log>
 CASDOOR_ADMIN_PASS=<paste from log>
