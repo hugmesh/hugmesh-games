@@ -382,7 +382,7 @@ When you extend this, keep the same shape (mirror `domainApplies`; new `domain` 
 - **PR base**: always `main`. Never push directly to `main`.
 - **Commits**: imperative subject under ~70 chars. Body explains the *why*. Co-author trailer is optional but standard for AI-pair work.
 - **Schema migrations**: append to Liquibase, never edit a previously-merged changeset. Number sequentially. Gate with `<preConditions>` so re-runs are no-ops on partial state.
-- **Tests**: `./mvnw test` for the BFF, `npx ng test` for the Angular host, `cargo test` for the Rust extension. The `GameUploadIntegrationTest` needs Docker socket access (testcontainers); failure of just that test in a sandboxed env is environmental, not a regression.
+- **Tests**: `./mvnw test` for the BFF, `npx ng test` for the Angular host, `cargo test` for the Rust extension. `GameUploadIntegrationTest` and `TwoRealmFullContextTest` need Docker socket access (testcontainers); failure of just those tests in a sandboxed env is environmental, not a regression.
 
 ## Known gaps / TODO
 

@@ -161,7 +161,7 @@ public final class GamesAdminPolicy {
                     + "app.security.games-realm-issuers (APP_SECURITY_GAMES_REALM_ISSUERS) is not set. "
                     + "It decides whose `admin` role is a games admin: list the games realm's issuer.");
         }
-        if (multiIssuer) {
+        if (trustedIssuers != null && !trustedIssuers.isEmpty()) {
             List<String> untrusted = new ArrayList<>(listed);
             untrusted.removeAll(trustedIssuers);
             if (!untrusted.isEmpty()) {

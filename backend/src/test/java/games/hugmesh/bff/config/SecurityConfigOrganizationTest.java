@@ -56,6 +56,18 @@ class SecurityConfigOrganizationTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void aMistypedGamesRealmIssuerStopsASingleIssuerBffToo() {
+        // Otherwise it would start and silently strip every games admin.
+        SecurityConfig typo = new SecurityConfig(mock(ObjectProvider.class),
+                new DomainRegistry("https://g.example", ""), mock(ObjectProvider.class),
+                "threewizards", GamesAdminPolicy.GAMES_REALM_ORGANIZATION, "https://typo.example");
+        assertThatThrownBy(typo::gamesAdminPolicy)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("https://typo.example");
+    }
+
+    @Test
     void twoIssuersWithAGamesRealmStart() {
         assertThat(twoIssuers("https://g.example/").gamesAdminPolicy().isGamesRealmIssuer("https://g.example"))
                 .isTrue();
