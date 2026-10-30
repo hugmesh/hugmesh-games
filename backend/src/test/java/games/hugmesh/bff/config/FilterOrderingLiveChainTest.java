@@ -61,6 +61,9 @@ import static org.mockito.Mockito.when;
                 "app.tenancy.domain=brandx",
                 "app.tenancy.issuers=" + FilterOrderingLiveChainTest.ISS_X + "=brandx,"
                         + FilterOrderingLiveChainTest.ISS_Y + "=brandy",
+                // Two issuers must say which is the games realm; each brand's is.
+                "app.security.games-realm-issuers=" + FilterOrderingLiveChainTest.ISS_X + ","
+                        + FilterOrderingLiveChainTest.ISS_Y,
                 "app.revocation.enabled=true",
         })
 @Import({SecurityConfig.class, FilterOrderingLiveChainTest.Beans.class,

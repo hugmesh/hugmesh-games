@@ -51,9 +51,12 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
  * access repo is NEVER written — wave-2 only ran single-tenant.
  */
 @WebFluxTest(controllers = GameAccessController.class,
-        properties = "app.tenancy.issuers="
+        properties = {"app.tenancy.issuers="
                 + "https://casdoor.brandx.example=brandx,"
                 + "https://casdoor.brandy.example=brandy",
+                // Two issuers must say which is the games realm; each brand's is.
+                "app.security.games-realm-issuers="
+                + "https://casdoor.brandx.example,https://casdoor.brandy.example"},
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = {
                 BanGateFilter.class, DomainGuardFilter.class,
                 RateLimitFilter.class, SecurityHeadersFilter.class}))

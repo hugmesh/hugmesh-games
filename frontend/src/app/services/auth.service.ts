@@ -64,8 +64,15 @@ export class AuthService {
     }
   }
 
+  /**
+   * True for the same roles the BFF treats as a games admin on a games-realm
+   * token (GamesAdminPolicy): the realm's own `admin`, the derived `games_admin`,
+   * and `mesh-games-admin`, the role the GM sync keeps. The legacy `isAdmin` claim
+   * is not one of them: the BFF refuses it, so showing admin navigation for it
+   * would only lead to 403s. UI decisions only; the BFF is the authority.
+   */
   isAdmin(): boolean {
-    return this.hasRole('admin') || this.getClaims()?.['isAdmin'] === true;
+    return ['admin', 'games_admin', 'mesh-games-admin'].some(role => this.hasRole(role));
   }
 
   /** True when Casdoor's `mod` role is present in the JWT roles claim. */
@@ -74,10 +81,19 @@ export class AuthService {
   /** True when Casdoor's `publisher` role is present in the JWT roles claim. */
   isPublisher(): boolean { return this.hasRole('publisher'); }
 
+  /**
+   * Casdoor's default JWT carries `roles` as objects (`{name, owner, ...}`); a
+   * custom token template can flatten them to strings. Accept both, and read names
+   * the way the BFF does (Roles.canonical): one leading `ROLE_` stripped, lowercase.
+   */
   private hasRole(name: string): boolean {
     const roles = this.getClaims()?.['roles'];
     if (!Array.isArray(roles)) return false;
-    return roles.some(r => typeof r === 'string' && r.toLowerCase() === name);
+    return roles.some(r => {
+      const raw = typeof r === 'string' ? r : (r as { name?: unknown } | null)?.name;
+      return typeof raw === 'string'
+        && raw.trim().replace(/^role_/i, '').toLowerCase() === name;
+    });
   }
 
   displayName(): string | null {

@@ -119,11 +119,91 @@ class GamesAdminPolicyTest {
     void forDeploymentRefusesABlankOrganization() {
         for (String blank : new String[] {null, "", "   "}) {
             org.assertj.core.api.Assertions.assertThatThrownBy(
-                            () -> GamesAdminPolicy.forDeployment(blank, GamesAdminPolicy.GAMES_REALM_ORGANIZATION))
+                            () -> GamesAdminPolicy.forDeployment(blank, GamesAdminPolicy.GAMES_REALM_ORGANIZATION, "", List.of()))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("casdoor.organization");
         }
-        assertThat(GamesAdminPolicy.forDeployment("threewizards", "threewizards").realmAdminIsGamesAdmin()).isTrue();
-        assertThat(GamesAdminPolicy.forDeployment("hugmesh", "threewizards").realmAdminIsGamesAdmin()).isFalse();
+        assertThat(GamesAdminPolicy.forDeployment("threewizards", "threewizards", "", List.of()).realmAdminIsGamesAdmin()).isTrue();
+        assertThat(GamesAdminPolicy.forDeployment("hugmesh", "threewizards", "", List.of()).realmAdminIsGamesAdmin()).isFalse();
+    }
+
+    // ── one BFF, two realms: the issuer decides, per token ────────────────────
+
+    private static final String GAMES_ISS = "https://id.games.example";
+    private static final String MESH_ISS = "https://id.mesh.example";
+    private static final GamesAdminPolicy TWO_REALMS = GamesAdminPolicy.forIssuers(List.of(GAMES_ISS));
+
+    private static Jwt from(String iss, Object... roles) {
+        return jwt(Map.of("iss", iss, "roles", List.of(roles)));
+    }
+
+    @Test
+    void twoRealmsGamesRealmAdminIsAGamesAdmin() {
+        assertThat(TWO_REALMS.isGamesAdmin(from(GAMES_ISS, "admin"))).isTrue();
+        assertThat(TWO_REALMS.isGamesAdmin(from(GAMES_ISS, Map.of("name", "admin", "owner", "threewizards")))).isTrue();
+        assertThat(TWO_REALMS.isGamesAdmin(from(GAMES_ISS + "/", "admin"))).isTrue();
+    }
+
+    @Test
+    void twoRealmsMeshAdminIsNotAGamesAdmin() {
+        // The exact bare-admin regression #47/#48 closed, on a BFF whose org is threewizards.
+        assertThat(TWO_REALMS.isGamesAdmin(from(MESH_ISS, "ROLE_ADMIN", "ROLE_USER"))).isFalse();
+        assertThat(TWO_REALMS.isGamesAdmin(from(MESH_ISS, "admin"))).isFalse();
+    }
+
+    @Test
+    void twoRealmsMeshGamesAdminIsAGamesAdmin() {
+        assertThat(TWO_REALMS.isGamesAdmin(from(MESH_ISS, "ROLE_GAMES", "ROLE_GAMES_ADMIN"))).isTrue();
+    }
+
+    @Test
+    void twoRealmsMeshSuperadminIsNotAGamesAdmin() {
+        assertThat(TWO_REALMS.isGamesAdmin(from(MESH_ISS, "ROLE_SUPERADMIN"))).isFalse();
+    }
+
+    @Test
+    void twoRealmsTheGmSyncRoleCountsOnlyFromTheGamesRealm() {
+        assertThat(TWO_REALMS.isGamesAdmin(from(GAMES_ISS, "mesh-games-admin"))).isTrue();
+        assertThat(TWO_REALMS.isGamesAdmin(from(MESH_ISS, "mesh-games-admin"))).isFalse();
+    }
+
+    @Test
+    void twoRealmsATokenWithNoIssuerIsNotTheGamesRealm() {
+        assertThat(TWO_REALMS.isGamesAdmin(roles("admin"))).isFalse();
+        assertThat(TWO_REALMS.isGamesRealm(null)).isFalse();
+        assertThat(TWO_REALMS.isGamesRealmIssuer(null)).isFalse();
+        assertThat(TWO_REALMS.isGamesRealmIssuer("")).isFalse();
+    }
+
+    @Test
+    void theGmSyncRoleFollowsTheRealmOnASingleIssuerBffToo() {
+        assertThat(REALM.isGamesAdmin(roles("mesh-games-admin"))).isTrue();
+        assertThat(MESH.isGamesAdmin(roles("mesh-games-admin"))).isFalse();
+    }
+
+    @Test
+    void forDeploymentKeepsTheSingleIssuerAnswerWhenNoIssuersAreListed() {
+        GamesAdminPolicy games = GamesAdminPolicy.forDeployment("threewizards", "threewizards", "", List.of());
+        GamesAdminPolicy mesh = GamesAdminPolicy.forDeployment("hugmesh", "threewizards", " ", List.of("https://a"));
+        assertThat(games.isGamesAdmin(roles("admin"))).isTrue();
+        assertThat(mesh.isGamesAdmin(roles("admin"))).isFalse();
+    }
+
+    @Test
+    void forDeploymentWithListedIssuersIgnoresTheOrganizationForTheRealmDecision() {
+        // org names the Casdoor `casdoor.*` talks to; it must not widen the realm.
+        GamesAdminPolicy p = GamesAdminPolicy.forDeployment("threewizards", "threewizards",
+                GAMES_ISS, List.of(GAMES_ISS, MESH_ISS));
+        assertThat(p.isGamesAdmin(from(GAMES_ISS, "admin"))).isTrue();
+        assertThat(p.isGamesAdmin(from(MESH_ISS, "admin"))).isFalse();
+    }
+
+    @Test
+    void seededUsernameIsOnlyAGamesRealmIdentity() {
+        Jwt games = jwt(Map.of("iss", GAMES_ISS, "name", "alice"));
+        Jwt mesh = jwt(Map.of("iss", MESH_ISS, "name", "alice"));
+        assertThat(TWO_REALMS.seededUsernameOf(games)).isEqualTo("alice");
+        assertThat(TWO_REALMS.seededUsernameOf(mesh)).isNull();
+        assertThat(TWO_REALMS.seededUsernameOf(null)).isNull();
     }
 }

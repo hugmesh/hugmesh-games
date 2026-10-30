@@ -20,7 +20,7 @@ class SecurityConfigOrganizationTest {
     @SuppressWarnings("unchecked")
     private static SecurityConfig config(String organization) {
         return new SecurityConfig(mock(ObjectProvider.class), new DomainRegistry("", ""),
-                mock(ObjectProvider.class), organization, GamesAdminPolicy.GAMES_REALM_ORGANIZATION);
+                mock(ObjectProvider.class), organization, GamesAdminPolicy.GAMES_REALM_ORGANIZATION, "");
     }
 
     @Test
@@ -30,6 +30,47 @@ class SecurityConfigOrganizationTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("CASDOOR_ORGANIZATION");
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static SecurityConfig twoIssuers(String gamesRealmIssuers) {
+        return new SecurityConfig(mock(ObjectProvider.class),
+                new DomainRegistry("", "https://g.example=default,https://m.example=default"),
+                mock(ObjectProvider.class), "threewizards", GamesAdminPolicy.GAMES_REALM_ORGANIZATION,
+                gamesRealmIssuers);
+    }
+
+    @Test
+    void twoIssuersWithoutAGamesRealmStopTheBff() {
+        // org=threewizards must not turn into "both realms' admins are games admins".
+        assertThatThrownBy(() -> twoIssuers("").gamesAdminPolicy())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("APP_SECURITY_GAMES_REALM_ISSUERS");
+    }
+
+    @Test
+    void aGamesRealmIssuerThatIsNotTrustedStopsTheBff() {
+        assertThatThrownBy(() -> twoIssuers("https://typo.example").gamesAdminPolicy())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("https://typo.example");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aMistypedGamesRealmIssuerStopsASingleIssuerBffToo() {
+        // Otherwise it would start and silently strip every games admin.
+        SecurityConfig typo = new SecurityConfig(mock(ObjectProvider.class),
+                new DomainRegistry("https://g.example", ""), mock(ObjectProvider.class),
+                "threewizards", GamesAdminPolicy.GAMES_REALM_ORGANIZATION, "https://typo.example");
+        assertThatThrownBy(typo::gamesAdminPolicy)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("https://typo.example");
+    }
+
+    @Test
+    void twoIssuersWithAGamesRealmStart() {
+        assertThat(twoIssuers("https://g.example/").gamesAdminPolicy().isGamesRealmIssuer("https://g.example"))
+                .isTrue();
     }
 
     @Test

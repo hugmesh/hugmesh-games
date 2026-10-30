@@ -355,6 +355,68 @@ class CasdoorAuthoritiesTest {
     // tests/e2e/specs/rbac-roles.ts) through the real converter
     // ===================================================================
     @Nested
+    class GamesCapabilitiesByRealm {
+
+        private final GamesAdminPolicy twoRealms = GamesAdminPolicy.forIssuers(List.of("https://id.games.example"));
+
+        private Set<String> from(String iss, String... roles) {
+            Jwt jwt = baseJwt().claim("iss", iss).claim("roles", List.of(roles)).build();
+            return authStrings(jwt, singleIssuerRegistry(), twoRealms);
+        }
+
+        @Test
+        void aPlatformModIsNotAGamesMod() {
+            assertThat(from("https://id.mesh.example", "ROLE_MOD", "ROLE_USER")).doesNotContain("ROLE_MOD");
+            assertThat(from("https://id.mesh.example", "mod")).doesNotContain("ROLE_MOD");
+        }
+
+        @Test
+        void aBareSystemsPublisherOrProducerIsNotOne() {
+            assertThat(from("https://id.mesh.example", "ROLE_PUBLISHER", "ROLE_PRODUCER"))
+                    .doesNotContain("ROLE_PUBLISHER", "ROLE_PRODUCER");
+        }
+
+        @Test
+        void theNamespacedSystemsRolesGrantTheCapabilities() {
+            assertThat(from("https://id.mesh.example", "ROLE_GAMES_MOD"))
+                    .contains("ROLE_MOD", "ROLE_GAMES_MOD");
+            assertThat(from("https://id.mesh.example", "ROLE_GAMES_PUBLISHER"))
+                    .contains("ROLE_PUBLISHER", "ROLE_GAMES_PUBLISHER");
+            assertThat(from("https://id.mesh.example", "ROLE_GAMES_PRODUCER"))
+                    .contains("ROLE_PRODUCER", "ROLE_GAMES_PRODUCER");
+        }
+
+        @Test
+        void theNamespacedRolesMeanNothingOnTheGamesRealm() {
+            // Only the games realm's own names grant there; nobody seeds these.
+            assertThat(from("https://id.games.example", "ROLE_GAMES_MOD")).doesNotContain("ROLE_MOD");
+            assertThat(from("https://id.games.example", "ROLE_GAMES_PUBLISHER")).doesNotContain("ROLE_PUBLISHER");
+        }
+
+        @Test
+        void theGamesRealmKeepsItsOwnNames() {
+            assertThat(from("https://id.games.example", "mod", "publisher", "producer"))
+                    .contains("ROLE_MOD", "ROLE_PUBLISHER", "ROLE_PRODUCER");
+        }
+
+        @Test
+        void aSingleIssuerSystemsBffReadsRolesTheSameWay() {
+            // compose.games.yaml: org hugmesh, one issuer.
+            Jwt jwt = baseJwt().claim("roles", List.of("ROLE_MOD", "ROLE_GAMES_PUBLISHER")).build();
+            assertThat(authStrings(jwt, singleIssuerRegistry(), GamesAdminPolicy.systemsRealm()))
+                    .contains("ROLE_PUBLISHER").doesNotContain("ROLE_MOD");
+        }
+
+        @Test
+        void unrelatedRolesPassThroughInBothRealms() {
+            assertThat(from("https://id.mesh.example", "ROLE_GAMES", "ROLE_ADMIN", "ROLE_SUPERADMIN"))
+                    .contains("ROLE_GAMES", "ROLE_ADMIN", "ROLE_SUPERADMIN");
+            assertThat(from("https://id.games.example", "player", "play-three-wizards"))
+                    .contains("ROLE_PLAYER", "ROLE_PLAY-THREE-WIZARDS");
+        }
+    }
+
+    @Nested
     class GamesAdminByRealm {
 
         private Set<String> mesh(List<?> roles) {

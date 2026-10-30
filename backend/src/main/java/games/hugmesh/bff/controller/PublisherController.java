@@ -5,6 +5,7 @@ import games.hugmesh.bff.model.PublisherGameScope;
 import games.hugmesh.bff.repository.ModGameScopeRepository;
 import games.hugmesh.bff.repository.PublisherGameScopeRepository;
 import games.hugmesh.bff.security.DomainRegistry;
+import games.hugmesh.bff.security.GamesAdminPolicy;
 import games.hugmesh.bff.security.Roles;
 import games.hugmesh.bff.service.DomainScopeService;
 import games.hugmesh.bff.service.PublisherService;
@@ -39,17 +40,20 @@ public class PublisherController {
     private final ModGameScopeRepository        modScopes;
     private final DomainScopeService            domainScope;
     private final DomainRegistry                domainRegistry;
+    private final GamesAdminPolicy              gamesAdmin;
 
     public PublisherController(PublisherService publisher,
                                PublisherGameScopeRepository publisherScopes,
                                ModGameScopeRepository modScopes,
                                DomainScopeService domainScope,
-                               DomainRegistry domainRegistry) {
+                               DomainRegistry domainRegistry,
+                               GamesAdminPolicy gamesAdmin) {
         this.publisher       = publisher;
         this.publisherScopes = publisherScopes;
         this.modScopes       = modScopes;
         this.domainScope     = domainScope;
         this.domainRegistry  = domainRegistry;
+        this.gamesAdmin      = gamesAdmin;
     }
 
     /** Brand-scope gate: a brand-X caller (admin or publisher) may not act on a
@@ -64,10 +68,10 @@ public class PublisherController {
     @Operation(summary = "List the games this caller owns as publisher")
     @GetMapping("/scopes")
     public Flux<PublisherGameScope> myScopes(@AuthenticationPrincipal Jwt jwt) {
-        // Seeded scope rows key on the username (the subject is a UUID
-        // Casdoor re-mints every fresh boot); runtime grants key on the
+        // Seeded scope rows key on a games-realm username (the subject is a
+        // UUID Casdoor re-mints every fresh boot); runtime grants key on the
         // subject. Surface both, deduped per game.
-        String username = Roles.usernameOf(jwt);
+        String username = gamesAdmin.seededUsernameOf(jwt);
         Flux<PublisherGameScope> bySub = publisherScopes.findActiveByCasdoor(jwt.getSubject());
         Flux<PublisherGameScope> byName = username == null || username.equals(jwt.getSubject())
                 ? Flux.empty()
@@ -89,7 +93,7 @@ public class PublisherController {
         return requireGameDomain(gameSlug, jwt)
                 // Flux.defer so the ownership check + query are only ASSEMBLED once the
                 // brand gate passes — a denied request short-circuits with no side work.
-                .thenMany(Flux.defer(() -> publisher.requireOwns(jwt.getSubject(), Roles.usernameOf(jwt), gameSlug)
+                .thenMany(Flux.defer(() -> publisher.requireOwns(jwt.getSubject(), gamesAdmin.seededUsernameOf(jwt), gameSlug)
                         .thenMany(modScopes.findActiveByGame(gameSlug))));
     }
 
@@ -107,7 +111,7 @@ public class PublisherController {
             @RequestBody GrantModRequest req) {
         return requireGameDomain(req.gameSlug(), jwt)
                 .then(Mono.defer(() -> publisher.grantMod(
-                        jwt.getSubject(), Roles.usernameOf(jwt), req.targetCasdoorId(), req.gameSlug())));
+                        jwt.getSubject(), gamesAdmin.seededUsernameOf(jwt), req.targetCasdoorId(), req.gameSlug())));
     }
 
     @Operation(summary = "Revoke a user's mod role for a game I own")
@@ -117,6 +121,6 @@ public class PublisherController {
             @RequestBody RevokeModRequest req) {
         return requireGameDomain(req.gameSlug(), jwt)
                 .then(Mono.defer(() -> publisher.revokeMod(
-                        jwt.getSubject(), Roles.usernameOf(jwt), req.targetCasdoorId(), req.gameSlug())));
+                        jwt.getSubject(), gamesAdmin.seededUsernameOf(jwt), req.targetCasdoorId(), req.gameSlug())));
     }
 }

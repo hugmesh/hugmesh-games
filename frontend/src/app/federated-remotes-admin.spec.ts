@@ -15,7 +15,7 @@ import { AdminRemoteComponent } from '../../projects/admin/src/app/admin-remote.
 
 // Coverage targets: the BFF wiring that used to live in the host's
 // deleted AdminService. The component does the HTTP calls inline now,
-// and the 403 → "log in with an isAdmin account" hint is a
+// and the 403 → "log in with a games admin account" hint is a
 // user-visible contract worth pinning.
 describe('AdminRemoteComponent', () => {
   let component: AdminRemoteComponent;
@@ -64,7 +64,7 @@ describe('AdminRemoteComponent', () => {
       httpMock.expectOne('/api/admin/sessions').flush([]);
 
       expect(stats).toBeNull();
-      expect(component.errorMessage).toContain('isAdmin');
+      expect(component.errorMessage).toContain('games admin');
     });
 
     it('uses a generic failure message on non-403 errors', () => {
