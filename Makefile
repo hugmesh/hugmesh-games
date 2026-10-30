@@ -941,7 +941,9 @@ test-frontend:
 
 dev-backend:
 	@echo "→ Starting Spring Boot API on :8080..."
-	cd $(BACKEND_DIR) && ./mvnw clean spring-boot:run
+	@# The local dev stack is the games realm; the BFF no longer guesses it
+	@# (a blank casdoor.organization stops it at boot).
+	cd $(BACKEND_DIR) && CASDOOR_ORGANIZATION=$${CASDOOR_ORGANIZATION:-threewizards} ./mvnw clean spring-boot:run
 
 dev-frontend:
 	@echo "→ Starting Angular dev server on :4200 (proxy → :8080)..."
