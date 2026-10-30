@@ -69,6 +69,11 @@ public final class RealIssuer {
         return tokenClaiming(issuer, sub, roles);
     }
 
+    /** A live token for a user whose username differs from their subject. */
+    public String tokenNamed(String sub, String name, String... roles) {
+        return sign(claims(issuer, sub, roles).claim("name", name).build());
+    }
+
     /** Signed with THIS issuer's key while claiming {@code claimedIssuer}. */
     public String tokenClaiming(String claimedIssuer, String sub, String... roles) {
         return sign(claims(claimedIssuer, sub, roles).build());

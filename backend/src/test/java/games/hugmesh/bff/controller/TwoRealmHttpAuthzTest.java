@@ -209,6 +209,14 @@ class TwoRealmHttpAuthzTest {
     }
 
     @Test
+    void anIssuerSpelledDifferentlyIsRefused_evenWithTheRightKey() {
+        // The resolver finds the manager by the canonical form; the decoder's own iss
+        // check is what holds the token to the exact issuer.
+        assertThat(get("/api/profile/nothing-here", GAMES.tokenClaiming(GAMES_ISS + "/", "g-player", "player")))
+                .isEqualTo(401);
+    }
+
+    @Test
     void noIssuerNoSignatureAndExpiredAreRefused() {
         assertThat(get("/api/admin/stats", GAMES.tokenWithoutIssuer("evil"))).isEqualTo(401);
         assertThat(get("/api/admin/stats", GAMES.unsignedToken("evil", "admin"))).isEqualTo(401);
