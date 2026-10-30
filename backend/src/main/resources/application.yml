@@ -101,6 +101,12 @@ casdoor:
   # deployment sets it: docker-compose.yml (threewizards), the cluster's games
   # deployment (threewizards), the mesh lane's compose.games.yaml (hugmesh).
   organization: ${CASDOOR_ORGANIZATION:}
+  # Public issuer of this Casdoor (its `origin`). When set, the single-issuer path
+  # rejects any token whose iss differs (SecurityConfig.casdoorIssuerValidator).
+  # Deliberately NOT spring.security.oauth2.resourceserver.jwt.issuer-uri: Boot builds
+  # an issuer validator from any non-null value, so its empty default would 401 every
+  # token on a stack that leaves this unset. Unset: no iss check, as before.
+  issuer-uri: ${CASDOOR_ISSUER_URI:}
 
 # Revocation list — polled from the same Cassandra table the
 # hugmesh-gateway writes. Defence-in-depth check inside
@@ -155,6 +161,21 @@ app:
     # (default) keeps the single jwk-set-uri decoder path. Consumed by DomainRegistry
     # + (conditionally) TenancyResourceServerConfig.
     issuers: ${APP_TENANCY_ISSUERS:}
+    # Where each trusted issuer's public keys live, as a CSV of issuer=jwksUri. Every
+    # issuer in `issuers` needs one or the BFF refuses to boot (the lone
+    # casdoor.issuer-uri may use the jwk-set-uri above instead). The BFF never runs
+    # OIDC discovery: cluster issuers are public hostnames it cannot reach.
+    jwks-uris: ${APP_TENANCY_JWKS_URIS:}
+    # OPTIONAL: lets a two-realm BFF look up a mesh caller's friend by username in the
+    # systems Casdoor. `casdoor.*` above stays the games realm's. All five or none.
+    # Without it those lookups are answered from the login cache alone, so a name only
+    # resolves once that user has signed in here.
+    systems-directory:
+      issuer: ${APP_TENANCY_SYSTEMS_DIRECTORY_ISSUER:}
+      endpoint: ${APP_TENANCY_SYSTEMS_DIRECTORY_ENDPOINT:}
+      organization: ${APP_TENANCY_SYSTEMS_DIRECTORY_ORGANIZATION:}
+      client-id: ${APP_TENANCY_SYSTEMS_DIRECTORY_CLIENT_ID:}
+      client-secret: ${APP_TENANCY_SYSTEMS_DIRECTORY_CLIENT_SECRET:}
 
   # Banned-user appeal channel — recipient address surfaced on the
   # /banned federated remote. AppealContactController resolves the
@@ -162,6 +183,13 @@ app:
   # falls back to this address when no on-call slot has an email
   # on file (e.g. a fresh stack before any mod has been approved).
   security:
+    # Which issuers are the games realm, as a CSV. A token from one of them is read
+    # with games-realm role names (`admin` is the games admin, `mod`/`publisher` are
+    # games capabilities). Any other issuer is a systems realm: only ROLE_GAMES_ADMIN,
+    # ROLE_GAMES_MOD and ROLE_GAMES_PUBLISHER grant those. Required once `tenancy.issuers`
+    # has two entries (the BFF refuses to boot without it). Unset on one issuer:
+    # casdoor.organization decides, as before. See GamesAdminPolicy.
+    games-realm-issuers: ${APP_SECURITY_GAMES_REALM_ISSUERS:}
     appeal-contact-fallback: ${APP_SECURITY_APPEAL_CONTACT_FALLBACK:support@hugmesh.games}
     # Fail-fast gate for prod-sensitive credentials (NIST IA-5 / SC-12 /
     # OWASP ASVS 6.2.2). When true, StartupSecretValidator refuses to boot

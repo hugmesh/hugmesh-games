@@ -57,7 +57,8 @@ class PublisherControllerDomainScopeTest {
         modScopes = mock(ModGameScopeRepository.class);
         PublisherService publisher = new PublisherService(publisherScopes, modScopes);
         DomainScopeService scope = new DomainScopeService(gameRepo, mock(GameSessionRepository.class));
-        return new PublisherController(publisher, publisherScopes, modScopes, scope, registry);
+        return new PublisherController(publisher, publisherScopes, modScopes, scope, registry,
+                games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
     }
 
     private static DomainRegistry multiBrand() {

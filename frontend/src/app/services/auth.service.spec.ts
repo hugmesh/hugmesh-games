@@ -49,13 +49,86 @@ describe('AuthService', () => {
     expect(svc.getClaims()).toBeNull();
   });
 
-  it('isAdmin reads the isAdmin claim from a JWT', () => {
+  function signInWith(claims: Record<string, unknown>): void {
     // Hand-rolled JWT — header.payload.signature, payload base64url-encoded.
-    const payload = btoa(JSON.stringify({ isAdmin: true, sub: 'admin' }));
-    const fakeJwt = `header.${payload}.sig`;
+    const fakeJwt = `header.${btoa(JSON.stringify({ sub: 'someone', ...claims }))}.sig`;
     localStorage.setItem('tw_auth', JSON.stringify({
       accessToken: fakeJwt, idToken: '', expiry: Date.now() + 60_000,
     }));
-    expect(svc.isAdmin()).toBeTrue();
+  }
+
+  /** The shape casdoor-games actually mints: tokenFormat JWT, roles as objects. */
+  const casdoorRole = (name: string) => ({
+    owner: 'threewizards', name, createdTime: '', displayName: name, isEnabled: true,
+  });
+
+  describe('roles as Casdoor mints them ({name} objects)', () => {
+    it('a realm admin is an admin', () => {
+      signInWith({ roles: [casdoorRole('admin'), casdoorRole('player')] });
+      expect(svc.isAdmin()).toBeTrue();
+      expect(svc.isMod()).toBeFalse();
+      expect(svc.isPublisher()).toBeFalse();
+    });
+
+    it('a mod is a mod and not an admin', () => {
+      signInWith({ roles: [casdoorRole('mod')] });
+      expect(svc.isMod()).toBeTrue();
+      expect(svc.isAdmin()).toBeFalse();
+    });
+
+    it('a publisher is a publisher and not an admin', () => {
+      signInWith({ roles: [casdoorRole('publisher')] });
+      expect(svc.isPublisher()).toBeTrue();
+      expect(svc.isAdmin()).toBeFalse();
+    });
+
+    it('a player is none of them', () => {
+      signInWith({ roles: [casdoorRole('player'), casdoorRole('play-three-wizards')] });
+      expect(svc.isAdmin()).toBeFalse();
+      expect(svc.isMod()).toBeFalse();
+      expect(svc.isPublisher()).toBeFalse();
+    });
+
+    it('the games-admin roles the BFF admits are admins', () => {
+      for (const role of ['games_admin', 'ROLE_GAMES_ADMIN', 'mesh-games-admin']) {
+        signInWith({ roles: [casdoorRole(role)] });
+        expect(svc.isAdmin()).withContext(role).toBeTrue();
+      }
+    });
+
+    it('ignores entries with no usable name', () => {
+      signInWith({ roles: [null, {}, { name: 42 }, 7] });
+      expect(svc.isAdmin()).toBeFalse();
+    });
+  });
+
+  describe('roles as plain strings', () => {
+    it('reads them case-insensitively, with one ROLE_ prefix stripped', () => {
+      signInWith({ roles: ['ROLE_ADMIN'] });
+      expect(svc.isAdmin()).toBeTrue();
+      signInWith({ roles: ['Mod'] });
+      expect(svc.isMod()).toBeTrue();
+      signInWith({ roles: ['publisher'] });
+      expect(svc.isPublisher()).toBeTrue();
+    });
+
+    it('does not strip a second ROLE_ prefix', () => {
+      signInWith({ roles: ['ROLE_ROLE_ADMIN'] });
+      expect(svc.isAdmin()).toBeFalse();
+    });
+  });
+
+  it('the legacy isAdmin claim does not make an admin, because the BFF refuses it', () => {
+    signInWith({ isAdmin: true, roles: [casdoorRole('player')] });
+    expect(svc.isAdmin()).toBeFalse();
+    signInWith({ isAdmin: true });
+    expect(svc.isAdmin()).toBeFalse();
+  });
+
+  it('a token with no roles claim has no roles', () => {
+    signInWith({});
+    expect(svc.isAdmin()).toBeFalse();
+    expect(svc.isMod()).toBeFalse();
+    expect(svc.isPublisher()).toBeFalse();
   });
 });

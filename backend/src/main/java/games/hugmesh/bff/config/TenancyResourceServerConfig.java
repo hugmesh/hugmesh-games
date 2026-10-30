@@ -2,6 +2,8 @@ package games.hugmesh.bff.config;
 
 import games.hugmesh.bff.security.DomainRegistry;
 import games.hugmesh.bff.security.GamesAdminPolicy;
+import games.hugmesh.bff.service.UserDirectoryService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
@@ -15,7 +17,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
-import org.springframework.security.oauth2.jwt.ReactiveJwtDecoders;
 import org.springframework.security.oauth2.server.resource.authentication.JwtIssuerReactiveAuthenticationManagerResolver;
 import org.springframework.security.oauth2.server.resource.authentication.JwtReactiveAuthenticationManager;
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverter;
@@ -23,6 +24,11 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import jakarta.annotation.PostConstruct;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,11 +56,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p><b>Custom converter preserved per issuer.</b> Each per-issuer
  * {@link JwtReactiveAuthenticationManager} is built with the SAME Casdoor authorities
  * converter the single-issuer path uses — identical authority output, plus the
- * issuer-derived {@code DOMAIN_<x>}. (The games-BFF's username→casdoorId
- * {@code cacheLogin} side-effect lives only on the single-issuer
- * {@code SecurityConfig} converter; the multi-issuer path validates tokens identically
- * but does not need to warm that cache — the side-effect is best-effort, not a
- * security control.)
+ * issuer-derived {@code DOMAIN_<x>} and the {@code cacheLogin} warm-up.
+ *
+ * <p><b>JWKS per issuer, never discovery.</b> The cluster's two issuers are public
+ * hostnames that do not resolve in-cluster, and the BFF has no egress to reach them,
+ * so OIDC discovery cannot work there. It would also make the BFF's outbound traffic
+ * depend on a value read from an unverified token. Every trusted issuer gets its key
+ * set from {@code app.tenancy.jwks-uris} (or the {@code jwk-set-uri} when it is the
+ * lone {@code casdoor.issuer-uri}); a trusted issuer with neither stops the BFF at
+ * boot, and {@code iss} is bound to the issuer whose keys verified the token.
  */
 @Configuration
 // Fire ONLY when app.tenancy.issuers genuinely carries issuer=domain pairs. The '='
@@ -65,28 +75,70 @@ public class TenancyResourceServerConfig {
 
     private final DomainRegistry domainRegistry;
 
-    /** Explicit issuer-uri of the lone back-compat issuer (the single-issuer
-     *  {@code spring.security.oauth2.resourceserver.jwt.issuer-uri}). */
-    private final String backCompatIssuer;
-
-    /** Explicit jwk-set-uri of the lone back-compat issuer — used to build the
-     *  per-issuer decoder WITHOUT OIDC discovery (same no-network profile as the
-     *  single-issuer {@code o.jwt(...)} path). Empty on pure multi-brand configs (each
-     *  brand decoder discovers from its own iss). */
-    private final String backCompatJwkSetUri;
+    /** Trimmed issuer → JWKS URI, from {@code app.tenancy.jwks-uris}. */
+    private final Map<String, String> jwksByIssuer;
 
     /** Same games-admin policy bean the single-issuer path uses (SecurityConfig). */
     private final GamesAdminPolicy gamesAdminPolicy;
 
+    /** Same lazy directory the single-issuer path warms. */
+    private final ObjectProvider<UserDirectoryService> directories;
+
+    /**
+     * @param backCompatIssuer    {@code casdoor.issuer-uri}; with
+     *                            {@code backCompatJwkSetUri} it counts as one JWKS entry
+     * @param backCompatJwkSetUri the single-issuer {@code jwk-set-uri}
+     * @param jwksUrisCsv         {@code app.tenancy.jwks-uris}: issuer=jwksUri,...
+     */
     public TenancyResourceServerConfig(
             DomainRegistry domainRegistry,
-            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri:}") String backCompatIssuer,
+            @Value("${casdoor.issuer-uri:}") String backCompatIssuer,
             @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:}") String backCompatJwkSetUri,
-            GamesAdminPolicy gamesAdminPolicy) {
+            @Value("${app.tenancy.jwks-uris:}") String jwksUrisCsv,
+            GamesAdminPolicy gamesAdminPolicy,
+            ObjectProvider<UserDirectoryService> directories) {
         this.domainRegistry = domainRegistry;
         this.gamesAdminPolicy = gamesAdminPolicy;
-        this.backCompatIssuer = trimSlash(backCompatIssuer);
-        this.backCompatJwkSetUri = backCompatJwkSetUri == null ? "" : backCompatJwkSetUri.trim();
+        this.directories = directories;
+        this.jwksByIssuer = new LinkedHashMap<>();
+        String lone = trimSlash(backCompatIssuer);
+        String loneJwks = backCompatJwkSetUri == null ? "" : backCompatJwkSetUri.trim();
+        if (!lone.isEmpty() && !loneJwks.isEmpty()) {
+            jwksByIssuer.put(lone, loneJwks);
+        }
+        if (jwksUrisCsv != null) {
+            // The CSV outranks the lone pair: it is the explicit per-issuer statement.
+            for (String pair : jwksUrisCsv.split(",")) {
+                int eq = pair.indexOf('=');
+                if (eq <= 0) continue;
+                String iss = trimSlash(pair.substring(0, eq));
+                String uri = pair.substring(eq + 1).trim();
+                if (!iss.isEmpty() && !uri.isEmpty()) jwksByIssuer.put(iss, uri);
+            }
+        }
+    }
+
+    /**
+     * Refuses to start a multi-issuer BFF that could not verify some trusted issuer's
+     * tokens: at runtime that issuer's users would all get 401s with nothing in the
+     * configuration to say why. A single-pair {@code APP_TENANCY_ISSUERS} never reaches
+     * this resolver (see {@link SecurityConfig}), so it is not checked.
+     *
+     * @throws IllegalStateException naming the issuers with no JWKS entry
+     */
+    @PostConstruct
+    void requireJwksForEveryTrustedIssuer() {
+        if (!domainRegistry.isMultiIssuer()) return;
+        List<String> missing = new ArrayList<>();
+        for (String iss : domainRegistry.trustedIssuers()) {
+            if (!jwksByIssuer.containsKey(iss)) missing.add(iss);
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(
+                    "app.tenancy.jwks-uris (APP_TENANCY_JWKS_URIS) has no entry for trusted issuer(s) "
+                    + missing + ". The BFF never discovers keys from a token's issuer: "
+                    + "add issuer=jwksUri for each.");
+        }
     }
 
     private static String trimSlash(String s) {
@@ -97,8 +149,8 @@ public class TenancyResourceServerConfig {
 
     @Bean
     ReactiveAuthenticationManagerResolver<ServerWebExchange> tenantAuthManagerResolver() {
-        // Cache one manager per trusted issuer (decoder construction does network
-        // discovery — build lazily on first sight, never per request).
+        // Cache one manager per trusted issuer (build lazily on first sight, never per
+        // request: each decoder holds its own JWKS cache).
         Map<String, ReactiveAuthenticationManager> byIssuer = new ConcurrentHashMap<>();
 
         // Per-issuer resolver: ONLY trusted issuers (registry keys) get a manager; an
@@ -119,7 +171,9 @@ public class TenancyResourceServerConfig {
             Map<String, ReactiveAuthenticationManager> byIssuer) {
         return issuer -> {
             String iss = trustedIssuerOrNull(issuer);
-            if (iss == null) {
+            // The boot check makes a missing key set unreachable; never build a decoder
+            // without one regardless.
+            if (iss == null || !jwksByIssuer.containsKey(iss)) {
                 return Mono.empty();
             }
             return Mono.just(byIssuer.computeIfAbsent(iss, this::managerForIssuer));
@@ -134,9 +188,8 @@ public class TenancyResourceServerConfig {
      * rather than {@link DomainRegistry#isTrusted}: the latter delegates to
      * {@code domainOf}, which short-circuits to the legacy single-tenant "default"
      * WITHOUT inspecting its argument on an empty registry — i.e. it answers "trusted"
-     * for any string at all, including an attacker-chosen issuer. Reaching
-     * {@code decoderForIssuer} with an attacker-chosen {@code iss} would mean OIDC
-     * discovery against an attacker-controlled URL.
+     * for any string at all, including an attacker-chosen issuer. A manager must only
+     * ever be built for an issuer that was configured, not for one a token named.
      *
      * <p>That empty-registry state is REACHABLE: {@code app.tenancy.issuers=&#61;brand}
      * satisfies this class's {@code @ConditionalOnExpression} {@code .contains('=')}
@@ -177,32 +230,24 @@ public class TenancyResourceServerConfig {
         return mgr;
     }
 
-    /** Decoder for an issuer. The lone back-compat issuer (the one with a configured
-     *  jwk-set-uri) gets a discovery-free {@code withJwkSetUri} decoder + the standard
-     *  exp/nbf validators + an {@code iss}-binding validator — the SAME validation
-     *  surface and no-network profile as the single-issuer path. Any other (per-brand)
-     *  issuer uses {@code fromIssuerLocation} discovery. */
+    /** Decoder for a trusted issuer: its own key set, fetched without discovery, the
+     *  standard exp/nbf validators, and an {@code iss}-binding validator. A token
+     *  signed with one issuer's key and naming the other fails here, because the
+     *  resolver picked the decoder by the {@code iss} it claims and that issuer's keys
+     *  do not verify it. */
     private ReactiveJwtDecoder decoderForIssuer(String issuer) {
         String iss = trimSlash(issuer);
-        if (!backCompatJwkSetUri.isEmpty() && !backCompatIssuer.isEmpty()
-                && backCompatIssuer.equals(iss)) {
-            NimbusReactiveJwtDecoder decoder =
-                    NimbusReactiveJwtDecoder.withJwkSetUri(backCompatJwkSetUri).build();
-            // Default validators (exp/nbf + the standard set) PLUS an explicit iss
-            // validator so a token's `iss` must equal the configured issuer — the
-            // equivalent binding fromIssuerLocation would have applied, without the
-            // discovery round-trip.
-            OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(iss);
-            decoder.setJwtValidator(withIssuer);
-            return decoder;
-        }
-        return ReactiveJwtDecoders.fromIssuerLocation(iss);
+        NimbusReactiveJwtDecoder decoder =
+                NimbusReactiveJwtDecoder.withJwkSetUri(jwksByIssuer.get(iss)).build();
+        OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(iss);
+        decoder.setJwtValidator(withIssuer);
+        return decoder;
     }
 
-    /** The Casdoor authorities converter — identical shape to
-     *  {@code SecurityConfig.casdoorAuthoritiesConverter()} (the shared
-     *  {@link CasdoorAuthorities}), with the issuer-derived {@code DOMAIN_<x>} added. */
+    /** The Casdoor authorities converter — the same one
+     *  {@code SecurityConfig.casdoorAuthoritiesConverter()} builds (the shared
+     *  {@link CasdoorAuthorities}), so both paths emit identical authorities. */
     private Converter<Jwt, Flux<GrantedAuthority>> authoritiesConverter() {
-        return CasdoorAuthorities.converter(domainRegistry, gamesAdminPolicy);
+        return CasdoorAuthorities.converter(domainRegistry, gamesAdminPolicy, directories);
     }
 }
