@@ -55,7 +55,7 @@ public class RoleProxyController {
             endpoint never caches, never persists.
             """)
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     @SuppressWarnings("unchecked")
     public Mono<List<RoleSummary>> list() {
         // get-roles is admin-only on the Casdoor side; client_credentials

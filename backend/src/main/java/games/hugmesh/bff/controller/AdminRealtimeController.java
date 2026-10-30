@@ -18,7 +18,7 @@ import reactor.core.publisher.Mono;
 /**
  * Admin-only server-authoritative match operations (docs/realtime-server-
  * authoritative-design.md, P2). The {@code /api/admin/**} matcher in
- * {@code SecurityConfig} already requires ROLE_ADMIN; the class-level
+ * {@code SecurityConfig} already requires ROLE_GAMES_ADMIN; the class-level
  * {@code @PreAuthorize} repeats it for defence in depth (the
  * {@code RoleAdminController} convention).
  */
@@ -26,7 +26,7 @@ import reactor.core.publisher.Mono;
      description = "Admin-only realtime match operations: manually recover a persisted match from the Cassandra truth onto this pod.")
 @RestController
 @RequestMapping("/api/admin/realtime")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('GAMES_ADMIN')")
 public class AdminRealtimeController {
 
     private final AuthoritativeTickService ticks;

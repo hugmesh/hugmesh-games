@@ -1,6 +1,7 @@
 package games.hugmesh.bff.config;
 
 import games.hugmesh.bff.security.DomainRegistry;
+import games.hugmesh.bff.security.GamesAdminPolicy;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -35,6 +36,11 @@ import java.util.Map;
  *       defense; see {@code RESERVED_PREFIXES}).</li>
  *   <li>{@code isAdmin} boolean (legacy) → {@code ROLE_ADMIN}.</li>
  * </ol>
+ *
+ * Plus {@code ROLE_GAMES_ADMIN} exactly when {@link GamesAdminPolicy} says the
+ * caller is a games admin (the derived role in either realm; the realm's own
+ * {@code admin} only on the games realm). This one authority is the games-admin
+ * gate; {@code ROLE_ADMIN} alone opens nothing in this BFF.
  *
  * Every authenticated principal floors to {@code ROLE_USER} and is stamped with
  * exactly one issuer-derived {@code DOMAIN_<x>} authority.
@@ -79,14 +85,6 @@ final class CasdoorAuthorities {
      * would inject a forged tenant scope / super-role and escalate cross-domain.
      */
     private static final String[] RESERVED_PREFIXES = {"ROLE_", "DOMAIN_"};
-
-    /**
-     * Canonical (bare, upper-cased) name of the platform's derived games-admin
-     * role. A {@code roles} entry spelled {@code games_admin}, {@code GAMES_ADMIN}
-     * or {@code ROLE_GAMES_ADMIN} (any case) canonicalises to this and is
-     * promoted to {@code ROLE_ADMIN} as well — see {@link #authorities}.
-     */
-    private static final String GAMES_ADMIN_ROLE = "GAMES_ADMIN";
 
     /**
      * Returns {@code true} iff the given authority string starts with a reserved
@@ -142,8 +140,9 @@ final class CasdoorAuthorities {
      * @param domainRegistry the issuer-to-domain registry; must not be {@code null}
      * @return a converter from {@link Jwt} to {@link Flux}&lt;{@link GrantedAuthority}&gt;
      */
-    static Converter<Jwt, Flux<GrantedAuthority>> converter(DomainRegistry domainRegistry) {
-        return jwt -> Flux.fromIterable(authorities(jwt, domainRegistry));
+    static Converter<Jwt, Flux<GrantedAuthority>> converter(DomainRegistry domainRegistry,
+                                                           GamesAdminPolicy gamesAdmin) {
+        return jwt -> Flux.fromIterable(authorities(jwt, domainRegistry, gamesAdmin));
     }
 
     // -------------------------------------------------------------------------
@@ -164,6 +163,10 @@ final class CasdoorAuthorities {
      *       reserved-prefix guard drops any injection attempt.</li>
      *   <li>{@code isAdmin} legacy boolean → {@code ROLE_ADMIN} when
      *       {@code true}.</li>
+     *   <li>{@link GamesAdminPolicy#AUTHORITY} ({@code ROLE_GAMES_ADMIN}) when
+     *       {@link GamesAdminPolicy#isGamesAdmin} says the caller is a games
+     *       admin, and never otherwise. Every games-admin gate in this BFF keys
+     *       on it; {@code ROLE_ADMIN} on its own opens nothing here.</li>
      *   <li>Exactly one issuer-derived {@code DOMAIN_<x>} — keyed on the
      *       cryptographically-validated {@code iss} claim, never a user-settable
      *       value. A null from the registry (unknown issuer in multi-brand mode)
@@ -174,9 +177,12 @@ final class CasdoorAuthorities {
      * @param jwt            the validated Casdoor JWT; must not be {@code null}
      * @param domainRegistry the issuer-to-domain registry; must not be
      *                       {@code null}
+     * @param gamesAdmin     which callers are games admins on this deployment
+     *                       (realm-aware, see {@link GamesAdminPolicy})
      * @return mutable authority list (safe to wrap in {@link Flux#fromIterable})
      */
-    static List<GrantedAuthority> authorities(Jwt jwt, DomainRegistry domainRegistry) {
+    static List<GrantedAuthority> authorities(Jwt jwt, DomainRegistry domainRegistry,
+                                              GamesAdminPolicy gamesAdmin) {
         List<GrantedAuthority> authorities = new ArrayList<>();
         // Every authenticated principal gets ROLE_USER as the floor authority.
         authorities.add(new SimpleGrantedAuthority("ROLE_USER")); // floor — UNCHANGED
@@ -194,20 +200,6 @@ final class CasdoorAuthorities {
                 String name = canonicalRoleName(roleNameOf(r));
                 if (!name.isBlank()) {
                     authorities.add(new SimpleGrantedAuthority("ROLE_" + name));
-                    // Mesh-mounted mode (games-ui behind the fe-gateway, systems
-                    // Casdoor JWKS): the platform's DERIVED role GAMES_ADMIN
-                    // (= games AND (admin OR mod), materialised by the generator's
-                    // seed / the games-admin-sync Job) IS the games-realm admin.
-                    // Emit ROLE_ADMIN alongside ROLE_GAMES_ADMIN so every
-                    // hasRole('ADMIN') gate on /api/admin/** admits that holder —
-                    // the in-process equivalent of the hugmesh-actions role
-                    // mirror. Keyed on the ROLES claim ONLY: a verbatim
-                    // permissions:["GAMES_ADMIN"] entry never reaches this branch
-                    // (see the reserved-prefix guard below — permissions can
-                    // never mint a ROLE_* authority).
-                    if (GAMES_ADMIN_ROLE.equals(name)) {
-                        authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
-                    }
                 }
             }
         }
@@ -236,6 +228,21 @@ final class CasdoorAuthorities {
         // explicit role assignment was available in the Casdoor admin console.
         if (Boolean.TRUE.equals(jwt.getClaim("isAdmin"))) {
             authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+        }
+
+        // Games admin. A GAMES_ADMIN entry in the roles claim already produced
+        // ROLE_GAMES_ADMIN above; the policy is the single decision (it also
+        // admits the games realm's own admin role), so drop that
+        // copy and emit the authority exactly when the policy says so. Until
+        // 2026-10 the derived role was ALSO promoted to ROLE_ADMIN so the old
+        // hasRole('ADMIN') gates admitted it; that made ROLE_ADMIN the gate, and
+        // a bare platform admin (e2e-adminonly) reached every games admin
+        // endpoint. Permissions can never reach this: the reserved-prefix guard
+        // drops a permissions:["ROLE_GAMES_ADMIN"], and the policy reads the
+        // roles claim only.
+        authorities.removeIf(a -> GamesAdminPolicy.AUTHORITY.equals(a.getAuthority()));
+        if (gamesAdmin.isGamesAdmin(jwt)) {
+            authorities.add(new SimpleGrantedAuthority(GamesAdminPolicy.AUTHORITY));
         }
 
         // Domain authority — keyed on the cryptographically-validated ISSUER (per-brand

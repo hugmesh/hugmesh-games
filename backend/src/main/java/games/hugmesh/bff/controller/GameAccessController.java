@@ -21,7 +21,7 @@ import java.util.Set;
 
 /**
  * Admin endpoints for per-game access policy. The Casdoor admin console assigns
- * the {@code admin} role; this controller is gated on {@code ROLE_ADMIN} via
+ * the {@code admin} role; this controller is gated on {@code ROLE_GAMES_ADMIN} via
  * the JWT's {@code roles} claim (see
  * {@link games.hugmesh.bff.config.SecurityConfig#casdoorAuthoritiesConverter()}).
  *
@@ -68,7 +68,7 @@ public class GameAccessController {
 
     @Operation(summary = "List access policies for one game (admin only).")
     @GetMapping("/{slug}/access")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     public Flux<GameAccess> list(@PathVariable String slug, @AuthenticationPrincipal Jwt jwt) {
         return requireGameDomain(slug, jwt)
                 .thenMany(gameRepo.findBySlug(slug)
@@ -88,7 +88,7 @@ public class GameAccessController {
             absorbed by the unique constraint.
             """)
     @PostMapping("/{slug}/access")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<GameAccess> grant(@PathVariable String slug,
                                   @RequestBody AccessGrantRequest req,
@@ -148,7 +148,7 @@ public class GameAccessController {
 
     @Operation(summary = "Revoke a previously-granted access policy (admin only).")
     @DeleteMapping("/{slug}/access")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> revoke(@PathVariable String slug,
                              @RequestParam String scope,

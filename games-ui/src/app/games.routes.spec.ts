@@ -79,7 +79,7 @@ describe('links under a host-like mount', () => {
     http.expectOne('/games/api/games').flush([{ id: 1, name: 'Chess', slug: 'chess', description: null, thumbnailUrl: null, sortOrder: 0 }]);
     http.expectOne('/games/api/federation/manifest').flush({ generatedAt: '', remotes: [{ slug: 'x', kind: 'wasm-game', gameSlug: 'chess', remoteEntryUrl: '', displayName: null, exposedModule: null, version: null, metadata: null }] });
     fixture.detectChanges();
-    http.expectOne('/games/api/games/launches').flush('', { status: 403, statusText: 'F' });
+    http.expectNone('/games/api/games/launches'); // no games_admin session: not asked
     fixture.detectChanges();
     const play = fixture.nativeElement.querySelector('[data-testid="games-play-chess"]') as HTMLAnchorElement;
     expect(play.getAttribute('href')).toBe('/games/play/chess');

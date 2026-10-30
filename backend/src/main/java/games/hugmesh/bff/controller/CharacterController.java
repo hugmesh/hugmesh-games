@@ -1,5 +1,7 @@
 package games.hugmesh.bff.controller;
 
+import games.hugmesh.bff.security.GamesAdminPolicy;
+
 import games.hugmesh.bff.model.CharacterDto;
 import games.hugmesh.bff.model.CharacterQuest;
 import games.hugmesh.bff.model.CharacterSkill;
@@ -54,6 +56,8 @@ public class CharacterController {
     private final CharacterItemRepository charItems;
     private final ItemRepository itemRepo;
     private final games.hugmesh.bff.security.DomainRegistry domainRegistry;
+    /** Who is a games admin (realm-aware; see GamesAdminPolicy). */
+    private final GamesAdminPolicy gamesAdmin;
 
     public CharacterController(PlayerCharacterRepository characters,
                                GameStateService gameStateService,
@@ -65,7 +69,9 @@ public class CharacterController {
                                CharacterSkillRepository charSkills,
                                CharacterItemRepository charItems,
                                ItemRepository itemRepo,
-                               games.hugmesh.bff.security.DomainRegistry domainRegistry) {
+                               games.hugmesh.bff.security.DomainRegistry domainRegistry,
+                               GamesAdminPolicy gamesAdmin) {
+        this.gamesAdmin = gamesAdmin;
         this.characters       = characters;
         this.gameStateService = gameStateService;
         this.gameTimeService  = gameTimeService;
@@ -96,7 +102,7 @@ public class CharacterController {
                 .flatMap(c -> {
                     String caller = jwt == null ? null : jwt.getSubject();
                     boolean owns = caller != null && Objects.equals(caller, c.getCasdoorId());
-                    if (!owns && !Roles.isAdmin(jwt)) {
+                    if (!owns && !gamesAdmin.isGamesAdmin(jwt)) {
                         return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
                                 "character does not belong to the caller"));
                     }
@@ -108,7 +114,7 @@ public class CharacterController {
         summary = "List the caller's characters",
         description = """
             Returns only the authenticated caller's own characters (matched on
-            `casdoor_id == jwt.sub`). Admins (`ROLE_ADMIN`) get the full roster
+            `casdoor_id == jwt.sub`). Games admins (`ROLE_GAMES_ADMIN`) get the full roster
             for moderation. A plain player can never enumerate other players'
             characters here.
 
@@ -123,7 +129,7 @@ public class CharacterController {
     @PreAuthorize("isAuthenticated()")
     @GetMapping
     public Flux<CharacterDto> list(@AuthenticationPrincipal Jwt jwt) {
-        if (Roles.isAdmin(jwt)) {
+        if (gamesAdmin.isGamesAdmin(jwt)) {
             return characters.findAll().map(CharacterDto::from);
         }
         String caller = jwt == null ? null : jwt.getSubject();

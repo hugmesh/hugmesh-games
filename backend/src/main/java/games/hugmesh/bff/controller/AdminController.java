@@ -20,7 +20,7 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.Map;
 
-@Tag(name = "Admin", description = "Server-management endpoints. Requires ROLE_ADMIN (isAdmin claim in JWT).")
+@Tag(name = "Admin", description = "Server-management endpoints. Requires ROLE_GAMES_ADMIN (the games admin; see GamesAdminPolicy).")
 @RestController
 @RequestMapping("/api/admin")
 public class AdminController {

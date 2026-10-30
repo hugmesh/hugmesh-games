@@ -501,13 +501,35 @@ function makeCanvas(container) {
   return c;
 }
 
+
+/** Vertical px the page needs besides the board: everything above it (its
+ *  offsetTop: body padding + HUD + gap) plus the body's bottom padding.
+ *  24 (the old fixed margin) when there is no layout to measure, e.g. in the
+ *  node smoke tests. */
+function boardReserve(canvas) {
+  try {
+    const top = canvas && typeof canvas.offsetTop === 'number' ? canvas.offsetTop : NaN;
+    if (!Number.isFinite(top) || top <= 0) return 24;
+    const body = typeof document !== 'undefined' ? document.body : null;
+    const cs = body && typeof getComputedStyle === 'function' ? getComputedStyle(body) : null;
+    return top + ((cs && parseFloat(cs.paddingBottom)) || 0);
+  } catch {
+    return 24;
+  }
+}
+
 function layout(ui) {
   if (!ui.canvas) return;
   const cols = ui.width || DEFAULT_W;
   const rows = ui.height || DEFAULT_H;
   let target = 480;
   if (typeof window !== 'undefined' && window.innerWidth) {
-    target = Math.min(window.innerWidth, window.innerHeight || window.innerWidth) - 24;
+    // Leave room for what sits above and below the board (body padding, the
+    // HUD, which wraps on narrow screens, the gap). Sizing to the full
+    // viewport height overflowed the frame by the HUD's height whenever the
+    // board was height-limited (the in-shell player clipped chess's last rank).
+    const availH = (window.innerHeight || window.innerWidth) - boardReserve(ui.canvas);
+    target = Math.min(window.innerWidth - 24, availH);
     target = Math.max(240, Math.min(target, 640));
   }
   // Square cells; the arena is cols x rows of them.

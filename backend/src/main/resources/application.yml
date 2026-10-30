@@ -91,7 +91,14 @@ casdoor:
   # empty default keeps the bean wireable for tests / api-docs generation
   # that never exercise the OAuth code path.
   client-secret: ${CASDOOR_CLIENT_SECRET:}
-  organization: ${CASDOOR_ORGANIZATION:threewizards}
+  # No default, on purpose: which org this BFF trusts decides whether a bare
+  # `admin` role is a games admin (yes on the games realm, threewizards; no on
+  # a mesh's systems Casdoor). A default of threewizards made an UNSET value on
+  # a mesh admit every platform admin to the games admin API, so a blank value
+  # now stops the BFF at boot (SecurityConfig.gamesAdminPolicy). Every
+  # deployment sets it: docker-compose.yml (threewizards), the cluster's games
+  # deployment (threewizards), the mesh lane's compose.games.yaml (hugmesh).
+  organization: ${CASDOOR_ORGANIZATION:}
 
 # Revocation list — polled from the same Cassandra table the
 # hugmesh-gateway writes. Defence-in-depth check inside

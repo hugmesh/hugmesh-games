@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
      description = "Per-session SSE merge for admin observation. Movement / world / character / view, scoped to one session id.")
 @RestController
 @RequestMapping("/api/admin/sessions")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('GAMES_ADMIN')")
 public class AdminSessionStreamController {
 
     private final GameStateService   gameState;

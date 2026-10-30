@@ -76,7 +76,7 @@ class CharacterControllerOwnerCheckTest {
         ctl = new CharacterController(
                 characters, gameStateService, gameTimeService, progression,
                 charQuests, questRepo, sessionRepo, charSkills, charItems, itemRepo,
-                new DomainRegistry("", ""));
+                new DomainRegistry("", ""), games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
     }
 
     private static Jwt jwt(String subject) {

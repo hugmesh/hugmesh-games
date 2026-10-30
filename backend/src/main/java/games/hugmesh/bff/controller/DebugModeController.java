@@ -21,13 +21,13 @@ import java.util.Map;
  * console-error ingest into the BFF's diagnostics pipeline. Default OFF;
  * admins flip on briefly while triaging an iframe issue.
  *
- * <p>Players never see this endpoint — even reads require {@code ROLE_ADMIN}.
+ * <p>Players never see this endpoint — even reads require {@code ROLE_GAMES_ADMIN}.
  */
 @Tag(name = "Admin debug mode",
      description = "Admin-only runtime toggles for diagnostics ingest. Default OFF; admins enable briefly while triaging.")
 @RestController
 @RequestMapping("/api/admin/debug-mode")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('GAMES_ADMIN')")
 public class DebugModeController {
 
     private final DebugModeService service;

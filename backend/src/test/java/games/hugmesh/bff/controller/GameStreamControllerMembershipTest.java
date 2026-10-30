@@ -63,7 +63,8 @@ class GameStreamControllerMembershipTest {
         when(gameStateService.sessionControlStream(org.mockito.ArgumentMatchers.anyString())).thenReturn(Flux.never());
         when(gameTimeService.timeStream()).thenReturn(Flux.never());
 
-        ctl = new GameStreamController(gameStateService, gameTimeService, sessionMemberRepo);
+        ctl = new GameStreamController(gameStateService, gameTimeService, sessionMemberRepo,
+                games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
     }
 
     private static Jwt jwt(String subject, String... roles) {

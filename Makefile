@@ -326,6 +326,7 @@ build-godot: build-rust
 	      exit $$status; \
 	    fi; \
 	    python3 scripts/patch-godot-html.py $$out_dir/index.html $$out_dir/index.side.wasm; \
+	    cp $(GAMES_DIR)/$$game/icon.svg $$out_dir/icon.svg; \
 	    if [ -f $(GAMES_DIR)/$$game/export_required.txt ]; then \
 	      echo "→ [$$game] verifying $$out_dir/index.pck ships every raw-byte runtime file"; \
 	      command -v node >/dev/null 2>&1 || { echo "ERROR: node not found (needed for scripts/verify-godot-pck.mjs)"; exit 1; }; \
@@ -940,7 +941,9 @@ test-frontend:
 
 dev-backend:
 	@echo "→ Starting Spring Boot API on :8080..."
-	cd $(BACKEND_DIR) && ./mvnw clean spring-boot:run
+	@# The local dev stack is the games realm; the BFF no longer guesses it
+	@# (a blank casdoor.organization stops it at boot).
+	cd $(BACKEND_DIR) && CASDOOR_ORGANIZATION=$${CASDOOR_ORGANIZATION:-threewizards} ./mvnw clean spring-boot:run
 
 dev-frontend:
 	@echo "→ Starting Angular dev server on :4200 (proxy → :8080)..."

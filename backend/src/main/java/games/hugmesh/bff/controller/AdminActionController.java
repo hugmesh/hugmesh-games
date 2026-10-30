@@ -42,7 +42,7 @@ public class AdminActionController {
 
     @Operation(summary = "Kick a player from the active session",
                description = "One-shot — the player can rejoin. Closes their game window via the live admin-actions SSE.")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     @PostMapping("/admin/actions/kick/{casdoorId}")
     public Mono<AdminAction> kick(@AuthenticationPrincipal Jwt jwt,
                                   @PathVariable String casdoorId,
@@ -54,7 +54,7 @@ public class AdminActionController {
 
     @Operation(summary = "Ban a player",
                description = "Persistent until unbanned (or expiresAt for temp bans). The login flow redirects banned users to /banned; live sessions are torn down via SSE.")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     @PostMapping("/admin/actions/ban/{casdoorId}")
     public Mono<AdminAction> ban(@AuthenticationPrincipal Jwt jwt,
                                  @PathVariable String casdoorId,
@@ -67,7 +67,7 @@ public class AdminActionController {
 
     @Operation(summary = "Lift a ban",
                description = "Records an `unban` row that supersedes the prior ban. The player can log in again.")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     @PostMapping("/admin/actions/unban/{casdoorId}")
     public Mono<AdminAction> unban(@AuthenticationPrincipal Jwt jwt,
                                    @PathVariable String casdoorId,
@@ -78,7 +78,7 @@ public class AdminActionController {
 
     @Operation(summary = "List action history for a player",
                description = "Newest first. Used by the admin UI's player-detail panel.")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('GAMES_ADMIN')")
     @GetMapping("/admin/actions/{casdoorId}")
     public Flux<AdminAction> history(@PathVariable String casdoorId) {
         return actions.historyFor(casdoorId);

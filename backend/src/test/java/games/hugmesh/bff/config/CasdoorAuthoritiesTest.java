@@ -1,6 +1,7 @@
 package games.hugmesh.bff.config;
 
 import games.hugmesh.bff.security.DomainRegistry;
+import games.hugmesh.bff.security.GamesAdminPolicy;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.GrantedAuthority;
@@ -56,8 +57,13 @@ class CasdoorAuthoritiesTest {
         return new DomainRegistry("", "");
     }
 
+    /** Default policy = the games realm, the BFF's default casdoor.organization. */
     private static Set<String> authStrings(Jwt jwt, DomainRegistry registry) {
-        return CasdoorAuthorities.authorities(jwt, registry).stream()
+        return authStrings(jwt, registry, GamesAdminPolicy.gamesRealm());
+    }
+
+    private static Set<String> authStrings(Jwt jwt, DomainRegistry registry, GamesAdminPolicy policy) {
+        return CasdoorAuthorities.authorities(jwt, registry, policy).stream()
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.toSet());
     }
@@ -127,18 +133,22 @@ class CasdoorAuthoritiesTest {
         }
 
         @Test
-        void gamesAdminRoleAlsoGrantsRoleAdminInEverySpelling() {
-            // Mesh-mounted mode: the platform's derived GAMES_ADMIN role is the
-            // games-realm admin. Bare, ROLE_-prefixed, mixed case and the Casdoor
-            // {name} object shape must all promote to ROLE_ADMIN while keeping
-            // the literal ROLE_GAMES_ADMIN authority.
-            for (Object spelling : List.of("games_admin", "GAMES_ADMIN", "ROLE_GAMES_ADMIN",
-                    "role_Games_Admin", Map.of("name", "Games_Admin"))) {
-                Jwt jwt = baseJwt().claim("roles", List.of(spelling)).build();
-                Set<String> auths = authStrings(jwt, singleIssuerRegistry());
-                assertThat(auths).as("roles=" + spelling)
-                        .contains("ROLE_GAMES_ADMIN", "ROLE_ADMIN");
-                assertThat(auths).noneMatch(a -> a.startsWith("ROLE_ROLE_"));
+        void gamesAdminRoleGrantsRoleGamesAdminButNotRoleAdminInEverySpelling() {
+            // The platform's derived GAMES_ADMIN role is the games admin in either
+            // realm. Bare, ROLE_-prefixed, mixed case and the Casdoor {name}
+            // object shape all yield ROLE_GAMES_ADMIN, and none of them mints
+            // ROLE_ADMIN any more (that promotion made ROLE_ADMIN the games-admin
+            // gate, which let a bare platform admin in).
+            for (GamesAdminPolicy policy : List.of(GamesAdminPolicy.gamesRealm(), GamesAdminPolicy.systemsRealm())) {
+                for (Object spelling : List.of("games_admin", "GAMES_ADMIN", "ROLE_GAMES_ADMIN",
+                        "role_Games_Admin", Map.of("name", "Games_Admin"))) {
+                    Jwt jwt = baseJwt().claim("roles", List.of(spelling)).build();
+                    Set<String> auths = authStrings(jwt, singleIssuerRegistry(), policy);
+                    assertThat(auths).as(policy + " roles=" + spelling)
+                            .contains("ROLE_GAMES_ADMIN")
+                            .doesNotContain("ROLE_ADMIN");
+                    assertThat(auths).noneMatch(a -> a.startsWith("ROLE_ROLE_"));
+                }
             }
         }
 
@@ -157,9 +167,11 @@ class CasdoorAuthoritiesTest {
             // reserved prefix, so it passes the permissions guard as a verbatim
             // authority — it must NOT mint ROLE_ADMIN (or ROLE_GAMES_ADMIN).
             Jwt jwt = baseJwt().claim("permissions", List.of("GAMES_ADMIN", "games_admin")).build();
-            Set<String> auths = authStrings(jwt, singleIssuerRegistry());
-            assertThat(auths).contains("GAMES_ADMIN", "games_admin");
-            assertThat(auths).doesNotContain("ROLE_ADMIN", "ROLE_GAMES_ADMIN");
+            for (GamesAdminPolicy policy : List.of(GamesAdminPolicy.gamesRealm(), GamesAdminPolicy.systemsRealm())) {
+                Set<String> auths = authStrings(jwt, singleIssuerRegistry(), policy);
+                assertThat(auths).contains("GAMES_ADMIN", "games_admin");
+                assertThat(auths).doesNotContain("ROLE_ADMIN", "ROLE_GAMES_ADMIN");
+            }
         }
 
         @Test
@@ -178,7 +190,8 @@ class CasdoorAuthoritiesTest {
         @Test
         void exactlyOneDomainAuthorityIsAlwaysEmitted() {
             Jwt jwt = baseJwt().issuer(ISS_BRANDX).claim("roles", List.of("player")).build();
-            long domainCount = CasdoorAuthorities.authorities(jwt, multiBrandRegistry()).stream()
+            long domainCount = CasdoorAuthorities.authorities(jwt, multiBrandRegistry(),
+                            GamesAdminPolicy.gamesRealm()).stream()
                     .filter(a -> a.getAuthority().startsWith("DOMAIN_"))
                     .count();
             assertThat(domainCount).isEqualTo(1);
@@ -334,6 +347,82 @@ class CasdoorAuthoritiesTest {
             pool.shutdown();
             assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
             assertThat(failures).as("no thread saw a bled / forged / duplicate DOMAIN_ scope").isEmpty();
+        }
+    }
+
+    // ===================================================================
+    // GAMES ADMIN BY REALM — the live-proof personas (hugmesh-generator
+    // tests/e2e/specs/rbac-roles.ts) through the real converter
+    // ===================================================================
+    @Nested
+    class GamesAdminByRealm {
+
+        private Set<String> mesh(List<?> roles) {
+            return authStrings(baseJwt().claim("roles", roles).build(), singleIssuerRegistry(),
+                    GamesAdminPolicy.systemsRealm());
+        }
+
+        @Test
+        void meshAdminOnlyIsNotAGamesAdmin() {
+            // e2e-adminonly: roles ROLE_ADMIN + ROLE_USER, expectGamesAdmin false.
+            for (List<?> roles : List.of(
+                    List.of("ROLE_ADMIN", "ROLE_USER"),
+                    List.of("admin", "user"),
+                    List.of(Map.of("name", "ROLE_ADMIN"), Map.of("name", "ROLE_USER")))) {
+                assertThat(mesh(roles)).as("roles=" + roles)
+                        .contains("ROLE_ADMIN")
+                        .doesNotContain("ROLE_GAMES_ADMIN");
+            }
+        }
+
+        @Test
+        void meshIsAdminFlagIsNotAGamesAdmin() {
+            Jwt jwt = baseJwt().claim("isAdmin", true).claim("roles", List.of("ROLE_USER")).build();
+            assertThat(authStrings(jwt, singleIssuerRegistry(), GamesAdminPolicy.systemsRealm()))
+                    .contains("ROLE_ADMIN").doesNotContain("ROLE_GAMES_ADMIN");
+        }
+
+        @Test
+        void meshGamesAdminKeepsAccess() {
+            // e2e-gamesadmin: ROLE_GAMES + ROLE_ADMIN + derived ROLE_GAMES_ADMIN.
+            assertThat(mesh(List.of("ROLE_GAMES", "ROLE_ADMIN", "ROLE_GAMES_ADMIN", "ROLE_USER")))
+                    .contains("ROLE_GAMES_ADMIN");
+            // games + mod (no ROLE_ADMIN) earns the derived role too.
+            assertThat(mesh(List.of("ROLE_GAMES", "ROLE_MOD", "ROLE_GAMES_ADMIN", "ROLE_USER")))
+                    .contains("ROLE_GAMES_ADMIN").doesNotContain("ROLE_ADMIN");
+        }
+
+        @Test
+        void meshGamesOnlyUserAndSuperadminAreNotGamesAdmins() {
+            assertThat(mesh(List.of("ROLE_GAMES", "ROLE_USER"))).doesNotContain("ROLE_GAMES_ADMIN");
+            assertThat(mesh(List.of("ROLE_USER"))).doesNotContain("ROLE_GAMES_ADMIN");
+            // e2e-superadmin: roles ['ROLE_SUPERADMIN'], expectGamesAdmin false.
+            assertThat(mesh(List.of("ROLE_SUPERADMIN")))
+                    .contains("ROLE_SUPERADMIN").doesNotContain("ROLE_GAMES_ADMIN");
+        }
+
+        @Test
+        void gamesRealmAdminIsAGamesAdmin() {
+            // threewizards: the realm's own admin role IS the games admin.
+            Jwt admin = baseJwt().claim("roles", List.of("admin", "player")).build();
+            assertThat(authStrings(admin, singleIssuerRegistry(), GamesAdminPolicy.gamesRealm()))
+                    .contains("ROLE_ADMIN", "ROLE_GAMES_ADMIN");
+            // The legacy isAdmin flag still yields ROLE_ADMIN, which opens
+            // nothing here; it is not a games admin in either realm.
+            Jwt flag = baseJwt().claim("isAdmin", true).build();
+            assertThat(authStrings(flag, singleIssuerRegistry(), GamesAdminPolicy.gamesRealm()))
+                    .contains("ROLE_ADMIN").doesNotContain("ROLE_GAMES_ADMIN");
+            Jwt player = baseJwt().claim("roles", List.of("player", "mod", "publisher")).build();
+            assertThat(authStrings(player, singleIssuerRegistry(), GamesAdminPolicy.gamesRealm()))
+                    .doesNotContain("ROLE_GAMES_ADMIN");
+        }
+
+        @Test
+        void permissionsCanNeverMintTheGamesAdminAuthority() {
+            Jwt jwt = baseJwt().claim("roles", List.of("ROLE_ADMIN"))
+                    .claim("permissions", List.of("ROLE_GAMES_ADMIN", "role_games_admin")).build();
+            assertThat(authStrings(jwt, singleIssuerRegistry(), GamesAdminPolicy.systemsRealm()))
+                    .doesNotContain("ROLE_GAMES_ADMIN");
         }
     }
 }

@@ -168,11 +168,10 @@ class MultiplayerSessionControllerHttpAuthzTest {
 
     @Test
     void pause_modernRoleAdmin_isTreatedAsAdmin() {
-        // FIXED (was pause_modernRoleAdmin_isNotTreatedAsAdmin): a modern admin
-        // token (roles:["admin"] -> ROLE_ADMIN authority, NO isAdmin boolean) IS
-        // recognized as admin by the pause gate via the canonical Roles.isAdmin
-        // check the rest of the BFF uses — so it can pause a session it does not
-        // own (admin moderation bypass).
+        // FIXED (was pause_modernRoleAdmin_isNotTreatedAsAdmin): a games-realm
+        // admin token (roles:["admin"], NO isAdmin boolean) is a games admin
+        // (GamesAdminPolicy, default org threewizards), so it can pause a
+        // session it does not own (admin moderation bypass).
         stubGet("alice");
         when(service.pauseSession(eq(SID), eq("root"), any()))
                 .thenReturn(Mono.just(sessionOwnedBy("alice")));
@@ -185,86 +184,10 @@ class MultiplayerSessionControllerHttpAuthzTest {
         verify(service).pauseSession(eq(SID), eq("root"), any());
     }
 
-    @Test
-    void pause_prefixedRoleAdminSpelling_isTreatedAsAdmin() {
-        // Mesh-mounted mode: the systems Casdoor seeds ROLE_-prefixed role names
-        // (ROLE_USER, ROLE_GAMES, ROLE_ADMIN), so the claim the BFF reads is
-        // "ROLE_ADMIN", not "admin". Measured before the fix: Roles.isAdmin was
-        // false for this token and a platform admin got 403 on every session
-        // they did not create. The mesh-shaped token must pause alice's session.
-        stubGet("alice");
-        when(service.pauseSession(eq(SID), eq("mesh-operator"), any()))
-                .thenReturn(Mono.just(sessionOwnedBy("alice")));
-
-        web.mutateWith(meshJwt("mesh-operator", List.of("ROLE_USER", "ROLE_GAMES", "ROLE_ADMIN")))
-                .mutateWith(csrf())
-                .post().uri("/api/sessions/" + SID + "/pause")
-                .exchange()
-                .expectStatus().isOk();
-        verify(service).pauseSession(eq(SID), eq("mesh-operator"), any());
-    }
-
-    @Test
-    void resume_derivedGamesAdmin_withoutLiteralAdmin_isTreatedAsAdmin() {
-        // games+mod on a mesh: ROLE_GAMES_ADMIN (derived = games AND (admin OR
-        // mod)) and no literal admin role. CasdoorAuthorities promotes this
-        // holder to ROLE_ADMIN for the /api/admin/** matcher; the raw-JWT
-        // Roles.isAdmin gate on pause/resume must admit the same holder.
-        stubGet("alice");
-        when(service.resumeSession(eq(SID), eq("e2e-gamesmod")))
-                .thenReturn(Mono.just(sessionOwnedBy("alice")));
-
-        web.mutateWith(meshJwt("e2e-gamesmod", List.of("ROLE_USER", "ROLE_GAMES", "ROLE_MOD", "ROLE_GAMES_ADMIN")))
-                .mutateWith(csrf())
-                .post().uri("/api/sessions/" + SID + "/resume")
-                .exchange()
-                .expectStatus().isOk();
-        verify(service).resumeSession(eq(SID), eq("e2e-gamesmod"));
-    }
-
-    @Test
-    void pause_prefixedGamesMemberOnly_is403() {
-        // ROLE_GAMES alone (e2e-gamesonly) is a member, never an admin: still 403
-        // on a session they did not create, and never paused.
-        stubGet("alice");
-        web.mutateWith(meshJwt("e2e-gamesonly", List.of("ROLE_USER", "ROLE_GAMES")))
-                .mutateWith(csrf())
-                .post().uri("/api/sessions/" + SID + "/pause")
-                .exchange()
-                .expectStatus().isForbidden();
-        verify(service, never()).pauseSession(any(), any(), any());
-    }
-
-    /**
-     * A mesh-shaped token: the {@code roles} claim exactly as the systems
-     * Casdoor mints it (ROLE_-prefixed names) and the authorities exactly as
-     * {@code CasdoorAuthorities} would convert them (ROLE_USER floor, one
-     * ROLE_ per canonical name, ROLE_ADMIN promoted for ROLE_GAMES_ADMIN, one
-     * DOMAIN_default). The pause/resume gate reads the CLAIM, not the
-     * authorities, which is what these cases pin.
-     */
-    private static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.JwtMutator
-    meshJwt(String sub, List<String> prefixedRoles) {
-        java.util.List<org.springframework.security.core.GrantedAuthority> granted = new java.util.ArrayList<>();
-        granted.add(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"));
-        for (String r : prefixedRoles) {
-            String canonical = r.substring("ROLE_".length()).toUpperCase();
-            granted.add(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_" + canonical));
-            if ("GAMES_ADMIN".equals(canonical)) {
-                granted.add(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"));
-            }
-        }
-        granted.add(new org.springframework.security.core.authority.SimpleGrantedAuthority("DOMAIN_default"));
-        return mockJwt()
-                .jwt(j -> j.subject(sub)
-                        .issuer("https://casdoor.hugmesh.games")
-                        .header("alg", "RS256")
-                        .issuedAt(Instant.now())
-                        .expiresAt(Instant.now().plusSeconds(300))
-                        .claim("name", sub)
-                        .claim("roles", prefixedRoles))
-                .authorities(granted);
-    }
+    // The mesh-realm cases (bare platform admin refused, derived games admin
+    // and games+mod admitted, games member refused) live in
+    // GamesAdminMeshPersonaHttpAuthzTest, which runs with
+    // casdoor.organization=hugmesh so the policy bean and the converter agree.
 
     @Test
     void resume_nonCreatorNonAdmin_is403() {

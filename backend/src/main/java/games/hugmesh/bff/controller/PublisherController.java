@@ -31,7 +31,7 @@ import reactor.core.publisher.Mono;
      description = "Per-game publisher actions: list owned games, grant / revoke the mod role for those games. Admins bypass scope checks.")
 @RestController
 @RequestMapping("/api/publisher")
-@PreAuthorize("hasAnyRole('PUBLISHER','ADMIN')")
+@PreAuthorize("hasAnyRole('PUBLISHER','GAMES_ADMIN')")
 public class PublisherController {
 
     private final PublisherService              publisher;

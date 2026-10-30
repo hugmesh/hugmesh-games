@@ -1,5 +1,7 @@
 package games.hugmesh.bff.controller;
 
+import games.hugmesh.bff.security.GamesAdminPolicy;
+
 import games.hugmesh.bff.repository.SessionMemberRepository;
 import games.hugmesh.bff.security.Roles;
 import games.hugmesh.bff.service.GameStateService;
@@ -30,10 +32,14 @@ public class GameStreamController {
     private final GameStateService gameStateService;
     private final GameTimeService gameTimeService;
     private final SessionMemberRepository sessionMemberRepo;
+    /** Who is a games admin (realm-aware; see GamesAdminPolicy). */
+    private final GamesAdminPolicy gamesAdmin;
 
     public GameStreamController(GameStateService gameStateService,
                                 GameTimeService gameTimeService,
-                                SessionMemberRepository sessionMemberRepo) {
+                                SessionMemberRepository sessionMemberRepo,
+                                GamesAdminPolicy gamesAdmin) {
+        this.gamesAdmin = gamesAdmin;
         this.gameStateService  = gameStateService;
         this.gameTimeService   = gameTimeService;
         this.sessionMemberRepo = sessionMemberRepo;
@@ -164,7 +170,7 @@ public class GameStreamController {
         if (jwt == null) {
             return Flux.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         }
-        if (Roles.isAdmin(jwt) || Roles.isSuperadmin(jwt)) {
+        if (gamesAdmin.isGamesAdmin(jwt) || Roles.isSuperadmin(jwt)) {
             return merged;
         }
         return sessionMemberRepo.findActive(sessionId, jwt.getSubject())

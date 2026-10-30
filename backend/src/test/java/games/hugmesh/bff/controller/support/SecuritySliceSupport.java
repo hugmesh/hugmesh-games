@@ -1,6 +1,8 @@
 package games.hugmesh.bff.controller.support;
 
+import games.hugmesh.bff.config.ConverterAuthorities;
 import games.hugmesh.bff.security.DomainRegistry;
+import games.hugmesh.bff.security.GamesAdminPolicy;
 import games.hugmesh.bff.service.UserDirectoryService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -108,16 +110,52 @@ public final class SecuritySliceSupport {
         return adminOn(sub, defaultIssuer(), "default");
     }
 
-    /** ADMIN on a specific brand issuer (cross-domain matrix). */
+    /** ADMIN of the games realm (threewizards, the BFF's default org) on a
+     *  specific brand issuer. On the games realm the realm admin IS the games
+     *  admin, so the converter emits ROLE_GAMES_ADMIN alongside ROLE_ADMIN. */
     public static SecurityMockServerConfigurers.JwtMutator adminOn(String sub, String issuer, String domain) {
         return jwtFor(sub, issuer, List.of("admin"),
-                List.of("ROLE_USER", "ROLE_ADMIN", "DOMAIN_" + domain));
+                List.of("ROLE_USER", "ROLE_ADMIN", "ROLE_GAMES_ADMIN", "DOMAIN_" + domain));
     }
 
-    /** SUPERADMIN on a specific brand issuer — cross-domain bypass. */
+    /** SUPERADMIN (who is also a games-realm admin) on a specific brand issuer
+     *  — cross-domain bypass. */
     public static SecurityMockServerConfigurers.JwtMutator superadminOn(String sub, String issuer, String domain) {
         return jwtFor(sub, issuer, List.of("admin", "superadmin"),
-                List.of("ROLE_USER", "ROLE_ADMIN", "ROLE_SUPERADMIN", "DOMAIN_" + domain));
+                List.of("ROLE_USER", "ROLE_ADMIN", "ROLE_SUPERADMIN", "ROLE_GAMES_ADMIN", "DOMAIN_" + domain));
+    }
+
+    /**
+     * A caller on a MESH-mounted BFF (systems Casdoor, CASDOOR_ORGANIZATION
+     * other than the games realm) holding exactly {@code roles}, with the
+     * authorities the PRODUCTION converter computes for them under the systems
+     * policy (default domain). Used for the hugmesh-generator rbac-roles.ts
+     * personas: e2e-adminonly = ROLE_ADMIN + ROLE_USER, e2e-gamesadmin adds
+     * ROLE_GAMES + ROLE_GAMES_ADMIN, and so on.
+     */
+    public static SecurityMockServerConfigurers.JwtMutator meshPersona(String sub, String... roles) {
+        return converted(sub, GamesAdminPolicy.systemsRealm(), roles);
+    }
+
+    /** Same as {@link #meshPersona} on the games realm (threewizards). */
+    public static SecurityMockServerConfigurers.JwtMutator gamesRealmPersona(String sub, String... roles) {
+        return converted(sub, GamesAdminPolicy.gamesRealm(), roles);
+    }
+
+    private static SecurityMockServerConfigurers.JwtMutator converted(
+            String sub, GamesAdminPolicy policy, String... roles) {
+        Consumer<Jwt.Builder> claims = b -> b
+                .subject(sub)
+                .issuer(defaultIssuer())
+                .header("alg", "RS256")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .claim("name", sub)
+                .claim("roles", List.of(roles));
+        DomainRegistry singleIssuer = new DomainRegistry("", "");
+        return mockJwt()
+                .jwt(claims)
+                .authorities(jwt -> ConverterAuthorities.of(jwt, singleIssuer, policy));
     }
 
     /** GAME-MASTER (platform admin) on the default issuer. */

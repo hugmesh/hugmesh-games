@@ -34,7 +34,7 @@ class TenancyResolverFailClosedTest {
 
     private static ReactiveAuthenticationManagerResolver<String> resolver(
             DomainRegistry r, Map<String, ReactiveAuthenticationManager> cache) {
-        return new TenancyResourceServerConfig(r, "", "").byIssuerResolver(cache);
+        return new TenancyResourceServerConfig(r, "", "", games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm()).byIssuerResolver(cache);
     }
 
     @Nested
@@ -132,7 +132,8 @@ class TenancyResolverFailClosedTest {
         /** Back-compat issuer + jwk-set-uri => discovery-free decoder branch. */
         private ReactiveAuthenticationManagerResolver<String> backCompatResolver(
                 Map<String, ReactiveAuthenticationManager> cache) {
-            return new TenancyResourceServerConfig(multi, BRAND_A, BRAND_A + "/jwks")
+            return new TenancyResourceServerConfig(multi, BRAND_A, BRAND_A + "/jwks",
+                    games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm())
                     .byIssuerResolver(cache);
         }
 

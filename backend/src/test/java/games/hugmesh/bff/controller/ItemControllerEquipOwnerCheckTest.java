@@ -46,7 +46,8 @@ class ItemControllerEquipOwnerCheckTest {
                 mock(ItemRepository.class),
                 mock(CharacterItemRepository.class),
                 equipRepo,
-                playerCharRepo);
+                playerCharRepo,
+                games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
     }
 
     private static Jwt jwt(String subject) {

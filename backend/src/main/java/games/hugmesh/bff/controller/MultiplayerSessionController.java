@@ -1,5 +1,7 @@
 package games.hugmesh.bff.controller;
 
+import games.hugmesh.bff.security.GamesAdminPolicy;
+
 import games.hugmesh.bff.model.GameSessionDto;
 import games.hugmesh.bff.security.Roles;
 import games.hugmesh.bff.service.GameSessionService;
@@ -35,8 +37,12 @@ import reactor.core.publisher.Mono;
 public class MultiplayerSessionController {
 
     private final GameSessionService service;
+    /** Who is a games admin (realm-aware; see GamesAdminPolicy). */
+    private final GamesAdminPolicy gamesAdmin;
 
-    public MultiplayerSessionController(GameSessionService service) {
+    public MultiplayerSessionController(GameSessionService service,
+                                        GamesAdminPolicy gamesAdmin) {
+        this.gamesAdmin = gamesAdmin;
         this.service = service;
     }
 
@@ -220,17 +226,11 @@ public class MultiplayerSessionController {
         return service.get(id)
                 .flatMap(s -> {
                     boolean isCreator = jwt.getSubject().equals(s.creatorCasdoorId());
-                    // Canonical roles-array admin check, the SAME set of
-                    // principals CasdoorAuthorities grants ROLE_ADMIN: `admin`
-                    // in either realm spelling (admin / ROLE_ADMIN — the systems
-                    // Casdoor a mesh-mounted BFF validates against seeds the
-                    // prefixed form) plus the platform's derived games_admin
-                    // (ROLE_GAMES_ADMIN = games AND (admin OR mod)). Same
-                    // predicate as CharacterController's Roles.isAdmin.
-                    // The legacy `isAdmin` boolean claim is NOT a bypass here —
-                    // it is only honoured by the SecurityConfig authorities
-                    // converter's back-compat fallback, never by Roles.isAdmin.
-                    boolean isAdmin   = Roles.isAdmin(jwt);
+                    // Games admin, the SAME principals the converter grants
+                    // ROLE_GAMES_ADMIN (GamesAdminPolicy): the derived games_admin
+                    // role in either realm, the realm `admin` only on the games
+                    // realm. A bare platform ROLE_ADMIN on a mesh is not one.
+                    boolean isAdmin   = gamesAdmin.isGamesAdmin(jwt);
                     if (!isCreator && !isAdmin) {
                         return Mono.error(new ResponseStatusException(
                                 HttpStatus.FORBIDDEN, "only the creator or an admin may pause this session"));
@@ -252,9 +252,8 @@ public class MultiplayerSessionController {
         return service.get(id)
                 .flatMap(s -> {
                     boolean isCreator = jwt.getSubject().equals(s.creatorCasdoorId());
-                    // Canonical roles-array admin check — same as pause(); the
-                    // legacy `isAdmin` boolean claim is not honoured here.
-                    boolean isAdmin   = Roles.isAdmin(jwt);
+                    // Games admin — same predicate as pause().
+                    boolean isAdmin   = gamesAdmin.isGamesAdmin(jwt);
                     if (!isCreator && !isAdmin) {
                         return Mono.error(new ResponseStatusException(
                                 HttpStatus.FORBIDDEN, "only the creator or an admin may resume this session"));
