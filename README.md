@@ -86,7 +86,7 @@ Six components build from the monorepo, chained by the root [`Makefile`](Makefil
 
 **Tests.** `make test` runs six legs: `test-rust` (cargo, in `extensions/hugmesh-bridge`), `test-rust-cores` (`cargo test --offline` in every other `extensions/hugmesh-*` crate), `test-backend` (`./mvnw test`), `test-godot` (headless GDScript suites for `shadows-of-the-net` and `character-forge`; needs a Godot binary), `test-games-js` (the node suites under `games/_shared/test/`), and `test-frontend` (Karma in Docker). End-to-end tests are Playwright against the live Docker Compose stack: `make e2e` (the canonical suite: TLS, all images, self-isolation specs), `make e2e-bdd` (Gherkin `.feature` files with per-step screenshots), and `make e2e-native` (the same suite against the GraalVM native image overlay). The other Godot projects have no GDScript unit suite; `make e2e` exercises them by loading the real WASM bundle in a browser.
 
-**Run it.** `docker compose up -d` starts Postgres, Cassandra, Casdoor, the BFF, the Angular host, and the federated remotes. Liquibase migrates the schema on first boot. `make lan-up` / `make lan-up-tls` expose the stack to the LAN through [`lan.properties`](lan.properties). Dev servers: `make dev-backend` (`:8080`) and `make dev-frontend` (`:4200`, proxied to the BFF). See [architecture · 06 — build and deploy](docs/wiki/architecture/06-build-and-deploy.md) for the full chain and the Docker 29.x buildx caveat.
+**Run it.** `make db-env` once (writes random Postgres passwords into the gitignored `.env`; compose refuses to start without them), then `docker compose up -d` starts Postgres, Cassandra, Casdoor, the BFF, the Angular host, and the federated remotes. Liquibase migrates the schema on first boot. `make lan-up` / `make lan-up-tls` expose the stack to the LAN through [`lan.properties`](lan.properties). Dev servers: `make dev-backend` (`:8080`) and `make dev-frontend` (`:4200`, proxied to the BFF). See [architecture · 06 — build and deploy](docs/wiki/architecture/06-build-and-deploy.md) for the full chain and the Docker 29.x buildx caveat.
 
 **Parent POM note.** The three Spring services (`backend/`, `rpg-builder/`, `vn-builder/`) each inherit directly from `spring-boot-starter-parent`. Moving to the org-wide `hugmesh-parent` metapom (v2.8.0) is a pending fan-out item tracked in the HugMesh org. It is not applied to this repo yet.
 
@@ -1508,6 +1508,10 @@ Download it from [docs.docker.com/desktop/install/windows-install](https://docs.
 ## Running with Docker Compose (recommended)
 
 ```bash
+# Once per checkout: generate the three Postgres role passwords into the
+# gitignored .env (compose requires them; there is no built-in default)
+make db-env
+
 # First run: Casdoor generates random credentials and prints them to its logs
 docker compose up -d
 

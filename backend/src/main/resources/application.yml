@@ -35,9 +35,11 @@ spring:
   # to empty, and StartupSecretValidator refuses to boot when
   # app.security.require-managed-secrets=true (prod/staging) with a blank
   # password (NIST IA-5 / SC-12). Local dev + compose + e2e supply DB_PASS
-  # explicitly (docker-compose.yml `DB_PASS: threewizards`; tests inject it
-  # via Testcontainers DynamicPropertySource), so this stays a non-issue
-  # for the dev/compose path.
+  # explicitly (docker-compose.yml maps it from the REQUIRED GAMES_DB_PASS,
+  # which `make db-env` generates into the gitignored .env; tests inject it
+  # via Testcontainers DynamicPropertySource). The compose layer is what
+  # stops a prod/staging bring-up from inheriting a known value: the
+  # validator above only rejects a BLANK password, not a public one.
   r2dbc:
     url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:threewizards}
     username: ${DB_USER:threewizards}

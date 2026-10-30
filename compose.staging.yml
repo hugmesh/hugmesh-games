@@ -24,6 +24,11 @@
 #   3. Casdoor base URL. The login flow needs an absolute redirect URI
 #      that matches the public DNS so Casdoor accepts the callback.
 #
+# DB passwords are NOT inherited literals: the base file requires
+# GAMES_DB_PASS, RPG_BUILDER_DB_PASS and VN_BUILDER_DB_PASS (`${VAR:?}`),
+# so staging refuses to start until they are supplied from the
+# environment. Use managed values, not a dev .env from `make db-env`.
+#
 # Production: see compose.prod.yml for the *.hugmesh.games equivalent.
 
 services:

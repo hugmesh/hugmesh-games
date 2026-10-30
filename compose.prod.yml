@@ -16,6 +16,12 @@
 #   - Postgres + Cassandra ports are NOT bound — managed by an external
 #     managed service in steady state; the local containers shipped here
 #     are for failover bring-up only.
+#   - DB passwords are NOT inherited literals. The base file requires
+#     GAMES_DB_PASS, RPG_BUILDER_DB_PASS and VN_BUILDER_DB_PASS
+#     (`${VAR:?}`), so this overlay refuses to start until the operator
+#     supplies managed values. Never run `make db-env` on a prod host and
+#     never copy a dev .env here; StartupSecretValidator only rejects a
+#     BLANK password, so the compose layer is the guard against a known one.
 #
 # Staging: see compose.staging.yml for the *.staging.hugmesh.games
 # equivalent (loosened CORS, different volumes, different DNS).
