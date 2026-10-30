@@ -57,5 +57,5 @@ COPY --from=godot /root/.local/share/godot /root/.local/share/godot
 # config-only flip later, no image rebuild. APP_BUILD_BRIDGE_DIR (the compiled
 # hugmesh_bridge binaries) is likewise supplied by the deployment; it defaults unset.
 ENV APP_BUILD_GODOT_BIN=/opt/godot/godot
-COPY --from=build /app/target/hugmesh-rpg-builder-0.2.0-beta.2.jar app.jar
+COPY --from=build /app/target/hugmesh-rpg-builder-0.2.0-beta.3.jar app.jar
 ENTRYPOINT ["java", "-jar", "app.jar"]

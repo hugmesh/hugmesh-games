@@ -13,7 +13,7 @@
 
   <groupId>games.hugmesh</groupId>
   <artifactId>hugmesh-vn-builder</artifactId>
-  <version>0.2.0-beta.2</version>
+  <version>0.2.0-beta.3</version>
   <name>hugmesh-vn-builder</name>
   <description>Side service. Stores Visual-Novel projects shaped after godot-2d-visual-novel (acts / scenes / characters / dialogue lines / branching choices / backgrounds), renders them into a Godot 4 project that uses hugmesh-bridge, runs Godot's web export per-act, and POSTs the resulting bundle to the BFF /api/admin/games/upload endpoint. Reactive Spring throughout. Schema managed by Liquibase only.</description>
   <packaging>jar</packaging>
