@@ -112,4 +112,18 @@ class GamesAdminPolicyTest {
         // a renamed games realm can be named explicitly
         assertThat(GamesAdminPolicy.forOrganization("arcade", "arcade").realmAdminIsGamesAdmin()).isTrue();
     }
+
+    // ── a running BFF refuses to guess the realm ─────────────────────────────
+
+    @Test
+    void forDeploymentRefusesABlankOrganization() {
+        for (String blank : new String[] {null, "", "   "}) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                            () -> GamesAdminPolicy.forDeployment(blank, GamesAdminPolicy.GAMES_REALM_ORGANIZATION))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("casdoor.organization");
+        }
+        assertThat(GamesAdminPolicy.forDeployment("threewizards", "threewizards").realmAdminIsGamesAdmin()).isTrue();
+        assertThat(GamesAdminPolicy.forDeployment("hugmesh", "threewizards").realmAdminIsGamesAdmin()).isFalse();
+    }
 }

@@ -80,9 +80,6 @@ public class GameUploadController {
         // so the per-game scope check is threaded into install() as a
         // post-stage hook. Admins bypass with `slug -> Mono.empty()`.
         String uploadedBy = jwt != null ? jwt.getSubject() : "system:anonymous-admin";
-        boolean isAdmin = jwt != null && gamesAdmin.isGamesAdmin(jwt);
-        boolean isSuperadmin = jwt != null && Roles.isSuperadmin(jwt);
-
         // The uploader's TRUSTED brand — issuer-derived, never a user-settable claim.
         // "default" on the single-Casdoor cluster. null only in multi-brand mode for an
         // issuer outside the registry (the decoder 401s such tokens upstream; we
@@ -93,8 +90,7 @@ public class GameUploadController {
                     HttpStatus.FORBIDDEN, "upload from an untrusted issuer/domain"));
         }
 
-        java.util.function.Function<String, Mono<Void>> requireScope =
-                requireScope(jwt, domain, isAdmin, isSuperadmin);
+        java.util.function.Function<String, Mono<Void>> requireScope = scopeFor(jwt, domain);
         return collectBytes(bundle)
                 .flatMap(bytes -> uploadService.install(bytes, uploadedBy, domain, requireScope));
     }
@@ -112,6 +108,15 @@ public class GameUploadController {
      * </ol>
      * Package-private so the composition is unit-testable without driving a full upload.
      */
+    /** The {@link #requireScope} hook for this caller: games admins (GamesAdminPolicy)
+     *  skip the ownership gate, superadmins the brand gate. Package-private so the
+     *  admin decision is testable without driving a full upload. */
+    java.util.function.Function<String, Mono<Void>> scopeFor(Jwt jwt, String domain) {
+        boolean isAdmin = jwt != null && gamesAdmin.isGamesAdmin(jwt);
+        boolean isSuperadmin = jwt != null && Roles.isSuperadmin(jwt);
+        return requireScope(jwt, domain, isAdmin, isSuperadmin);
+    }
+
     java.util.function.Function<String, Mono<Void>> requireScope(Jwt jwt, String domain,
                                                                  boolean isAdmin, boolean isSuperadmin) {
         return slug -> {

@@ -86,6 +86,26 @@ public final class GamesAdminPolicy {
         return new GamesAdminPolicy(!org.isEmpty() && org.equalsIgnoreCase(realm));
     }
 
+    /**
+     * The policy a running BFF uses. Unlike {@link #forOrganization}, a blank
+     * {@code casdoor.organization} is not "some other realm" here but a
+     * misconfiguration: refuse to start rather than guess. (Guessing the games
+     * realm, the old application.yml default, re-admitted every bare platform
+     * admin on a mesh that forgot to set CASDOOR_ORGANIZATION.)
+     *
+     * @throws IllegalStateException when {@code casdoorOrganization} is blank
+     */
+    public static GamesAdminPolicy forDeployment(String casdoorOrganization,
+                                                 String gamesRealmOrganization) {
+        if (casdoorOrganization == null || casdoorOrganization.isBlank()) {
+            throw new IllegalStateException(
+                    "casdoor.organization (CASDOOR_ORGANIZATION) is not set. It decides who is a "
+                    + "games admin: set it to the Casdoor organization this BFF trusts ("
+                    + GAMES_REALM_ORGANIZATION + " for the games realm, the systems org on a mesh).");
+        }
+        return forOrganization(casdoorOrganization, gamesRealmOrganization);
+    }
+
     /** The games realm: {@code admin} is the games admin. */
     public static GamesAdminPolicy gamesRealm() {
         return new GamesAdminPolicy(true);

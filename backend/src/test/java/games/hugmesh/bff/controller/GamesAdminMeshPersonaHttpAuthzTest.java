@@ -212,6 +212,34 @@ class GamesAdminMeshPersonaHttpAuthzTest {
     }
 
     @Test
+    void resume_adminOnly_is403_andNeverResumes() {
+        stubSessionOwnedByAlice();
+        int status = web.mutateWith(meshPersona("e2e-adminonly", "ROLE_ADMIN", "ROLE_USER"))
+                .mutateWith(csrf())
+                .post().uri("/api/sessions/" + SID + "/resume")
+                .exchange().returnResult(byte[].class).getStatus().value();
+        assertThat(status).isEqualTo(403);
+        verify(multiplayer, never()).resumeSession(any(), any());
+    }
+
+    // ── prod chain: the OpenAPI spec is games-admin only ────────────────────
+
+    private int get(String path, org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.JwtMutator who) {
+        return web.mutateWith(who).get().uri(path).exchange().returnResult(byte[].class).getStatus().value();
+    }
+
+    @Test
+    void openApiSpec_adminOnlyIs403_gamesAdminIsLetThrough() {
+        // No springdoc in this slice, so an admitted caller gets the router's 404;
+        // what matters is the security chain's answer.
+        for (String path : List.of("/v3/api-docs", "/v3/api-docs/swagger-config", "/swagger-ui/index.html")) {
+            assertThat(get(path, meshPersona("e2e-adminonly", "ROLE_ADMIN", "ROLE_USER"))).as(path).isEqualTo(403);
+            assertThat(get(path, meshPersona("e2e-gamesadmin", "ROLE_GAMES", "ROLE_ADMIN", "ROLE_GAMES_ADMIN")))
+                    .as(path).isNotIn(401, 403);
+        }
+    }
+
+    @Test
     void resume_gamesPlusMod_resumesSomeoneElsesSession() {
         stubSessionOwnedByAlice();
         int status = web.mutateWith(meshPersona("e2e-gamesmod",

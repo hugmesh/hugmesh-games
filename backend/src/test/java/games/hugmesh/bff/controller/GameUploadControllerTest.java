@@ -48,14 +48,18 @@ class GameUploadControllerTest {
     private PublisherGameScopeRepository pubScopes;
 
     private GameUploadController controllerFor(DomainRegistry registry) {
+        return controllerFor(registry, games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
+    }
+
+    private GameUploadController controllerFor(DomainRegistry registry,
+                                               games.hugmesh.bff.security.GamesAdminPolicy policy) {
         gameRepo = mock(GameRepository.class);
         pubScopes = mock(PublisherGameScopeRepository.class);
         PublisherService publisher = new PublisherService(pubScopes, mock(ModGameScopeRepository.class));
         DomainScopeService scope = new DomainScopeService(gameRepo, mock(GameSessionRepository.class));
         // uploadService / uploads are unused by requireScope() and by the null-domain
         // early return, so null is safe here (and dodges mocking the concrete service).
-        return new GameUploadController(null, null, publisher, scope, registry,
-                games.hugmesh.bff.security.GamesAdminPolicy.gamesRealm());
+        return new GameUploadController(null, null, publisher, scope, registry, policy);
     }
 
     private static DomainRegistry multiBrand() {
@@ -82,6 +86,32 @@ class GameUploadControllerTest {
                     assertThat(((ResponseStatusException) err).getStatusCode().value()).isEqualTo(403);
                 })
                 .verify();
+    }
+
+    // ------------------------------------------------- who skips the ownership gate
+
+    @Test
+    void meshAdminOnlyPublisherUploadingOutsideTheirScopeIs403() {
+        // Mesh (systems policy): e2e-adminonly who is also a publisher is NOT a games
+        // admin, so the ownership gate applies and a slug outside their scope is refused.
+        GameUploadController c = controllerFor(new DomainRegistry("", ""),
+                games.hugmesh.bff.security.GamesAdminPolicy.systemsRealm());
+        Jwt adminPub = jwt("https://casdoor.hugmesh.example", "adminonly-pub", List.of("ROLE_ADMIN", "ROLE_PUBLISHER"));
+        when(pubScopes.findActive(org.mockito.ArgumentMatchers.anyString(), eq("not-mine"))).thenReturn(Mono.empty());
+        when(gameRepo.findBySlug(eq("not-mine"))).thenReturn(Mono.empty());
+        assertForbidden(c.scopeFor(adminPub, "default").apply("not-mine"));
+
+        // the derived games admin on the same mesh skips the ownership gate
+        Jwt gamesAdmin = jwt("https://casdoor.hugmesh.example", "ga", List.of("ROLE_GAMES", "ROLE_ADMIN", "ROLE_GAMES_ADMIN"));
+        StepVerifier.create(c.scopeFor(gamesAdmin, "default").apply("not-mine")).verifyComplete();
+    }
+
+    @Test
+    void gamesRealmAdminSkipsTheOwnershipGate() {
+        GameUploadController c = controllerFor(new DomainRegistry("", ""));
+        when(gameRepo.findBySlug(eq("any"))).thenReturn(Mono.empty());
+        StepVerifier.create(c.scopeFor(jwt("https://casdoor.hugmesh.games", "admin", List.of("admin")), "default")
+                .apply("any")).verifyComplete();
     }
 
     // ----------------------------------------------------------------- ADMIN brand guard

@@ -252,8 +252,7 @@ public class SecurityConfig {
                           DomainRegistry domainRegistry,
                           ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
                                   tenantAuthManagerResolver,
-                          @Value("${casdoor.organization:" + GamesAdminPolicy.GAMES_REALM_ORGANIZATION + "}")
-                                  String casdoorOrganization,
+                          @Value("${casdoor.organization:}") String casdoorOrganization,
                           @Value("${app.security.games-realm-organization:"
                                   + GamesAdminPolicy.GAMES_REALM_ORGANIZATION + "}")
                                   String gamesRealmOrganization) {
@@ -270,12 +269,14 @@ public class SecurityConfig {
      * is the games realm ({@code threewizards}: the standalone stack and the
      * cluster's casdoor-games). A mesh-mounted BFF ({@code CASDOOR_ORGANIZATION=hugmesh},
      * hugmesh-generator tests/stack/compose.games.yaml) gets the systems policy,
-     * where {@code ROLE_ADMIN} alone is not a games admin. Defined here because
-     * every security slice test imports this class. See {@link GamesAdminPolicy}.
+     * where {@code ROLE_ADMIN} alone is not a games admin. A blank
+     * {@code casdoor.organization} stops the BFF at boot instead of guessing a
+     * realm (fail closed). Defined here because every security slice test
+     * imports this class. See {@link GamesAdminPolicy}.
      */
     @Bean
     GamesAdminPolicy gamesAdminPolicy() {
-        return GamesAdminPolicy.forOrganization(casdoorOrganization, gamesRealmOrganization);
+        return GamesAdminPolicy.forDeployment(casdoorOrganization, gamesRealmOrganization);
     }
 
     // -------------------------------------------------------------------------

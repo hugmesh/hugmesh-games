@@ -158,6 +158,27 @@ class CharacterControllerAuthzTest {
                 .verifyComplete();
     }
 
+    @Test
+    void meshAdminOnlyListGetsOnlyTheirOwnCharacters() {
+        // Mesh-mounted BFF (systems policy): e2e-adminonly is a PLATFORM admin,
+        // not a games admin, so the full-roster override must not apply.
+        CharacterController mesh = new CharacterController(characters, gameStateService, gameTimeService,
+                progression, charQuests, questRepo, sessionRepo, charSkills, charItems, itemRepo,
+                new DomainRegistry("", ""), games.hugmesh.bff.security.GamesAdminPolicy.systemsRealm());
+        when(characters.findByCasdoorId("e2e-adminonly")).thenReturn(Mono.just(character(9L, "e2e-adminonly")));
+        when(characters.findAll()).thenReturn(Flux.just(character(1L, OWNER), character(9L, "e2e-adminonly")));
+
+        StepVerifier.create(mesh.list(jwt("e2e-adminonly", "ROLE_ADMIN", "ROLE_USER")))
+                .assertNext(dto -> assertThat(dto.id()).isEqualTo(9L))
+                .verifyComplete();
+        verify(characters, never()).findAll();
+
+        // the derived games admin on the same mesh does get the roster
+        StepVerifier.create(mesh.list(jwt("e2e-gamesadmin", "ROLE_GAMES", "ROLE_ADMIN", "ROLE_GAMES_ADMIN")))
+                .expectNextCount(2)
+                .verifyComplete();
+    }
+
     // ── update (CRITICAL: cross-player stat manipulation) ──────────────────────
 
     @Test
