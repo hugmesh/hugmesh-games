@@ -221,6 +221,14 @@
     },
     {
       "owner": "threewizards",
+      "name": "mesh-games-admin",
+      "displayName": "Mesh games admin (synced)",
+      "description": "Owned by the hugmesh-actions GM sync: mesh users holding ROLE_GAMES_ADMIN, mapped through each games user's properties.meshSub link. Never edit by hand; the next sync tick replaces the member list. Counts as games admin on games-realm tokens only.",
+      "users": [],
+      "isEnabled": true
+    },
+    {
+      "owner": "threewizards",
       "name": "player",
       "displayName": "Player",
       "description": "Standard player; can access the portal and play unlocked levels.",
