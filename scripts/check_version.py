@@ -10,9 +10,14 @@ jar path. This script fails if any of them disagree with VERSION.
 With --ref (the release workflow passes $GITHUB_REF) it also decides what kind of
 run this is:
 
-  refs/tags/v<version>  kind=release  (the tag must equal "v" + VERSION)
-  refs/heads/main       kind=main
-  anything else         refused
+  refs/tags/v<version>     kind=release  (the tag must equal "v" + VERSION)
+  refs/heads/main          kind=main
+  refs/heads/release/X.Y   kind=branch   (VERSION must be X.Y.*)
+  anything else            refused
+
+The release channel (beta from main, stable from release/X.Y), the branch
+membership of a tag and the image tags are decided by scripts/release-channel.sh,
+not here.
 
 When GITHUB_OUTPUT is set it appends version=, kind= and prerelease= to it.
 
@@ -140,10 +145,22 @@ def collect_problems(root):
     return version, problems
 
 
+RELEASE_BRANCH_RE = re.compile(r"^refs/heads/release/(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+
+
 def classify_ref(ref, version):
-    """Return 'release' or 'main' for a ref the release workflow may publish from."""
+    """Return 'release', 'main' or 'branch' for a ref the release workflow may publish from."""
     if ref == "refs/heads/main":
         return "main"
+    branch = RELEASE_BRANCH_RE.match(ref)
+    if branch:
+        line = f"{branch.group(1)}.{branch.group(2)}"
+        if not version.startswith(line + "."):
+            raise VersionError(
+                f"{ref[len('refs/heads/'):]} carries VERSION {version}: a release/X.Y branch "
+                f"must carry an X.Y.* version"
+            )
+        return "branch"
     if ref.startswith("refs/tags/v"):
         tag_version = ref[len("refs/tags/v"):]
         if tag_version != version:
@@ -153,7 +170,8 @@ def classify_ref(ref, version):
             )
         return "release"
     raise VersionError(
-        f"ref {ref!r} cannot publish: only refs/heads/main and refs/tags/v<VERSION> can"
+        f"ref {ref!r} cannot publish: only refs/heads/main, refs/heads/release/X.Y "
+        f"and refs/tags/v<VERSION> can"
     )
 
 

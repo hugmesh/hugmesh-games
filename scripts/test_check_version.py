@@ -56,9 +56,10 @@ class RealTreeTest(unittest.TestCase):
         code, out, err = run_guard("--root", REPO)
         self.assertEqual(code, 0, err)
 
-    def test_real_version_is_a_beta_not_a_snapshot(self):
+    def test_real_version_is_a_release_version_not_a_snapshot(self):
+        # main carries X.Y.Z-beta.N; a release/X.Y branch carries a stable X.Y.Z.
         version = check_version.read_version(REPO)
-        self.assertRegex(version, r"^\d+\.\d+\.\d+-beta\.[1-9]\d*$")
+        self.assertRegex(version, r"^\d+\.\d+\.\d+(-beta\.[1-9]\d*)?$")
 
 
 class MutationTest(unittest.TestCase):
@@ -172,9 +173,33 @@ class MutationTest(unittest.TestCase):
         with open(out_file) as fh:
             self.assertIn("kind=main\n", fh.read())
 
+    def test_release_branch_of_the_version_line_is_a_branch_build(self):
+        line = ".".join(self.version.split(".")[:2])
+        out_file = os.path.join(self.tmp, "gh-output")
+        code, _, err = run_guard("--root", self.tmp, "--ref", f"refs/heads/release/{line}", env_output=out_file)
+        self.assertEqual(code, 0, err)
+        with open(out_file) as fh:
+            self.assertIn("kind=branch\n", fh.read())
+
+    def test_release_branch_of_another_line_refused(self):
+        code, _, err = run_guard("--root", self.tmp, "--ref", "refs/heads/release/99.0")
+        self.assertEqual(code, 1)
+        self.assertIn("must carry an X.Y.* version", err)
+
+    def test_line_prefix_is_not_a_string_prefix(self):
+        # release/0.2 must not accept VERSION 0.20.0 (or 10.2.0).
+        for version, ref in (("0.20.0", "refs/heads/release/0.2"), ("10.2.0", "refs/heads/release/0.2")):
+            with self.subTest(version=version):
+                with self.assertRaises(check_version.VersionError):
+                    check_version.classify_ref(ref, version)
+        self.assertEqual(check_version.classify_ref("refs/heads/release/0.2", "0.2.1"), "branch")
+        self.assertEqual(check_version.classify_ref("refs/heads/release/0.10", "0.10.0"), "branch")
+
     def test_other_refs_refused(self):
         for ref in ("refs/heads/feature-x", "refs/pull/7/merge", "refs/tags/studio-v0.2.0-beta.1",
-                    f"refs/tags/{self.version}"):
+                    f"refs/tags/{self.version}", "refs/heads/release/attest-something",
+                    "refs/heads/release/0", "refs/heads/release/0.2.0", "refs/heads/release/v0.2",
+                    "refs/heads/release/00.2", "refs/heads/release/0.2/x", "refs/heads/xrelease/0.2"):
             with self.subTest(ref=ref):
                 code, _, err = run_guard("--root", self.tmp, "--ref", ref)
                 self.assertEqual(code, 1, f"{ref} was accepted")
