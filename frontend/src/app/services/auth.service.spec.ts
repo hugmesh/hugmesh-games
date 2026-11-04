@@ -90,10 +90,15 @@ describe('AuthService', () => {
     });
 
     it('the games-admin roles the BFF admits are admins', () => {
-      for (const role of ['games_admin', 'ROLE_GAMES_ADMIN', 'mesh-games-admin']) {
+      for (const role of ['games_admin', 'ROLE_GAMES_ADMIN']) {
         signInWith({ roles: [casdoorRole(role)] });
         expect(svc.isAdmin()).withContext(role).toBeTrue();
       }
+    });
+
+    it('a role a sync writes from the mesh is not an admin (the BFF refuses it)', () => {
+      signInWith({ roles: [casdoorRole('mesh-games-admin'), casdoorRole('player')] });
+      expect(svc.isAdmin()).toBeFalse();
     });
 
     it('ignores entries with no usable name', () => {

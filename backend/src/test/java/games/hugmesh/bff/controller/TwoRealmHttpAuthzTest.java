@@ -267,10 +267,12 @@ class TwoRealmHttpAuthzTest {
         assertThat(adminStatuses(GAMES.token("g-player", "player"))).isEqualTo(allForbidden());
     }
 
+    /** A synced role is not an admin from either realm: on Casdoor 3.80.0 a player
+     *  can write the link that role's membership is derived from. */
     @Test
-    void theRoleTheGmSyncWrites_countsOnlyFromTheGamesRealm() {
-        Map<String, Integer> got = adminStatusesWithoutNetwork(GAMES.token("g-synced", "mesh-games-admin"));
-        assertThat(noneRefused(got)).as(got.toString()).isTrue();
+    void theRoleTheGmSyncWrites_isNotAGamesAdminFromEitherRealm() {
+        assertThat(adminStatuses(GAMES.token("g-synced", "mesh-games-admin"))).isEqualTo(allForbidden());
+        assertThat(adminStatuses(GAMES.token("g-synced-player", "mesh-games-admin", "player"))).isEqualTo(allForbidden());
         assertThat(adminStatuses(MESH.token("m-synced", "mesh-games-admin"))).isEqualTo(allForbidden());
     }
 

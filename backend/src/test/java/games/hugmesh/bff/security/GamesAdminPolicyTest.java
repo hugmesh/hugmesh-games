@@ -161,10 +161,19 @@ class GamesAdminPolicyTest {
         assertThat(TWO_REALMS.isGamesAdmin(from(MESH_ISS, "ROLE_SUPERADMIN"))).isFalse();
     }
 
+    /**
+     * The role name the GM sync was given is NOT a games admin from either realm:
+     * its membership comes from a link a player can write themselves on Casdoor
+     * 3.80.0, so honouring it would be a self-service games admin. Games-realm
+     * admin is the realm's own {@code admin} only; mesh games admins carry
+     * ROLE_GAMES_ADMIN on their mesh token.
+     */
     @Test
-    void twoRealmsTheGmSyncRoleCountsOnlyFromTheGamesRealm() {
-        assertThat(TWO_REALMS.isGamesAdmin(from(GAMES_ISS, "mesh-games-admin"))).isTrue();
+    void twoRealmsASyncedRoleIsNotAGamesAdminFromEitherRealm() {
+        assertThat(TWO_REALMS.isGamesAdmin(from(GAMES_ISS, "mesh-games-admin"))).isFalse();
+        assertThat(TWO_REALMS.isGamesAdmin(from(GAMES_ISS, "mesh-games-admin", "player"))).isFalse();
         assertThat(TWO_REALMS.isGamesAdmin(from(MESH_ISS, "mesh-games-admin"))).isFalse();
+        assertThat(TWO_REALMS.isGamesAdmin(from(MESH_ISS, "ROLE_GAMES", "mesh-games-admin"))).isFalse();
     }
 
     @Test
@@ -176,8 +185,9 @@ class GamesAdminPolicyTest {
     }
 
     @Test
-    void theGmSyncRoleFollowsTheRealmOnASingleIssuerBffToo() {
-        assertThat(REALM.isGamesAdmin(roles("mesh-games-admin"))).isTrue();
+    void aSyncedRoleIsNotAGamesAdminOnASingleIssuerBffEither() {
+        assertThat(REALM.isGamesAdmin(roles("mesh-games-admin"))).isFalse();
+        assertThat(REALM.isGamesAdmin(roles("mesh-games-admin", "player"))).isFalse();
         assertThat(MESH.isGamesAdmin(roles("mesh-games-admin"))).isFalse();
     }
 

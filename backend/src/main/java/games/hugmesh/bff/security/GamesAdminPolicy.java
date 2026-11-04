@@ -36,11 +36,20 @@ import java.util.Set;
  * </ul>
  *
  * <p>So: the derived {@code games_admin} role is a games admin in either realm;
- * the realm {@code admin} role, and {@code mesh-games-admin} (the games-realm
- * role hugmesh-actions' GM sync owns), count only on a token from the games
+ * the realm's own {@code admin} role counts only on a token from the games
  * realm. A role name in a token says nothing about which realm it came from, so
  * the realm is read from the token's signature-bound {@code iss}, never from a
  * claim like {@code owner}.
+ *
+ * <p>Nothing else counts. In particular a games-realm role that some sync
+ * writes from the mesh (the {@code mesh-games-admin} name hugmesh-actions'
+ * GM sync was given) is NOT a games admin, in either realm: the sync decides
+ * membership from a link stored on the games user, and on Casdoor 3.80.0 a
+ * player can write their own {@code properties}, so honouring such a role
+ * would let a player grant themselves games admin. Mesh games admins act with
+ * their MESH token ({@code ROLE_GAMES_ADMIN}); games-realm admin comes only
+ * from the games realm's own {@code admin}. Until an unforgeable link exists
+ * (#53) no synced role is admitted here, and none is seeded.
  *
  * <h2>Which tokens are games-realm tokens</h2>
  *
@@ -88,11 +97,9 @@ public final class GamesAdminPolicy {
     /** Canonical (see {@link Roles#canonical}) name of the derived role. */
     static final String GAMES_ADMIN_ROLE = "games_admin";
 
-    /** Canonical name of the games-realm role the GM sync owns (hugmesh-actions
-     *  {@code GM_SYNC_GAMES_ROLE}). Only that sync writes it, so unlike
-     *  {@code admin} it never needs a person to be granted it by hand. Counts on a
-     *  games-realm token only: a mesh token cannot earn games admin by naming it. */
-    static final String MESH_GAMES_ADMIN_ROLE = "mesh-games-admin";
+    /** Canonical name of the games realm's own admin role. The only other role
+     *  that makes a games admin, and only on a games-realm token. */
+    static final String REALM_ADMIN_ROLE = "admin";
 
     private final boolean realmAdminIsGamesAdmin;
 
@@ -249,7 +256,7 @@ public final class GamesAdminPolicy {
         List<String> roles = Roles.fromJwt(jwt);
         if (roles.contains(GAMES_ADMIN_ROLE)) return true;
         if (!isGamesRealm(jwt)) return false;
-        return roles.contains("admin") || roles.contains(MESH_GAMES_ADMIN_ROLE);
+        return roles.contains(REALM_ADMIN_ROLE);
     }
 
     /**

@@ -66,13 +66,14 @@ export class AuthService {
 
   /**
    * True for the same roles the BFF treats as a games admin on a games-realm
-   * token (GamesAdminPolicy): the realm's own `admin`, the derived `games_admin`,
-   * and `mesh-games-admin`, the role the GM sync keeps. The legacy `isAdmin` claim
-   * is not one of them: the BFF refuses it, so showing admin navigation for it
-   * would only lead to 403s. UI decisions only; the BFF is the authority.
+   * token (GamesAdminPolicy): the realm's own `admin` and the derived `games_admin`.
+   * Nothing else counts: neither the legacy `isAdmin` claim nor a role a sync
+   * writes from the mesh (`mesh-games-admin`), because the BFF refuses both, so
+   * showing admin navigation for them would only lead to 403s. UI decisions only;
+   * the BFF is the authority.
    */
   isAdmin(): boolean {
-    return ['admin', 'games_admin', 'mesh-games-admin'].some(role => this.hasRole(role));
+    return ['admin', 'games_admin'].some(role => this.hasRole(role));
   }
 
   /** True when Casdoor's `mod` role is present in the JWT roles claim. */

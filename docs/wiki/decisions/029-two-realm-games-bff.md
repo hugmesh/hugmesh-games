@@ -18,13 +18,21 @@ the token's validated `iss`. It never keys the realm on `owner` or on any other 
 |---|---|---|
 | `games_admin` | games admin | games admin |
 | `admin` | games admin | nothing (it is the PLATFORM admin) |
-| `mesh-games-admin` | games admin (the GM sync owns this role) | nothing |
+| `mesh-games-admin` (or any role a sync writes from the mesh) | nothing | nothing |
 | `superadmin` alone | not a games admin | not a games admin |
 | `mod`, `publisher`, `producer` | that capability | nothing (dropped) |
 | `games_mod`, `games_publisher`, `games_producer` | nothing | that capability |
 
 Whether a mesh user may play at all (`ROLE_GAMES`) is the fe-gateway's route-access
 rule; the BFF has no check of its own, as before.
+
+Games-realm admin comes ONLY from the games realm's own `admin` role; a mesh games admin
+administers games with their mesh token. No role that a sync writes into the games realm
+from the mesh is honoured, and none is seeded in `casdoor/init_data.json.tpl`: the sync
+derives membership from a link stored on the games user, and on Casdoor 3.80.0 a user
+can write their own `properties` even with the admin-only `modifyRule`, so such a role
+would be a self-service games admin. That stays until a link exists that a player
+cannot forge (#53).
 
 ## Configuration
 
