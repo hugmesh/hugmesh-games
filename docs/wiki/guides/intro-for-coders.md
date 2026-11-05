@@ -28,6 +28,7 @@ See the diagram in [02 — Runtime architecture](../architecture/02-runtime.md#t
 |---|---|
 | [`frontend/`](../../../frontend/) | Angular host (one project). |
 | [`frontend/projects/`](../../../frontend/projects/) | The twelve federated remotes (`login`, `registration`, `producer-registration`, `banned`, `admin`, `mod`, `publisher`, `api-docs`, `games-three-wizards`, `games-dodecahedron`, `games-rpg-maker`, `games-vn-maker`). |
+| [`games-ui/`](../../../games-ui/) | A separate Angular workspace: the single `games` remote that the HugMesh host shell mounts at `/games` and `/games/admin`. It is not part of the compose stack; see [02 — Runtime architecture](../architecture/02-runtime.md). |
 | [`wasm-fragment/`](../../../wasm-fragment/) | Asset-tier nginx that serves Godot bundles. |
 | [`backend/`](../../../backend/) | Spring Boot BFF (WebFlux + R2DBC). |
 | [`games/<slug>/`](../../../games/) | One Godot project per game. |
