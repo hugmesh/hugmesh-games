@@ -253,7 +253,8 @@ test:rust-cores:
 # No credential literal / literal default in the compose files the prod and
 # staging overlays extend (ClickHouse, MinIO, replicator, ... —
 # hugmesh-games#57). Plain bash on the runner, no container: the guard reads
-# four YAML files. Its self-test runs first so a guard that can no longer
+# four YAML files; the profile check also runs `docker compose config`
+# (interpolation only, no daemon) when the runner has compose. Its self-test runs first so a guard that can no longer
 # fail is itself red. Same rules as .test:base so it gates build:image on
 # every pipeline that builds; it does not extend .test:base because it needs
 # none of that job's docker-executor checks.
@@ -267,6 +268,10 @@ test:compose-credentials:
   script:
     - bash scripts/test-check-compose-credential-defaults.sh
     - bash scripts/check-compose-credential-defaults.sh
+    # The dast/load jobs source tests/pentest/env/compose.env and run docker
+    # compose directly (no make gate): every `${VAR:?}` in its compose files
+    # must be resolved by that profile, or spin-up and teardown both die.
+    - bash scripts/test-compose-env-interpolation.sh
 
 build:image:
   stage: build

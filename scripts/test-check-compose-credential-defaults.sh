@@ -110,6 +110,37 @@ reject "plain literal, single-quoted"      X_SECRET              "X_SECRET: 'fak
 reject "plain literal, list form"          X_TOKEN               '- X_TOKEN=fakevalue10'
 reject "default inside a longer scalar"    KEYSTORE_PASSWORD     'JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStorePassword=${KEYSTORE_PASSWORD:-fakevalue11}'
 reject "default inside a DSN string"       GAMES_DB_PASS         'dataSourceName: "user=u password=${GAMES_DB_PASS:-fakevalue12} host=h"'
+# Nested defaults (the round-1 fail-open: a regex that stopped at the first
+# `}` saw `${OTHER:-literal` as "starts with $" and never looked inside).
+# Each renders the literal under `docker compose config` with the vars unset.
+reject "nested: credential in credential"  MINIO_ROOT_PASSWORD   'MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-${MINIO_FALLBACK_PASSWORD:-fakenested1}}'
+reject "nested: inner credential named"    MINIO_FALLBACK_PASSWORD 'MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-${MINIO_FALLBACK_PASSWORD:-fakenested2}}'
+reject "nested: credential under non-cred" DB_PASSWORD           'HUGMESH_TAG: ${HUGMESH_TAG:-${DB_PASSWORD:-fakenested3}}'
+reject "nested: non-cred under credential" CLICKHOUSE_PASSWORD   'CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-${CH_FALLBACK:-fakenested4}}'
+reject "nested: literal after inner var"   CLICKHOUSE_PASSWORD   'CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-${CH_PREFIX}fakenested5}'
+reject "nested: three deep"                CLICKHOUSE_PASSWORD   'CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-${A:-${B:-fakenested6}}}'
+reject "nested: required var then literal" API_TOKEN             'API_TOKEN: ${API_TOKEN:-${BASE:?set}fakenested7}'
+reject "second interpolation on a line"    X_SECRET              'URL: ${HOST:?set}:${PORT:-8080}/${X_SECRET:-fakevalue13}'
+reject "dollar-escaped shell default"      MINIO_ROOT_PASSWORD   "entrypoint: sh -c 'mc alias set l http://m \$\${MINIO_ROOT_USER:?} \$\${MINIO_ROOT_PASSWORD:-fakeshell1}'"
+reject "alternate value on a credential"   CASDOOR_ADMIN_PASS    'CASDOOR_ADMIN_PASS: ${CASDOOR_ADMIN_PASS:+fakealt1}'
+reject "unknown operator fails closed"     DB_PASSWD             'DB_PASSWD: ${DB_PASSWD:=fakeunknown1}'
+
+# Nested shapes that render no literal stay green.
+nested_green="$(fixture nested-green <<'EOF'
+services:
+  s:
+    environment:
+      A_PASSWORD: ${A_PASSWORD:-${B_PASSWORD:-}}
+      C_PASSWORD: ${C_PASSWORD:-$C_FROM_ENV}
+      D_PASSWORD: ${D_PASSWORD:-${D_FROM_ENV}}
+      E_PASSWORD: ${E_PASSWORD:-${E_FROM_ENV:?set E}}
+      F_TOKEN: ${F_TOKEN:-${G_TOKEN:-${H_TOKEN:?set H}}}
+      HUGMESH_TAG: ${HUGMESH_TAG:-${OTHER_TAG:-dev}}
+      URL: ${HOST:?set}:${PORT:-8080}/${PATH_PREFIX:-api}
+    entrypoint: sh -c 'echo $${I_PASSWORD:?} $$J_PASSWORD'
+EOF
+)"
+expect_green "nested defaults made only of env values; non-credential nested literals" "$nested_green"
 
 # The report must name the variable and NEVER print the value. The guard
 # must have actually scanned the fixture (rc=1) for "no leak" to mean
@@ -121,6 +152,18 @@ elif printf '%s' "$out" | grep -F 'fakevalue1' >/dev/null; then
   bad "report leaks the default value"
 else
   ok "report names the variable, not the value"
+fi
+
+# Same for a nested literal: neither the outer nor the inner value printed.
+nested_leak="$work/nested-leak.yml"
+printf 'services:\n  s:\n    environment:\n      %s\n' 'MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-${MINIO_FALLBACK_PASSWORD:-fakenestedleak}}' > "$nested_leak"
+run_guard "$nested_leak"
+if [ "$rc" -ne 1 ]; then
+  bad "nested leak check did not run on a scanned violation (rc=$rc) -- $out"
+elif printf '%s' "$out" | grep -F 'fakenestedleak' >/dev/null; then
+  bad "report leaks a nested default value"
+else
+  ok "nested report names the variables, not the value"
 fi
 
 # --- 2. the real tree ----------------------------------------------------
@@ -170,6 +213,13 @@ fi
 # 3d. a nested-variable default must stay green (it is not a literal)
 if mutate "$work/tree/docker-compose.yml" '0,/\$\{MINIO_ROOT_PASSWORD:\?[^}]*\}/s//${MINIO_ROOT_PASSWORD:-${OTHER_SECRET:?set}}/' "nested default"; then
   expect_green "mutation: nested-variable default stays green" "${tree_files[@]}"
+  restore "$work/tree/docker-compose.yml"
+fi
+
+# 3d'. ...but a nested default that falls back to a literal must be red
+if mutate "$work/tree/docker-compose.yml" '0,/\$\{MINIO_ROOT_PASSWORD:\?[^}]*\}/s//${MINIO_ROOT_PASSWORD:-${MINIO_FALLBACK_PASSWORD:-mutantnested}}/' "nested literal default"; then
+  expect_red "mutation: nested literal default is red" MINIO_ROOT_PASSWORD "${tree_files[@]}"
+  if printf '%s' "$out" | grep -F mutantnested >/dev/null; then bad "nested mutation report leaks the value"; else ok "nested mutation report does not leak the value"; fi
   restore "$work/tree/docker-compose.yml"
 fi
 

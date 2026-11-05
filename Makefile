@@ -737,11 +737,15 @@ test-db-passwords:
 # No credential literal / literal default in the compose files the prod and
 # staging overlays extend (ClickHouse, MinIO, replicator, ... — #57). The
 # self-test proves the guard can still fail, then the guard runs on the real
-# tree. Offline, ~2s, bash only; CI runs both (release.yml version job,
-# .gitlab-ci.yml test:compose-credentials).
+# tree; last, the pentest compose profile (which runs docker compose without
+# these make gates) must resolve every `${VAR:?}` its compose files require.
+# Offline, ~3s, bash (+ `docker compose config` when present, no daemon);
+# CI runs all three (release.yml version job, .gitlab-ci.yml
+# test:compose-credentials).
 test-compose-credentials:
 	bash scripts/test-check-compose-credential-defaults.sh
 	bash scripts/check-compose-credential-defaults.sh
+	bash scripts/test-compose-env-interpolation.sh
 
 gen-certs:
 	@echo "→ Generating self-signed certs (or reusing CERT_PATH if set)…"

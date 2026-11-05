@@ -107,6 +107,11 @@ jobs:
       - name: No credential literal on the prod/staging compose path
         run: bash scripts/check-compose-credential-defaults.sh
 
+      # The pentest compose profile bypasses the Makefile gates: it must
+      # resolve every required variable of the compose files it runs.
+      - name: Pentest compose profile resolves every required variable
+        run: bash scripts/test-compose-env-interpolation.sh
+
       - name: Check VERSION against every version file and the ref
         id: guard
         run: python3 scripts/check_version.py --ref "$GITHUB_REF"

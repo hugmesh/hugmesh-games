@@ -18,13 +18,21 @@
 # Two rules, applied to every non-comment line (a full-line `#` comment is
 # not reachable by compose; an inline ` # ...` tail is stripped first):
 #
-#   A. an interpolation default `${NAME:-value}` or `${NAME-value}` whose
-#      NAME contains PASSWORD, PASSWD, _PASS, SECRET, TOKEN or _USER and
-#      whose value is a non-empty literal is a failure. An EMPTY default
-#      (`${NAME:-}`) is allowed: the Casdoor seeds use it to mean "let the
-#      container generate a random one". A default that is itself an
-#      interpolation (`${NAME:-${OTHER:?...}}`) is allowed: the value still
-#      comes from the environment, never from this file.
+#   A. an interpolation default `${NAME:-value}` or `${NAME-value}` (or an
+#      alternate `${NAME:+value}` / `${NAME+value}`) whose NAME contains
+#      PASSWORD, PASSWD, _PASS, SECRET, TOKEN or _USER is a failure when the
+#      value can render ANY literal text. An EMPTY default (`${NAME:-}`) is
+#      allowed: the Casdoor seeds use it to mean "let the container generate
+#      a random one". A default made only of interpolations that cannot
+#      themselves fall back to a literal (`${NAME:-${OTHER:?...}}`,
+#      `${NAME:-${OTHER}}`, `${NAME:-$OTHER}`) is allowed: the value still
+#      comes from the environment, never from this file. Nesting is followed
+#      to any depth, in both directions: `${NAME:-${OTHER:-literal}}` is red
+#      for NAME (that literal is NAME's value when both are unset), and
+#      `${ANY:-${OTHER_PASSWORD:-literal}}` is red for OTHER_PASSWORD
+#      whatever ANY is called. A `$$`-escaped `$${NAME:-literal}` is scanned
+#      too: compose passes it through and the container's shell applies the
+#      same default.
 #   B. an environment key ending in PASSWORD, PASSWD, _PASS, _SECRET or
 #      _TOKEN whose value is not an interpolation at all (a bare literal,
 #      quoted or not) is a failure. `_USER` is deliberately NOT in rule B:
@@ -70,10 +78,13 @@ fi
 
 NAME_RE='(PASSWORD|PASSWD|_PASS|SECRET|TOKEN|_USER)'
 KEY_RE='(PASSWORD|PASSWD|_PASS|_SECRET|_TOKEN)$'
-# ${NAME:-default} and ${NAME-default}; the default stops at the first `}`,
-# so a nested `${NAME:-${OTHER}}` yields the default `${OTHER` — which
-# starts with `$` and is therefore not a literal.
-DEFAULT_RE='\$\{([A-Za-z_][A-Za-z0-9_]*):?-([^}]*)\}'
+# Rule A is a small recursive scanner, not one regex: a regex that stops at
+# the first `}` sees `${NAME:-${OTHER:-literal}}` as the default `${OTHER:-literal`
+# (starts with `$`, "not a literal") and never looks inside it — the
+# fail-open this replaces. These patterns are its tokens.
+LIT_RE='^[^$}]+'                                       # a run of plain text
+OPEN_RE='^[$][{]([A-Za-z_][A-Za-z0-9_]*)(:?[-?+])?'     # ${NAME and its operator
+VAR_RE='^[$][A-Za-z_][A-Za-z0-9_]*'                     # bare $NAME
 
 violations=0
 scanned=0
@@ -84,10 +95,99 @@ report() { # report FILE LINENO MESSAGE  (never a value)
   violations=$((violations + 1))
 }
 
+# _interp TEXT START DEPTH
+#   Walks TEXT from index START. At DEPTH 0 it walks to the end; at DEPTH > 0
+#   it stops at the `}` that closes the enclosing `${...`. Every
+#   `${NAME<op>body}` met on the way is walked recursively, so nothing nested
+#   is skipped, and reported (rule A) when NAME is credential-looking, <op>
+#   is a default (`-`, `:-`) or an alternate (`+`, `:+`), and the body can
+#   render literal text. A `${NAME:?message}` body is an error message, not a
+#   value: it renders nothing (though interpolations inside it are still
+#   walked). Results in globals (bash functions cannot return strings
+#   cheaply): _end = index of the closing `}` (or the length, unterminated),
+#   _lit = 1 when the walked span can render literal text.
+#   Needs $file and $lineno from scan_file for the report.
+_interp() {
+  local s="$1"
+  local i="$2"
+  local depth="$3"
+  local n="${#s}"
+  local lit=0
+  local tail name op body_lit
+  while [ "$i" -lt "$n" ]; do
+    tail="${s:i}"
+    if [[ "$tail" =~ $LIT_RE ]]; then
+      lit=1
+      i=$((i + ${#BASH_REMATCH[0]}))
+      continue
+    fi
+    case "$tail" in
+      '}'*)
+        if [ "$depth" -gt 0 ]; then
+          break
+        fi
+        lit=1
+        i=$((i + 1))
+        ;;
+      '$$'*)
+        # Compose's escape for a literal `$`. Consume ONE `$` only, so a
+        # following `${NAME:-x}` is walked like any other: the container's
+        # shell applies that default at run time.
+        lit=1
+        i=$((i + 1))
+        ;;
+      '${'*)
+        if [[ "$tail" =~ $OPEN_RE ]]; then
+          name="${BASH_REMATCH[1]}"
+          op="${BASH_REMATCH[2]}"
+          i=$((i + ${#BASH_REMATCH[0]}))
+          if [ -z "$op" ]; then
+            if [ "${s:i:1}" = '}' ]; then
+              i=$((i + 1))   # plain ${NAME}: the environment's value, no literal
+              continue
+            fi
+            op='-'           # an operator compose does not know: fail closed, treat the rest as a default
+          fi
+          _interp "$s" "$i" "$((depth + 1))"
+          body_lit="$_lit"
+          i="$_end"
+          if [ "$i" -lt "$n" ]; then
+            i=$((i + 1))     # the closing }
+          fi
+          case "$op" in
+            *'?') ;;         # required: the body is the error message
+            *)
+              if [ "$body_lit" -eq 1 ]; then
+                lit=1
+                if [[ "$name" =~ $NAME_RE ]]; then
+                  report "$file" "$lineno" "$name has a literal default (\${$name:-...}); use \${$name:?message} or an empty default"
+                fi
+              fi
+              ;;
+          esac
+        else
+          lit=1              # `${` that is not an interpolation compose accepts
+          i=$((i + 1))
+        fi
+        ;;
+      '$'*)
+        if [[ "$tail" =~ $VAR_RE ]]; then
+          i=$((i + ${#BASH_REMATCH[0]}))   # bare $NAME: no literal
+        else
+          lit=1
+          i=$((i + 1))
+        fi
+        ;;
+    esac
+  done
+  _end="$i"
+  _lit="$lit"
+}
+
 scan_file() {
   local file="$1"
   local lineno=0
-  local line rest key value name default
+  local line key value
   # tr strips NUL so no line is silently skipped; the loop reads from the
   # cleaned copy, never from a pipeline whose status could be masked. All
   # matching below is bash's own regex engine ([[ =~ ]]): no per-line
@@ -107,20 +207,11 @@ scan_file() {
       line="${BASH_REMATCH[1]}"
     done
 
-    # Rule A: literal interpolation defaults on credential-looking names.
-    # Each iteration consumes the leftmost match so every `${...:-...}` on
-    # the line is seen.
-    rest="$line"
-    while [[ "$rest" =~ $DEFAULT_RE ]]; do
-      name="${BASH_REMATCH[1]}"
-      default="${BASH_REMATCH[2]}"
-      rest="${rest#*"${BASH_REMATCH[0]}"}"
-      if [[ "$name" =~ $NAME_RE ]]; then
-        if [ -n "$default" ] && [ "${default#\$}" = "$default" ]; then
-          report "$file" "$lineno" "$name has a literal default (\${$name:-...}); use \${$name:?message} or an empty default"
-        fi
-      fi
-    done
+    # Rule A: literal interpolation defaults on credential-looking names,
+    # at any nesting depth (see _interp). Lines with no `$` cannot carry one.
+    case "$line" in
+      *'$'*) _interp "$line" 0 0 ;;
+    esac
 
     # Rule B: a credential key whose value is a plain literal.
     #   KEY: value        (mapping form)
