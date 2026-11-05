@@ -77,8 +77,12 @@ class ManifestBuilderFeaturesGuardTest {
         return Files.readString(fromRepoRoot(relative), StandardCharsets.UTF_8);
     }
 
-    /** The keys and values of the {@code _DEFAULT_FEATURES} dictionary literal, in source order. */
-    private static Map<String, Boolean> pluginDefaults() throws IOException {
+    /**
+     * The keys and values of the {@code _DEFAULT_FEATURES} dictionary literal, in source order.
+     * Package-private: {@link ExportPluginFeaturesInstallIntegrationTest} builds its install
+     * fixture from it, so that test tracks the plugin instead of a hand-typed copy.
+     */
+    static Map<String, Boolean> pluginDefaults() throws IOException {
         String gd = read(BUILDER);
         Matcher block = Pattern.compile("const\\s+_DEFAULT_FEATURES\\s*:=\\s*\\{(.*?)\\n\\}", Pattern.DOTALL)
                 .matcher(gd);
