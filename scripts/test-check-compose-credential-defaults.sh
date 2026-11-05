@@ -89,10 +89,12 @@ EOF
 expect_green "required, empty-default, nested-var default, non-credential defaults, comments, dollar-dollar passthrough" "$green"
 
 # --- 1. shapes: rejected, one line each ----------------------------------
+first_red=""
 reject() { # reject LABEL EXPECTED_NAME LINE
   local label="$1" name="$2" line="$3"
   local f="$work/red-$pass-$fail.yml"
   printf 'services:\n  s:\n    environment:\n      %s\n' "$line" > "$f"
+  [ -n "$first_red" ] || first_red="$f"
   expect_red "$label" "$name" "$f"
 }
 reject "PASSWORD literal default"          CLICKHOUSE_PASSWORD   'CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-fakevalue1}'
@@ -109,9 +111,13 @@ reject "plain literal, list form"          X_TOKEN               '- X_TOKEN=fake
 reject "default inside a longer scalar"    KEYSTORE_PASSWORD     'JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStorePassword=${KEYSTORE_PASSWORD:-fakevalue11}'
 reject "default inside a DSN string"       GAMES_DB_PASS         'dataSourceName: "user=u password=${GAMES_DB_PASS:-fakevalue12} host=h"'
 
-# The report must name the variable and NEVER print the value.
-run_guard "$work/red-0-0.yml"
-if printf '%s' "$out" | grep -F 'fakevalue1' >/dev/null; then
+# The report must name the variable and NEVER print the value. The guard
+# must have actually scanned the fixture (rc=1) for "no leak" to mean
+# anything: a missing file (rc=2) would also print no value.
+run_guard "$first_red"
+if [ "$rc" -ne 1 ]; then
+  bad "leak check did not run on a scanned violation (rc=$rc) -- $out"
+elif printf '%s' "$out" | grep -F 'fakevalue1' >/dev/null; then
   bad "report leaks the default value"
 else
   ok "report names the variable, not the value"

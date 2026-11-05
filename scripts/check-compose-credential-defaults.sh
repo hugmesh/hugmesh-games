@@ -73,7 +73,7 @@ KEY_RE='(PASSWORD|PASSWD|_PASS|_SECRET|_TOKEN)$'
 # ${NAME:-default} and ${NAME-default}; the default stops at the first `}`,
 # so a nested `${NAME:-${OTHER}}` yields the default `${OTHER` — which
 # starts with `$` and is therefore not a literal.
-DEFAULT_RE='\$\{[A-Za-z_][A-Za-z0-9_]*:?-[^}]*\}'
+DEFAULT_RE='\$\{([A-Za-z_][A-Za-z0-9_]*):?-([^}]*)\}'
 
 violations=0
 scanned=0
@@ -87,50 +87,58 @@ report() { # report FILE LINENO MESSAGE  (never a value)
 scan_file() {
   local file="$1"
   local lineno=0
-  local line key value match name default
+  local line rest key value name default
   # tr strips NUL so no line is silently skipped; the loop reads from the
-  # cleaned copy, never from a pipeline whose status could be masked.
+  # cleaned copy, never from a pipeline whose status could be masked. All
+  # matching below is bash's own regex engine ([[ =~ ]]): no per-line
+  # subprocesses, so the four files scan in well under a second.
   local cleaned
   cleaned="$(mktemp "${TMPDIR:-/tmp}/compose-cred-guard.XXXXXX")"
   tr -d '\000' < "$file" > "$cleaned"
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
     # Full-line comment: not reachable by compose.
-    if printf '%s' "$line" | grep -E '^[[:space:]]*#' >/dev/null; then
+    if [[ "$line" =~ ^[[:space:]]*# ]]; then
       continue
     fi
     # Inline comment tail (YAML requires whitespace before an inline `#`).
-    line="$(printf '%s' "$line" | sed -E 's/[[:space:]]#.*$//')"
+    # Greedy (.*) stops at the LAST " #"; looping strips back to the first.
+    while [[ "$line" =~ ^(.*)[[:space:]]#.*$ ]]; do
+      line="${BASH_REMATCH[1]}"
+    done
 
     # Rule A: literal interpolation defaults on credential-looking names.
-    # grep -o lists every match on the line; a line with none exits 1,
-    # which `|| true` absorbs so set -e does not end the scan early.
-    while IFS= read -r match; do
-      [ -n "$match" ] || continue
-      name="$(printf '%s' "$match" | sed -E 's/^\$\{([A-Za-z_][A-Za-z0-9_]*):?-.*$/\1/')"
-      default="$(printf '%s' "$match" | sed -E 's/^\$\{[A-Za-z_][A-Za-z0-9_]*:?-(.*)\}$/\1/')"
-      if printf '%s' "$name" | grep -E "$NAME_RE" >/dev/null; then
+    # Each iteration consumes the leftmost match so every `${...:-...}` on
+    # the line is seen.
+    rest="$line"
+    while [[ "$rest" =~ $DEFAULT_RE ]]; do
+      name="${BASH_REMATCH[1]}"
+      default="${BASH_REMATCH[2]}"
+      rest="${rest#*"${BASH_REMATCH[0]}"}"
+      if [[ "$name" =~ $NAME_RE ]]; then
         if [ -n "$default" ] && [ "${default#\$}" = "$default" ]; then
           report "$file" "$lineno" "$name has a literal default (\${$name:-...}); use \${$name:?message} or an empty default"
         fi
       fi
-    done < <(printf '%s\n' "$line" | grep -oE "$DEFAULT_RE" || true)
+    done
 
     # Rule B: a credential key whose value is a plain literal.
     #   KEY: value        (mapping form)
     #   - KEY=value       (list form)
     key=""
     value=""
-    if printf '%s' "$line" | grep -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*[^[:space:]]' >/dev/null; then
-      key="$(printf '%s' "$line" | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*:.*$/\1/')"
-      value="$(printf '%s' "$line" | sed -E 's/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*//')"
-    elif printf '%s' "$line" | grep -E '^[[:space:]]*-[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]' >/dev/null; then
-      key="$(printf '%s' "$line" | sed -E 's/^[[:space:]]*-[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=.*$/\1/')"
-      value="$(printf '%s' "$line" | sed -E 's/^[[:space:]]*-[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=//')"
+    if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*:[[:space:]]*([^[:space:]].*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+    elif [[ "$line" =~ ^[[:space:]]*-[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=([^[:space:]].*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
     fi
-    if [ -n "$key" ] && printf '%s' "$key" | grep -E "$KEY_RE" >/dev/null; then
+    if [ -n "$key" ] && [[ "$key" =~ $KEY_RE ]]; then
       # Strip one layer of quotes, then require an interpolation.
-      value="$(printf '%s' "$value" | sed -E "s/^[\"'](.*)[\"'][[:space:]]*$/\1/")"
+      if [[ "$value" =~ ^[\"\'](.*)[\"\'][[:space:]]*$ ]]; then
+        value="${BASH_REMATCH[1]}"
+      fi
       case "$value" in
         '${'*) ;;
         *) report "$file" "$lineno" "$key is a plain literal; use \${$key:?message}" ;;
