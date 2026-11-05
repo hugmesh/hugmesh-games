@@ -46,7 +46,7 @@ interface PlayerSession {
  * Bearer-JWT interceptor still wraps these requests because HttpClient
  * is the singleton root-injector instance (shareAll, singleton: true).
  *
- * The 403 case carries the same "log in with an isAdmin account" hint
+ * The 403 case carries the same "log in with a games admin account" hint
  * the host had — same message keeps the e2e/QA story identical.
  */
 @Component({
@@ -261,7 +261,7 @@ export class AdminRemoteComponent implements OnInit {
     this.stats$ = this.http.get<AdminStats>('/api/admin/stats').pipe(
       catchError(err => {
         this.errorMessage = err.status === 403
-          ? 'Admin access required — log in with an isAdmin account.'
+          ? 'Admin access required — log in with a games admin account.'
           : 'Failed to load stats.';
         return of(null);
       }),

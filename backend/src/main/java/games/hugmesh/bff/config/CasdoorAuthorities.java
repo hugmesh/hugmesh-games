@@ -2,6 +2,8 @@ package games.hugmesh.bff.config;
 
 import games.hugmesh.bff.security.DomainRegistry;
 import games.hugmesh.bff.security.GamesAdminPolicy;
+import games.hugmesh.bff.service.UserDirectoryService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -42,16 +44,31 @@ import java.util.Map;
  * {@code admin} only on the games realm). This one authority is the games-admin
  * gate; {@code ROLE_ADMIN} alone opens nothing in this BFF.
  *
+ * <h2>Roles are read per realm</h2>
+ *
+ * <p>The games realm names its capabilities {@code mod}, {@code publisher} and
+ * {@code producer}. On the systems realm a bare {@code ROLE_MOD} is a PLATFORM
+ * moderator, nothing to do with games, so a systems token only earns those games
+ * capabilities from the games-namespaced {@code ROLE_GAMES_MOD},
+ * {@code ROLE_GAMES_PUBLISHER} and {@code ROLE_GAMES_PRODUCER}, and the bare names
+ * are dropped (see {@link #SYSTEMS_REALM_GAMES_ROLES}). The realm comes from the
+ * token's {@code iss} through {@link GamesAdminPolicy#isGamesRealm}.
+ *
+ * <p>Raw-claim readers stay raw: {@code Roles.fromJwt} feeds the
+ * {@code game_access} scope='role' intersection, which only ever widens what a
+ * caller can SEE in the catalog. Those values are canonical names matched in both
+ * realms, so {@code play-<slug>} has to be seeded in both Casdoors for a game gated
+ * on it to appear for both kinds of player.
+ *
  * Every authenticated principal floors to {@code ROLE_USER} and is stamped with
  * exactly one issuer-derived {@code DOMAIN_<x>} authority.
  *
  * <h2>Note for the games BFF</h2>
  *
- * <p>{@code SecurityConfig.casdoorAuthoritiesConverter()} wraps this converter
- * with the {@code UserDirectoryService.cacheLogin} side-effect (the
- * username→casdoorId cache warm-up the relationship endpoints depend on). The
- * AUTHORITY output is identical to this class — the wrapper only adds the cache
- * hook, it never alters the emitted authorities.
+ * <p>Both decoder paths use the {@code UserDirectoryService.cacheLogin} overload
+ * of {@link #converter}, which wraps the mapping with the (realm, username) →
+ * casdoorId cache warm-up the relationship endpoints depend on. It only adds the
+ * cache hook, it never alters the emitted authorities.
  *
  * @see SecurityConfig
  * @see TenancyResourceServerConfig
@@ -132,6 +149,26 @@ final class CasdoorAuthorities {
     }
 
     /**
+     * Games capabilities that collide with a systems-realm role name, as the
+     * canonical name the games realm uses → the games-namespaced systems role that
+     * grants it. See the class doc.
+     */
+    private static final Map<String, String> SYSTEMS_REALM_GAMES_ROLES = Map.of(
+            "MOD", "GAMES_MOD",
+            "PUBLISHER", "GAMES_PUBLISHER",
+            "PRODUCER", "GAMES_PRODUCER");
+
+    /** Per-realm reading of one canonical role name; empty means no authority. */
+    private static List<String> authoritiesForRole(String name, boolean gamesRealm) {
+        if (gamesRealm) return List.of("ROLE_" + name);
+        if (SYSTEMS_REALM_GAMES_ROLES.containsKey(name)) return List.of();
+        for (Map.Entry<String, String> e : SYSTEMS_REALM_GAMES_ROLES.entrySet()) {
+            if (e.getValue().equals(name)) return List.of("ROLE_" + name, "ROLE_" + e.getKey());
+        }
+        return List.of("ROLE_" + name);
+    }
+
+    /**
      * Builds a reactive {@link Converter} bound to the given {@link DomainRegistry}
      * (used to resolve the issuer → {@code DOMAIN_<x>} authority). Both the
      * single-issuer and multi-issuer decoder paths call this factory so they share
@@ -143,6 +180,32 @@ final class CasdoorAuthorities {
     static Converter<Jwt, Flux<GrantedAuthority>> converter(DomainRegistry domainRegistry,
                                                            GamesAdminPolicy gamesAdmin) {
         return jwt -> Flux.fromIterable(authorities(jwt, domainRegistry, gamesAdmin));
+    }
+
+    /**
+     * {@link #converter(DomainRegistry, GamesAdminPolicy)} plus the
+     * {@code cacheLogin} side-effect, so the single-issuer and multi-issuer paths
+     * warm the same directory cache. Populates the (realm, username) → casdoorId
+     * cache on every authenticated request: without this, the first
+     * /api/relationships/blocks/add { other: "player2" } call misses the cache and
+     * falls back to a Casdoor get-user round-trip that can transiently 404,
+     * silently no-opping the block. The authorities are unaffected.
+     *
+     * @param directories lazy provider, so the security chain has no bootstrap-time
+     *                    dependency on the directory; may yield {@code null}
+     */
+    static Converter<Jwt, Flux<GrantedAuthority>> converter(DomainRegistry domainRegistry,
+                                                           GamesAdminPolicy gamesAdmin,
+                                                           ObjectProvider<UserDirectoryService> directories) {
+        Converter<Jwt, Flux<GrantedAuthority>> delegate = converter(domainRegistry, gamesAdmin);
+        return jwt -> {
+            UserDirectoryService directory = directories.getIfAvailable();
+            if (directory != null) {
+                directory.cacheLogin(jwt.getClaimAsString("iss"),
+                        jwt.getClaimAsString("name"), jwt.getSubject());
+            }
+            return delegate.convert(jwt);
+        };
     }
 
     // -------------------------------------------------------------------------
@@ -158,7 +221,8 @@ final class CasdoorAuthorities {
      * <ol>
      *   <li>{@code ROLE_USER} floor — always added first.</li>
      *   <li>{@code roles} claim entries → {@code ROLE_<UPPER>} (either from a
-     *       plain string or from a {@code {name: "..."}} object).</li>
+     *       plain string or from a {@code {name: "..."}} object), read per realm
+     *       (see the class doc).</li>
      *   <li>{@code permissions} claim entries → verbatim, after the
      *       reserved-prefix guard drops any injection attempt.</li>
      *   <li>{@code isAdmin} legacy boolean → {@code ROLE_ADMIN} when
@@ -187,7 +251,8 @@ final class CasdoorAuthorities {
         // Every authenticated principal gets ROLE_USER as the floor authority.
         authorities.add(new SimpleGrantedAuthority("ROLE_USER")); // floor — UNCHANGED
 
-        // Map the roles claim (strings or {name} objects) to ROLE_<UPPER>.
+        // Map the roles claim (strings or {name} objects) to ROLE_<UPPER>, per realm.
+        boolean gamesRealm = gamesAdmin.isGamesRealm(jwt);
         Object rolesClaim = jwt.getClaim("roles");
         if (rolesClaim instanceof Collection<?> list) {
             for (Object r : list) {
@@ -199,7 +264,9 @@ final class CasdoorAuthorities {
                 // See RESERVED_PREFIXES + canonicalRoleName.
                 String name = canonicalRoleName(roleNameOf(r));
                 if (!name.isBlank()) {
-                    authorities.add(new SimpleGrantedAuthority("ROLE_" + name));
+                    for (String authority : authoritiesForRole(name, gamesRealm)) {
+                        authorities.add(new SimpleGrantedAuthority(authority));
+                    }
                 }
             }
         }

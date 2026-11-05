@@ -49,6 +49,10 @@ public class UserRelationshipController {
         return jwt != null ? jwt.getSubject() : "anonymous";
     }
 
+    private static String issuerOf(Jwt jwt) {
+        return jwt != null ? jwt.getClaimAsString("iss") : null;
+    }
+
     /**
      * Resolve the body's `other` field to a Casdoor UUID. Players type
      * usernames into the UI; the friend graph + blocklist tables key
@@ -66,10 +70,9 @@ public class UserRelationshipController {
         }
         // Cache the caller's own mapping while we have both claims.
         if (jwt != null) {
-            String name = jwt.getClaimAsString("name");
-            if (name != null) directory.cacheLogin(name, jwt.getSubject());
+            directory.cacheLogin(issuerOf(jwt), jwt.getClaimAsString("name"), jwt.getSubject());
         }
-        return directory.resolveOrPassthrough(body.other())
+        return directory.resolveOrPassthrough(body.other(), issuerOf(jwt))
                 .switchIfEmpty(Mono.error(new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "user not found: " + body.other())));
     }
@@ -77,19 +80,19 @@ public class UserRelationshipController {
     @Operation(summary = "List the caller's mutual friends")
     @GetMapping("/friends")
     public Flux<UserRelationshipDto> friends(@AuthenticationPrincipal Jwt jwt) {
-        return service.friendList(me(jwt)).map(this::decorate);
+        return service.friendList(me(jwt)).map(r -> decorate(r, jwt));
     }
 
     @Operation(summary = "List incoming friend requests")
     @GetMapping("/friends/incoming")
     public Flux<UserRelationshipDto> incoming(@AuthenticationPrincipal Jwt jwt) {
-        return service.incomingRequests(me(jwt)).map(this::decorate);
+        return service.incomingRequests(me(jwt)).map(r -> decorate(r, jwt));
     }
 
     @Operation(summary = "List outgoing friend requests")
     @GetMapping("/friends/outgoing")
     public Flux<UserRelationshipDto> outgoing(@AuthenticationPrincipal Jwt jwt) {
-        return service.outgoingRequests(me(jwt)).map(this::decorate);
+        return service.outgoingRequests(me(jwt)).map(r -> decorate(r, jwt));
     }
 
     @Operation(summary = "Send a friend request (auto-accepts if a reciprocal request already exists)")
@@ -97,7 +100,7 @@ public class UserRelationshipController {
     public Mono<UserRelationshipDto> request(@AuthenticationPrincipal Jwt jwt, @RequestBody TargetBody body) {
         return resolveOther(body, jwt)
                 .flatMap(otherId -> service.requestFriend(me(jwt), otherId))
-                .map(this::decorate);
+                .map(r -> decorate(r, jwt));
     }
 
     @Operation(summary = "Accept an inbound friend request")
@@ -105,7 +108,7 @@ public class UserRelationshipController {
     public Mono<UserRelationshipDto> accept(@AuthenticationPrincipal Jwt jwt, @RequestBody TargetBody body) {
         return resolveOther(body, jwt)
                 .flatMap(otherId -> service.acceptFriend(me(jwt), otherId))
-                .map(this::decorate);
+                .map(r -> decorate(r, jwt));
     }
 
     @Operation(summary = "Decline a request or remove an existing friend")
@@ -119,7 +122,7 @@ public class UserRelationshipController {
     @Operation(summary = "List users the caller has blocked")
     @GetMapping("/blocks")
     public Flux<UserRelationshipDto> blocks(@AuthenticationPrincipal Jwt jwt) {
-        return service.blockList(me(jwt)).map(this::decorate);
+        return service.blockList(me(jwt)).map(r -> decorate(r, jwt));
     }
 
     @Operation(summary = "Block a user (publishers and admins are not blockable)")
@@ -127,7 +130,7 @@ public class UserRelationshipController {
     public Mono<UserRelationshipDto> block(@AuthenticationPrincipal Jwt jwt, @RequestBody TargetBody body) {
         return resolveOther(body, jwt)
                 .flatMap(otherId -> service.block(me(jwt), otherId))
-                .map(this::decorate);
+                .map(r -> decorate(r, jwt));
     }
 
     @Operation(summary = "Unblock a user")
@@ -138,11 +141,12 @@ public class UserRelationshipController {
                 .then(Mono.just(Map.of("ok", true)));
     }
 
-    /** Wrap a {@link UserRelationship} with display names for the UI. */
-    private UserRelationshipDto decorate(UserRelationship r) {
+    /** Wrap a {@link UserRelationship} with display names for the UI, as this viewer
+     *  should read them. */
+    private UserRelationshipDto decorate(UserRelationship r, Jwt viewer) {
         return UserRelationshipDto.from(
                 r,
-                directory.displayNameFor(r.getUserCasdoorId()),
-                directory.displayNameFor(r.getOtherCasdoorId()));
+                directory.displayNameFor(r.getUserCasdoorId(), issuerOf(viewer)),
+                directory.displayNameFor(r.getOtherCasdoorId(), issuerOf(viewer)));
     }
 }

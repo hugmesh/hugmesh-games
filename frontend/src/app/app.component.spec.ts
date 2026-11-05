@@ -148,3 +148,69 @@ describe('AppComponent bootstrap activation', () => {
     expect(spies.adminActions).toHaveBeenCalled();
   });
 });
+
+// Rendered, not just the getters: this navigation stayed hidden for real admins
+// because Casdoor mints `roles` as {name} objects and the checks only read strings.
+describe('AppComponent navigation, with the token Casdoor actually mints', () => {
+  function navLinks(roles: string[], extraClaims: Record<string, unknown> = {}): string[] {
+    const claims = {
+      sub: 'someone', name: 'someone',
+      roles: roles.map(name => ({ owner: 'threewizards', name, displayName: name, isEnabled: true })),
+      ...extraClaims,
+    };
+    localStorage.setItem('tw_auth', JSON.stringify({
+      accessToken: `header.${btoa(JSON.stringify(claims))}.sig`,
+      idToken: '',
+      expiry: Date.now() + 60_000,
+    }));
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    return Array.from<HTMLAnchorElement>(fixture.nativeElement.querySelectorAll('a'))
+      .map(a => a.getAttribute('href') ?? '');
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
+    });
+  });
+
+  afterEach(() => localStorage.clear());
+
+  it('an admin sees the admin, mod and publisher links', () => {
+    const links = navLinks(['admin', 'player']);
+    expect(links).toContain('/admin');
+    expect(links).toContain('/mod');
+    expect(links).toContain('/publisher');
+  });
+
+  it('a mod sees the mod link and not the admin link', () => {
+    const links = navLinks(['mod']);
+    expect(links).toContain('/mod');
+    expect(links).not.toContain('/admin');
+    expect(links).not.toContain('/publisher');
+  });
+
+  it('a publisher sees the publisher link and not the admin link', () => {
+    const links = navLinks(['publisher']);
+    expect(links).toContain('/publisher');
+    expect(links).not.toContain('/admin');
+    expect(links).not.toContain('/mod');
+  });
+
+  it('a player sees none of them', () => {
+    const links = navLinks(['player', 'play-three-wizards']);
+    expect(links).not.toContain('/admin');
+    expect(links).not.toContain('/mod');
+    expect(links).not.toContain('/publisher');
+  });
+
+  it('the legacy isAdmin claim alone does not show the admin link', () => {
+    expect(navLinks(['player'], { isAdmin: true })).not.toContain('/admin');
+  });
+});

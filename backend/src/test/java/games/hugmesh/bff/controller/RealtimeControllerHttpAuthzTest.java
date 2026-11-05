@@ -65,9 +65,12 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
  * brand-Y session is 403 before any side work — wave-2 only ran single-tenant.
  */
 @WebFluxTest(controllers = RealtimeController.class,
-        properties = "app.tenancy.issuers="
+        properties = {"app.tenancy.issuers="
                 + "https://casdoor.brandx.example=brandx,"
                 + "https://casdoor.brandy.example=brandy",
+                // Two issuers must say which is the games realm; each brand's is.
+                "app.security.games-realm-issuers="
+                + "https://casdoor.brandx.example,https://casdoor.brandy.example"},
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = {
                 BanGateFilter.class, DomainGuardFilter.class,
                 RateLimitFilter.class, SecurityHeadersFilter.class}))
@@ -219,7 +222,7 @@ class RealtimeControllerHttpAuthzTest {
         Game g = new Game();
         g.setDomain("default");
         when(gameRepo.findBySlug(eq("g"))).thenReturn(Mono.just(g));
-        web.mutateWith(SecuritySliceSupport.admin("root"))
+        web.mutateWith(SecuritySliceSupport.adminOn("root", SecuritySliceSupport.ISS_X, SecuritySliceSupport.BRAND_X))
                 .get().uri("/api/realtime/" + SID + "/log")
                 .exchange()
                 .expectStatus().isOk();

@@ -88,7 +88,7 @@ class UserRelationshipControllerHttpAuthzTest {
 
     @Test
     void blocks_anonymous_is401_neverReachesController() {
-        lenient().when(directory.displayNameFor(any())).thenReturn("name");
+        lenient().when(directory.displayNameFor(any(), any())).thenReturn("name");
 
         web.get().uri("/api/relationships/blocks")
                 .exchange()
@@ -101,7 +101,7 @@ class UserRelationshipControllerHttpAuthzTest {
 
     @Test
     void friends_anonymous_is401_neverReachesController() {
-        lenient().when(directory.displayNameFor(any())).thenReturn("name");
+        lenient().when(directory.displayNameFor(any(), any())).thenReturn("name");
 
         web.get().uri("/api/relationships/friends")
                 .exchange()
@@ -115,7 +115,7 @@ class UserRelationshipControllerHttpAuthzTest {
     void blocks_scopedToJwtSubject_neverAnotherUsersList() {
         // alice has one block (bob). The list is fetched for "alice" — the
         // subject — and there is no way to request "carol"'s list.
-        lenient().when(directory.displayNameFor(any())).thenReturn("name");
+        lenient().when(directory.displayNameFor(any(), any())).thenReturn("name");
         when(service.blockList(eq("alice"))).thenReturn(Flux.just(block("alice", "bob")));
 
         web.mutateWith(SecuritySliceSupport.user("alice"))
@@ -131,7 +131,7 @@ class UserRelationshipControllerHttpAuthzTest {
 
     @Test
     void blocks_differentCaller_getsOwnListOnly() {
-        lenient().when(directory.displayNameFor(any())).thenReturn("name");
+        lenient().when(directory.displayNameFor(any(), any())).thenReturn("name");
         when(service.blockList(eq("carol"))).thenReturn(Flux.empty());
 
         web.mutateWith(SecuritySliceSupport.user("carol"))
@@ -148,8 +148,8 @@ class UserRelationshipControllerHttpAuthzTest {
 
     @Test
     void blockAdd_actsAsJwtSubjectNotBodyUser() {
-        lenient().when(directory.displayNameFor(any())).thenReturn("name");
-        when(directory.resolveOrPassthrough(eq("victim"))).thenReturn(Mono.just("victim-id"));
+        lenient().when(directory.displayNameFor(any(), any())).thenReturn("name");
+        when(directory.resolveOrPassthrough(eq("victim"), any())).thenReturn(Mono.just("victim-id"));
         when(service.block(eq("alice"), eq("victim-id")))
                 .thenReturn(Mono.just(block("alice", "victim-id")));
 
@@ -179,7 +179,7 @@ class UserRelationshipControllerHttpAuthzTest {
 
     @Test
     void unblock_actsAsJwtSubject() {
-        when(directory.resolveOrPassthrough(eq("victim"))).thenReturn(Mono.just("victim-id"));
+        when(directory.resolveOrPassthrough(eq("victim"), any())).thenReturn(Mono.just("victim-id"));
         when(service.unblock(eq("bob"), eq("victim-id"))).thenReturn(Mono.empty());
 
         web.mutateWith(SecuritySliceSupport.user("bob"))
@@ -195,8 +195,8 @@ class UserRelationshipControllerHttpAuthzTest {
 
     @Test
     void friendRequest_actsAsJwtSubject() {
-        lenient().when(directory.displayNameFor(any())).thenReturn("name");
-        when(directory.resolveOrPassthrough(eq("target"))).thenReturn(Mono.just("target-id"));
+        lenient().when(directory.displayNameFor(any(), any())).thenReturn("name");
+        when(directory.resolveOrPassthrough(eq("target"), any())).thenReturn(Mono.just("target-id"));
         when(service.requestFriend(eq("alice"), eq("target-id")))
                 .thenReturn(Mono.just(block("alice", "target-id")));
 

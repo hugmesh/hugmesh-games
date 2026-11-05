@@ -31,6 +31,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class UserDirectoryServiceTest {
 
+    private static final String ISS = "https://id.example";
+
     private UserDirectoryService service;
 
     @BeforeEach
@@ -40,40 +42,41 @@ class UserDirectoryServiceTest {
         // The HTTP path itself is covered by the e2e suite where the
         // real Casdoor responds.
         WebClient client = WebClient.create("http://unused");
-        service = new UserDirectoryService(client, "client", "secret", "threewizards");
+        service = new UserDirectoryService(new UserDirectoryService.Directory(client, "client", "secret", "threewizards"),
+                false, iss -> true, "", null);
     }
 
     @Test
     void uuidInputPassesThroughWithoutTouchingTheCache() {
         String uuid = "21c51347-c1c7-421b-a104-25a52c06b4d0";
-        StepVerifier.create(service.resolveOrPassthrough(uuid))
+        StepVerifier.create(service.resolveOrPassthrough(uuid, ISS))
                 .expectNext(uuid)
                 .verifyComplete();
     }
 
     @Test
     void primedCacheShortCircuitsResolution() {
-        service.cacheLogin("player1", "primed-uuid");
-        StepVerifier.create(service.resolveByName("player1"))
+        service.cacheLogin(ISS, "player1", "primed-uuid");
+        StepVerifier.create(service.resolveByName("player1", ISS))
                 .expectNext("primed-uuid")
                 .verifyComplete();
     }
 
     @Test
     void primedCacheAlsoApplitsToResolveOrPassthrough() {
-        service.cacheLogin("player2", "primed-uuid-2");
-        StepVerifier.create(service.resolveOrPassthrough("player2"))
+        service.cacheLogin(ISS, "player2", "primed-uuid-2");
+        StepVerifier.create(service.resolveOrPassthrough("player2", ISS))
                 .expectNext("primed-uuid-2")
                 .verifyComplete();
     }
 
     @Test
     void blankInputEmitsEmpty() {
-        StepVerifier.create(service.resolveOrPassthrough(""))
+        StepVerifier.create(service.resolveOrPassthrough("", ISS))
                 .verifyComplete();
-        StepVerifier.create(service.resolveOrPassthrough("   "))
+        StepVerifier.create(service.resolveOrPassthrough("   ", ISS))
                 .verifyComplete();
-        StepVerifier.create(service.resolveOrPassthrough(null))
+        StepVerifier.create(service.resolveOrPassthrough(null, ISS))
                 .verifyComplete();
     }
 
@@ -81,16 +84,16 @@ class UserDirectoryServiceTest {
     void cacheLoginIgnoresBlanks() {
         // Both fields must be present — the cache must never end up
         // with "" → "" rows that swallow real lookups.
-        service.cacheLogin("", "uuid-x");
-        service.cacheLogin("name-x", "");
-        service.cacheLogin(null, "uuid-y");
-        service.cacheLogin("name-y", null);
+        service.cacheLogin(ISS, "", "uuid-x");
+        service.cacheLogin(ISS, "name-x", "");
+        service.cacheLogin(ISS, null, "uuid-y");
+        service.cacheLogin(ISS, "name-y", null);
         // None of those primed the cache, so the lookup falls through
         // (and would hit the wire under real conditions). We don't
         // assert on the wire here — only that the cache wasn't poisoned.
         // A primed entry on a different name still works:
-        service.cacheLogin("real", "real-uuid");
-        StepVerifier.create(service.resolveByName("real"))
+        service.cacheLogin(ISS, "real", "real-uuid");
+        StepVerifier.create(service.resolveByName("real", ISS))
                 .expectNext("real-uuid")
                 .verifyComplete();
     }
@@ -148,9 +151,9 @@ class UserDirectoryServiceTest {
         // An injection-shaped name must short-circuit before any network call.
         // The WebClient points at an unused URL — if the guard fires the observable
         // completes immediately; if it doesn't, the test hangs on the HTTP attempt.
-        StepVerifier.create(service.resolveByName("bad&owner=attacker"))
+        StepVerifier.create(service.resolveByName("bad&owner=attacker", ISS))
                 .verifyComplete();
-        StepVerifier.create(service.resolveByName("bad?q=1"))
+        StepVerifier.create(service.resolveByName("bad?q=1", ISS))
                 .verifyComplete();
     }
 }

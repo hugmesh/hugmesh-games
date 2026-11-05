@@ -25,11 +25,10 @@ import java.util.Map;
  *
  * <h2>Single-issuer back-compat</h2>
  *
- * <p>Given only the existing
- * {@code spring.security.oauth2.resourceserver.jwt.issuer-uri} and an empty
- * {@code app.tenancy.issuers}, the registry seeds exactly one entry
- * {@code {thatIssuer -> "default"}}; with NO issuer-uri at all (the games BFF
- * currently configures only a {@code jwk-set-uri}) the map stays empty and
+ * <p>Given only {@code casdoor.issuer-uri} ({@code CASDOOR_ISSUER_URI}) and an
+ * empty {@code app.tenancy.issuers}, the registry seeds exactly one entry
+ * {@code {thatIssuer -> "default"}}; with NO issuer-uri at all (a stack configured
+ * with only a {@code jwk-set-uri}) the map stays empty and
  * {@link #domainOf(String)} returns {@code "default"} unconditionally. So a
  * single-issuer cluster emits {@code DOMAIN_default} for every token and nothing
  * else changes.
@@ -82,8 +81,7 @@ public class DomainRegistry {
     private final Map<String, String> issuerToDomain = new LinkedHashMap<>();
 
     /**
-     * The lone back-compat issuer URI from
-     * {@code spring.security.oauth2.resourceserver.jwt.issuer-uri}. Used only
+     * The lone back-compat issuer URI from {@code casdoor.issuer-uri}. Used only
      * to seed the {@code -> DEFAULT_DOMAIN} entry when no multi-brand
      * {@code app.tenancy.issuers} CSV is provided.
      */
@@ -109,13 +107,13 @@ public class DomainRegistry {
      * {@link #isMultiIssuer()} returns {@code false} and
      * {@link #domainOf(String)} returns {@code "default"} for the single known issuer.
      *
-     * @param singleIssuer the {@code spring.security.oauth2.resourceserver.jwt.issuer-uri}
-     *                     property value; empty string when not configured
+     * @param singleIssuer the {@code casdoor.issuer-uri} property value; empty string
+     *                     when not configured
      * @param issuersCsv   the {@code app.tenancy.issuers} property value;
      *                     empty string when not configured
      */
     public DomainRegistry(
-            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri:}") String singleIssuer,
+            @Value("${casdoor.issuer-uri:}") String singleIssuer,
             @Value("${app.tenancy.issuers:}") String issuersCsv) {
         this.singleIssuer = trimSlash(singleIssuer);
         if (issuersCsv != null && !issuersCsv.isBlank()) {

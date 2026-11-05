@@ -125,11 +125,11 @@ public class GameUploadController {
                     : jwt == null
                             ? Mono.error(new org.springframework.web.server.ResponseStatusException(
                                     HttpStatus.UNAUTHORIZED, "JWT required for publisher uploads"))
-                            // Both identifiers: seeded scope rows key on the username
-                            // (the sub is a UUID Casdoor re-mints every fresh boot),
-                            // runtime-granted rows key on the sub.
+                            // Both identifiers: seeded scope rows key on a games-realm
+                            // username (the sub is a UUID Casdoor re-mints every fresh
+                            // boot), runtime-granted rows key on the sub.
                             : publisherService.requireOwns(
-                                    jwt.getSubject(), Roles.usernameOf(jwt), slug);
+                                    jwt.getSubject(), gamesAdmin.seededUsernameOf(jwt), slug);
             return ownership.then(domainScope.requireGameDomain(slug, domain, isSuperadmin));
         };
     }

@@ -5,6 +5,7 @@ import games.hugmesh.bff.security.GamesAdminPolicy;
 import games.hugmesh.bff.service.UserDirectoryService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -14,7 +15,9 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverter;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.web.server.ServerWebExchange;
@@ -237,7 +240,7 @@ public class SecurityConfig {
      * OPTIONAL per-brand multi-issuer resolver, contributed by
      * {@link TenancyResourceServerConfig} ONLY when {@code app.tenancy.issuers}
      * genuinely carries issuer=domain pairs. Absent on a single-issuer cluster
-     * (the games realm's default — only a {@code jwk-set-uri} is configured).
+     * (a standalone games stack).
      */
     private final ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
             tenantAuthManagerResolver;
@@ -248,6 +251,9 @@ public class SecurityConfig {
     /** Org name of the games realm, where the realm {@code admin} is the games admin. */
     private final String gamesRealmOrganization;
 
+    /** {@code app.security.games-realm-issuers}: which issuers are the games realm. */
+    private final String gamesRealmIssuers;
+
     public SecurityConfig(ObjectProvider<UserDirectoryService> directoryProvider,
                           DomainRegistry domainRegistry,
                           ObjectProvider<ReactiveAuthenticationManagerResolver<ServerWebExchange>>
@@ -255,28 +261,47 @@ public class SecurityConfig {
                           @Value("${casdoor.organization:}") String casdoorOrganization,
                           @Value("${app.security.games-realm-organization:"
                                   + GamesAdminPolicy.GAMES_REALM_ORGANIZATION + "}")
-                                  String gamesRealmOrganization) {
+                                  String gamesRealmOrganization,
+                          @Value("${app.security.games-realm-issuers:}") String gamesRealmIssuers) {
         this.directoryProvider = directoryProvider;
         this.domainRegistry = domainRegistry;
         this.tenantAuthManagerResolver = tenantAuthManagerResolver;
         this.casdoorOrganization = casdoorOrganization;
         this.gamesRealmOrganization = gamesRealmOrganization;
+        this.gamesRealmIssuers = gamesRealmIssuers;
     }
 
     /**
      * Who is a games admin on this deployment: the derived games-admin role in
-     * any realm, plus the realm's own {@code admin} when {@code casdoor.organization}
-     * is the games realm ({@code threewizards}: the standalone stack and the
-     * cluster's casdoor-games). A mesh-mounted BFF ({@code CASDOOR_ORGANIZATION=hugmesh},
-     * hugmesh-generator tests/stack/compose.games.yaml) gets the systems policy,
-     * where {@code ROLE_ADMIN} alone is not a games admin. A blank
-     * {@code casdoor.organization} stops the BFF at boot instead of guessing a
-     * realm (fail closed). Defined here because every security slice test
-     * imports this class. See {@link GamesAdminPolicy}.
+     * any realm, plus the realm's own {@code admin} on a games-realm token. With
+     * {@code app.security.games-realm-issuers} set the token's issuer decides (the
+     * cluster's two-realm BFF). Otherwise {@code casdoor.organization} does: the
+     * games realm for {@code threewizards} (the standalone stack), and the systems
+     * policy for anything else ({@code CASDOOR_ORGANIZATION=hugmesh},
+     * hugmesh-generator tests/stack/compose.games.yaml), where {@code ROLE_ADMIN}
+     * alone is not a games admin. A blank {@code casdoor.organization}, or several
+     * trusted issuers with no games realm named, stops the BFF at boot instead of
+     * guessing a realm (fail closed). Defined here because every security slice
+     * test imports this class. See {@link GamesAdminPolicy}.
      */
     @Bean
     GamesAdminPolicy gamesAdminPolicy() {
-        return GamesAdminPolicy.forDeployment(casdoorOrganization, gamesRealmOrganization);
+        return GamesAdminPolicy.forDeployment(casdoorOrganization, gamesRealmOrganization,
+                gamesRealmIssuers, domainRegistry.trustedIssuers());
+    }
+
+    /**
+     * Holds the single-issuer path to the games realm's {@code iss}. Spring Boot adds
+     * this to the jwk-set-uri decoder it builds (no discovery round-trip). The
+     * obvious way to spell it, {@code issuer-uri: ${CASDOOR_ISSUER_URI:}} under
+     * spring.security.oauth2.resourceserver.jwt, is a trap: Boot builds a
+     * {@code JwtIssuerValidator} from any non-null value, so every deployment without
+     * that env var would demand {@code iss == ""} and 401 every token.
+     */
+    @Bean
+    @ConditionalOnExpression("!'${casdoor.issuer-uri:}'.trim().isEmpty()")
+    OAuth2TokenValidator<Jwt> casdoorIssuerValidator(@Value("${casdoor.issuer-uri}") String issuer) {
+        return new JwtIssuerValidator(issuer.trim());
     }
 
     // -------------------------------------------------------------------------
@@ -385,11 +410,11 @@ public class SecurityConfig {
      * multi-brand mode each trusted per-brand Casdoor validates its own tokens
      * (unknown iss → 401, fail-closed).
      *
-     * <p>The games realm ships a single Casdoor (only {@code jwk-set-uri} is
-     * configured, no {@code issuer-uri} / {@code app.tenancy.issuers}), so this
-     * always takes the single-issuer branch today and the existing decoder path
-     * is byte-for-byte unchanged — the converter merely additionally stamps
-     * {@code DOMAIN_default}.
+     * <p>A standalone games stack ships a single Casdoor ({@code jwk-set-uri}, plus
+     * {@code casdoor.issuer-uri} when the deployment sets {@code CASDOOR_ISSUER_URI},
+     * no {@code app.tenancy.issuers}), so it takes the single-issuer branch. The
+     * cluster's BFF trusts the games realm AND the mesh's systems Casdoor, so it
+     * takes the multi-issuer one.
      *
      * @param o the resource-server spec customizer provided by Spring Security
      */
@@ -456,25 +481,6 @@ public class SecurityConfig {
      *         {@link GrantedAuthority} instances
      */
     private Converter<Jwt, Flux<GrantedAuthority>> casdoorAuthoritiesConverter() {
-        Converter<Jwt, Flux<GrantedAuthority>> delegate =
-                CasdoorAuthorities.converter(domainRegistry, gamesAdminPolicy());
-        return jwt -> {
-            // Side-effect: populate the username→casdoorId cache on every
-            // authenticated request. Without this, the first
-            // /api/relationships/blocks/add { other: "player2" } call misses the
-            // cache and falls back to a Casdoor get-user round-trip that can
-            // transiently 404, silently no-opping the block. The Javadoc on
-            // UserDirectoryService.cacheLogin documents this hook explicitly.
-            UserDirectoryService directory = directoryProvider.getIfAvailable();
-            if (directory != null) {
-                String name = jwt.getClaimAsString("name");
-                String sub  = jwt.getSubject();
-                if (name != null && sub != null) {
-                    directory.cacheLogin(name, sub);
-                }
-            }
-            // Delegate to the shared converter for the actual authority mapping.
-            return delegate.convert(jwt);
-        };
+        return CasdoorAuthorities.converter(domainRegistry, gamesAdminPolicy(), directoryProvider);
     }
 }

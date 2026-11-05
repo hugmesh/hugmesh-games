@@ -1,5 +1,7 @@
 package games.hugmesh.bff.controller;
 
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.JWTParser;
 import games.hugmesh.bff.service.UserDirectoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -11,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.util.Base64;
 import java.util.Map;
 
 @Tag(name = "Auth", description = "Authentication proxy. Exchanges credentials for a Casdoor JWT without exposing client_secret to the browser.")
@@ -108,48 +109,23 @@ public class CasdoorAuthController {
     }
 
     /**
-     * Decode the JWT's payload to pull the (name, sub) pair onto the
-     * directory's in-memory cache. Skips on any malformed input — the
-     * cache is best-effort and the controller keeps the response
-     * unchanged regardless.
+     * Read the (iss, name, sub) of the JWT we just received from Casdoor onto the
+     * directory's in-memory cache. Skips on any malformed input — the cache is
+     * best-effort and the controller keeps the response unchanged regardless.
+     *
+     * <p>Top-level claims only, through a real parser: the realm-aware cache files
+     * a name under the token's {@code iss}, so a same-named key nested in a user's
+     * own Casdoor fields must not be able to stand in for the real one. No signature
+     * check, because this token came straight off the BFF's own call to Casdoor.
      */
-    @SuppressWarnings("unchecked")
     private void cacheLoginFromTokenResponse(Map<String, Object> resp) {
         Object accessToken = resp.get("access_token");
         if (!(accessToken instanceof String token) || token.isBlank()) return;
-        String[] parts = token.split("\\.");
-        if (parts.length < 2) return;
         try {
-            byte[] decoded = Base64.getUrlDecoder().decode(
-                    parts[1].replace('-', '-').replace('_', '_'));
-            String json = new String(decoded);
-            Map<String, Object> claims = parseFlatJson(json);
-            Object name = claims.get("name");
-            Object sub = claims.get("sub");
-            if (name instanceof String nameStr && sub instanceof String subStr) {
-                directory.cacheLogin(nameStr, subStr);
-            }
-        } catch (Exception ignore) {
+            JWTClaimsSet claims = JWTParser.parse(token).getJWTClaimsSet();
+            directory.cacheLogin(claims.getIssuer(), claims.getStringClaim("name"), claims.getSubject());
+        } catch (java.text.ParseException | RuntimeException ignore) {
             // best-effort cache prime — never block the login flow
         }
-    }
-
-    /**
-     * Tiny JSON object parser that pulls top-level string fields. We
-     * only need {@code name} and {@code sub}; pulling in Jackson here
-     * is overkill and the controller already stays minimal.
-     */
-    private static Map<String, Object> parseFlatJson(String json) {
-        Map<String, Object> out = new java.util.HashMap<>();
-        // Match `"key":"value"` pairs at any depth — JWT payload has
-        // both top-level strings and nested objects but the keys we
-        // care about (name, sub) are top-level only.
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"([a-zA-Z0-9_]+)\":\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
-                .matcher(json);
-        while (m.find()) {
-            out.putIfAbsent(m.group(1), m.group(2));
-        }
-        return out;
     }
 }
