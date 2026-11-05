@@ -20,7 +20,7 @@ PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 PRIMARY_HOST="${PRIMARY_HOST:-postgres}"
 PRIMARY_PORT="${PRIMARY_PORT:-5432}"
 REPLICATOR_USER="${REPLICATOR_USER:-replicator}"
-REPLICATOR_PASSWORD="${REPLICATOR_PASSWORD:-replicator}"
+REPLICATOR_PASSWORD="${REPLICATOR_PASSWORD:?REPLICATOR_PASSWORD must be set in the postgres-replica environment (docker-compose.replica.yml requires it)}"
 
 # Bootstrap-only path: empty PGDATA → pg_basebackup from primary.
 if [ ! -s "$PGDATA/PG_VERSION" ]; then

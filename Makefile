@@ -11,7 +11,7 @@
 SHELL := /bin/bash
 .PHONY: all clean build build-rust build-rust-wasm build-games-wasm clean-games-wasm build-godot patch-godot build-backend build-backend-native build-frontend \
         dev-backend dev-frontend install deps-rust deps-frontend seed-db seed-roles deploy \
-        db-env test-db-passwords gen-certs e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
+        db-env test-db-passwords test-compose-credentials gen-certs e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs games-arch-e2e games-arch-e2e-up gen-api \
         test test-rust test-rust-cores test-backend test-frontend test-godot test-games-js check-version \
         docs-pdf docs-slides docs-javadocs docs-all docs-bundle docs-clean docs-install-hooks \
         docs-diagrams docs-screenshots docs-screenshots-from-e2e docs-screenshots-harvest \
@@ -690,23 +690,58 @@ db_password_resolve = $(shell . $(CURDIR)/scripts/db-passwords.sh && db_password
 GAMES_DB_PASS       := $(call db_password_resolve,GAMES_DB_PASS)
 RPG_BUILDER_DB_PASS := $(call db_password_resolve,RPG_BUILDER_DB_PASS)
 VN_BUILDER_DB_PASS  := $(call db_password_resolve,VN_BUILDER_DB_PASS)
-ifeq (,$(and $(GAMES_DB_PASS),$(RPG_BUILDER_DB_PASS),$(VN_BUILDER_DB_PASS)))
+# Same resolver, same file, same rule for the other credentials the base
+# file and the replica overlay require (`${VAR:?}`, no literal default):
+# ClickHouse, the MinIO root key pair and the replication role.
+CLICKHOUSE_PASSWORD := $(call db_password_resolve,CLICKHOUSE_PASSWORD)
+MINIO_ROOT_USER     := $(call db_password_resolve,MINIO_ROOT_USER)
+MINIO_ROOT_PASSWORD := $(call db_password_resolve,MINIO_ROOT_PASSWORD)
+REPLICATOR_PASSWORD := $(call db_password_resolve,REPLICATOR_PASSWORD)
+ifeq (,$(and $(GAMES_DB_PASS),$(RPG_BUILDER_DB_PASS),$(VN_BUILDER_DB_PASS),$(CLICKHOUSE_PASSWORD),$(MINIO_ROOT_USER),$(MINIO_ROOT_PASSWORD),$(REPLICATOR_PASSWORD)))
 $(error db_passwords_ensure failed to resolve the DB passwords — see scripts/db-passwords.sh)
 endif
-export GAMES_DB_PASS RPG_BUILDER_DB_PASS VN_BUILDER_DB_PASS
+export GAMES_DB_PASS RPG_BUILDER_DB_PASS VN_BUILDER_DB_PASS CLICKHOUSE_PASSWORD MINIO_ROOT_USER MINIO_ROOT_PASSWORD REPLICATOR_PASSWORD
+endif
+
+# ── KEYSTORE_PASSWORD (e2e PKCS12 keystore / truststore)
+# scripts/gen-certs.sh builds the e2e certs with it and docker-compose.e2e.yml
+# REQUIRES it (`${KEYSTORE_PASSWORD:?}`) — no literal default anywhere.
+# Resolved exactly like E2E_PASSWORD (tests/stack/e2e-password.sh, same
+# .e2e-credentials file: exported value wins, else the file, else generate +
+# persist), so the certs an earlier run generated and the password this run
+# opens them with stay in lockstep. The gate lists every goal that runs
+# gen-certs OR interpolates docker-compose.e2e.yml (see the E2E_PASSWORD
+# note above: compose interpolates `:?` on EVERY subcommand).
+KEYSTORE_PASSWORD_GOALS = gen-certs lan-up-tls e2e e2e-bdd e2e-godot e2e-native e2e-down e2e-logs build-backend-native deploy
+ifneq (,$(filter $(KEYSTORE_PASSWORD_GOALS),$(MAKECMDGOALS)))
+KEYSTORE_PASSWORD := $(shell export E2E_CREDENTIALS_FILE="$(E2E_CREDENTIALS_FILE)"; . $(CURDIR)/tests/stack/e2e-password.sh && e2e_keystore_password_ensure && printf '%s' "$$KEYSTORE_PASSWORD")
+ifeq ($(KEYSTORE_PASSWORD),)
+$(error e2e_keystore_password_ensure failed to resolve KEYSTORE_PASSWORD — see tests/stack/e2e-password.sh)
+endif
+export KEYSTORE_PASSWORD
 endif
 
 # Generate (once) / reuse the dev DB passwords in .env so a plain
 # `docker compose up -d` works. Never run this on a prod/staging host.
 db-env:
 	@test -n "$$GAMES_DB_PASS" && test -n "$$RPG_BUILDER_DB_PASS" && test -n "$$VN_BUILDER_DB_PASS" \
+	  && test -n "$$CLICKHOUSE_PASSWORD" && test -n "$$MINIO_ROOT_USER" && test -n "$$MINIO_ROOT_PASSWORD" && test -n "$$REPLICATOR_PASSWORD" \
 	  || { echo "✗ DB passwords resolved but NOT exported to recipes — compose would not see them"; exit 1; }
-	@echo "✓ GAMES_DB_PASS, RPG_BUILDER_DB_PASS, VN_BUILDER_DB_PASS resolved (persisted in $${DB_PASSWORDS_FILE:-.env}; values not shown)"
+	@echo "✓ GAMES_DB_PASS, RPG_BUILDER_DB_PASS, VN_BUILDER_DB_PASS, CLICKHOUSE_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, REPLICATOR_PASSWORD resolved (persisted in $${DB_PASSWORDS_FILE:-.env}; values not shown)"
 
 # Resolver self-test + the guard that no compose/Spring file carries a DB
 # password literal again (offline, ~1s; writes only to a temp dir).
 test-db-passwords:
 	python3 -m unittest scripts/test_db_passwords.py
+
+# No credential literal / literal default in the compose files the prod and
+# staging overlays extend (ClickHouse, MinIO, replicator, ... — #57). The
+# self-test proves the guard can still fail, then the guard runs on the real
+# tree. Offline, ~2s, bash only; CI runs both (release.yml version job,
+# .gitlab-ci.yml test:compose-credentials).
+test-compose-credentials:
+	bash scripts/test-check-compose-credential-defaults.sh
+	bash scripts/check-compose-credential-defaults.sh
 
 gen-certs:
 	@echo "→ Generating self-signed certs (or reusing CERT_PATH if set)…"

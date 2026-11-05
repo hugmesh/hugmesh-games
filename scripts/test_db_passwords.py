@@ -26,8 +26,26 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 LIB = os.path.join(HERE, "db-passwords.sh")
-VARS = ("GAMES_DB_PASS", "RPG_BUILDER_DB_PASS", "VN_BUILDER_DB_PASS")
+VARS = (
+    "GAMES_DB_PASS",
+    "RPG_BUILDER_DB_PASS",
+    "VN_BUILDER_DB_PASS",
+    # #57: the same resolver covers every other credential docker-compose.yml
+    # and the replica overlay require. MinIO bounds its root credentials
+    # (access key 3..20 chars, secret key 8..40), hence the shorter two.
+    "CLICKHOUSE_PASSWORD",
+    "MINIO_ROOT_USER",
+    "MINIO_ROOT_PASSWORD",
+    "REPLICATOR_PASSWORD",
+)
+HEX_LEN = {var: 48 for var in VARS}
+HEX_LEN["MINIO_ROOT_USER"] = 16
+HEX_LEN["MINIO_ROOT_PASSWORD"] = 32
 HEX48 = re.compile(r"^[0-9a-f]{48}$")
+
+
+def hex_re(var):
+    return re.compile(r"^[0-9a-f]{%d}$" % HEX_LEN[var])
 
 
 def _clean_env(**extra):
@@ -41,7 +59,7 @@ def run_ensure(env_file, **exported):
     """Source the lib, run db_passwords_ensure, return (rc, {var: value})."""
     script = (
         '. "$1" && db_passwords_ensure || exit $?\n'
-        'for v in GAMES_DB_PASS RPG_BUILDER_DB_PASS VN_BUILDER_DB_PASS; do\n'
+        'for v in %s; do\n' % " ".join(VARS) +
         '  # printenv shows only EXPORTED vars: what a child process (compose) sees\n'
         '  printf "%s=%s\\n" "$v" "$(printenv "$v")"\n'
         "done\n"
@@ -82,8 +100,8 @@ class ResolverTest(unittest.TestCase):
         rc, values = run_ensure(self.env_file)
         self.assertEqual(rc, 0)
         for var in VARS:
-            self.assertRegex(values[var], HEX48, f"{var} not a 48-hex value")
-        self.assertEqual(len({values[v] for v in VARS}), 3, "roles share a password")
+            self.assertRegex(values[var], hex_re(var), f"{var} not a {HEX_LEN[var]}-hex value")
+        self.assertEqual(len({values[v] for v in VARS}), len(VARS), "two credentials share a value")
         self.assertEqual({k: read_env(self.env_file)[k] for k in VARS}, values)
         mode = stat.S_IMODE(os.stat(self.env_file).st_mode)
         self.assertEqual(mode & 0o077, 0, f"new .env is group/world readable ({oct(mode)})")
@@ -111,7 +129,7 @@ class ResolverTest(unittest.TestCase):
         self.assertEqual(env["CASDOOR_CLIENT_ID"], "twclient001")
         self.assertEqual(env["CASDOOR_ADMIN_PASS"], "keepme")
         for var in VARS:
-            self.assertRegex(env[var], HEX48)
+            self.assertRegex(env[var], hex_re(var))
 
     def test_partial_file_keeps_existing_and_fills_the_rest(self):
         with open(self.env_file, "w") as fh:
@@ -119,8 +137,9 @@ class ResolverTest(unittest.TestCase):
         rc, values = run_ensure(self.env_file)
         self.assertEqual(rc, 0)
         self.assertEqual(values["RPG_BUILDER_DB_PASS"], "already-here")
-        self.assertRegex(values["GAMES_DB_PASS"], HEX48)
-        self.assertRegex(values["VN_BUILDER_DB_PASS"], HEX48)
+        for var in VARS:
+            if var != "RPG_BUILDER_DB_PASS":
+                self.assertRegex(values[var], hex_re(var))
 
     @unittest.skipIf(os.geteuid() == 0, "root can read a 000 file")
     def test_unreadable_env_file_is_an_error_not_a_regenerate(self):
@@ -158,7 +177,7 @@ class MakeGateTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             env = read_env(env_file)
             for var in VARS:
-                self.assertRegex(env[var], HEX48)
+                self.assertRegex(env[var], hex_re(var))
                 self.assertNotIn(env[var], proc.stdout + proc.stderr)
 
 

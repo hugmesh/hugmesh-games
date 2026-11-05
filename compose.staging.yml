@@ -28,6 +28,9 @@
 # GAMES_DB_PASS, RPG_BUILDER_DB_PASS and VN_BUILDER_DB_PASS (`${VAR:?}`),
 # so staging refuses to start until they are supplied from the
 # environment. Use managed values, not a dev .env from `make db-env`.
+# Likewise CLICKHOUSE_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD and
+# (replica overlay) REPLICATOR_PASSWORD; scripts/check-compose-credential-defaults.sh
+# fails CI on any literal default in the files this overlay extends.
 #
 # Production: see compose.prod.yml for the *.hugmesh.games equivalent.
 

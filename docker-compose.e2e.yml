@@ -31,7 +31,7 @@ services:
       JAVA_TOOL_OPTIONS: >-
         -Djavax.net.ssl.trustStore=/etc/api/certs/truststore.p12
         -Djavax.net.ssl.trustStoreType=PKCS12
-        -Djavax.net.ssl.trustStorePassword=${KEYSTORE_PASSWORD:-threewizards}
+        -Djavax.net.ssl.trustStorePassword=${KEYSTORE_PASSWORD:?KEYSTORE_PASSWORD must be set - `make e2e` / `make gen-certs` resolve it per run (tests/stack/e2e-password.sh writes .e2e-credentials)}
       # The legacy single-player session registry caps concurrent players
       # (app.session.max-players, default 3). A suite run accumulates one
       # entry per seed user and never logs out, so the later multi-user
@@ -39,9 +39,9 @@ services:
       # production keeps the default.
       APP_SESSION_MAX_PLAYERS: "50"
       KEYSTORE_PATH: /etc/api/certs/keystore.p12
-      KEYSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
+      KEYSTORE_PASSWORD: ${KEYSTORE_PASSWORD:?KEYSTORE_PASSWORD must be set - `make e2e` / `make gen-certs` resolve it per run (tests/stack/e2e-password.sh writes .e2e-credentials)}
       TRUSTSTORE_PATH: /etc/api/certs/truststore.p12
-      TRUSTSTORE_PASSWORD: ${KEYSTORE_PASSWORD:-threewizards}
+      TRUSTSTORE_PASSWORD: ${KEYSTORE_PASSWORD:?KEYSTORE_PASSWORD must be set - `make e2e` / `make gen-certs` resolve it per run (tests/stack/e2e-password.sh writes .e2e-credentials)}
       # Integration-testing profile: every Casdoor seed user gets the
       # SAME password (fresh random value, generated once per `make e2e`
       # run by tests/stack/e2e-password.sh and written to

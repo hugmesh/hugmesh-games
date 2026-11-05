@@ -36,7 +36,13 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ./docker/postgres-replica-init.sql:/docker-entrypoint-initdb.d/02-replication.sql
+      # The replicator role is created by a shell step, not a bare .sql
+      # file: the password comes from $REPLICATOR_PASSWORD (below), and
+      # only a shell wrapper can hand an environment value to psql as a
+      # variable. The .sql it runs is mounted OUTSIDE initdb.d so the
+      # image's entrypoint does not also run it unparameterised.
+      - ./docker/postgres-replica-init.sh:/docker-entrypoint-initdb.d/02-replication.sh:ro
+      - ./docker/postgres-replica-init.sql:/docker/postgres-replica-init.sql:ro
       # Custom pg_hba.conf — adds the replication-role rule the
       # replica container's pg_basebackup + streaming connection
       # needs. Mounted at the path the postgres image reads on
@@ -46,6 +52,12 @@ services:
       POSTGRES_DB: threewizards
       POSTGRES_USER: threewizards
       POSTGRES_PASSWORD: ${GAMES_DB_PASS:?GAMES_DB_PASS must be set - run `make db-env` (writes the gitignored .env) or export it}
+      # Password of the `replicator` role docker/postgres-replica-init.sh
+      # creates on first boot (and scripts/setup-pg-replica.sh syncs on an
+      # existing volume). REQUIRED, same as the DB passwords: there is no
+      # literal default anywhere, so the prod/staging path cannot inherit
+      # one. The replica below receives the same value.
+      REPLICATOR_PASSWORD: ${REPLICATOR_PASSWORD:?REPLICATOR_PASSWORD must be set - run `make db-env` (writes the gitignored .env) or export it}
       # Force the server to load our mounted pg_hba.conf — the
       # default install reads from $PGDATA/pg_hba.conf, which the
       # image overwrites on initdb.
@@ -81,7 +93,7 @@ services:
       POSTGRES_DB: threewizards
       PRIMARY_HOST: postgres
       REPLICATOR_USER: replicator
-      REPLICATOR_PASSWORD: replicator
+      REPLICATOR_PASSWORD: ${REPLICATOR_PASSWORD:?REPLICATOR_PASSWORD must be set - run `make db-env` (writes the gitignored .env) or export it}
     ports:
       - "${POSTGRES_REPLICA_BIND:-127.0.0.1:}5433:5432"
     volumes:

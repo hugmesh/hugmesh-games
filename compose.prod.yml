@@ -22,6 +22,10 @@
 #     supplies managed values. Never run `make db-env` on a prod host and
 #     never copy a dev .env here; StartupSecretValidator only rejects a
 #     BLANK password, so the compose layer is the guard against a known one.
+#     The same holds for CLICKHOUSE_PASSWORD, MINIO_ROOT_USER,
+#     MINIO_ROOT_PASSWORD and (replica overlay) REPLICATOR_PASSWORD:
+#     scripts/check-compose-credential-defaults.sh fails CI on any literal
+#     default in the files this overlay extends.
 #
 # Staging: see compose.staging.yml for the *.staging.hugmesh.games
 # equivalent (loosened CORS, different volumes, different DNS).

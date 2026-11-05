@@ -98,6 +98,15 @@ jobs:
       - name: Self-test the release channel rules
         run: bash scripts/test-release-channel.sh
 
+      # No credential literal or literal default in the compose files the
+      # prod/staging overlays extend (hugmesh-games#57). The self-test first,
+      # so a guard that can no longer fail is itself a failure.
+      - name: Self-test the compose credential guard
+        run: bash scripts/test-check-compose-credential-defaults.sh
+
+      - name: No credential literal on the prod/staging compose path
+        run: bash scripts/check-compose-credential-defaults.sh
+
       - name: Check VERSION against every version file and the ref
         id: guard
         run: python3 scripts/check_version.py --ref "$GITHUB_REF"

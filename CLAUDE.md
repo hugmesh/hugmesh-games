@@ -33,11 +33,14 @@ If you see `findByLevelId` or `level_id` in the source, treat it as a missed-ren
 ## Local dev quickstart
 
 ```bash
-# 0. Postgres role passwords — docker-compose.yml REQUIRES GAMES_DB_PASS,
-#    RPG_BUILDER_DB_PASS and VN_BUILDER_DB_PASS (no literal default). This
-#    generates random ones into the gitignored .env, once; re-runs reuse them.
-#    An OLD pgdata volume keeps the password it was created with: pin that
-#    value in .env, or `docker compose down -v` to start fresh.
+# 0. Stack credentials — docker-compose.yml REQUIRES GAMES_DB_PASS,
+#    RPG_BUILDER_DB_PASS, VN_BUILDER_DB_PASS, CLICKHOUSE_PASSWORD,
+#    MINIO_ROOT_USER and MINIO_ROOT_PASSWORD, and the replica overlay
+#    REPLICATOR_PASSWORD (no literal default anywhere, so prod/staging can
+#    never inherit one). This generates random values into the gitignored
+#    .env, once; re-runs reuse them. An OLD pgdata volume keeps the password
+#    it was created with: pin that value in .env, or `docker compose down -v`
+#    to start fresh. The MinIO console (:9001) login is the pair in .env.
 make db-env
 # 1. First-time setup — Casdoor randomises seed credentials per fresh DB.
 #    Bring the stack up once, copy the printed seed into .env:
