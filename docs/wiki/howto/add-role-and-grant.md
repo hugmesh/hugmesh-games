@@ -6,47 +6,60 @@ Two layers: Casdoor owns the role catalog, the BFF owns visibility policy.
 
 Roles live in Casdoor. The portal recognises:
 
-- `ROLE_ADMIN` — admin dashboard access.
-- `ROLE_PLAY_<GAME>` — per-game play access.
+- `admin` — admin dashboard access. On a games-realm token the BFF turns it into `ROLE_GAMES_ADMIN`, the authority every admin endpoint checks (see [05 — Who is a games admin](../architecture/05-api-reference.md#who-is-a-games-admin)).
+- `mod`, `publisher` — the per-game moderator and publisher roles.
+- `play-<slug>` (for example `play-three-wizards`) — per-game play access.
 
-Create via the Casdoor admin UI (port-forward, since Casdoor isn't publicly exposed — see [decision 008](../decisions/008-casdoor-internal.md)) or via the seed target:
+Role names are lowercase in Casdoor and in `game_access.scope_value`. The BFF compares them with the `roles` claim of the JWT in canonical form: one leading `ROLE_` stripped, then lower-cased.
+
+Create the role in the Casdoor admin UI (port-forward to reach it; Casdoor is not publicly exposed — see [decision 008](../decisions/008-casdoor-internal.md)) or with the seed target:
 
 ```bash
 make seed-roles
 ```
 
-`make seed-roles` is the idempotent post-deploy entry point that creates the per-game `ROLE_PLAY_*` roles via the Casdoor admin API. Run it after deploying a new game.
+`make seed-roles` creates a `play-<slug>` role for every slug in the Makefile's `GAME_SLUGS` list, through the Casdoor admin API. It needs `curl`, `jq` and `CASDOOR_ADMIN_PASS` (the admin password from the Casdoor logs), and reads `CASDOOR_ENDPOINT` (default `http://localhost:8000`). The compose stack publishes no Casdoor port, so forward one first or point `CASDOOR_ENDPOINT` at a Casdoor you can reach. Add the new game's slug to `GAME_SLUGS` first, then run it. Re-running is harmless: errors on existing roles are ignored. The roles are created with `owner=threewizards`, so only the games realm gets them; a mesh player sees a game gated on `play-<slug>` only when the systems Casdoor has the same role ([decision 029](../decisions/029-two-realm-games-bff.md)).
 
 ## 2. Insert the `game_access` row
 
-Via the admin UI: `/admin/games` → *Per-game access* card → choose scope `role` → pick the role from the dropdown → Add.
+In the admin UI: `/admin/games` → *Per-game access* card → enter the game slug → choose scope `role` → pick the role from the dropdown → *Grant*.
 
-Or via SQL:
+With the API:
+
+```bash
+curl -sS -X POST -H "Authorization: Bearer $ADMIN_JWT" \
+  -H 'Content-Type: application/json' \
+  -d '{"scope":"role","value":"play-three-wizards"}' \
+  /api/admin/games/three-wizards/access
+```
+
+With SQL:
 
 ```sql
-INSERT INTO game_access (game_slug, scope, scope_value)
-VALUES ('three-wizards', 'role', 'ROLE_PLAY_THREE_WIZARDS')
+INSERT INTO game_access (game_id, scope, scope_value, granted_by)
+SELECT id, 'role', 'play-three-wizards', 'manual-sql'
+  FROM games WHERE slug = 'three-wizards'
 ON CONFLICT ON CONSTRAINT uq_game_access_triple DO NOTHING;
 ```
 
-The unique constraint absorbs duplicates — flipping the row on twice is a no-op.
+The unique constraint absorbs duplicates. Adding the row twice changes nothing.
 
 ## 3. Decide on coexistence with `(all, NULL)`
 
-Three scopes are unioned:
+The three scopes are unioned:
 
 | Configuration | Visibility |
 |---|---|
 | `(all, NULL)` only | Everyone authenticated. |
-| `(role, ROLE_PLAY_X)` only | **Only role-holders.** |
-| `(all, NULL)` + `(role, ROLE_PLAY_X)` | **Everyone** (the `all` row wins). |
-| `(role, ROLE_PLAY_X)` + `(user, alice)` | Role-holders OR alice. |
+| `(role, play-x)` only | **Only role-holders.** |
+| `(all, NULL)` + `(role, play-x)` | **Everyone** (the `all` row wins). |
+| `(role, play-x)` + `(user, alice)` | Role-holders OR alice. |
 
-To gate a game, **delete the `(all, NULL)` row** and keep only the role / user grants. Otherwise the role grant is just an unused additive on top of public visibility.
+To gate a game, **delete the `(all, NULL)` row** (*Revoke* with scope `all` in the UI, or `DELETE /api/admin/games/{slug}/access?scope=all`) and keep only the role and user grants. Otherwise the role grant adds nothing to a game that is already public.
 
 ## 4. Assign the role to a user
 
-In Casdoor's admin UI: User → edit → Roles → add the new role. The user's next JWT will carry the new claim.
+In Casdoor's admin UI: User → edit → Roles → add the new role. The user's next JWT carries the new claim.
 
 ## 5. Verify
 
