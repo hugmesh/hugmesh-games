@@ -22,51 +22,63 @@
 #   4. Smoke-tests the replication by writing a tag row to the
 #      primary and reading it back from the replica.
 #
-# IDEMPOTENT — safe to re-run. Skips role creation if it already
-# exists; skips pg_basebackup if the replica's volume is already
-# populated.
+# IDEMPOTENT — safe to re-run. Creates the role if missing and sets its
+# password to the configured value if it exists; skips pg_basebackup if
+# the replica's volume is already populated.
+#
+# The replicator password is $REPLICATOR_PASSWORD — required by
+# docker-compose.replica.yml, never a literal. On a dev box
+# scripts/db-passwords.sh resolves it (generates into the gitignored
+# .env once, same as the DB passwords); on prod/staging export the
+# managed value before running this. The value never appears on a host
+# command line: it is read inside the container, where compose put it.
 
 set -euo pipefail
 
 cd "$(dirname "$(realpath "$0")")/.."
 
+# shellcheck source=db-passwords.sh
+. scripts/db-passwords.sh
+db_passwords_ensure
+
+COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.replica.yml)
+
 echo "→ Bring up primary + replica with the replica overlay"
-docker compose -f docker-compose.yml -f docker-compose.replica.yml up -d postgres
+"${COMPOSE[@]}" up -d postgres
 echo
 
 echo "→ Wait for primary to be healthy"
 for i in $(seq 1 30); do
-    if docker compose exec -T postgres pg_isready -U threewizards >/dev/null 2>&1; then
+    if "${COMPOSE[@]}" exec -T postgres pg_isready -U threewizards >/dev/null 2>&1; then
         echo "  primary ready (attempt $i)"
         break
     fi
     sleep 2
 done
 
-# The replication role creation runs from postgres-replica-init.sql
-# at first-boot only. For EXISTING volumes (postgres-init.sql ran
-# previously), we apply it manually.
-echo "→ Ensure replicator role exists"
-docker compose exec -T postgres psql -U threewizards -d threewizards -v ON_ERROR_STOP=1 <<'SQL'
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
-        CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'replicator';
-        RAISE NOTICE 'created replicator role';
-    ELSE
-        RAISE NOTICE 'replicator role already exists';
-    END IF;
-END $$;
-SQL
+# docker/postgres-replica-init.sh runs docker/postgres-replica-init.sql at
+# first-boot only. For EXISTING volumes (postgres-init.sql ran previously)
+# we run the same SQL now, with the same psql variable, from the container
+# environment compose populated (REPLICATOR_PASSWORD is `${...:?}` there).
+echo "→ Ensure replicator role exists with the configured password"
+"${COMPOSE[@]}" exec -T postgres sh -c '
+    if [ -z "${REPLICATOR_PASSWORD:-}" ]; then
+        echo "REPLICATOR_PASSWORD is not set in the postgres container; bring it up with the replica overlay" >&2
+        exit 1
+    fi
+    psql -U threewizards -d threewizards -v ON_ERROR_STOP=1 --no-password --no-psqlrc \
+        -v replicator_password="$REPLICATOR_PASSWORD" \
+        -f /docker/postgres-replica-init.sql
+'
 echo
 
 echo "→ Bring up replica (pg_basebackup runs on first start)"
-docker compose -f docker-compose.yml -f docker-compose.replica.yml up -d postgres-replica
+"${COMPOSE[@]}" up -d postgres-replica
 echo
 
 echo "→ Wait for replica to enter hot-standby"
 for i in $(seq 1 60); do
-    if docker compose exec -T postgres-replica pg_isready -U threewizards >/dev/null 2>&1; then
+    if "${COMPOSE[@]}" exec -T postgres-replica pg_isready -U threewizards >/dev/null 2>&1; then
         echo "  replica ready (attempt $i)"
         break
     fi
@@ -76,23 +88,23 @@ echo
 
 echo "→ Smoke test — write a tag on primary, read from replica"
 TAG="repl-test-$(date +%s)"
-docker compose exec -T postgres psql -U threewizards -d threewizards \
+"${COMPOSE[@]}" exec -T postgres psql -U threewizards -d threewizards \
     -c "CREATE TABLE IF NOT EXISTS _replication_smoke(t text); INSERT INTO _replication_smoke VALUES ('$TAG');"
 
 # Replication is async; give it a beat.
 sleep 2
 
-if docker compose exec -T postgres-replica psql -U threewizards -d threewizards \
+if "${COMPOSE[@]}" exec -T postgres-replica psql -U threewizards -d threewizards \
         -tA -c "SELECT t FROM _replication_smoke WHERE t='$TAG';" | grep -q "$TAG"; then
     echo "  ✓ replica saw the tag — replication is live"
 else
     echo "  ✗ replica did NOT see the tag — check pg_stat_replication on primary"
-    docker compose exec -T postgres psql -U threewizards -d threewizards -c "SELECT * FROM pg_stat_replication;"
+    "${COMPOSE[@]}" exec -T postgres psql -U threewizards -d threewizards -c "SELECT * FROM pg_stat_replication;"
     exit 1
 fi
 
 # Clean up smoke-test rows (primary deletes; replica replays).
-docker compose exec -T postgres psql -U threewizards -d threewizards \
+"${COMPOSE[@]}" exec -T postgres psql -U threewizards -d threewizards \
     -c "DROP TABLE IF EXISTS _replication_smoke;" >/dev/null
 
 echo

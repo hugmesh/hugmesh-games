@@ -34,18 +34,36 @@
 # Existing lines in the env file (CASDOOR_* etc.) are preserved; only a key
 # this function generates is (re)written. A file it writes is left mode 0600.
 
-DB_PASSWORD_VARS="GAMES_DB_PASS RPG_BUILDER_DB_PASS VN_BUILDER_DB_PASS"
+# Every credential docker-compose.yml (and the replica overlay) REQUIRES.
+# The three Postgres role passwords came first (#49); CLICKHOUSE_PASSWORD,
+# the MinIO root access/secret key pair and the replication role's password
+# followed (#57) — all used to be `${VAR:-literal}` defaults the prod and
+# staging overlays inherited.
+DB_PASSWORD_VARS="GAMES_DB_PASS RPG_BUILDER_DB_PASS VN_BUILDER_DB_PASS CLICKHOUSE_PASSWORD MINIO_ROOT_USER MINIO_ROOT_PASSWORD REPLICATOR_PASSWORD"
 
-_db_password_generate() {
+# Random bytes per variable (hex doubles it). 24 bytes / 48 hex is the
+# default. MinIO bounds its root credentials — access key 3..20 chars,
+# secret key 8..40 — so those two are shorter: 8 bytes / 16 hex and
+# 16 bytes / 32 hex.
+_db_password_bytes() {
+  case "$1" in
+    MINIO_ROOT_USER)     printf '8' ;;
+    MINIO_ROOT_PASSWORD) printf '16' ;;
+    *)                   printf '24' ;;
+  esac
+}
+
+_db_password_generate() { # _db_password_generate [BYTES]
+  local bytes="${1:-24}"
   local out=""
   if command -v openssl >/dev/null 2>&1; then
-    out="$(openssl rand -hex 24 2>/dev/null | tr -d '\n')"
+    out="$(openssl rand -hex "${bytes}" 2>/dev/null | tr -d '\n')"
   fi
   if [ -z "${out}" ]; then
-    out="$(head -c 24 /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n')"
+    out="$(head -c "${bytes}" /dev/urandom 2>/dev/null | od -A n -t x1 | tr -d ' \n')"
   fi
-  # 24 random bytes -> exactly 48 hex chars. Anything else is a failed draw.
-  if [ "${#out}" -ne 48 ]; then
+  # N random bytes -> exactly 2N hex chars. Anything else is a failed draw.
+  if [ "${#out}" -ne $((bytes * 2)) ]; then
     return 1
   fi
   printf '%s' "${out}"
@@ -87,7 +105,7 @@ db_passwords_ensure() {
     fi
 
     # 3. Generate, persist (write -> read back), then export.
-    generated="$(_db_password_generate)" || {
+    generated="$(_db_password_generate "$(_db_password_bytes "${var}")")" || {
       echo "db_passwords_ensure: could not generate ${var} (no openssl, no /dev/urandom)" >&2
       return 1
     }

@@ -20,9 +20,28 @@
 set -eu
 
 OUT="${CERT_PATH:-$(pwd)/e2e/certs}"
-PASSWORD="${KEYSTORE_PASSWORD:-threewizards}"
+: "${KEYSTORE_PASSWORD:?KEYSTORE_PASSWORD must be set - make gen-certs / make e2e resolve it per run (tests/stack/e2e-password.sh); export it yourself when running this script directly}"
+
+# The keystore/truststore are built with $KEYSTORE_PASSWORD and the api
+# opens them with the same variable (docker-compose.e2e.yml). The value is
+# generated per run and persisted in .e2e-credentials next to E2E_PASSWORD,
+# so a later run reuses BOTH the certs and the password they were built
+# with. If the two ever disagree (credentials file deleted, certs kept),
+# the api would fail far from the cause, so an existing keystore is proved
+# to open with the current password before it is reused. Passed to the
+# containers as an environment variable, never on a command line.
+export KEYSTORE_PASSWORD
+keystore_opens() { # keystore_opens DIR -> 0 when DIR/keystore.p12 opens with $KEYSTORE_PASSWORD
+  docker run --rm -v "$1:/certs:ro" -e KEYSTORE_PASSWORD eclipse-temurin:21-jre sh -c \
+    'openssl pkcs12 -in /certs/keystore.p12 -passin env:KEYSTORE_PASSWORD -noout' >/dev/null 2>&1
+}
 
 if [ -n "${CERT_PATH:-}" ] && [ -d "$CERT_PATH" ] && [ -f "$CERT_PATH/ca.crt" ]; then
+  if [ -f "$CERT_PATH/keystore.p12" ] && ! keystore_opens "$CERT_PATH"; then
+    echo "[gen-certs] $CERT_PATH/keystore.p12 does not open with the current KEYSTORE_PASSWORD." >&2
+    echo "  Export the password that keystore was built with (CERT_PATH certs are never regenerated here)." >&2
+    exit 1
+  fi
   echo "[gen-certs] using existing CERT_PATH=$CERT_PATH (skipping generation)"
   exit 0
 fi
@@ -30,8 +49,15 @@ fi
 mkdir -p "$OUT"
 
 if [ -f "$OUT/ca.crt" ] && [ -f "$OUT/truststore.p12" ]; then
-  echo "[gen-certs] $OUT already populated — skipping (delete to regenerate)"
-  exit 0
+  if keystore_opens "$OUT"; then
+    echo "[gen-certs] $OUT already populated — skipping (delete to regenerate)"
+    exit 0
+  fi
+  echo "[gen-certs] $OUT/keystore.p12 was built with a different KEYSTORE_PASSWORD — regenerating"
+  for f in ca.crt ca.key server.crt server.key api-server.crt api-server.key \
+           client.crt client.key truststore.p12 keystore.p12 openssl.cnf; do
+    rm -f "$OUT/$f"
+  done
 fi
 
 echo "[gen-certs] generating self-signed CA + server certs in $OUT"
@@ -115,12 +141,14 @@ EOF
 '
 
 # PKCS12 keystore + truststore for the Java side via a JDK image.
-docker run --rm -v "$OUT:/out" eclipse-temurin:21-jre sh -c "
+docker run --rm -v "$OUT:/out" -e KEYSTORE_PASSWORD eclipse-temurin:21-jre sh -c "
   cd /out
-  # Keystore (server cert + private key) for the api's HTTPS listener
+  # Keystore (server cert + private key) for the api's HTTPS listener.
+  # Both tools read the password from the environment (env:VAR and
+  # :env VAR) so it is never an argv entry visible in the process list.
   openssl pkcs12 -export \
     -in api-server.crt -inkey api-server.key -name api-server \
-    -out keystore.p12 -password pass:$PASSWORD \
+    -out keystore.p12 -password env:KEYSTORE_PASSWORD \
     -CAfile ca.crt -caname three-wizards-ca 2>/dev/null
 
   # Truststore (CA only) — what the api uses to validate inbound mTLS clients
@@ -130,7 +158,7 @@ docker run --rm -v "$OUT:/out" eclipse-temurin:21-jre sh -c "
     -file ca.crt \
     -keystore truststore.p12 \
     -storetype PKCS12 \
-    -storepass $PASSWORD >/dev/null
+    -storepass:env KEYSTORE_PASSWORD >/dev/null
   chmod 644 *.p12
   chown \$(stat -c %u .):\$(stat -c %g .) *.p12 2>/dev/null || true
 "

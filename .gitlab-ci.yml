@@ -250,10 +250,33 @@ test:rust-cores:
       rust:1-slim
       sh -c 'set -e; for d in extensions/hugmesh-*/; do case "$d" in */hugmesh-bridge/) continue;; esac; echo "→ cargo test in $d"; ( cd "$d" && cargo test --offline --quiet ); done'
 
+# No credential literal / literal default in the compose files the prod and
+# staging overlays extend (ClickHouse, MinIO, replicator, ... —
+# hugmesh-games#57). Plain bash on the runner, no container: the guard reads
+# four YAML files; the profile check also runs `docker compose config`
+# (interpolation only, no daemon) when the runner has compose. Its self-test runs first so a guard that can no longer
+# fail is itself red. Same rules as .test:base so it gates build:image on
+# every pipeline that builds; it does not extend .test:base because it needs
+# none of that job's docker-executor checks.
+test:compose-credentials:
+  stage: test
+  tags: [hugmesh-x86, privileged]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+  script:
+    - bash scripts/test-check-compose-credential-defaults.sh
+    - bash scripts/check-compose-credential-defaults.sh
+    # The dast/load jobs source tests/pentest/env/compose.env and run docker
+    # compose directly (no make gate): every `${VAR:?}` in its compose files
+    # must be resolved by that profile, or spin-up and teardown both die.
+    - bash scripts/test-compose-env-interpolation.sh
+
 build:image:
   stage: build
   # Gate: never build or push an image from a tree whose unit suites are red.
-  needs: [test:backend, test:frontend, test:games-js, test:rust-cores]
+  needs: [test:backend, test:frontend, test:games-js, test:rust-cores, test:compose-credentials]
   tags: [hugmesh-x86, privileged]
   parallel:
     matrix:
