@@ -137,6 +137,17 @@ reject "hash after a doubled squote"       X_SECRET              "CONN: 'it''s #
 reject "hash in a flow sequence entry"     X_PASSWORD            'command: ["sh", "-c", "echo ${X_PASSWORD:- #fakeH7}"]'
 reject "hash in an earlier flow entry"     X_PASSWORD            'command: ["a #b", "${X_PASSWORD:-fakeH8}"]'
 reject "hash with no space is not a comment" X_PASSWORD          'URL: http://h/#frag${X_PASSWORD:-fakeH9}'
+# A node property (`&anchor`, `!tag`, `!!str`, compose's `!override`)
+# between the indicator and the quote still leaves a quoted scalar: the
+# round-2 stripper only knew a quote right after `key: ` and cut these at
+# ` #y`, so the default was never scanned (#69 refute).
+reject "anchor before a double quote"      MINIO_ROOT_PASSWORD   'CONN: &c "x #y ${MINIO_ROOT_PASSWORD:-fakeP1}"'
+reject "anchor before a single quote"      MINIO_ROOT_PASSWORD   "CONN: &c 'x #y \${MINIO_ROOT_PASSWORD:-fakeP2}'"
+reject "!!str tag before a quote"          X_SECRET              'CONN: !!str "x #y ${X_SECRET:-fakeP3}"'
+reject "!override tag before a quote"      X_TOKEN               'CONN: !override "x #y ${X_TOKEN:-fakeP4}"'
+reject "anchor and tag before a quote"     X_PASSWORD            'CONN: &c !!str "x #y ${X_PASSWORD:-fakeP5}"'
+reject "tag on a quoted list entry"        X_SECRET              '- !!str "CONN=x #y ${X_SECRET:-fakeP6}"'
+reject "flow mapping, adjacent value"      X_SECRET              'labels: {"a":"b #c ${X_SECRET:-fakeF2}"}'
 
 # Nested shapes that render no literal stay green.
 nested_green="$(fixture nested-green <<'EOF'
@@ -192,6 +203,83 @@ services:
 EOF
 )"
 expect_red "block scalar: a '#' line inside it is not a YAML comment" Y_SECRET "$block_hashline"
+anchor_block="$(fixture anchor-block <<'EOF'
+services:
+  s:
+    entrypoint: &e |
+      sh -c "x #y $${X_PASSWORD:-fakeB1}"
+EOF
+)"
+expect_red "block scalar after an anchor: hash inside it is value text" X_PASSWORD "$anchor_block"
+tag_block="$(fixture tag-block <<'EOF'
+services:
+  s:
+    environment:
+      CONN: !!str >-
+        x #y ${Y_SECRET:-fakeB2}
+EOF
+)"
+expect_red "block scalar after a tag: hash inside it is value text" Y_SECRET "$tag_block"
+flow_ml="$(fixture flow-ml <<'EOF'
+services:
+  s:
+    command: ["a",
+      "b #c ${X_PASSWORD:-fakeF1}"]
+EOF
+)"
+expect_red "flow sequence across lines: a quote after ',' on the next line" X_PASSWORD "$flow_ml"
+flow_ml_plain="$(fixture flow-ml-plain <<'EOF'
+services:
+  s:
+    command: [a,
+      b, "c #d ${X_PASSWORD:-fakeF3}"]
+EOF
+)"
+expect_red "flow sequence across lines: ',' after a plain entry on the next line" X_PASSWORD "$flow_ml_plain"
+seq_map="$(fixture seq-map <<'EOF'
+services:
+  s:
+    volumes:
+      - type: bind
+        source: "/x #y ${X_SECRET:-fakeK1}"
+        target: /x
+EOF
+)"
+expect_red "mapping in a sequence entry: the next key is a node, not a continuation" X_SECRET "$seq_map"
+seq_map_qkey="$(fixture seq-map-qkey <<'EOF'
+x-list:
+  - name: a
+    "k #b": "${X_SECRET:-fakeK2}"
+EOF
+)"
+expect_red "mapping in a sequence entry: a quoted key on the next line opens" X_SECRET "$seq_map_qkey"
+
+# A quote INSIDE a plain scalar is plain text. `, ` / `- ` / `[` / `{` start
+# a node only in flow context or at a node start; reading the quote in
+# `MSG: hello, "world` as an opening one carried a false quote state to the
+# next line, where the real opening quote was read as a closing one and
+# ` #y ...` was stripped (#69 refute). Each renders the literal under
+# `docker compose config`; the same CONN line alone was already red.
+desync() { # desync LABEL NAME FIRST_LINE...: the lines go under environment:
+  local label="$1" name="$2"; shift 2
+  local f="$work/desync-$pass-$fail.yml"
+  printf 'services:\n  s:\n    environment:\n' > "$f"
+  printf '      %s\n' "$@" >> "$f"
+  expect_red "$label" "$name" "$f"
+}
+desync "unbalanced quote after ', ' in a plain value"  MINIO_ROOT_PASSWORD \
+  'MSG: hello, "world' 'CONN: "x #y ${MINIO_ROOT_PASSWORD:-fakeD1}"'
+desync "unbalanced quote after ' - ' in a plain value" MINIO_ROOT_PASSWORD \
+  "MSG: a - 'b" "CONN: 'x #y \${MINIO_ROOT_PASSWORD:-fakeD2}'"
+desync "unbalanced quote on a plain continuation line" X_TOKEN \
+  'MSG: hello' '  "world' 'CONN: "x #y ${X_TOKEN:-fakeD3}"'
+desync "unbalanced quote on a continuation after a blank line" X_TOKEN \
+  'MSG: hello' '' '  "world' 'CONN: "x #y ${X_TOKEN:-fakeD6}"'
+desync "unbalanced quote after '{' in a plain value"   X_SECRET \
+  'MSG: a {b "c' 'CONN: "x #y ${X_SECRET:-fakeD4}"'
+desync "unbalanced quote after '[' ', ' in a plain value" X_SECRET \
+  "MSG: a [b, 'c" "CONN: 'x #y \${X_SECRET:-fakeD5}'"
+
 unterminated="$(fixture unterminated <<'EOF'
 services:
   s:
@@ -223,6 +311,36 @@ services:
 EOF
 )"
 expect_green "YAML comments after quoted, plain, multi-line and block scalars" "$comments_green"
+
+# ...and the property / plain-quote / flow shapes above, with the comment
+# where YAML puts it: none of these may go red (no false quote state either
+# way). `docker compose config` renders none of the commentonly values.
+shapes_green="$(fixture shapes-green <<'EOF'
+services:
+  s:
+    environment:
+      MSG: hello, "world
+      X: "a" # ${Z_PASSWORD:-commentonlyG1}
+      MSG2: a - 'b
+      Y: 'a' # ${Z_PASSWORD:-commentonlyG2}
+      C1: &c "x" # ${Y_PASSWORD:-commentonlyG3}
+      C2: !!str 'x' # ${Y_PASSWORD:-commentonlyG4}
+      MSG3: hello
+        "world
+      Z: "a" # ${Z_PASSWORD:-commentonlyG5}
+      MSG4: a {b "c
+      W: "a" # ${Z_PASSWORD:-commentonlyG6}
+      MSG5: a | b
+        more # ${Z_PASSWORD:-commentonlyG10}
+    command: ["a",
+      "b"] # ${J_PASSWORD:-commentonlyG7}
+    labels: {"a":"b"} # ${K_PASSWORD:-commentonlyG8}
+    entrypoint: &e |
+      echo hi
+    # ${I_PASSWORD:-commentonlyG9}
+EOF
+)"
+expect_green "comments after property, plain-quote, continuation and flow shapes" "$shapes_green"
 
 # The report must name the variable and NEVER print the value. The guard
 # must have actually scanned the fixture (rc=1) for "no leak" to mean

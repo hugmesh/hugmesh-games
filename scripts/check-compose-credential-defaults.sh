@@ -18,8 +18,10 @@
 # Two rules, applied to every non-comment line (a full-line `#` comment is
 # not reachable by compose; an inline ` # ...` tail is stripped first, but
 # only where YAML itself reads it as a comment: a ` #` inside a quoted
-# scalar (`CONN: "${MINIO_ROOT_PASSWORD:- #x}"` renders ` #x`) or inside a
-# `|`/`>` block scalar is value text and is scanned like the rest):
+# scalar (`CONN: "${MINIO_ROOT_PASSWORD:- #x}"` renders ` #x`, and so does
+# `CONN: &a !!str "..."`) or inside a `|`/`>` block scalar is value text and
+# is scanned like the rest; a quote inside a plain scalar, as in
+# `MSG: hello, "world`, opens nothing):
 #
 #   A. an interpolation default `${NAME:-value}` or `${NAME-value}` (or an
 #      alternate `${NAME:+value}` / `${NAME+value}`) whose NAME contains
@@ -88,15 +90,19 @@ KEY_RE='(PASSWORD|PASSWD|_PASS|_SECRET|_TOKEN)$'
 LIT_RE='^[^$}]+'                                       # a run of plain text
 OPEN_RE='^[$][{]([A-Za-z_][A-Za-z0-9_]*)(:?[-?+])?'     # ${NAME and its operator
 VAR_RE='^[$][A-Za-z_][A-Za-z0-9_]*'                     # bare $NAME
-# Comment-stripper tokens (_strip_comment). YAML: `#` starts a comment only
-# in plain context and only after whitespace; a quote opens a quoted scalar
-# only where a scalar starts (line start, after `key: `, `- `, `? `, or a
-# flow `[`, `{`, `,`), so the apostrophe in `msg: it's` is plain text.
-PLAIN_RE="^[^#\"']*"                                    # up to a `#` or a quote
+# Comment-stripper tokens (_strip_comment, a small YAML tokenizer). YAML:
+# `#` starts a comment only in plain context and only after whitespace; a
+# quote opens a quoted scalar, and `|`/`>` a block scalar, only where a NODE
+# starts (see _strip_comment), so the apostrophe in `msg: it's` and the
+# quote in `msg: hello, "world` are plain text.
+WS_RE='^[[:space:]]+'
+RUN_RE="^[^][{},:#[:space:]\"']+"                       # plain text the walker need not look at
+PROP_RE='^[&!][^][{},[:space:]]*'                       # node property: &anchor, !tag, !!str
+INDICATOR_RE='^.([[:space:]]|$)'                        # `- `, `? `, `: ` (indicator + space/EOL)
+FLOW_COLON_RE='^:[],[{}]'                               # `:` right before a flow indicator
+BLOCK_HDR_RE='^[|>][0-9+-]*([[:space:]]|$)'             # `|`, `>-`, `|2+` ...
 DQ_BODY_RE='^([^"\\]|\\.)*'                           # "..." body, \-escapes
 SQ_BODY_RE="^([^']|'')*"                                 # '...' body, '' escapes
-QSTART_RE='(^[[:space:]]*|[?:-][[:space:]]+|[[{,][[:space:]]*)$'
-BLOCK_RE='(^|[?:-])[[:space:]]+[|>][0-9+-]*[[:space:]]*$' # `key: |`, `- >-`
 
 violations=0
 scanned=0
@@ -203,18 +209,49 @@ _interp() {
   _lit="$lit"
 }
 
-# _strip_comment LINE
-#   Sets _line to LINE without its YAML comment tail. Quote state lives in
-#   the global _q ('' plain, '"' or "'") and carries over to the next line,
-#   because a quoted scalar may span lines. A ` #` inside quotes is value
-#   text, not a comment: stripping it there (the old `^(.*)[[:space:]]#`
-#   loop did) cut `"${MINIO_ROOT_PASSWORD:- #x}"` to `"${MINIO_ROOT_PASSWORD:-`
-#   and the literal default was never seen.
+# _strip_comment LINE INDENT
+#   Sets _line to LINE without its YAML comment tail. A ` #` inside quotes is
+#   value text, not a comment: stripping it there (the old
+#   `^(.*)[[:space:]]#` loop did) cut `"${MINIO_ROOT_PASSWORD:- #x}"` to
+#   `"${MINIO_ROOT_PASSWORD:-` and the literal default was never seen.
+#
+#   Whether a quote opens a quoted scalar depends on WHERE it is, so this is
+#   a small tokenizer, not a regex. A quote (or `|`/`>`) opens a scalar only
+#   at a node start (_ns=1): the start of a block line; after a `- ` or `? `
+#   that is itself at a node start; after any `key: `; inside a flow
+#   collection after `[`, `{` or `,`; and after node properties (`&anchor`,
+#   `!tag`, `!!str`, compose's `!override`), which leave the node start open.
+#   Anywhere else it is plain text: `msg: hello, "world` and `msg: a - 'b`
+#   are plain scalars in block context, and reading their quote as an
+#   opening one would carry a false quote state onto the next line, where
+#   the real opening quote of `CONN: "x #y ${X_PASSWORD:-v}"` would then be
+#   read as a closing one and ` #y ...` stripped as a comment.
+#
+#   State carried across lines (globals, reset per file): _q ('' plain, '"'
+#   or "'": a quoted scalar may span lines), _fd (flow depth: a flow
+#   collection may span lines), _ns (node start, kept inside a flow
+#   collection), _cont (the column a multi-line PLAIN scalar belongs to, or
+#   -1: a more-indented next line continues that scalar, so it does not start
+#   a node). _blk is set to 1 when LINE ends in a block scalar header.
 _strip_comment() {
   local s="$1"
-  local i=0
   local n="${#s}"
-  local c
+  local i=0
+  local c t
+  local plain=0        # the last token was plain scalar text
+  local pq=0           # the last token was a closing quote (flow `"a":b`)
+  local kstart=-1      # column of the node that may turn out to be a key
+  local ocol="$2"      # column of the node that owns a plain value
+  _blk=0
+  if [ -z "$_q" ] && [ "$_fd" -eq 0 ]; then
+    if [ "$_cont" -ge 0 ] && [ "$2" -gt "$_cont" ]; then
+      _ns=0            # continuation line of a multi-line plain scalar
+      plain=1
+      ocol="$_cont"
+    else
+      _ns=1
+    fi
+  fi
   while [ "$i" -lt "$n" ]; do
     case "$_q" in
       '"')
@@ -223,34 +260,133 @@ _strip_comment() {
         [ "$i" -lt "$n" ] || break
         if [ "${s:i:1}" = '"' ]; then
           _q=''
+          pq=1
         fi
         i=$((i + 1))           # the closing quote, or a trailing lone backslash
+        continue
         ;;
       "'")
         [[ "${s:i}" =~ $SQ_BODY_RE ]]
         i=$((i + ${#BASH_REMATCH[0]}))
         [ "$i" -lt "$n" ] || break
         _q=''
+        pq=1
         i=$((i + 1))           # the closing quote
-        ;;
-      *)
-        [[ "${s:i}" =~ $PLAIN_RE ]]
-        i=$((i + ${#BASH_REMATCH[0]}))
-        [ "$i" -lt "$n" ] || break
-        c="${s:i:1}"
-        if [ "$c" = '#' ]; then
-          if [ "$i" -eq 0 ] || [[ "${s:i-1:1}" == [[:space:]] ]]; then
-            _line="${s:0:i}"
-            return
-          fi
-        elif [[ "${s:0:i}" =~ $QSTART_RE ]]; then
-          _q="$c"
-        fi
-        i=$((i + 1))
+        continue
         ;;
     esac
+    t="${s:i}"
+    if [[ "$t" =~ $WS_RE ]]; then
+      i=$((i + ${#BASH_REMATCH[0]}))
+      continue
+    fi
+    c="${t:0:1}"
+    case "$c" in
+      '#')
+        if [ "$i" -eq 0 ] || [[ "${s:i-1:1}" == [[:space:]] ]]; then
+          _line="${s:0:i}"
+          _cont=-1             # a comment ends a plain scalar
+          return
+        fi
+        ;;
+      '"' | "'")
+        if [ "$_ns" -eq 1 ]; then
+          _q="$c"
+          _ns=0
+          plain=0
+          pq=0
+          kstart="$i"
+          i=$((i + 1))
+          continue
+        fi
+        ;;
+      '&' | '!')
+        if [ "$_ns" -eq 1 ] && [[ "$t" =~ $PROP_RE ]]; then
+          i=$((i + ${#BASH_REMATCH[0]}))   # a property: the node start stays open
+          pq=0
+          continue
+        fi
+        ;;
+      '-' | '?')
+        if [ "$_ns" -eq 1 ] && [[ "$t" =~ $INDICATOR_RE ]] && { [ "$c" = '?' ] || [ "$_fd" -eq 0 ]; }; then
+          ocol="$i"            # `- x`: x continues only past this column
+          pq=0
+          i=$((i + 1))
+          continue
+        fi
+        ;;
+      ':')
+        if [[ "$t" =~ $INDICATOR_RE ]] || { [ "$_fd" -gt 0 ] && { [ "$pq" -eq 1 ] || [[ "$t" =~ $FLOW_COLON_RE ]]; }; }; then
+          if [ "$kstart" -ge 0 ]; then
+            ocol="$kstart"     # `key: x`: x continues only past the key's column
+          fi
+          _ns=1
+          plain=0
+          pq=0
+          i=$((i + 1))
+          continue
+        fi
+        ;;
+      '|' | '>')
+        if [ "$_ns" -eq 1 ] && [ "$_fd" -eq 0 ] && [[ "$t" =~ $BLOCK_HDR_RE ]]; then
+          _blk=1
+          _ns=0
+          plain=0
+          pq=0
+          i=$((i + ${#BASH_REMATCH[0]}))
+          continue
+        fi
+        ;;
+      '[' | '{')
+        if [ "$_ns" -eq 1 ] || [ "$_fd" -gt 0 ]; then
+          _fd=$((_fd + 1))
+          _ns=1
+          plain=0
+          pq=0
+          i=$((i + 1))
+          continue
+        fi
+        ;;
+      ']' | '}')
+        if [ "$_fd" -gt 0 ]; then
+          _fd=$((_fd - 1))
+          _ns=0
+          plain=0
+          pq=0
+          i=$((i + 1))
+          continue
+        fi
+        ;;
+      ',')
+        if [ "$_fd" -gt 0 ]; then
+          _ns=1
+          plain=0
+          pq=0
+          i=$((i + 1))
+          continue
+        fi
+        ;;
+    esac
+    # Plain scalar text: a run of ordinary characters, or the one character
+    # the cases above did not claim (a quote, `#`, `:` ... inside the text).
+    if [ "$_ns" -eq 1 ]; then
+      kstart="$i"
+    fi
+    if [[ "$t" =~ $RUN_RE ]]; then
+      i=$((i + ${#BASH_REMATCH[0]}))
+    else
+      i=$((i + 1))
+    fi
+    _ns=0
+    plain=1
+    pq=0
   done
   _line="$s"
+  if [ -z "$_q" ] && [ "$_fd" -eq 0 ] && [ "$plain" -eq 1 ]; then
+    _cont="$ocol"
+  else
+    _cont=-1
+  fi
 }
 
 scan_file() {
@@ -267,6 +403,10 @@ scan_file() {
   local block=-1   # indent of the line that opened a `|`/`>` block scalar
   local indent
   _q=''
+  _fd=0
+  _ns=1
+  _cont=-1
+  _blk=0
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
     [[ "$line" =~ ^([[:space:]]*) ]]
@@ -283,15 +423,21 @@ scan_file() {
     if [ "$block" -lt 0 ]; then
       # Full-line comment: not reachable by compose (unless a quoted scalar
       # from an earlier line is still open, where it is value text).
+      # A comment line also ends a multi-line plain scalar.
       if [ -z "$_q" ] && [[ "$line" =~ ^[[:space:]]*# ]]; then
+        _cont=-1
         continue
       fi
-      # Inline comment tail: only lines that can hold one pay for the walk.
-      case "$_q$line" in
-        *[\#\"\']*) _strip_comment "$line"; line="$_line" ;;
-      esac
-      if [ -z "$_q" ] && [[ "$line" =~ $BLOCK_RE ]]; then
-        block="$indent"
+      # Inline comment tail, node starts, quote and flow state: every line
+      # is walked (a line with no quote can still open a flow collection or
+      # end a plain scalar the next line would otherwise continue). A blank
+      # line changes nothing: it may sit inside a multi-line scalar.
+      if [[ ! "$line" =~ ^[[:space:]]*$ ]]; then
+        _strip_comment "$line" "$indent"
+        line="$_line"
+        if [ "$_blk" -eq 1 ]; then
+          block="$indent"
+        fi
       fi
     fi
 
