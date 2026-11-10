@@ -124,6 +124,19 @@ reject "second interpolation on a line"    X_SECRET              'URL: ${HOST:?s
 reject "dollar-escaped shell default"      MINIO_ROOT_PASSWORD   "entrypoint: sh -c 'mc alias set l http://m \$\${MINIO_ROOT_USER:?} \$\${MINIO_ROOT_PASSWORD:-fakeshell1}'"
 reject "alternate value on a credential"   CASDOOR_ADMIN_PASS    'CASDOOR_ADMIN_PASS: ${CASDOOR_ADMIN_PASS:+fakealt1}'
 reject "unknown operator fails closed"     DB_PASSWD             'DB_PASSWD: ${DB_PASSWD:=fakeunknown1}'
+# A ` #` inside a QUOTED scalar is value text, not a YAML comment: compose
+# renders `${MINIO_ROOT_PASSWORD:- #fakeH2}` unset as ` #fakeH2`. The old
+# stripper cut every ` #...` tail regardless of quoting, left the dangling
+# `${MINIO_ROOT_PASSWORD:-`, and the guard printed "clean" (hugmesh-games#61
+# refute). Non-credential keys, so rule B cannot rescue any of these.
+reject "hash in double-quoted default"     MINIO_ROOT_PASSWORD   'CONN: "${MINIO_ROOT_PASSWORD:- #fakeH2}"'
+reject "hash in single-quoted default"     MINIO_ROOT_PASSWORD   "CONN: '\${MINIO_ROOT_PASSWORD:- #fakeH3}'"
+reject "hash in quoted list entry"         X_SECRET              '- "CONN=${X_SECRET:- #fakeH4}"'
+reject "hash after an escaped dquote"      X_TOKEN               'CONN: "a\" #b ${X_TOKEN:-fakeH5}"'
+reject "hash after a doubled squote"       X_SECRET              "CONN: 'it''s #b \${X_SECRET:-fakeH6}'"
+reject "hash in a flow sequence entry"     X_PASSWORD            'command: ["sh", "-c", "echo ${X_PASSWORD:- #fakeH7}"]'
+reject "hash in an earlier flow entry"     X_PASSWORD            'command: ["a #b", "${X_PASSWORD:-fakeH8}"]'
+reject "hash with no space is not a comment" X_PASSWORD          'URL: http://h/#frag${X_PASSWORD:-fakeH9}'
 
 # Nested shapes that render no literal stay green.
 nested_green="$(fixture nested-green <<'EOF'
@@ -141,6 +154,75 @@ services:
 EOF
 )"
 expect_green "nested defaults made only of env values; non-credential nested literals" "$nested_green"
+
+# Multi-line shapes: what YAML reads as value text across a line break.
+ml_dq="$(fixture ml-dq <<'EOF'
+services:
+  s:
+    environment:
+      CONN: "first part
+        ${X_TOKEN:- #fakeML1}"
+EOF
+)"
+expect_red "multi-line double-quoted scalar: hash on the continuation line" X_TOKEN "$ml_dq"
+ml_dq_comment="$(fixture ml-dq-comment <<'EOF'
+services:
+  s:
+    environment:
+      CONN: "first part
+        # still inside the quotes ${X_TOKEN:-fakeML2}"
+EOF
+)"
+expect_red "multi-line double-quoted scalar: a '#' line inside it is not a comment" X_TOKEN "$ml_dq_comment"
+block="$(fixture block <<'EOF'
+services:
+  s:
+    entrypoint: |
+      sh -c 'x #y $${X_PASSWORD:-fakeBL1}'
+EOF
+)"
+expect_red "block scalar: hash inside it is value text" X_PASSWORD "$block"
+block_hashline="$(fixture block-hashline <<'EOF'
+services:
+  s:
+    entrypoint: >-
+      # a shell comment is still part of the value
+      sh -c 'echo ok'
+      # ${Y_SECRET:-fakeBL2}
+EOF
+)"
+expect_red "block scalar: a '#' line inside it is not a YAML comment" Y_SECRET "$block_hashline"
+unterminated="$(fixture unterminated <<'EOF'
+services:
+  s:
+    environment:
+      CONN: ${MINIO_ROOT_PASSWORD:-
+        fakeUT1}
+EOF
+)"
+expect_red "unterminated interpolation fails closed" MINIO_ROOT_PASSWORD "$unterminated"
+
+# ...while real YAML comments stay comments.
+comments_green="$(fixture comments-green <<'EOF'
+services:
+  s:
+    environment:
+      CONN: "${A:-x}" # ${B_PASSWORD:-commentonly1}
+      MSG: it's plain text # ${C_PASSWORD:-commentonly2}
+      - "it's" # ${D_PASSWORD:-commentonly3}
+      HEALTH: "curl -f http://x/#frag ${E_PASSWORD:?set}"
+      Q: 'a ''b'' c' # ${F_PASSWORD:-commentonly4}
+      ML: "two
+        lines" # ${G_PASSWORD:-commentonly5}
+      # ${H_PASSWORD:-commentonly6}
+    entrypoint: |
+      echo hi
+    # ${I_PASSWORD:-commentonly7}
+    command: ["a", "b"] # ${J_PASSWORD:-commentonly8}
+    labels: { a: "b" } # ${K_PASSWORD:-commentonly9}
+EOF
+)"
+expect_green "YAML comments after quoted, plain, multi-line and block scalars" "$comments_green"
 
 # The report must name the variable and NEVER print the value. The guard
 # must have actually scanned the fixture (rc=1) for "no leak" to mean
@@ -220,6 +302,14 @@ fi
 if mutate "$work/tree/docker-compose.yml" '0,/\$\{MINIO_ROOT_PASSWORD:\?[^}]*\}/s//${MINIO_ROOT_PASSWORD:-${MINIO_FALLBACK_PASSWORD:-mutantnested}}/' "nested literal default"; then
   expect_red "mutation: nested literal default is red" MINIO_ROOT_PASSWORD "${tree_files[@]}"
   if printf '%s' "$out" | grep -F mutantnested >/dev/null; then bad "nested mutation report leaks the value"; else ok "nested mutation report does not leak the value"; fi
+  restore "$work/tree/docker-compose.yml"
+fi
+
+# 3d''. a quoted default with a ` #` in it must be red (the #61 refute shape),
+# under a NON-credential key so rule B's dangling-quote catch cannot mask it
+if mutate "$work/tree/docker-compose.yml" '0,/APP_UPLOADS_S3_BUCKET: \$\{APP_UPLOADS_S3_BUCKET:-[^}]*\}/s//APP_UPLOADS_S3_BUCKET: "${MINIO_ROOT_PASSWORD:- #mutanthash}"/' "quoted hash default"; then
+  expect_red "mutation: quoted default with a hash is red" MINIO_ROOT_PASSWORD "${tree_files[@]}"
+  if printf '%s' "$out" | grep -F mutanthash >/dev/null; then bad "quoted-hash mutation report leaks the value"; else ok "quoted-hash mutation report does not leak the value"; fi
   restore "$work/tree/docker-compose.yml"
 fi
 
