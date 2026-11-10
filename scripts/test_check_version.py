@@ -5,6 +5,10 @@ Run: python3 -m unittest scripts/test_check_version.py   (from the repo root)
 Every mutation test copies the REAL version-bearing files into a temp tree,
 breaks exactly one of them, and expects the guard to fail. The first test checks
 the real tree, so a bump that misses a file goes red here too.
+
+No test names a version: each one derives what it needs from the VERSION file
+(the tree's own version, the next minor/major/patch, a tag for either), so a
+bump never edits this file.
 """
 
 import contextlib
@@ -22,18 +26,48 @@ sys.path.insert(0, HERE)
 
 import check_version  # noqa: E402
 
-FILES = (
+# The files a bump edits: VERSION, the three poms, frontend/package.json + lock.
+VERSION_FILES = (
     "VERSION",
-    "Makefile",
     "backend/pom.xml",
-    "backend/Dockerfile",
     "rpg-builder/pom.xml",
-    "rpg-builder/Dockerfile",
     "vn-builder/pom.xml",
-    "vn-builder/Dockerfile",
     "frontend/package.json",
     "frontend/package-lock.json",
 )
+# Files the guard reads that a bump must NOT edit: they name version-free jars.
+JAR_FILES = (
+    "Makefile",
+    "backend/Dockerfile",
+    "rpg-builder/Dockerfile",
+    "vn-builder/Dockerfile",
+)
+FILES = VERSION_FILES + JAR_FILES
+
+
+def parts(version):
+    major, minor, patch = (int(x) for x in version.split("-")[0].split("."))
+    return major, minor, patch
+
+
+def next_versions(version):
+    """Versions a release from `version` can move to, derived, never literal:
+    the next beta/rc of this line, its stable, a patch, a new minor and a new major."""
+    major, minor, patch = parts(version)
+    return (
+        f"{major}.{minor}.{patch}",                # stable of this line
+        f"{major}.{minor}.{patch}-rc.1",           # release candidate
+        f"{major}.{minor}.{patch + 1}",            # patch
+        f"{major}.{minor + 1}.0-beta.1",           # new minor (beta from main)
+        f"{major}.{minor + 1}.0",                  # new minor (stable)
+        f"{major + 1}.0.0-beta.1",                 # new major
+    )
+
+
+def other_version(version):
+    """A valid version on a different MINOR line than `version`."""
+    major, minor, _ = parts(version)
+    return f"{major}.{minor + 1}.0-beta.1"
 
 
 def run_guard(*argv, env_output=None):
@@ -57,9 +91,18 @@ class RealTreeTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
 
     def test_real_version_is_a_release_version_not_a_snapshot(self):
-        # main carries X.Y.Z-beta.N; a release/X.Y branch carries a stable X.Y.Z.
+        # main carries X.Y.Z-beta.N; a release/X.Y branch carries X.Y.Z-rc.N or a
+        # stable X.Y.Z.
         version = check_version.read_version(REPO)
-        self.assertRegex(version, r"^\d+\.\d+\.\d+(-beta\.[1-9]\d*)?$")
+        self.assertRegex(version, r"^\d+\.\d+\.\d+(-(beta|rc)\.[1-9]\d*)?$")
+
+    def test_real_jar_names_carry_no_version(self):
+        # The point of the version-free jar names: no file a bump does not edit
+        # may carry the version, or the next bump needs a hand edit again.
+        version = check_version.read_version(REPO)
+        for rel in JAR_FILES:
+            with self.subTest(file=rel), open(os.path.join(REPO, rel), encoding="utf-8") as fh:
+                self.assertNotIn(version, fh.read())
 
 
 class MutationTest(unittest.TestCase):
@@ -70,6 +113,7 @@ class MutationTest(unittest.TestCase):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copyfile(os.path.join(REPO, rel), dst)
         self.version = check_version.read_version(self.tmp)
+        self.other = other_version(self.version)
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
@@ -96,28 +140,43 @@ class MutationTest(unittest.TestCase):
             with self.subTest(pom=pom):
                 self.tearDown()
                 self.setUp()
-                self.edit(pom, f"<version>{self.version}</version>", "<version>0.1.0-SNAPSHOT</version>")
+                self.edit(pom, f"<version>{self.version}</version>", f"<version>{self.other}</version>")
                 self.assert_fails_naming(pom)
+
+    def test_each_pom_final_name_is_checked(self):
+        # A finalName that carries the version (the old default) or another name
+        # than the artifactId, or no finalName at all, brings back the hand edit.
+        for pom in check_version.POMS:
+            artifact, _ = check_version.pom_coordinates(self.tmp, pom)
+            for bad in (f"{artifact}-${{project.version}}", f"{artifact}-{self.version}", "app", None):
+                with self.subTest(pom=pom, final_name=bad):
+                    self.tearDown()
+                    self.setUp()
+                    new = "" if bad is None else f"<finalName>{bad}</finalName>"
+                    self.edit(pom, f"<finalName>{artifact}</finalName>", new)
+                    self.assert_fails_naming(pom)
 
     def test_each_dockerfile_jar_name_is_checked(self):
         for pom, dockerfile in check_version.JAVA_DOCKERFILES.items():
-            with self.subTest(dockerfile=dockerfile):
-                self.tearDown()
-                self.setUp()
-                self.edit(dockerfile, f"-{self.version}.jar", "-0.1.0-SNAPSHOT.jar")
-                self.assert_fails_naming(dockerfile)
+            artifact, _ = check_version.pom_coordinates(self.tmp, pom)
+            for bad in (f"{artifact}-{self.version}.jar", f"{artifact}-{self.other}.jar", f"{artifact}-app.jar"):
+                with self.subTest(dockerfile=dockerfile, jar=bad):
+                    self.tearDown()
+                    self.setUp()
+                    self.edit(dockerfile, f"target/{artifact}.jar", f"target/{bad}")
+                    self.assert_fails_naming(dockerfile)
 
     def test_dockerfile_without_jar_copy_fails(self):
         artifact, _ = check_version.pom_coordinates(self.tmp, "backend/pom.xml")
-        self.edit("backend/Dockerfile", f"/app/target/{artifact}-{self.version}.jar", "/app/target/app.jar")
+        self.edit("backend/Dockerfile", f"/app/target/{artifact}.jar", "/app/target/app.jar")
         self.assert_fails_naming("backend/Dockerfile")
 
     def test_package_json_is_checked(self):
-        self.edit("frontend/package.json", f'"version": "{self.version}"', '"version": "0.1.0"')
+        self.edit("frontend/package.json", f'"version": "{self.version}"', f'"version": "{self.other}"')
         self.assert_fails_naming("frontend/package.json")
 
     def test_lock_top_version_is_checked(self):
-        self.edit("frontend/package-lock.json", f'"version": "{self.version}"', '"version": "0.1.0"', 1)
+        self.edit("frontend/package-lock.json", f'"version": "{self.version}"', f'"version": "{self.other}"', 1)
         self.assert_fails_naming("frontend/package-lock.json")
 
     def test_lock_root_package_version_is_checked(self):
@@ -126,7 +185,7 @@ class MutationTest(unittest.TestCase):
             text = fh.read()
         first = text.index(f'"version": "{self.version}"')
         second = text.index(f'"version": "{self.version}"', first + 1)
-        text = text[:second] + '"version": "0.1.0"' + text[second + len(f'"version": "{self.version}"'):]
+        text = text[:second] + f'"version": "{self.other}"' + text[second + len(f'"version": "{self.version}"'):]
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
         code, _, err = run_guard("--root", self.tmp)
@@ -134,8 +193,13 @@ class MutationTest(unittest.TestCase):
         self.assertIn('packages[""].version', err)
 
     def test_makefile_backend_jar_is_checked(self):
-        self.edit("Makefile", f"hugmesh-gaming-bff-{self.version}.jar", "hugmesh-gaming-bff-0.1.0-SNAPSHOT.jar")
-        self.assert_fails_naming("Makefile")
+        artifact, _ = check_version.pom_coordinates(self.tmp, "backend/pom.xml")
+        for bad in (f"{artifact}-{self.version}.jar", f"{artifact}-{self.other}.jar"):
+            with self.subTest(jar=bad):
+                self.tearDown()
+                self.setUp()
+                self.edit("Makefile", f"target/{artifact}.jar", f"target/{bad}")
+                self.assert_fails_naming("Makefile")
 
     def test_snapshot_version_refused(self):
         with open(os.path.join(self.tmp, "VERSION"), "w") as fh:
@@ -165,20 +229,49 @@ class MutationTest(unittest.TestCase):
         self.assertIn(f"prerelease={expected}\n", written)
 
     def rebump(self, new):
-        # Simulate a version bump in the temp tree: every version-bearing file
-        # moves from the real VERSION to `new`, so the guard stays consistent.
-        for rel in FILES:
+        # Simulate a version bump in the temp tree: ONLY the files a bump edits
+        # move from the real VERSION to `new`. The Dockerfiles and the Makefile are
+        # left alone, so the guard going green proves they need no hand edit.
+        for rel in VERSION_FILES:
             path = os.path.join(self.tmp, rel)
             with open(path, encoding="utf-8") as fh:
                 text = fh.read()
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(text.replace(self.version, new))
 
+    def test_any_next_version_needs_only_the_version_files(self):
+        # Stable, rc, patch, new minor (beta and stable) and new major, all derived
+        # from VERSION: bumping the six version files is the whole bump.
+        for new in next_versions(self.version):
+            with self.subTest(version=new):
+                self.tearDown()
+                self.setUp()
+                self.rebump(new)
+                code, out, err = run_guard("--root", self.tmp)
+                self.assertEqual(code, 0, err)
+                self.assertIn(f"version {new} consistent", out)
+                line = ".".join(new.split(".")[:2])
+                self.assertEqual(check_version.classify_ref(f"refs/heads/release/{line}", new), "branch")
+
+    def test_a_bump_that_misses_a_version_file_fails(self):
+        # The converse: leave any one of the five version-bearing files behind and
+        # the bumped tree goes red, naming that file.
+        new = other_version(self.version)
+        for rel in VERSION_FILES[1:]:
+            with self.subTest(left_behind=rel):
+                self.tearDown()
+                self.setUp()
+                saved = os.path.join(self.tmp, rel + ".orig")
+                shutil.copyfile(os.path.join(self.tmp, rel), saved)
+                self.rebump(new)
+                shutil.move(saved, os.path.join(self.tmp, rel))
+                self.assert_fails_naming(rel)
+
     def test_prerelease_follows_the_version_on_both_channels(self):
-        # Whatever the real tree carries, both channels are exercised: a stable
-        # X.Y.Z reports prerelease=false, an X.Y.Z-beta.N reports prerelease=true.
+        # Whatever the real tree carries, every channel is exercised: a stable
+        # X.Y.Z reports prerelease=false, an X.Y.Z-beta.N or -rc.N prerelease=true.
         base = self.version.split("-")[0]
-        for new, expected in ((base, "false"), (f"{base}-beta.1", "true")):
+        for new, expected in ((base, "false"), (f"{base}-beta.1", "true"), (f"{base}-rc.1", "true")):
             with self.subTest(version=new):
                 self.tearDown()
                 self.setUp()
@@ -193,7 +286,7 @@ class MutationTest(unittest.TestCase):
                 self.assertIn(f"prerelease={expected}\n", written)
 
     def test_mismatched_tag_refused(self):
-        code, _, err = run_guard("--root", self.tmp, "--ref", "refs/tags/v9.9.9-beta.1")
+        code, _, err = run_guard("--root", self.tmp, "--ref", f"refs/tags/v{self.other}")
         self.assertEqual(code, 1)
         self.assertIn("does not match VERSION", err)
 
@@ -213,7 +306,8 @@ class MutationTest(unittest.TestCase):
             self.assertIn("kind=branch\n", fh.read())
 
     def test_release_branch_of_another_line_refused(self):
-        code, _, err = run_guard("--root", self.tmp, "--ref", "refs/heads/release/99.0")
+        other_line = ".".join(self.other.split(".")[:2])
+        code, _, err = run_guard("--root", self.tmp, "--ref", f"refs/heads/release/{other_line}")
         self.assertEqual(code, 1)
         self.assertIn("must carry an X.Y.* version", err)
 
@@ -239,7 +333,7 @@ class MutationTest(unittest.TestCase):
 
 class VersionPatternTest(unittest.TestCase):
     def test_accepts_and_rejects(self):
-        good = ("0.2.0-beta.1", "0.2.0-beta.10", "1.0.0-rc.2", "0.2.0")
+        good = ("0.2.0-beta.1", "0.2.0-beta.10", "1.0.0-rc.2", "0.2.0", "0.10.0-beta.1", "10.0.0", "1.2.3-rc.10")
         bad = ("0.2.0-beta.0", "0.2.0-beta", "v0.2.0", "0.2", "0.2.0-SNAPSHOT", "0.2.0-beta.1+sha", "00.2.0")
         for v in good:
             self.assertRegex(v, check_version.VERSION_RE)

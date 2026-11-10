@@ -267,6 +267,11 @@
   </dependencies>
 
   <build>
+    <!-- Version-free jar name: the Dockerfile and the Makefile copy
+         target/hugmesh-gaming-bff.jar, so a version bump touches only VERSION, the
+         poms and frontend/package.json (+ lock). scripts/check_version.py
+         checks that this name and the Dockerfile COPY agree. -->
+    <finalName>hugmesh-gaming-bff</finalName>
     <plugins>
       <plugin>
         <groupId>org.springframework.boot</groupId>
