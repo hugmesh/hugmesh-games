@@ -81,6 +81,11 @@ const CLAIMS = [
   /admins? (?:sees?|can see) the games normally/i,
   /admins? (?:sees?|can see) (?:all|every) games?\b/i,
   /admins? (?:bypass(?:es)?|skips?|ignores?) (?:the )?`?game_access/i,
+  // The published guide's role list (guide.tex) put it as "Sees every game in
+  // the catalog regardless of \texttt{game\_access}"; `game.?_?access`
+  // matches the TeX-escaped `game\_access` as well as `game_access`.
+  /sees? every game in the catalog/i,
+  /regardless of .{0,12}game.?_?access/i,
 ];
 for (const f of files) {
   const text = readFileSync(f, 'utf8').replace(/\s+/g, ' ');

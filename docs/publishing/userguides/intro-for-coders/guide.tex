@@ -180,9 +180,12 @@ what each one sees and is allowed to do after that.
   \item \texttt{player}, \texttt{player1}, \texttt{player2},
         \texttt{player3} --- ordinary players. Land on the catalog;
         can create + join sessions; cannot reach \texttt{/admin}.
-  \item \texttt{admin} --- ROLE\_ADMIN. Sees every game in the catalog
-        regardless of \texttt{game\_access}; can grant mod / publisher
-        scope; observes any live session.
+  \item \texttt{admin} --- the games admin: the BFF turns the games
+        realm's \texttt{admin} role into ROLE\_GAMES\_ADMIN, the role
+        every admin endpoint checks. Can grant mod / publisher scope;
+        observes any live session. The catalog still goes through
+        \texttt{game\_access}: the admin sees a gated game only with a
+        grant for it, like anyone else.
   \item \texttt{mod} --- ROLE\_MOD with no per-game scope. Authenticates
         but every mod-tier action returns 403 until an admin grants a
         \texttt{mod\_game\_scope} row.
