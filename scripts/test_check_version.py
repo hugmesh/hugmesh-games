@@ -159,7 +159,38 @@ class MutationTest(unittest.TestCase):
             written = fh.read()
         self.assertIn(f"version={self.version}\n", written)
         self.assertIn("kind=release\n", written)
-        self.assertIn("prerelease=true\n", written)
+        # main carries a beta (prerelease), a release/X.Y branch a stable: the
+        # flag follows the VERSION this tree carries, so the self-test passes on both.
+        expected = "true" if "-" in self.version else "false"
+        self.assertIn(f"prerelease={expected}\n", written)
+
+    def rebump(self, new):
+        # Simulate a version bump in the temp tree: every version-bearing file
+        # moves from the real VERSION to `new`, so the guard stays consistent.
+        for rel in FILES:
+            path = os.path.join(self.tmp, rel)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text.replace(self.version, new))
+
+    def test_prerelease_follows_the_version_on_both_channels(self):
+        # Whatever the real tree carries, both channels are exercised: a stable
+        # X.Y.Z reports prerelease=false, an X.Y.Z-beta.N reports prerelease=true.
+        base = self.version.split("-")[0]
+        for new, expected in ((base, "false"), (f"{base}-beta.1", "true")):
+            with self.subTest(version=new):
+                self.tearDown()
+                self.setUp()
+                self.rebump(new)
+                out_file = os.path.join(self.tmp, "gh-output")
+                code, _, err = run_guard("--root", self.tmp, "--ref", f"refs/tags/v{new}", env_output=out_file)
+                self.assertEqual(code, 0, err)
+                with open(out_file) as fh:
+                    written = fh.read()
+                self.assertIn(f"version={new}\n", written)
+                self.assertIn("kind=release\n", written)
+                self.assertIn(f"prerelease={expected}\n", written)
 
     def test_mismatched_tag_refused(self):
         code, _, err = run_guard("--root", self.tmp, "--ref", "refs/tags/v9.9.9-beta.1")
