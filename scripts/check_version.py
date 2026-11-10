@@ -3,9 +3,19 @@
 
 The repo builds five images (backend, frontend, rpg-builder, vn-builder,
 wasm-fragment) that all carry ONE version, kept in the top-level VERSION file.
-That version is also written into three poms, the frontend package.json and its
-lock, the jar names the three Java Dockerfiles copy, and the Makefile's backend
-jar path. This script fails if any of them disagree with VERSION.
+That version is also written into the three poms and the frontend package.json
+and its lock, and nowhere else: a bump touches exactly those six files. This
+script fails if any of them disagree with VERSION.
+
+The jar names are version-free on purpose (each pom sets <build><finalName> to
+its artifactId), so the three Java Dockerfiles and the Makefile's BACKEND_JAR
+never change on a bump. The script also fails if a pom's finalName is not its
+artifactId, or if a Dockerfile or BACKEND_JAR copies any other jar name: that
+mismatch breaks the image build, and before this it was the step every bump
+had to edit by hand.
+
+VERSION may be any MAJOR.MINOR.PATCH, MAJOR.MINOR.PATCH-beta.N or
+MAJOR.MINOR.PATCH-rc.N (a new major, minor or patch line needs no edit here).
 
 With --ref (the release workflow passes $GITHUB_REF) it also decides what kind of
 run this is:
@@ -65,25 +75,82 @@ def read_version(root):
         raise VersionError(f"VERSION is {version!r}: a published version never carries SNAPSHOT")
     if not VERSION_RE.match(version):
         raise VersionError(
-            f"VERSION is {version!r}: expected MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-beta.N"
+            f"VERSION is {version!r}: expected MAJOR.MINOR.PATCH, MAJOR.MINOR.PATCH-beta.N "
+            f"or MAJOR.MINOR.PATCH-rc.N"
         )
     return version
 
 
-def pom_coordinates(root, rel):
+def _pom_tree(root, rel):
     # The backend pom's site descriptor uses HTML entities (&middot;) that Maven
     # tolerates but a strict XML parser does not; drop named entities other than
-    # the five XML ones before parsing. Only <project> coordinates are read.
+    # the five XML ones before parsing.
     text = re.sub(r"&(?!(?:amp|lt|gt|quot|apos);|#)[A-Za-z][A-Za-z0-9]*;", "", _read(root, rel))
     try:
-        tree = ET.fromstring(text)
+        return ET.fromstring(text)
     except ET.ParseError as exc:
         raise VersionError(f"{rel}: not valid XML ({exc})") from exc
+
+
+def pom_coordinates(root, rel):
+    """Return (artifactId, version) of the <project> itself (not its parent)."""
+    tree = _pom_tree(root, rel)
     artifact = tree.find(f"{MAVEN_NS}artifactId")
     version = tree.find(f"{MAVEN_NS}version")
     if artifact is None or version is None:
         raise VersionError(f"{rel}: no <project><artifactId>/<version>")
     return artifact.text.strip(), version.text.strip()
+
+
+def pom_final_name(root, rel):
+    """Return <project><build><finalName> (profiles are not read), or None."""
+    node = _pom_tree(root, rel).find(f"{MAVEN_NS}build/{MAVEN_NS}finalName")
+    return node.text.strip() if node is not None and node.text else None
+
+
+def check_jar_names(root):
+    """The jar names must be version-free and agree; return [problem, ...]."""
+    problems = []
+    final_names = {}
+    for pom, dockerfile in JAVA_DOCKERFILES.items():
+        try:
+            artifact, _ = pom_coordinates(root, pom)
+            final = pom_final_name(root, pom)
+        except VersionError as exc:
+            problems.append(str(exc))
+            continue
+        if final != artifact:
+            problems.append(
+                f"{pom}: <build><finalName> is {final}, expected {artifact} "
+                f"(a version-free jar name, so a bump never edits {dockerfile})"
+            )
+            continue
+        final_names[pom] = final
+        try:
+            text = _read(root, dockerfile)
+        except VersionError as exc:
+            problems.append(str(exc))
+            continue
+        want = f"target/{final}.jar"
+        jar_refs = re.findall(rf"target/{re.escape(artifact)}[^\s/]*\.jar", text)
+        if not jar_refs:
+            problems.append(f"{dockerfile}: copies no {want}")
+        for ref in jar_refs:
+            if ref != want:
+                problems.append(f"{dockerfile}: copies {ref}, expected {want} (the pom's finalName)")
+
+    backend = final_names.get("backend/pom.xml")
+    if backend:
+        try:
+            makefile = _read(root, "Makefile")
+            line = next((l for l in makefile.splitlines() if re.match(r"^BACKEND_JAR\s*=", l)), None)
+            if line is None:
+                problems.append("Makefile: no BACKEND_JAR line")
+            elif not line.rstrip().endswith(f"/target/{backend}.jar"):
+                problems.append(f"Makefile: {line.strip()!r} does not name target/{backend}.jar")
+        except VersionError as exc:
+            problems.append(str(exc))
+    return problems
 
 
 def collect_problems(root):
@@ -93,25 +160,12 @@ def collect_problems(root):
 
     for pom in POMS:
         try:
-            artifact, pom_version = pom_coordinates(root, pom)
+            _, pom_version = pom_coordinates(root, pom)
         except VersionError as exc:
             problems.append(str(exc))
             continue
         if pom_version != version:
             problems.append(f"{pom}: <version> is {pom_version}, VERSION is {version}")
-        dockerfile = JAVA_DOCKERFILES[pom]
-        try:
-            text = _read(root, dockerfile)
-        except VersionError as exc:
-            problems.append(str(exc))
-            continue
-        want = f"/app/target/{artifact}-{version}.jar"
-        jar_refs = re.findall(rf"target/{re.escape(artifact)}-[^\s/]+\.jar", text)
-        if not jar_refs:
-            problems.append(f"{dockerfile}: copies no target/{artifact}-<version>.jar")
-        for ref in jar_refs:
-            if f"/app/{ref}" != want:
-                problems.append(f"{dockerfile}: copies {ref}, expected {want.removeprefix('/app/')}")
 
     try:
         pkg = json.loads(_read(root, "frontend/package.json"))
@@ -132,16 +186,7 @@ def collect_problems(root):
     except (VersionError, ValueError) as exc:
         problems.append(f"frontend/package-lock.json: {exc}")
 
-    try:
-        makefile = _read(root, "Makefile")
-        line = next((l for l in makefile.splitlines() if re.match(r"^BACKEND_JAR\s*=", l)), None)
-        if line is None:
-            problems.append("Makefile: no BACKEND_JAR line")
-        elif not line.rstrip().endswith(f"/hugmesh-gaming-bff-{version}.jar"):
-            problems.append(f"Makefile: {line.strip()!r} does not name hugmesh-gaming-bff-{version}.jar")
-    except VersionError as exc:
-        problems.append(str(exc))
-
+    problems.extend(check_jar_names(root))
     return version, problems
 
 
@@ -202,7 +247,8 @@ def main(argv=None):
             return 1
 
     prerelease = "true" if "-" in version else "false"
-    print(f"version {version} consistent across VERSION, 3 poms, 3 Dockerfiles, frontend package.json + lock, Makefile")
+    print(f"version {version} consistent across VERSION, 3 poms, frontend package.json + lock; "
+          f"jar names version-free in 3 Dockerfiles + Makefile")
     if kind:
         print(f"ref {args.ref}: kind={kind} prerelease={prerelease}")
     out = os.environ.get("GITHUB_OUTPUT")

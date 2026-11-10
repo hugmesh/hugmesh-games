@@ -83,7 +83,7 @@ PRESETS_shadows-of-the-net            = Shadows-Of-The-Net
 # Flat slug list used by `make seed-roles` and other per-game iteration.
 GAME_SLUGS          = three-wizards dodecahedron chess-godot connect-four-godot shadows-of-the-net
 
-BACKEND_JAR         = $(BACKEND_DIR)/target/hugmesh-gaming-bff-0.4.0-beta.2.jar
+BACKEND_JAR         = $(BACKEND_DIR)/target/hugmesh-gaming-bff.jar
 FRONTEND_DIST       = $(FRONTEND_DIR)/dist/hugmesh-games-frontend
 
 # ── Full production build ─────────────────────────────────────────────────────
@@ -954,9 +954,11 @@ test-godot:
 	if [ $$status -ne 0 ]; then echo "✗ GDScript suites FAILED"; exit $$status; fi
 	@echo "✓ GDScript suites passed"
 
-# One version for all five images: VERSION must match the three poms, the three
-# Java Dockerfiles' jar names, frontend/package.json + its lock, and BACKEND_JAR
-# above. The release workflow runs the same guard (and its self-test) first.
+# One version for all five images: VERSION must match the three poms and
+# frontend/package.json + its lock. The jar names are version-free (each pom's
+# <finalName>), and the guard checks that the Java Dockerfiles and BACKEND_JAR
+# above copy exactly those names. The release workflow runs the same guard (and
+# its self-test) first.
 check-version:
 	python3 -m unittest scripts/test_check_version.py
 	python3 scripts/check_version.py

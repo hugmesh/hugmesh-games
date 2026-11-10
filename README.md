@@ -1765,10 +1765,12 @@ make clean
 ### Versions and releases
 
 All five images (`backend`, `frontend`, `rpg-builder`, `vn-builder`, `wasm-fragment`) carry one
-version, kept in the top-level [`VERSION`](VERSION) file. The current version is `0.2.0-beta.3`:
-built and tested, not yet in the default mesh. The same string is written into the three poms,
-the three Java Dockerfiles' jar names, `frontend/package.json` and its lock, and the Makefile's
-`BACKEND_JAR`. `make check-version` fails if any of them disagree.
+version, kept in the top-level [`VERSION`](VERSION) file. The same string is written into the three
+poms and `frontend/package.json` and its lock, and nowhere else: a bump (beta, rc, patch, a new
+minor or major, or stable) edits exactly those six files. The jar names are version-free (each
+pom sets `<finalName>` to its artifactId), so the three Java Dockerfiles and the Makefile's
+`BACKEND_JAR` never change on a bump. `make check-version` fails if a version file disagrees with
+`VERSION`, or if a Dockerfile or `BACKEND_JAR` copies any other jar name than the pom builds.
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) runs the same four test legs as
 the GitLab test stage, then builds and pushes `ghcr.io/hugmesh/hugmesh-games/<component>`:
@@ -1779,8 +1781,8 @@ the GitLab test stage, then builds and pushes `ghcr.io/hugmesh/hugmesh-games/<co
 | push of tag `v<VERSION>`, or a manual run on that tag | `:<VERSION>`, `:beta`, `:sha-<12>` | prerelease, never marked latest |
 
 A beta is never tagged `latest`, and a published `<VERSION>` tag is never overwritten: the run
-fails if it already exists. To cut the next beta, raise `N` in `-beta.N` in every file above
-(`make check-version` green), merge, then tag that commit on `main` with `v<VERSION>`.
+fails if it already exists. To cut the next beta, raise `N` in `-beta.N` in the six version files
+above (`make check-version` green), merge, then tag that commit on `main` with `v<VERSION>`.
 
 The jobs run on hosted `ubuntu-latest` unless the repo variable `RUNS_ON_PUBLISH` holds a runner
 label array (for example `["self-hosted","Linux","X64"]`) and the run is on `main` or a `v*` tag.
