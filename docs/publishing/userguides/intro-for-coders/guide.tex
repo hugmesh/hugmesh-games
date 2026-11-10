@@ -141,8 +141,11 @@ explicitly. If a sink ``works once and then dies'', this is the cause.
   \item \texttt{make e2e} — full Playwright suite against the live stack.
   \item \texttt{make e2e-native} — same, against the GraalVM native binary.
 \end{itemize}
-Open \texttt{http://localhost:8080}; the home page shows the visible
-games for the current Casdoor user (or all games if you're admin).
+Open \texttt{http://localhost:8080}; the home page shows the games
+that \texttt{game\_access} makes visible to the current Casdoor user:
+games with an \texttt{all} row, plus games granted to a role they hold
+or to their user ID. Admins go through the same filter, so a games
+admin does not see a gated game unless they hold its grant.
 
 \begin{figure}[!h]
 \centering
