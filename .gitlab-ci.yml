@@ -273,6 +273,20 @@ test:compose-credentials:
     # must be resolved by that profile, or spin-up and teardown both die.
     - bash scripts/test-compose-env-interpolation.sh
 
+# run-sca.sh's NVD API key handling against a FAKE Dependency-Check and FAKE keys:
+# the key rides a 0600 --propertyfile (never argv), an empty/missing/malformed key
+# is refused before Dependency-Check runs, exit 13 names the NVD cause, and the
+# key's 5+5-character echo never reaches dependency-check.log. Plain bash.
+test:sca-nvd-key:
+  stage: test
+  tags: [hugmesh-x86, privileged]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+  script:
+    - bash tests/pentest/test-run-sca-nvd-key.sh
+
 build:image:
   stage: build
   # Gate: never build or push an image from a tree whose unit suites are red.
@@ -326,8 +340,14 @@ build:image:
 # the Angular host + remotes (npm)). Fails the build on a CVSS >= 7 finding.
 #
 # The NVD feed is cached in a persistent per-project cache so re-runs don't
-# re-download it. NVD_API_KEY (optional, masked CI variable) speeds the sync. No
-# secrets in this file — the wrapper reads NVD_API_KEY from the environment.
+# re-download it. NVD_API_KEY (masked + protected CI variable) is REQUIRED in
+# practice: without it NVD throttles the feed download and Dependency-Check dies
+# with exit 13, and a new key works only after its activation link in NVD's email
+# is clicked (https://hugmesh.net/operations/nvd-api-key — hugmesh-generator
+# docs/NVD-API-KEY.md). The wrapper refuses an unset, empty or malformed value up
+# front and hands the key to Dependency-Check in a private --propertyfile, never
+# on argv. No secrets in this file — the wrapper reads NVD_API_KEY from the
+# environment.
 # ─────────────────────────────────────────────────────────────────────────────
 sca:dependency-check:
   stage: sca

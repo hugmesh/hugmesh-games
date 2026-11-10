@@ -112,6 +112,11 @@ jobs:
       - name: Pentest compose profile resolves every required variable
         run: bash scripts/test-compose-env-interpolation.sh
 
+      # The SCA wrapper keeps the NVD API key off argv and refuses an
+      # empty/missing/malformed one (fake Dependency-Check, fake keys).
+      - name: SCA wrapper NVD API key handling
+        run: bash tests/pentest/test-run-sca-nvd-key.sh
+
       - name: Check VERSION against every version file and the ref
         id: guard
         run: python3 scripts/check_version.py --ref "$GITHUB_REF"
