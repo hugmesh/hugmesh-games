@@ -20,8 +20,9 @@
 # only where YAML itself reads it as a comment: a ` #` inside a quoted
 # scalar (`CONN: "${MINIO_ROOT_PASSWORD:- #x}"` renders ` #x`, and so does
 # `CONN: &a !!str "..."`) or inside a `|`/`>` block scalar is value text and
-# is scanned like the rest; a quote inside a plain scalar, as in
-# `MSG: hello, "world`, opens nothing):
+# is scanned like the rest, also when the header sits alone on a later line
+# and its content only clears the key's or `-`'s column; a quote inside a
+# plain scalar, as in `MSG: hello, "world`, opens nothing):
 #
 #   A. an interpolation default `${NAME:-value}` or `${NAME-value}` (or an
 #      alternate `${NAME:+value}` / `${NAME+value}`) whose NAME contains
@@ -232,7 +233,29 @@ _interp() {
 #   collection may span lines), _ns (node start, kept inside a flow
 #   collection), _cont (the column a multi-line PLAIN scalar belongs to, or
 #   -1: a more-indented next line continues that scalar, so it does not start
-#   a node). _blk is set to 1 when LINE ends in a block scalar header.
+#   a node), _pend (the column of the node that owns a value still to come,
+#   or -1: see below). _blk is set to 1 when LINE ends in a block scalar
+#   header, and _bcol to the column its content must be indented past.
+#
+#   A value may start on a later line than its key or `-`: `entrypoint:`,
+#   then `|` alone on the next line (after a comment line or a line of
+#   properties, even), then the script. YAML measures that value against
+#   the column of its OWNER, not against the line it happens to start on.
+#   So a line that ends with the node still open (`key:`, a lone `-`,
+#   `key: !override`, `key: # note`) leaves _pend = the owner's column. The
+#   next walked line (comment and blank lines are not walked) consumes it:
+#   if it is more indented, it carries that value and measures from _pend; if
+#   not, it is a sibling or an outer node and _pend is dropped. A lone block
+#   header's content need only be indented past the owner (`|` at column 6
+#   under `entrypoint:` at column 4 may have its content at column 6, or at
+#   5), and a plain value's continuation lines likewise. Measuring from the
+#   header's own line cut that content short, so its ` #y` was stripped as a
+#   comment; measuring a plain value from its own line read a less-indented
+#   continuation line as a new node, where an unbalanced quote then opened a
+#   false quote state. A header that follows `key: ` or `- ` on its own line
+#   still measures from that line's indent, which is never past the owner.
+#   A key's column is that of its first property (`&a MSG: hello` starts at
+#   the `&`), for the same reason.
 _strip_comment() {
   local s="$1"
   local n="${#s}"
@@ -241,6 +264,10 @@ _strip_comment() {
   local plain=0        # the last token was plain scalar text
   local pq=0           # the last token was a closing quote (flow `"a":b`)
   local kstart=-1      # column of the node that may turn out to be a key
+  local np=0           # that node began with a property (kstart is its column)
+  local ind=0          # a `- `, `? ` or `: ` indicator was met on this line
+  local onpend=0       # this line carries a value an earlier line opened
+  local cmt=0          # the line ended in a comment
   local ocol="$2"      # column of the node that owns a plain value
   _blk=0
   if [ -z "$_q" ] && [ "$_fd" -eq 0 ]; then
@@ -250,8 +277,13 @@ _strip_comment() {
       ocol="$_cont"
     else
       _ns=1
+      if [ "$_pend" -ge 0 ] && [ "$2" -gt "$_pend" ]; then
+        onpend=1       # the value of the node an earlier line left open
+        ocol="$_pend"
+      fi
     fi
   fi
+  _pend=-1             # consumed here, or dropped (a sibling or an outer node)
   while [ "$i" -lt "$n" ]; do
     case "$_q" in
       '"')
@@ -284,9 +316,9 @@ _strip_comment() {
     case "$c" in
       '#')
         if [ "$i" -eq 0 ] || [[ "${s:i-1:1}" == [[:space:]] ]]; then
-          _line="${s:0:i}"
-          _cont=-1             # a comment ends a plain scalar
-          return
+          s="${s:0:i}"
+          cmt=1
+          break
         fi
         ;;
       '"' | "'")
@@ -295,13 +327,16 @@ _strip_comment() {
           _ns=0
           plain=0
           pq=0
-          kstart="$i"
+          [ "$np" -eq 1 ] || kstart="$i"
+          np=0
           i=$((i + 1))
           continue
         fi
         ;;
       '&' | '!')
         if [ "$_ns" -eq 1 ] && [[ "$t" =~ $PROP_RE ]]; then
+          [ "$np" -eq 1 ] || kstart="$i"   # a node (key) starts at its first property
+          np=1
           i=$((i + ${#BASH_REMATCH[0]}))   # a property: the node start stays open
           pq=0
           continue
@@ -310,6 +345,8 @@ _strip_comment() {
       '-' | '?')
         if [ "$_ns" -eq 1 ] && [[ "$t" =~ $INDICATOR_RE ]] && { [ "$c" = '?' ] || [ "$_fd" -eq 0 ]; }; then
           ocol="$i"            # `- x`: x continues only past this column
+          ind=1
+          np=0
           pq=0
           i=$((i + 1))
           continue
@@ -320,6 +357,8 @@ _strip_comment() {
           if [ "$kstart" -ge 0 ]; then
             ocol="$kstart"     # `key: x`: x continues only past the key's column
           fi
+          ind=1
+          np=0
           _ns=1
           plain=0
           pq=0
@@ -330,7 +369,13 @@ _strip_comment() {
       '|' | '>')
         if [ "$_ns" -eq 1 ] && [ "$_fd" -eq 0 ] && [[ "$t" =~ $BLOCK_HDR_RE ]]; then
           _blk=1
+          if [ "$onpend" -eq 1 ] && [ "$ind" -eq 0 ]; then
+            _bcol="$ocol"      # a header alone on its line: past its owner's column
+          else
+            _bcol="$2"         # `key: |`, `- |`: past this line's indent
+          fi
           _ns=0
+          np=0
           plain=0
           pq=0
           i=$((i + ${#BASH_REMATCH[0]}))
@@ -341,6 +386,7 @@ _strip_comment() {
         if [ "$_ns" -eq 1 ] || [ "$_fd" -gt 0 ]; then
           _fd=$((_fd + 1))
           _ns=1
+          np=0
           plain=0
           pq=0
           i=$((i + 1))
@@ -351,6 +397,7 @@ _strip_comment() {
         if [ "$_fd" -gt 0 ]; then
           _fd=$((_fd - 1))
           _ns=0
+          np=0
           plain=0
           pq=0
           i=$((i + 1))
@@ -360,6 +407,7 @@ _strip_comment() {
       ',')
         if [ "$_fd" -gt 0 ]; then
           _ns=1
+          np=0
           plain=0
           pq=0
           i=$((i + 1))
@@ -369,7 +417,7 @@ _strip_comment() {
     esac
     # Plain scalar text: a run of ordinary characters, or the one character
     # the cases above did not claim (a quote, `#`, `:` ... inside the text).
-    if [ "$_ns" -eq 1 ]; then
+    if [ "$_ns" -eq 1 ] && [ "$np" -eq 0 ]; then
       kstart="$i"
     fi
     if [[ "$t" =~ $RUN_RE ]]; then
@@ -378,14 +426,20 @@ _strip_comment() {
       i=$((i + 1))
     fi
     _ns=0
+    np=0
     plain=1
     pq=0
   done
   _line="$s"
-  if [ -z "$_q" ] && [ "$_fd" -eq 0 ] && [ "$plain" -eq 1 ]; then
+  # A comment ends a plain scalar. A node left open at the end of the line
+  # (comment or not) owns whatever value the next lines bring.
+  if [ "$cmt" -eq 0 ] && [ -z "$_q" ] && [ "$_fd" -eq 0 ] && [ "$plain" -eq 1 ]; then
     _cont="$ocol"
   else
     _cont=-1
+  fi
+  if [ -z "$_q" ] && [ "$_fd" -eq 0 ] && [ "$_ns" -eq 1 ]; then
+    _pend="$ocol"
   fi
 }
 
@@ -400,19 +454,24 @@ scan_file() {
   local cleaned
   cleaned="$(mktemp "${TMPDIR:-/tmp}/compose-cred-guard.XXXXXX")"
   tr -d '\000' < "$file" > "$cleaned"
-  local block=-1   # indent of the line that opened a `|`/`>` block scalar
+  local block=-1   # column a `|`/`>` block scalar's content is indented past
   local indent
   _q=''
   _fd=0
   _ns=1
   _cont=-1
+  _pend=-1
   _blk=0
+  _bcol=-1
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
     [[ "$line" =~ ^([[:space:]]*) ]]
     indent="${#BASH_REMATCH[1]}"
-    # Block scalar content (more indented than its header, or blank) has no
-    # comments in YAML: every line of it, `#` included, is value text.
+    # Block scalar content (more indented than the column _strip_comment
+    # set for its header, or blank) has no comments in YAML: every line of
+    # it, `#` included, is value text. That column is the header line's
+    # indent for `key: |` and `- |`, and the owner's column for a header
+    # alone on a later line, whose content may sit at or left of the `|`.
     if [ "$block" -ge 0 ]; then
       if [ "$indent" -gt "$block" ] || [[ "$line" =~ ^[[:space:]]*$ ]]; then
         :
@@ -423,7 +482,9 @@ scan_file() {
     if [ "$block" -lt 0 ]; then
       # Full-line comment: not reachable by compose (unless a quoted scalar
       # from an earlier line is still open, where it is value text).
-      # A comment line also ends a multi-line plain scalar.
+      # A comment line also ends a multi-line plain scalar. It does NOT end
+      # a node an earlier line left open (_pend): `key:`, a comment line,
+      # then `|` is still key's block scalar.
       if [ -z "$_q" ] && [[ "$line" =~ ^[[:space:]]*# ]]; then
         _cont=-1
         continue
@@ -436,7 +497,7 @@ scan_file() {
         _strip_comment "$line" "$indent"
         line="$_line"
         if [ "$_blk" -eq 1 ]; then
-          block="$indent"
+          block="$_bcol"
         fi
       fi
     fi

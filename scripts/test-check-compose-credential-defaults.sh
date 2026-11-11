@@ -280,6 +280,181 @@ desync "unbalanced quote after '{' in a plain value"   X_SECRET \
 desync "unbalanced quote after '[' ', ' in a plain value" X_SECRET \
   "MSG: a [b, 'c" "CONN: 'x #y \${X_SECRET:-fakeD5}'"
 
+# A value that starts on a LATER line than its key or `-` is measured
+# against its owner's column, not its own line's (#69 refute, round 3).
+# A `|`/`>` header alone on its line may have its content at, or left of,
+# its own column, as long as it is past the owner's: the round-3 guard
+# measured from the header's line, ended the block at the first content
+# line and stripped ` #y ...` as a comment. Each renders the literal under
+# `docker compose config`; the same content under `entrypoint: |` was red.
+lone_hdr() { # lone_hdr LABEL NAME FIXTURE_NAME  (YAML on stdin)
+  local f
+  f="$(fixture "$3")"
+  expect_red "$1" "$2" "$f"
+}
+lone_hdr "lone header: content at the header's column" MINIO_ROOT_PASSWORD lone-same <<'EOF'
+services:
+  s:
+    entrypoint:
+      |
+      sh -c "x #y $${MINIO_ROOT_PASSWORD:-fakeL1}"
+EOF
+lone_hdr "lone header: a tag on the key line" MINIO_ROOT_PASSWORD lone-tag <<'EOF'
+services:
+  s:
+    entrypoint: !override
+      |
+      sh -c "x #y $${MINIO_ROOT_PASSWORD:-fakeL2}"
+EOF
+lone_hdr "lone header: under a lone '-'" MINIO_ROOT_PASSWORD lone-seq <<'EOF'
+services:
+  s:
+    command:
+      -
+        |
+        sh -c "x #y $${MINIO_ROOT_PASSWORD:-fakeL3}"
+EOF
+lone_hdr "lone folded header in environment" MINIO_ROOT_PASSWORD lone-fold <<'EOF'
+services:
+  s:
+    environment:
+      CONN:
+        >-
+        x #y ${MINIO_ROOT_PASSWORD:-fakeL4}
+EOF
+lone_hdr "lone header deeper than its content" MINIO_ROOT_PASSWORD lone-deep <<'EOF'
+services:
+  s:
+    entrypoint:
+          |
+      sh -c "x #y $${MINIO_ROOT_PASSWORD:-fakeL5}"
+EOF
+lone_hdr "lone header: content left of the header" X_SECRET lone-left <<'EOF'
+services:
+  s:
+    entrypoint:
+          |
+     sh -c "x #y $${X_SECRET:-fakeL6}"
+EOF
+lone_hdr "lone header after a comment line" MINIO_ROOT_PASSWORD lone-comment-line <<'EOF'
+services:
+  s:
+    entrypoint:
+      # the script follows
+      |
+      sh -c "x #y $${MINIO_ROOT_PASSWORD:-fakeL7}"
+EOF
+lone_hdr "lone header after a key with an inline comment" MINIO_ROOT_PASSWORD lone-key-comment <<'EOF'
+services:
+  s:
+    entrypoint: # the script follows
+      |
+      sh -c "x #y $${MINIO_ROOT_PASSWORD:-fakeL8}"
+EOF
+lone_hdr "lone header after a line of properties" MINIO_ROOT_PASSWORD lone-prop-line <<'EOF'
+services:
+  s:
+    entrypoint:
+      &e
+      |
+      sh -c "x #y $${MINIO_ROOT_PASSWORD:-fakeL9}"
+EOF
+# The same owner column decides where a PLAIN value that starts on the next
+# line continues. Measured from its own line, a less-indented continuation
+# line was read as a new node, its unbalanced quote opened a false quote
+# state, and the real opening quote on the CONN line closed it.
+lone_hdr "plain value on the next line: continuation left of it" MINIO_ROOT_PASSWORD next-plain <<'EOF'
+services:
+  s:
+    environment:
+      MSG:
+        hello
+       "world
+      CONN: "x #y ${MINIO_ROOT_PASSWORD:-fakeN1}"
+EOF
+lone_hdr "plain value on the next line after a tag" MINIO_ROOT_PASSWORD next-plain-tag <<'EOF'
+services:
+  s:
+    environment:
+      MSG: !!str
+        hello
+       "world
+      CONN: "x #y ${MINIO_ROOT_PASSWORD:-fakeN2}"
+EOF
+lone_hdr "plain sequence entry on the line after '-'" MINIO_ROOT_PASSWORD next-plain-seq <<'EOF'
+services:
+  s:
+    command:
+      -
+        hello
+       "world
+    environment:
+      CONN: "x #y ${MINIO_ROOT_PASSWORD:-fakeN3}"
+EOF
+# A key's column is its first property's: `&a MSG` starts at the `&`.
+lone_hdr "anchored key: continuation left of the key" MINIO_ROOT_PASSWORD key-anchor <<'EOF'
+services:
+  s:
+    environment:
+      &a MSG: hello
+        "world
+      CONN: "x #y ${MINIO_ROOT_PASSWORD:-fakeN4}"
+EOF
+lone_hdr "anchored quoted key: continuation left of the key" MINIO_ROOT_PASSWORD key-anchor-quoted <<'EOF'
+services:
+  s:
+    environment:
+      &a "MSG": hello
+        "world
+      CONN: "x #y ${MINIO_ROOT_PASSWORD:-fakeN10}"
+EOF
+lone_hdr "anchored key after '-': the next key is a node" X_SECRET key-anchor-seq <<'EOF'
+x-list:
+  - &v name: a
+    "k #b": "${X_SECRET:-fakeN9}"
+EOF
+# The owner column is used once: a node left open with no value, or whose
+# value is done, does not make the next sibling a continuation.
+lone_hdr "open key with no value, then a sibling" X_TOKEN pend-dropped <<'EOF'
+services:
+  s:
+    environment:
+      MSG:
+      CONN: "x #y ${X_TOKEN:-fakeN5}"
+EOF
+lone_hdr "next-line value done, then a sibling" X_TOKEN pend-consumed <<'EOF'
+services:
+  s:
+    environment:
+      MSG:
+        hello
+      CONN: "x #y ${X_TOKEN:-fakeN6}"
+EOF
+lone_hdr "next-line value done, then a quoted key" X_SECRET pend-qkey <<'EOF'
+services:
+  s:
+    volumes:
+      - type: bind
+        source:
+          /a
+        "target": "/x #y ${X_SECRET:-fakeN7}"
+EOF
+lone_hdr "next-line value done, then an explicit ': v' and a quoted key" X_SECRET pend-explicit <<'EOF'
+x-map:
+  MSG:
+    ? k
+    : v
+    "q #b": "${X_SECRET:-fakeN12}"
+EOF
+lone_hdr "next-line entry done, then a quoted entry" X_SECRET pend-seq <<'EOF'
+services:
+  s:
+    command:
+      -
+        hello
+      - "x #y $${X_SECRET:-fakeN8}"
+EOF
+
 unterminated="$(fixture unterminated <<'EOF'
 services:
   s:
@@ -341,6 +516,39 @@ services:
 EOF
 )"
 expect_green "comments after property, plain-quote, continuation and flow shapes" "$shapes_green"
+
+# ...and the next-line shapes above, read the way YAML reads them. A line
+# more indented than the owner continues a plain value even when it is left
+# of the value's first line, so its quote is plain text and its ` #` starts
+# a comment: `docker compose config` renders `MSG: hello "k` and the like,
+# and none of the commentonly values. A comment back at the owner's column
+# ends a lone header's block scalar.
+next_green="$(fixture next-green <<'EOF'
+services:
+  s:
+    environment:
+      MSG:
+          hello
+        "k #b": "${X_SECRET:-commentonlyN1}"
+      MSG2: !!str
+          hello
+       "x #y ${X_SECRET:-commentonlyN2}"
+      &a MSG3: hello
+        "x #y ${X_SECRET:-commentonlyN3}"
+      MSG4: # note
+        hello # ${X_SECRET:-commentonlyN4}
+    entrypoint:
+      # the script follows
+      |
+      echo hi
+    # ${I_PASSWORD:-commentonlyN5}
+    command:
+      -
+          hello
+        "x #y $${X_SECRET:-commentonlyN6}"
+EOF
+)"
+expect_green "next-line values: continuation and comment where YAML puts them" "$next_green"
 
 # The report must name the variable and NEVER print the value. The guard
 # must have actually scanned the fixture (rc=1) for "no leak" to mean
