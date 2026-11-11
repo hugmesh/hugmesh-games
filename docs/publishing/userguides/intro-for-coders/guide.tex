@@ -141,8 +141,11 @@ explicitly. If a sink ``works once and then dies'', this is the cause.
   \item \texttt{make e2e} — full Playwright suite against the live stack.
   \item \texttt{make e2e-native} — same, against the GraalVM native binary.
 \end{itemize}
-Open \texttt{http://localhost:8080}; the home page shows the visible
-games for the current Casdoor user (or all games if you're admin).
+Open \texttt{http://localhost:8080}; the home page shows the games
+that \texttt{game\_access} makes visible to the current Casdoor user:
+games with an \texttt{all} row, plus games granted to a role they hold
+or to their user ID. Admins go through the same filter, so a games
+admin does not see a gated game unless they hold its grant.
 
 \begin{figure}[!h]
 \centering
@@ -177,9 +180,12 @@ what each one sees and is allowed to do after that.
   \item \texttt{player}, \texttt{player1}, \texttt{player2},
         \texttt{player3} --- ordinary players. Land on the catalog;
         can create + join sessions; cannot reach \texttt{/admin}.
-  \item \texttt{admin} --- ROLE\_ADMIN. Sees every game in the catalog
-        regardless of \texttt{game\_access}; can grant mod / publisher
-        scope; observes any live session.
+  \item \texttt{admin} --- the games admin: the BFF turns the games
+        realm's \texttt{admin} role into ROLE\_GAMES\_ADMIN, the role
+        every admin endpoint checks. Can grant mod / publisher scope;
+        observes any live session. The catalog still goes through
+        \texttt{game\_access}: the admin sees a gated game only with a
+        grant for it, like anyone else.
   \item \texttt{mod} --- ROLE\_MOD with no per-game scope. Authenticates
         but every mod-tier action returns 403 until an admin grants a
         \texttt{mod\_game\_scope} row.

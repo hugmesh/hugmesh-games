@@ -74,7 +74,7 @@ make e2e                   # full Playwright suite against the live stack
 make e2e-native            # same, against the GraalVM native binary
 ```
 
-Open `http://localhost:8080`. The home page shows the games visible to the current Casdoor user (or all games if you're admin). On first run, copy the seed credentials from `docker compose logs casdoor` into a `.env` — see [the build & deploy chapter](../architecture/06-build-and-deploy.md#-casdoor-seed-credentials).
+Open `http://localhost:8080`. The home page shows the games that `game_access` makes visible to the current Casdoor user: games with an `(all, NULL)` row, plus games granted to a role they hold or to their user ID. Admins go through the same filter, so a games admin does not see a gated game unless they hold its grant. On first run, copy the seed credentials from `docker compose logs casdoor` into a `.env` — see [the build & deploy chapter](../architecture/06-build-and-deploy.md#-casdoor-seed-credentials).
 
 ## Your first change
 
