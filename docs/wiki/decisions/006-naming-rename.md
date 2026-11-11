@@ -1,6 +1,6 @@
 # 006 — `level → chapter`, `spell → instant` rename
 
-**Status:** Adopted in PR #20; follow-ups in PR #24. Both numbers belong to the repository this code was imported from (merge commits `06705d4` and `d00a02f`). PRs #20 and #24 in `hugmesh/hugmesh-games` today are different changes.
+**Status:** Adopted, with follow-ups (merge commits `06705d4` and `d00a02f`, from the repository this code was imported from).
 
 ## Decision
 
@@ -26,7 +26,7 @@ The user-facing terms changed:
 
 ## Migration pattern when something is missed
 
-PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tables, columns or Spring Data derived-query method names. When a fresh `column X.Y does not exist` appears, follow this protocol:
+The first bulk sed-rename caught entity fields but not always the underlying tables, columns or Spring Data derived-query method names. When a fresh `column X.Y does not exist` appears, follow this protocol:
 
 1. Find every miss with a forensic query:
    ```sql
@@ -38,7 +38,7 @@ PR #20's bulk sed-rename caught entity FIELDS but not always the underlying tabl
 3. If the entity already uses the new name (e.g. `chapterId`), the migration is the only fix. If the entity also has the old name, sed-rename it.
 4. Spring Data parses derived queries against the entity property tree at startup. `findByLevelId` against an entity whose property is `chapterId` produces `PropertyReferenceException: No property 'levelId' found`. Rename the method.
 
-The tail took two follow-ups. PR #24 added changesets 028-9 to 028-11 (`level_prerequisites` table, column and index) and renamed four Spring Data methods (`findByLevelId` and its variants). Commit `7f5fcd8`, made the same day, added 028-12 (`scene_elements.level_id`), 028-13 (`quests.level_id`) and the `/api/levels` alias. That makes five follow-up changesets, 028-9 through 028-13.
+The tail took two follow-ups. The first added changesets 028-9 to 028-11 (`level_prerequisites` table, column and index) and renamed four Spring Data methods (`findByLevelId` and its variants). Commit `7f5fcd8`, made the same day, added 028-12 (`scene_elements.level_id`), 028-13 (`quests.level_id`) and the `/api/levels` alias. That makes five follow-up changesets, 028-9 through 028-13.
 
 ## Trade-offs accepted
 

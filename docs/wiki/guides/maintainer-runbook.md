@@ -82,7 +82,7 @@ The install transaction is atomic in Postgres but **NOT** atomic with the on-dis
 1. `curl /api/games/available/{characterId}` with the player's JWT. If it is empty, the access policy is locking them out.
 2. `SELECT ga.* FROM game_access ga JOIN games g ON g.id = ga.game_id WHERE g.slug = '<slug>'` — verify there's at least one row matching the player (an `(all, NULL)` row, or a `(role, play-x)` row whose role they hold).
 3. If a chapter prerequisite is in play, `SELECT * FROM character_quests WHERE character_id = ?` — incomplete prerequisite quests lock chapters.
-4. After a Liquibase rename PR, check that `chapter_prerequisites` exists and its column is `chapter_id`, not `level_id`. PR #24's 028-9/10/11 added the missed rename. The 028-12 follow-up also renamed `scene_elements.level_id → chapter_id`.
+4. After a Liquibase rename PR, check that `chapter_prerequisites` exists and its column is `chapter_id`, not `level_id`. Changesets 028-9 to 028-11 added the missed rename. The 028-12 follow-up also renamed `scene_elements.level_id → chapter_id`.
 
 ## Runbook 7 — Player can't move
 
