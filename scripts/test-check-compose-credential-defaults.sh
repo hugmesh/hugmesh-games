@@ -455,6 +455,125 @@ services:
       - "x #y $${X_SECRET:-fakeN8}"
 EOF
 
+# A block header on the same line as `- key:` (or `- -`) is measured from
+# the KEY's column (or the inner `-`'s), not the line's indent, which is the
+# outer `-`'s (#69 refute, round 4). Measured from the line, the block was
+# wider than YAML's: the mapping's later keys were swallowed as block
+# content, their quote and next-line state never walked, and a line at or
+# left of the `-` then ended the block mid-structure, quote still open.
+# Each renders the literal under `docker compose config` (v5.1.4).
+lone_hdr "'- key: |' block, then a sibling's quote continued at the '-' column" X_SECRET wide-service-dq <<'EOF'
+services:
+  s:
+    image: busybox
+    volumes:
+      - source: >-
+          /srv/a
+        target: "/srv/b
+      c #y ${X_SECRET:-fakeW9}"
+        type: bind
+EOF
+lone_hdr "'- k: |' block, then a sibling's quote continued left of it" X_SECRET wide-dq-dashcol <<'EOF'
+services:
+  s:
+    image: busybox
+x-a:
+  - k: |
+      text
+    m: "abc
+  def #y ${X_SECRET:-fakeW10}"
+EOF
+lone_hdr "'- k: |' block, then a sibling's quote with a '#' line" X_SECRET wide-dq-hashline <<'EOF'
+services:
+  s:
+    image: busybox
+x-a:
+  - k: |
+      text
+    m: "abc
+  def
+    #y ${X_SECRET:-fakeW11}"
+EOF
+lone_hdr "'- source: >-' block, then a next-line plain sibling with a quote" X_SECRET wide-volume-nextplain <<'EOF'
+services:
+  s:
+    image: busybox
+    volumes:
+      - source: >-
+          /srv/a
+        target:
+  # was /srv/b
+          /srv/c
+         "d
+        type: bind
+    environment:
+      CONN: "x #y ${X_SECRET:-fakeW8}"
+EOF
+lone_hdr "'- k: |' block, then a sibling's lone header" X_SECRET wide-lonehdr <<'EOF'
+services:
+  s:
+    image: busybox
+x-a:
+  - k: |
+      text
+    entrypoint:
+# c
+      |
+     sh -c "x #y $${X_SECRET:-fakeW1}"
+EOF
+lone_hdr "'- k: |' block, then a sibling's next-line plain value" X_SECRET wide-nextplain <<'EOF'
+services:
+  s:
+    image: busybox
+x-a:
+  - k: |
+      text
+    MSG:
+# c
+        hello
+       "world
+    CONN: "x #y ${X_SECRET:-fakeW2}"
+EOF
+lone_hdr "'- - |' block, then a lone '-' and its lone header" X_SECRET wide-dashdash <<'EOF'
+services:
+  s:
+    image: busybox
+x-a:
+  - - |
+      text
+    -
+# c
+        |
+       x #y ${X_SECRET:-fakeW5}
+EOF
+
+# A verbatim tag is one property, comma and all: `!<tag:yaml.org,2002:str>`
+# read as `!<tag:yaml.org` and plain text left the quote after it unopened
+# (#69 refute, round 4). Each renders the literal under `docker compose config`.
+lone_hdr "verbatim tag with a comma before a quote" X_SECRET vtag-same <<'EOF'
+services:
+  s:
+    image: busybox
+    environment:
+      CONN: !<tag:yaml.org,2002:str> "x #y ${X_SECRET:-fakeV1}"
+EOF
+lone_hdr "verbatim tag with a comma, quote on the next line" X_SECRET vtag-next <<'EOF'
+services:
+  s:
+    image: busybox
+    environment:
+      CONN: !<tag:yaml.org,2002:str>
+        "x #y ${X_SECRET:-fakeV2}"
+EOF
+lone_hdr "verbatim tag with a comma, then a lone header" X_SECRET vtag-lonehdr <<'EOF'
+services:
+  s:
+    image: busybox
+    entrypoint: !<tag:yaml.org,2002:str>
+      |
+      sh -c "x #y $${X_SECRET:-fakeV3}"
+EOF
+
 unterminated="$(fixture unterminated <<'EOF'
 services:
   s:
@@ -549,6 +668,21 @@ services:
 EOF
 )"
 expect_green "next-line values: continuation and comment where YAML puts them" "$next_green"
+
+# ...and the `- k: |` shape: the block ends at the next key of the same
+# mapping, whose ` # ...` tail is a real comment (`docker compose config`
+# renders `m: v`). Scanned as block content it was a false red.
+wide_green="$(fixture wide-green <<'EOF'
+services:
+  s:
+    image: busybox
+x-a:
+  - k: |
+      text
+    m: v # ${X_SECRET:-commentonlyW1}
+EOF
+)"
+expect_green "'- k: |' block ends at the next key: its comment stays a comment" "$wide_green"
 
 # The report must name the variable and NEVER print the value. The guard
 # must have actually scanned the fixture (rc=1) for "no leak" to mean

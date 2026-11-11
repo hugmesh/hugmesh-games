@@ -20,9 +20,9 @@
 # only where YAML itself reads it as a comment: a ` #` inside a quoted
 # scalar (`CONN: "${MINIO_ROOT_PASSWORD:- #x}"` renders ` #x`, and so does
 # `CONN: &a !!str "..."`) or inside a `|`/`>` block scalar is value text and
-# is scanned like the rest, also when the header sits alone on a later line
-# and its content only clears the key's or `-`'s column; a quote inside a
-# plain scalar, as in `MSG: hello, "world`, opens nothing):
+# is scanned like the rest; a block scalar runs while its lines clear the
+# column of the key or `-` that owns it, wherever the header sits; a quote
+# inside a plain scalar, as in `MSG: hello, "world`, opens nothing):
 #
 #   A. an interpolation default `${NAME:-value}` or `${NAME-value}` (or an
 #      alternate `${NAME:+value}` / `${NAME+value}`) whose NAME contains
@@ -50,6 +50,11 @@
 # file that is missing is a failure too (fail closed). NUL bytes are
 # stripped before matching: one 0x00 makes grep skip a whole file and
 # report "clean".
+#
+# Known gap, not decoded: YAML escapes inside a double-quoted scalar. A `$`
+# spelled `\x24` (or split from its `{` by a `\`-newline) renders a `${...}`
+# that is not in the file text, so rule A cannot see it. Nobody writes that
+# by accident; the guard catches the shapes a compose author actually types.
 #
 # docker-compose.e2e.yml is not scanned: it is not on the prod/staging path
 # and its `E2E_PLAYER_USERNAME: ${E2E_PLAYER_USERNAME:-player}` seed-account
@@ -98,7 +103,9 @@ VAR_RE='^[$][A-Za-z_][A-Za-z0-9_]*'                     # bare $NAME
 # quote in `msg: hello, "world` are plain text.
 WS_RE='^[[:space:]]+'
 RUN_RE="^[^][{},:#[:space:]\"']+"                       # plain text the walker need not look at
-PROP_RE='^[&!][^][{},[:space:]]*'                       # node property: &anchor, !tag, !!str
+# node property: &anchor, !tag, !!str, or a verbatim tag `!<tag:yaml.org,2002:str>`
+# (its `,` is part of the tag, so it is matched whole, before the short form)
+PROP_RE='^(![<][^>]*[>]|[&!][^][{},[:space:]]*)'
 INDICATOR_RE='^.([[:space:]]|$)'                        # `- `, `? `, `: ` (indicator + space/EOL)
 FLOW_COLON_RE='^:[],[{}]'                               # `:` right before a flow indicator
 BLOCK_HDR_RE='^[|>][0-9+-]*([[:space:]]|$)'             # `|`, `>-`, `|2+` ...
@@ -221,7 +228,8 @@ _interp() {
 #   at a node start (_ns=1): the start of a block line; after a `- ` or `? `
 #   that is itself at a node start; after any `key: `; inside a flow
 #   collection after `[`, `{` or `,`; and after node properties (`&anchor`,
-#   `!tag`, `!!str`, compose's `!override`), which leave the node start open.
+#   `!tag`, `!!str`, compose's `!override`, a verbatim `!<tag:a,b>` whose
+#   comma is part of the tag), which leave the node start open.
 #   Anywhere else it is plain text: `msg: hello, "world` and `msg: a - 'b`
 #   are plain scalars in block context, and reading their quote as an
 #   opening one would carry a false quote state onto the next line, where
@@ -252,10 +260,22 @@ _interp() {
 #   header's own line cut that content short, so its ` #y` was stripped as a
 #   comment; measuring a plain value from its own line read a less-indented
 #   continuation line as a new node, where an unbalanced quote then opened a
-#   false quote state. A header that follows `key: ` or `- ` on its own line
-#   still measures from that line's indent, which is never past the owner.
-#   A key's column is that of its first property (`&a MSG: hello` starts at
-#   the `&`), for the same reason.
+#   false quote state.
+#
+#   Every block header measures from its owner, on the header's own line
+#   too: `key: |` from the key's column, `- |` from the `-`'s, a lone header
+#   from the owner an earlier line left open. NOT from the line's indent: in
+#   `- k: |` the line's indent is the `-`'s column, left of `k`, and a block
+#   wider than YAML's swallowed the mapping's later keys (`m: "abc` at k's
+#   column) as block content. Their quote and next-line state was never
+#   walked, so a continuation line at the `-`'s column ended the block with
+#   a quote still open and its ` #y ${X_SECRET:-...}` was stripped as a
+#   comment (fail open), while a swallowed `m: v # ${X_SECRET:-...}` had its
+#   real comment scanned as value (false red). A wider block is not a safe
+#   over-approximation; it has to be YAML's.
+#
+#   A key's column, the owner column for all of the above, is that of its
+#   first property (`&a MSG: hello` starts at the `&`).
 _strip_comment() {
   local s="$1"
   local n="${#s}"
@@ -265,8 +285,6 @@ _strip_comment() {
   local pq=0           # the last token was a closing quote (flow `"a":b`)
   local kstart=-1      # column of the node that may turn out to be a key
   local np=0           # that node began with a property (kstart is its column)
-  local ind=0          # a `- `, `? ` or `: ` indicator was met on this line
-  local onpend=0       # this line carries a value an earlier line opened
   local cmt=0          # the line ended in a comment
   local ocol="$2"      # column of the node that owns a plain value
   _blk=0
@@ -278,8 +296,7 @@ _strip_comment() {
     else
       _ns=1
       if [ "$_pend" -ge 0 ] && [ "$2" -gt "$_pend" ]; then
-        onpend=1       # the value of the node an earlier line left open
-        ocol="$_pend"
+        ocol="$_pend"  # the value of the node an earlier line left open
       fi
     fi
   fi
@@ -345,7 +362,6 @@ _strip_comment() {
       '-' | '?')
         if [ "$_ns" -eq 1 ] && [[ "$t" =~ $INDICATOR_RE ]] && { [ "$c" = '?' ] || [ "$_fd" -eq 0 ]; }; then
           ocol="$i"            # `- x`: x continues only past this column
-          ind=1
           np=0
           pq=0
           i=$((i + 1))
@@ -357,7 +373,6 @@ _strip_comment() {
           if [ "$kstart" -ge 0 ]; then
             ocol="$kstart"     # `key: x`: x continues only past the key's column
           fi
-          ind=1
           np=0
           _ns=1
           plain=0
@@ -369,11 +384,7 @@ _strip_comment() {
       '|' | '>')
         if [ "$_ns" -eq 1 ] && [ "$_fd" -eq 0 ] && [[ "$t" =~ $BLOCK_HDR_RE ]]; then
           _blk=1
-          if [ "$onpend" -eq 1 ] && [ "$ind" -eq 0 ]; then
-            _bcol="$ocol"      # a header alone on its line: past its owner's column
-          else
-            _bcol="$2"         # `key: |`, `- |`: past this line's indent
-          fi
+          _bcol="$ocol"        # past the owning key's / `-`'s column, never the line's
           _ns=0
           np=0
           plain=0
@@ -469,9 +480,10 @@ scan_file() {
     indent="${#BASH_REMATCH[1]}"
     # Block scalar content (more indented than the column _strip_comment
     # set for its header, or blank) has no comments in YAML: every line of
-    # it, `#` included, is value text. That column is the header line's
-    # indent for `key: |` and `- |`, and the owner's column for a header
-    # alone on a later line, whose content may sit at or left of the `|`.
+    # it, `#` included, is value text. That column is the owner's: the key's
+    # for `key: |` (also in `- key: |`, where the line's indent is the `-`'s),
+    # the `-`'s for `- |`, and the open owner's for a header alone on a later
+    # line, whose content may sit at or left of the `|`.
     if [ "$block" -ge 0 ]; then
       if [ "$indent" -gt "$block" ] || [[ "$line" =~ ^[[:space:]]*$ ]]; then
         :
