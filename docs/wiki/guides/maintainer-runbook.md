@@ -77,7 +77,7 @@ The install transaction is atomic in Postgres but **NOT** atomic with the on-dis
 
 ## Runbook 6 — No games showing for a player
 
-**Symptom.** A logged-in player sees an empty home page; the admin sees the games normally.
+**Symptom.** A logged-in player sees an empty home page, while an account that holds a grant on those games (a `play-<slug>` role or a `user` row) sees them. Comparing with an admin account proves nothing: admins go through the same `game_access` filter and see a gated game only if they hold its grant too.
 
 1. `curl /api/games/available/{characterId}` with the player's JWT. If it is empty, the access policy is locking them out.
 2. `SELECT ga.* FROM game_access ga JOIN games g ON g.id = ga.game_id WHERE g.slug = '<slug>'` — verify there's at least one row matching the player (an `(all, NULL)` row, or a `(role, play-x)` row whose role they hold).
