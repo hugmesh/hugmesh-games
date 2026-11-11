@@ -54,6 +54,20 @@
   gap: 0.4rem;
 }
 
+// The shared .hg-badge primitive is nowrap, which suits a table cell or a
+// one-word chip, but a card's body column is only ~170px at 1280px and
+// "Not available on this deployment" ran ~17px past the card's right border
+// (GUI-34). In a card the badge wraps and never outgrows its column. The radius
+// is the one-line pill's own (half its ~24px height), so a one-line badge looks
+// unchanged and a two-line one is a rounded box, not a lozenge that crowds its
+// first and last words.
+.body .hg-badge {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
+  border-radius: 0.75rem;
+}
+
 .title {
   margin: 0;
   font-size: 1.1rem;
