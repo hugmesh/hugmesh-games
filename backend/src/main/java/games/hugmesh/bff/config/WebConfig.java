@@ -6,12 +6,20 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsUtils;
 import org.springframework.web.cors.reactive.CorsWebFilter;
+import org.springframework.web.cors.reactive.DefaultCorsProcessor;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
+import org.springframework.web.server.ServerWebExchange;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
@@ -36,6 +44,13 @@ import java.util.stream.Stream;
  * <p>Patterns flow through {@link CorsConfiguration#setAllowedOriginPatterns(List)}
  * so {@code https://*.hugmesh.games} matches every game subdomain
  * without listing them one by one.
+ *
+ * <p>The allowlist is for CROSS-origin callers only. A browser on the mesh calls
+ * this BFF same-origin, through the gateway, from whatever name it was served on
+ * (the cluster domain, a LAN name, an .onion, {@code make view}). The BFF itself is
+ * addressed as {@code http://<service>:8080}, so Spring would count every such call
+ * as cross-origin and 403 it; {@link ForwardedSameOriginCorsProcessor} recognises
+ * them instead. See that class for why it reads only two forwarded headers.
  */
 @Configuration
 public class WebConfig {
@@ -104,6 +119,107 @@ public class WebConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", config);
-        return new CorsWebFilter(source);
+        return new CorsWebFilter(source, new ForwardedSameOriginCorsProcessor());
+    }
+
+    /**
+     * Lets a browser's same-origin call through the gateway pass as what it is.
+     *
+     * <p>Without it, pressing Play on a mesh answered 403 ("This game is not available
+     * to your account") for every persona: the launch POST carries
+     * {@code Origin: https://hugmesh.net}, the BFF sees {@code http://hugmesh-games-bff:8080},
+     * and the origin is not on the allowlist. The compose door
+     * ({@code https://localhost:8488}) only worked because localhost happens to be.
+     *
+     * <p>The browser-facing origin is the LEFTMOST {@code X-Forwarded-Proto} token plus the
+     * LEFTMOST {@code X-Forwarded-Host} token: the outermost proxy (the TLS front, the
+     * ingress) writes those, and the fe-gateway only appends its own hop after them. Two
+     * other headers describe that inner hop and are ignored on purpose. This is what the BFF
+     * actually receives from the fe-gateway on the compose lane:
+     * <pre>
+     *   X-Forwarded-Proto: https,http
+     *   X-Forwarded-Host:  hugmesh.net,hugmesh.net
+     *   X-Forwarded-Port:  80
+     *   Forwarded:         proto=http;host=hugmesh.net;for="172.19.0.53:57444"
+     * </pre>
+     * So {@code server.forward-headers-strategy: framework} would not fix this: Spring
+     * prefers {@code Forwarded} and gets {@code http://hugmesh.net}, and without it
+     * {@code X-Forwarded-Port} gives {@code https://hugmesh.net:80}. Neither equals the
+     * Origin. The host token carries the port whenever the browser used a non-default one,
+     * because the front forwards the browser's own {@code Host}.
+     *
+     * <p>Trusting these headers here does not widen what a cross-origin page can do. A page
+     * cannot set {@code X-Forwarded-Host} without a preflight, a preflight is still judged
+     * by the allowlist, and the front overwrites the header with the {@code Host} the
+     * browser connected to. A cross-origin page therefore still meets the allowlist, as
+     * before. The allowlist keeps {@code allowCredentials(true)}, so it must never grow a
+     * wildcard to paper over this.
+     */
+    static final class ForwardedSameOriginCorsProcessor extends DefaultCorsProcessor {
+
+        private static final List<String> VARY = List.of(HttpHeaders.ORIGIN,
+                HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS);
+
+        @Override
+        public boolean process(CorsConfiguration config, ServerWebExchange exchange) {
+            ServerHttpRequest request = exchange.getRequest();
+            if (CorsUtils.isPreFlightRequest(request) || !isForwardedSameOrigin(request.getHeaders())) {
+                return super.process(config, exchange);
+            }
+            // Not a CORS request: answer it like any other (Vary only, no ACAO).
+            HttpHeaders out = exchange.getResponse().getHeaders();
+            for (String header : VARY) {
+                if (!out.getOrEmpty(HttpHeaders.VARY).contains(header)) {
+                    out.add(HttpHeaders.VARY, header);
+                }
+            }
+            return true;
+        }
+    }
+
+    /** True when {@code Origin} names exactly the scheme, host and port the browser was served on. */
+    static boolean isForwardedSameOrigin(HttpHeaders headers) {
+        String origin = headers.getOrigin();
+        String proto = leftmost(headers.getFirst("X-Forwarded-Proto"));
+        String host = leftmost(headers.getFirst("X-Forwarded-Host"));
+        if (origin == null || proto == null || host == null) {
+            return false;
+        }
+        URI served = parseOrigin(proto + "://" + host);
+        URI claimed = parseOrigin(origin);
+        return served != null && claimed != null
+                && served.getScheme().equals(claimed.getScheme())
+                && served.getHost().equalsIgnoreCase(claimed.getHost())
+                && port(served) == port(claimed);
+    }
+
+    private static String leftmost(String value) {
+        if (value == null) {
+            return null;
+        }
+        int comma = value.indexOf(',');
+        String first = (comma >= 0 ? value.substring(0, comma) : value).trim();
+        return first.isEmpty() ? null : first;
+    }
+
+    /** {@code scheme://host[:port]} and nothing else, scheme http or https; null otherwise. */
+    private static URI parseOrigin(String value) {
+        try {
+            URI uri = new URI(value);
+            String scheme = uri.getScheme() == null ? null : uri.getScheme().toLowerCase(Locale.ROOT);
+            boolean bare = uri.getHost() != null && uri.getRawUserInfo() == null
+                    && (uri.getRawPath() == null || uri.getRawPath().isEmpty())
+                    && uri.getRawQuery() == null && uri.getRawFragment() == null;
+            if (!bare || !("http".equals(scheme) || "https".equals(scheme))) {
+                return null;
+            }
+            return new URI(scheme, null, uri.getHost(), uri.getPort(), null, null, null);
+        } catch (URISyntaxException e) {
+            return null;
+        }
+    }
+
+    private static int port(URI uri) {
+        return uri.getPort() != -1 ? uri.getPort() : ("https".equals(uri.getScheme()) ? 443 : 80);
     }
 }
