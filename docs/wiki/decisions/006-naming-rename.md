@@ -49,4 +49,3 @@ The tail took two follow-ups. PR #24 added changesets 028-9 to 028-11 (`level_pr
 
 - [04 — Data model](../architecture/04-data-model.md)
 - [`backend/src/main/resources/db/changelog/028-rename-chapter-instant.xml`](../../../backend/src/main/resources/db/changelog/028-rename-chapter-instant.xml)
-- PR #20 (initial sweep), PR #24 (follow-ups), [CLAUDE.md](../../../CLAUDE.md).

@@ -120,7 +120,7 @@ Wiring those into a client is work **in that client's repo**. The profile-pictur
 
 ## ⚠ Growing a whitelist is a five-file change
 
-Adding a hat, a hairstyle or a proportion touches `CharacterSpec` → a new Liquibase changeset → `HumanoidRig` → the mirrored Angular `const` → the maker control. The changeset goes in `rpg-builder/src/main/resources/db/changelog/`, not the BFF's changelog. The `const` is in [`rpg-maker-remote.component.ts`](../../../frontend/projects/games-rpg-maker/src/app/rpg-maker-remote.component.ts). `avatar_factory.gd` is deliberately *not* in that list; it walks the rig baked in Java. The canonical package is `rpg-builder/src/main/java/games/hugmesh/character/`. `make sync-character-model` copies it into `backend/` and `vn-builder/`. The full list is in [`CLAUDE.md`](../../../CLAUDE.md) under the maker section.
+Adding a hat, a hairstyle or a proportion touches `CharacterSpec` → a new Liquibase changeset → `HumanoidRig` → the mirrored Angular `const` → the maker control. The changeset goes in `rpg-builder/src/main/resources/db/changelog/`, not the BFF's changelog. The `const` is in [`rpg-maker-remote.component.ts`](../../../frontend/projects/games-rpg-maker/src/app/rpg-maker-remote.component.ts). `avatar_factory.gd` is deliberately *not* in that list; it walks the rig baked in Java. The canonical package is `rpg-builder/src/main/java/games/hugmesh/character/`. `make sync-character-model` copies it into `backend/` and `vn-builder/`.
 
 ## See also
 

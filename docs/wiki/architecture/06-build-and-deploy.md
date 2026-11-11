@@ -77,7 +77,7 @@ EOF
 docker compose up -d --force-recreate api frontend
 ```
 
-The BFF restart-loops on a Casdoor secret mismatch. See also [CLAUDE.md](../../../CLAUDE.md).
+The BFF restart-loops on a Casdoor secret mismatch. Re-pin `.env` from `docker compose logs casdoor`, as the [maintainer runbook](../guides/maintainer-runbook.md) describes.
 
 ## GraalVM native image
 

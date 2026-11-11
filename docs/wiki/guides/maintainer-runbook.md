@@ -154,5 +154,5 @@ The `auth` zone was raised from `1 r/s burst=4` to `5 r/s burst=20` after the ti
 If a budget is being hit legitimately under load:
 
 1. Watch the `429` rate in nginx access logs (or edge-LB observability) to identify the saturated zone.
-2. Raise the `rate=` for that zone in **both** `nginx.conf` AND `nginx-tls.conf`. The two files MUST stay in lockstep: the e2e and LAN-TLS overlays both mount `nginx-tls.conf`, and drift between them looks like "feature X works in dev but not under HTTPS" (see the drift gotcha in CLAUDE.md).
+2. Raise the `rate=` for that zone in **both** `nginx.conf` AND `nginx-tls.conf`. The two files MUST stay in lockstep: the e2e and LAN-TLS overlays both mount `nginx-tls.conf`, and drift between them looks like "feature X works in dev but not under HTTPS".
 3. Re-deploy the frontend image. The BFF's pod-internal and Cassandra cross-pod rate-limit layers are independent and need no change for an nginx-tier change.
