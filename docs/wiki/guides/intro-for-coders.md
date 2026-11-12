@@ -90,7 +90,7 @@ Run the matching tests: `./mvnw test` (BFF), `npx ng test` (Angular host), `carg
 ## Reading list
 
 - [`README.md`](../../../README.md) — installation, build, deploy, troubleshooting.
-- [`CLAUDE.md`](../../../CLAUDE.md) — contributor onboarding for both human and AI pair-programmers.
+- [Full-stack developer guide](fullstack-developer.md) — database to browser in one repository, and the rules that hold it together.
 - [`docs/PLAN-module-federation-and-native.md`](../../PLAN-module-federation-and-native.md) — the eight-section plan that produced the current shape.
 - [`docs/GODOT_DEVELOPER_GUIDE.md`](../../GODOT_DEVELOPER_GUIDE.md) — slug contract, presets, upload flow.
 - [`docs/publishing/architecture/build/architecture.pdf`](../../publishing/architecture/) — full typeset architecture reference (`make docs-pdf`).

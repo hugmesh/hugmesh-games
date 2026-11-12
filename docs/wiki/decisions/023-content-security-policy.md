@@ -4,7 +4,7 @@
 
 ## Context
 
-The `CLAUDE.md` "Known gaps" entry said CSP needed "an inventory of the federation runtime's eval / inline-script needs first." This decision records that inventory and the policy built from it.
+The repository's list of known gaps said CSP needed "an inventory of the federation runtime's eval / inline-script needs first." This decision records that inventory and the policy built from it.
 
 ### What the federation runtime requires
 
@@ -28,7 +28,7 @@ The `CLAUDE.md` "Known gaps" entry said CSP needed "an inventory of the federati
 
 ## Decision
 
-Ship this CSP from both `frontend/nginx.conf` and `frontend/nginx-tls.conf`. Edit them together; the `CLAUDE.md` drift rule says both must carry the same headers.
+Ship this CSP from both `frontend/nginx.conf` and `frontend/nginx-tls.conf`. Edit them together: both files must carry the same headers, or a feature that works in development breaks under HTTPS.
 
 ```
 default-src   'self';

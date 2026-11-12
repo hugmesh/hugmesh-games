@@ -82,7 +82,7 @@ The install transaction is atomic in Postgres but **NOT** atomic with the on-dis
 1. `curl /api/games/available/{characterId}` with the player's JWT. If it is empty, the access policy is locking them out.
 2. `SELECT ga.* FROM game_access ga JOIN games g ON g.id = ga.game_id WHERE g.slug = '<slug>'` — verify there's at least one row matching the player (an `(all, NULL)` row, or a `(role, play-x)` row whose role they hold).
 3. If a chapter prerequisite is in play, `SELECT * FROM character_quests WHERE character_id = ?` — incomplete prerequisite quests lock chapters.
-4. After a Liquibase rename PR, check that `chapter_prerequisites` exists and its column is `chapter_id`, not `level_id`. PR #24's 028-9/10/11 added the missed rename. The 028-12 follow-up also renamed `scene_elements.level_id → chapter_id`.
+4. After a Liquibase rename PR, check that `chapter_prerequisites` exists and its column is `chapter_id`, not `level_id`. Changesets 028-9 to 028-11 added the missed rename. The 028-12 follow-up also renamed `scene_elements.level_id → chapter_id`.
 
 ## Runbook 7 — Player can't move
 
@@ -154,5 +154,5 @@ The `auth` zone was raised from `1 r/s burst=4` to `5 r/s burst=20` after the ti
 If a budget is being hit legitimately under load:
 
 1. Watch the `429` rate in nginx access logs (or edge-LB observability) to identify the saturated zone.
-2. Raise the `rate=` for that zone in **both** `nginx.conf` AND `nginx-tls.conf`. The two files MUST stay in lockstep: the e2e and LAN-TLS overlays both mount `nginx-tls.conf`, and drift between them looks like "feature X works in dev but not under HTTPS" (see the drift gotcha in CLAUDE.md).
+2. Raise the `rate=` for that zone in **both** `nginx.conf` AND `nginx-tls.conf`. The two files MUST stay in lockstep: the e2e and LAN-TLS overlays both mount `nginx-tls.conf`, and drift between them looks like "feature X works in dev but not under HTTPS".
 3. Re-deploy the frontend image. The BFF's pod-internal and Cassandra cross-pod rate-limit layers are independent and need no change for an nginx-tier change.

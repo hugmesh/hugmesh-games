@@ -147,8 +147,8 @@ heals on the next service restart.
   the dev stub-bundle path so the pipeline runs without the multi-GB
   Godot image. `make godot-export-tools` and `make build-with-godot`
   wire in a real Godot binary through the `docker-compose.godot.yml`
-  overlay. See the "Twin maker side services" section of
-  [`CLAUDE.md`](../../../CLAUDE.md).
+  overlay. See [`tools/godot-export/README.md`](../../../tools/godot-export/README.md)
+  for how the export runs.
 - **Asset materialization + procedural generation.** Both renderers now
   copy the actual asset bytes into the staged Godot tree. Before, they
   wrote asset UUIDs into the export JSON without shipping the bytes, so
