@@ -238,6 +238,115 @@ describe('GamesCatalogComponent (M1)', () => {
   });
 });
 
+/**
+ * GUI-34: at 1280px the "Not available on this deployment" pill ran past the
+ * right border of the Three Wizards and Dodecahedron cards (pill right edge
+ * x≈339, card edge x≈322), because the shared .hg-badge primitive is nowrap
+ * and the card's body column is only ~170px wide. These checks lay real cards
+ * out and measure them, so a badge, title, description or button that does
+ * not fit its card fails here instead of in a screenshot.
+ */
+describe('GamesCatalogComponent card geometry (GUI-34)', () => {
+  // The live catalog rows that render the long badge, plus a 'Plays here' row.
+  const LIVE: Game[] = [
+    { id: 1, name: 'Three Wizards In A Trenchcoat', description: 'A JRPG romp across cave depths and open fields. Three wizards, one trenchcoat.', slug: 'three-wizards', thumbnailUrl: null, sortOrder: 1 },
+    { id: 2, name: 'Dodecahedron Demo', description: 'A spinning regular dodecahedron rendered in WebGL. Pure visual demo — no objectives, no inventory, no controls.', slug: 'dodecahedron', thumbnailUrl: null, sortOrder: 2 },
+    { id: 3, name: 'Chess', description: 'Two-player chess.', slug: 'chess', thumbnailUrl: null, sortOrder: 3 },
+    { id: 4, name: 'Cave', description: 'Three Wizards chapter', slug: 'cave', thumbnailUrl: null, sortOrder: 4 },
+  ];
+  const LIVE_MANIFEST = { generatedAt: '', remotes: MANIFEST.remotes.filter((r) => r.kind === 'wasm-game') };
+
+  let http: HttpTestingController;
+  let fixture: ComponentFixture<GamesCatalogComponent>;
+  let globalSheets: CSSStyleSheet[] = [];
+
+  beforeEach(async () => {
+    asSession(['games', 'user']);
+    // Under the host shell this remote's global styles.css is never loaded
+    // (only its component styles travel with the federated chunks), and its
+    // html/body `overflow-wrap: anywhere` would otherwise let a fix placed
+    // there pass here while the shell still spills. Measure with component
+    // styles only: switch every <link> sheet (styles.css, jasmine.css) off.
+    globalSheets = Array.from(document.styleSheets).filter(
+      (s): s is CSSStyleSheet => s.ownerNode instanceof HTMLLinkElement && !s.disabled,
+    );
+    globalSheets.forEach((s) => (s.disabled = true));
+    await TestBed.configureTestingModule({
+      imports: [GamesCatalogComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(GamesCatalogComponent);
+    fixture.detectChanges();
+    http.expectOne('/games/api/games').flush(LIVE);
+    http.expectOne('/games/api/federation/manifest').flush(LIVE_MANIFEST);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    globalSheets.forEach((s) => (s.disabled = false));
+    http.verify();
+    asSession(null);
+  });
+
+  /** Lay the catalog out at `width` px in the remote's own font stack. */
+  function layOut(width: number): HTMLElement {
+    const host: HTMLElement = fixture.nativeElement;
+    expect(Array.from(document.styleSheets).some((s) => s.href?.includes('styles.css') && !s.disabled))
+      .withContext('the standalone-only global stylesheet is off while measuring')
+      .toBeFalse();
+    host.style.display = 'block';
+    host.style.width = `${width}px`;
+    host.style.fontFamily = 'Arial, Helvetica, sans-serif';
+    host.style.fontSize = '16px';
+    host.style.lineHeight = '1.5';
+    return host;
+  }
+
+  /** Every element of a card that pokes past the card's inside edge. */
+  function spills(card: HTMLElement): string[] {
+    const box = card.getBoundingClientRect();
+    const cs = getComputedStyle(card);
+    const left = box.left + parseFloat(cs.borderLeftWidth);
+    const right = box.right - parseFloat(cs.borderRightWidth);
+    const out: string[] = [];
+    for (const node of Array.from(card.querySelectorAll<HTMLElement>('*'))) {
+      const r = node.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) continue;
+      if (r.right > right + 0.5 || r.left < left - 0.5) {
+        const id = node.getAttribute('data-testid') || `${node.tagName.toLowerCase()}.${node.className}`;
+        out.push(`${id}: [${r.left.toFixed(1)}, ${r.right.toFixed(1)}] outside card [${left.toFixed(1)}, ${right.toFixed(1)}]`);
+      }
+    }
+    return out;
+  }
+
+  // 1232: the host's games panel at a 1280px viewport (four ~296px cards a
+  // row). 288: one 18rem card, the narrowest a multi-column row ever makes a
+  // card. 260: a phone panel narrower than 18rem (min(100%, 18rem) wins).
+  for (const width of [1232, 288, 260]) {
+    it(`keeps every badge, title, description and button inside its card at ${width}px`, () => {
+      const host = layOut(width);
+      const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid^="games-card-"]'));
+      expect(cards.length).toBe(LIVE.length);
+      // Not vacuous: the long badge is rendered, in full, on the two cards from the report.
+      for (const slug of ['three-wizards', 'dodecahedron']) {
+        expect(host.querySelector(`[data-testid="games-badge-${slug}"]`)?.textContent?.trim()).toBe(BADGE_UNAVAILABLE);
+      }
+      if (width === 1232) {
+        // the desktop grid really is several columns, so a card is ~296px, not the full row
+        const w = cards[0].getBoundingClientRect().width;
+        expect(w).toBeLessThan(320);
+        expect(w).toBeGreaterThan(280);
+      }
+      for (const card of cards) {
+        expect(spills(card)).withContext(card.getAttribute('data-testid')!).toEqual([]);
+        expect(card.scrollWidth).withContext(card.getAttribute('data-testid')!).toBeLessThanOrEqual(card.clientWidth);
+      }
+    });
+  }
+});
+
 describe('bundleIconUrls', () => {
   const row = (slug: string, metadata: unknown, url: string | null = `/_remotes/wasm-fragment/${slug}/index.html`) =>
     ({ remoteEntryUrl: url, metadata });
