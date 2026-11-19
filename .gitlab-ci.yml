@@ -303,11 +303,14 @@ build:image:
       # mirror. GODOT_MIRROR is empty for the other 3 components, which don't
       # declare that build ARG at all (an unset/empty --build-arg for an ARG a
       # Dockerfile never references is a silent no-op, not an error).
-      - { COMPONENT: backend,       CONTEXT: backend,       DOCKERFILE: backend/Dockerfile,       GODOT_MIRROR: "" }
-      - { COMPONENT: frontend,      CONTEXT: frontend,      DOCKERFILE: frontend/Dockerfile,      GODOT_MIRROR: "" }
-      - { COMPONENT: rpg-builder,   CONTEXT: rpg-builder,   DOCKERFILE: rpg-builder/Dockerfile,   GODOT_MIRROR: "${GODOT_MIRROR_BASE_URL}" }
-      - { COMPONENT: vn-builder,    CONTEXT: vn-builder,    DOCKERFILE: vn-builder/Dockerfile,    GODOT_MIRROR: "${GODOT_MIRROR_BASE_URL}" }
-      - { COMPONENT: wasm-fragment, CONTEXT: ".",           DOCKERFILE: wasm-fragment/Dockerfile, GODOT_MIRROR: "" }
+      - { COMPONENT: backend,       CONTEXT: backend,       DOCKERFILE: backend/Dockerfile,       GODOT_MIRROR: "", NATIVE_OPTS: "" }
+      - { COMPONENT: frontend,      CONTEXT: frontend,      DOCKERFILE: frontend/Dockerfile,      GODOT_MIRROR: "", NATIVE_OPTS: "" }
+      - { COMPONENT: rpg-builder,   CONTEXT: rpg-builder,   DOCKERFILE: rpg-builder/Dockerfile,   GODOT_MIRROR: "${GODOT_MIRROR_BASE_URL}", NATIVE_OPTS: "" }
+      - { COMPONENT: vn-builder,    CONTEXT: vn-builder,    DOCKERFILE: vn-builder/Dockerfile,    GODOT_MIRROR: "${GODOT_MIRROR_BASE_URL}", NATIVE_OPTS: "" }
+      - { COMPONENT: wasm-fragment, CONTEXT: ".",           DOCKERFILE: wasm-fragment/Dockerfile, GODOT_MIRROR: "", NATIVE_OPTS: "" }
+      # GraalVM native build of the backend, an extra artifact next to `backend`
+      # (deployments still run the JVM image). 7g heap peaked at ~9.2 GB RSS.
+      - { COMPONENT: backend-native, CONTEXT: backend,     DOCKERFILE: backend/Dockerfile.native, GODOT_MIRROR: "", NATIVE_OPTS: "-J-Xmx7g" }
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_COMMIT_TAG'
@@ -328,6 +331,9 @@ build:image:
       EXTRA_ARGS=()
       if [ -n "${GODOT_MIRROR}" ]; then
         EXTRA_ARGS+=(--build-arg "GODOT_RELEASE_BASE_URL=${GODOT_MIRROR}")
+      fi
+      if [ -n "${NATIVE_OPTS}" ]; then
+        EXTRA_ARGS+=(--build-arg "NATIVE_IMAGE_OPTIONS=${NATIVE_OPTS}")
       fi
     - docker build --pull -f "$DOCKERFILE" "${EXTRA_ARGS[@]}" -t "$CI_REGISTRY_IMAGE/$COMPONENT:$TAG" -t "$CI_REGISTRY_IMAGE/$COMPONENT:$CI_COMMIT_REF_SLUG" "$CONTEXT"
     - docker push "$CI_REGISTRY_IMAGE/$COMPONENT:$TAG"
