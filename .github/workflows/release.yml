@@ -262,10 +262,6 @@ jobs:
           - { component: rpg-builder,   context: rpg-builder,   dockerfile: rpg-builder/Dockerfile,   godot: true }
           - { component: vn-builder,    context: vn-builder,    dockerfile: vn-builder/Dockerfile,    godot: true }
           - { component: wasm-fragment, context: .,             dockerfile: wasm-fragment/Dockerfile, godot: false }
-          # The GraalVM native build of the backend (backend/Dockerfile.native), published
-          # next to the JVM image as an extra artifact. Deployments still run `backend`.
-          # native-image's 7g heap peaked at ~9.2 GB RSS locally; the hosted runner has 16 GB.
-          - { component: backend-native, context: backend,      dockerfile: backend/Dockerfile.native, godot: false, native_opts: "-J-Xmx7g" }
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -326,22 +322,13 @@ jobs:
         env:
           GODOT: ${{ matrix.godot }}
           GODOT_MIRROR: ${{ vars.GODOT_MIRROR_BASE_URL }}
-          NATIVE_OPTS: ${{ matrix.native_opts }}
         run: |
           set -euo pipefail
-          # One build argument per line (docker/build-push-action's build-args format).
-          args=()
+          build_args=""
           if [ "$GODOT" = true ] && [ -n "${GODOT_MIRROR:-}" ]; then
-            args+=("GODOT_RELEASE_BASE_URL=$GODOT_MIRROR")
+            build_args="GODOT_RELEASE_BASE_URL=$GODOT_MIRROR"
           fi
-          if [ -n "${NATIVE_OPTS:-}" ]; then
-            args+=("NATIVE_IMAGE_OPTIONS=$NATIVE_OPTS")
-          fi
-          {
-            echo "build_args<<EOF_BUILD_ARGS"
-            if [ "${#args[@]}" -gt 0 ]; then printf '%s\n' "${args[@]}"; fi
-            echo "EOF_BUILD_ARGS"
-          } >> "$GITHUB_OUTPUT"
+          echo "build_args=$build_args" >> "$GITHUB_OUTPUT"
 
       # Builds now and pushes nothing, so the step that pushes finds every layer
       # in the builder's cache and takes seconds. The tag check below would

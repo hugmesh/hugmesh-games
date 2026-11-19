@@ -408,14 +408,6 @@
                 -->
                 <buildArg>--initialize-at-run-time=io.netty.util.internal.shaded.org.jctools</buildArg>
                 <!--
-                  The Cassandra driver's shaded Guava comparator (a stateless enum)
-                  is reachable at build time from ByteOrderedToken.compareTo through
-                  UnsignedBytes.LexicographicalComparatorHolder.BEST_COMPARATOR.
-                  native-image refuses it in the image heap unless its type is
-                  initialized at build time; it holds no state, so that is safe.
-                -->
-                <buildArg>--initialize-at-build-time=com.datastax.oss.driver.shaded.guava.common.primitives.UnsignedBytes$LexicographicalComparatorHolder$PureJavaComparator</buildArg>
-                <!--
                   Per-level Godot bundles ship as classpath resources
                   under `assets/levels/<slug>/`. native-image strips
                   classpath resources by default; AssetController returns
