@@ -1,0 +1,76 @@
+# Pull-request CI: the unit suites `make test` runs that a hosted runner can run.
+# Added by hugmesh-generator#954: this repo's only workflow was release.yml, so a pull request ran no
+# build or test. The jobs mirror .gitlab-ci.yml's `test` stage (backend, frontend, games JS, Rust cores).
+# NOT run here, as in GitLab: `make test-godot` (needs a godot4 binary) and `make test-rust` (the bridge crate
+# depends on gdext by git URL). The compose-credential guards run too: they are plain bash.
+#
+# Advisory today: required status checks cannot be set on this plan (branch protection answers 403 until
+# the plan changes), so a red check does not block a merge by itself. Read it before merging.
+#
+# GitHub-hosted `ubuntu-latest`, written literally: this runs on pull_request and the repository is public,
+# so it must never name a self-hosted runner (a fork's PR runs the fork's copy of this file).
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A superseded run is cancelled, so the check always reflects the latest commit.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend unit tests (Spring Boot, mvnw test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      # The backend's parent is spring-boot-starter-parent, so no GitHub Packages settings are needed.
+      - run: ./mvnw -B -q test
+        working-directory: backend
+
+  frontend:
+    name: Frontend unit tests (Angular, Karma in the test image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test-frontend
+
+  games-js:
+    name: Games JS tests (node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: make test-games-js
+
+  rust-cores:
+    name: Rust game cores (cargo test --offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test-rust-cores
+
+  compose-credentials:
+    name: Compose credential guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          bash scripts/test-check-compose-credential-defaults.sh
+          bash scripts/check-compose-credential-defaults.sh
+          bash scripts/test-compose-env-interpolation.sh
