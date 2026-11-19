@@ -1,0 +1,2 @@
+org.springframework.data.util.TypeCollector$TypeCollectorFilters=\
+	games.hugmesh.bff.aot.DriverTypeCollectorFilters
