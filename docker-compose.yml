@@ -124,10 +124,6 @@ services:
       CASSANDRA_DC: dc1
       CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
       MAX_HEAP_SIZE: 512M
-      # Java4Shell (CVE-2026-114938): cassandra:5 ships Temurin 17.0.21+9, which is
-      # vulnerable. Disabling the Base64 intrinsic is the vendors' complete mitigation.
-      # Drop it once cassandra:5 is on Java 17.0.21.1 or later.
-      JVM_EXTRA_OPTS: "-XX:-UseBASE64Intrinsics"
       HEAP_NEWSIZE: 128M
     volumes:
       - cassandra_data:/var/lib/cassandra
